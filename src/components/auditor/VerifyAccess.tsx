@@ -72,7 +72,7 @@ export const VerifyAccess = () => {
         saleId: saleId,
         customer: "Jane Doe",
         product: "Web3 Pro License",
-        amount: "150.00 BDAG",
+        amount: "150.00 XLM",
         timestamp: new Date().toISOString(),
         metadata: "Referral code: STORM42",
       };

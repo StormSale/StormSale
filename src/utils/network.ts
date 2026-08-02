@@ -2,13 +2,13 @@ const CONTRACT_ADDRESSES = {
   network: {
     // replace these values with your real network settings
     chainId: 1046,
-    chainName: "BlockDAG",
-    rpcUrl: "https://relay.awakening.bdagscan.com",
-    blockExplorer: "https://explorer.blockdag.network",
+    chainName: "Stellar",
+    rpcUrl: "https://relay.awakening.xlmscan.com",
+    blockExplorer: "https://explorer.stellar.network",
   },
 };
 
-export const switchToBlockDAGNetwork = async () => {
+export const switchToStellarNetwork = async () => {
   try {
     await window.ethereum.request({
       method: "wallet_addEthereumChain",
@@ -19,8 +19,8 @@ export const switchToBlockDAGNetwork = async () => {
           rpcUrls: [CONTRACT_ADDRESSES.network.rpcUrl],
           blockExplorerUrls: [CONTRACT_ADDRESSES.network.blockExplorer],
           nativeCurrency: {
-            name: "BDAG",
-            symbol: "BDAG",
+            name: "XLM",
+            symbol: "XLM",
             decimals: 18,
           },
         },
@@ -28,7 +28,7 @@ export const switchToBlockDAGNetwork = async () => {
     });
     return true;
   } catch (error) {
-    console.error("Error adding BlockDAG network:", error);
+    console.error("Error adding Stellar network:", error);
     return false;
   }
 };

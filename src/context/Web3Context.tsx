@@ -33,9 +33,9 @@ interface Web3ContextType {
   disconnectWallet: () => void;
   updateUserRole: (role: string) => Promise<void>;
   getCampaignContract: (address: string) => ethers.Contract;
-  switchToBlockDAGNetwork: () => Promise<boolean>;
+  switchToStellarNetwork: () => Promise<boolean>;
   isConnected: boolean;
-  isBlockDAGNetwork: boolean;
+  isStellarNetwork: boolean;
   connectorType: "metamask" | "walletconnect" | null;
 }
 
@@ -55,7 +55,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     new Map(),
   );
   const [isConnected, setIsConnected] = useState(false);
-  const [isBlockDAGNetwork, setIsBlockDAGNetwork] = useState(false);
+  const [isStellarNetwork, setIsStellarNetwork] = useState(false);
   const [connectorType, setConnectorType] = useState<"metamask" | "walletconnect" | null>(null);
   const [walletConnectProvider, setWalletConnectProvider] = useState<InstanceType<
     typeof EthereumProvider
@@ -84,7 +84,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
           const provider = await EthereumProvider.init({
             projectId: walletConnectConfig.projectId,
-            chains: [CHAINS.blockdag.id],
+            chains: [CHAINS.stellar.id],
             showQrModal: true,
             qrModalOptions: {
               themeMode: "dark",
@@ -119,7 +119,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
             provider.on("chainChanged", (chainId: string) => {
               console.log("Chain changed:", chainId);
-              setIsBlockDAGNetwork(parseInt(chainId, 16) === CHAINS.blockdag.id);
+              setIsStellarNetwork(parseInt(chainId, 16) === CHAINS.stellar.id);
             });
 
             provider.on("disconnect", () => {
@@ -139,9 +139,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         mounted = false;
       };
     },
-    [
-      /* intentional: run once */
-    ],
+    [/* intentional: run once */],
   );
 
   const connectWallet = async (connectorType: "metamask" | "walletconnect" = "metamask") => {
@@ -332,20 +330,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Check if wallet is already connected (MetaMask)
-    const checkConnection = async () => {
-      if (typeof window.ethereum !== "undefined") {
-        const accounts = await window.ethereum.request({
-          method: "eth_accounts",
-        });
-        if (accounts.length > 0) {
-          connectMetaMask();
-        }
-      }
-    };
-
-    checkConnection();
-
     // Listen for account changes (MetaMask)
     if (window.ethereum) {
       window.ethereum.on("accountsChanged", (accounts: string[]) => {
@@ -358,20 +342,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const switchToBlockDAGNetwork = async () => {
+  const switchToStellarNetwork = async () => {
     try {
       if (typeof window.ethereum !== "undefined") {
         await window.ethereum.request({
           method: "wallet_addEthereumChain",
           params: [
             {
-              chainId: `0x${CHAINS.blockdag.id.toString(16)}`,
-              chainName: CHAINS.blockdag.name,
-              rpcUrls: [CHAINS.blockdag.rpcUrl],
-              blockExplorerUrls: [CHAINS.blockdag.blockExplorer],
+              chainId: `0x${CHAINS.stellar.id.toString(16)}`,
+              chainName: CHAINS.stellar.name,
+              rpcUrls: [CHAINS.stellar.rpcUrl],
+              blockExplorerUrls: [CHAINS.stellar.blockExplorer],
               nativeCurrency: {
-                name: "BDAG",
-                symbol: "BDAG",
+                name: "XLM",
+                symbol: "XLM",
                 decimals: 18,
               },
             },
@@ -399,9 +383,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         disconnectWallet,
         updateUserRole,
         getCampaignContract,
-        switchToBlockDAGNetwork,
+        switchToStellarNetwork,
         isConnected,
-        isBlockDAGNetwork,
+        isStellarNetwork,
         connectorType,
       }}
     >

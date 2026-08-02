@@ -196,7 +196,7 @@ export const ComplianceReport = () => {
             <div>
               <p className="font-bold text-zinc-900 dark:text-white text-sm">Audit Immutability</p>
               <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                All compliance audit actions are immutably recorded on the BlockDAG network.
+                All compliance audit actions are immutably recorded on the Stellar network.
                 Timestamps, access grants and denial logs cannot be altered after they are written.
               </p>
             </div>

@@ -9,12 +9,12 @@ export const walletConnectConfig = {
 };
 
 export const CHAINS = {
-  blockdag: {
+  stellar: {
     id: 1046,
-    name: "BlockDAG",
-    currency: "BDAG",
-    rpcUrl: "https://relay.awakening.bdagscan.com",
-    blockExplorer: "https://explorer.blockdag.network",
+    name: "Stellar",
+    currency: "XLM",
+    rpcUrl: "https://relay.awakening.xlmscan.com",
+    blockExplorer: "https://explorer.stellar.network",
   },
   ethereum: {
     id: 1,

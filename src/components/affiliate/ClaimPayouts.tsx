@@ -121,10 +121,10 @@ export const ClaimPayouts = () => {
                       #{sale.id}
                     </TableCell>
                     <TableCell className="font-semibold text-zinc-700 dark:text-zinc-300 py-4">
-                      {sale.saleAmount} BDAG
+                      {sale.saleAmount} XLM
                     </TableCell>
                     <TableCell className="font-bold text-indigo-600 dark:text-indigo-400 py-4">
-                      {sale.commissionAmount} BDAG
+                      {sale.commissionAmount} XLM
                     </TableCell>
                     <TableCell className="text-zinc-500 dark:text-zinc-400 font-medium py-4">
                       {formatTimestamp(sale.timestamp)}

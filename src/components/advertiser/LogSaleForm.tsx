@@ -166,8 +166,8 @@ export const LogSaleForm = () => {
                 </InputField>
 
                 <InputField
-                  label="Sale Amount (BDAG)"
-                  description="Total sale amount in BDAG tokens"
+                  label="Sale Amount (XLM)"
+                  description="Total sale amount in XLM tokens"
                   required
                 >
                   <div className="relative">
@@ -182,7 +182,7 @@ export const LogSaleForm = () => {
                       required
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
-                      BDAG
+                      XLM
                     </div>
                   </div>
                 </InputField>

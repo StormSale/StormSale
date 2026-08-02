@@ -3,7 +3,7 @@ export const AFFILIATE_FACTORY_ABI = [
     inputs: [
       {
         internalType: "address",
-        name: "_bdagToken",
+        name: "_xlmToken",
         type: "address",
       },
     ],
@@ -202,7 +202,7 @@ export const AFFILIATE_FACTORY_ABI = [
   },
   {
     inputs: [],
-    name: "bdagToken",
+    name: "xlmToken",
     outputs: [
       {
         internalType: "contract IERC20",
@@ -497,7 +497,7 @@ export const CAMPAIGN_ABI = [
       },
       {
         internalType: "address",
-        name: "_bdagToken",
+        name: "_xlmToken",
         type: "address",
       },
     ],
@@ -626,7 +626,7 @@ export const CAMPAIGN_ABI = [
   },
   {
     inputs: [],
-    name: "bdagToken",
+    name: "xlmToken",
     outputs: [
       {
         internalType: "contract IERC20",
@@ -1130,7 +1130,7 @@ export interface CampaignData {
 }
 
 export interface FactoryData {
-  bdagToken: string;
+  xlmToken: string;
   campaignCount: bigint;
   allCampaigns: string[];
 }
@@ -1138,7 +1138,7 @@ export interface FactoryData {
 // Contract addresses type
 export interface ContractAddresses {
   factory: string;
-  bdagToken: string;
+  xlmToken: string;
 }
 
 // Role types

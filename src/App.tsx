@@ -56,19 +56,13 @@ function Router() {
   const { isConnected, userRole } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
 
-  useEffect(() => {
-    if (isConnected && userRole && currentPage === "dashboard") {
-      setCurrentPage(userRole.toLowerCase());
-    }
-  }, [isConnected, userRole, currentPage]);
-
   if (!isConnected) {
     return <Landing />;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <Header />
+      {currentPage !== "dashboard" && <Header />}
       <main>
         {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
         {currentPage === "advertiser" && <Advertiser onBack={() => setCurrentPage("dashboard")} />}

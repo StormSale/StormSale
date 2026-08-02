@@ -12,7 +12,7 @@ interface WalletConnectState {
 interface WalletConnectContextType extends WalletConnectState {
   connect: () => Promise<void>;
   disconnect: () => void;
-  ensureBlockDAGNetwork: () => Promise<boolean>;
+  ensureStellarNetwork: () => Promise<boolean>;
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
 }
@@ -31,13 +31,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     showNetworkModal: false,
   });
 
-  const {
-    connectWallet,
-    disconnectWallet,
-    switchToBlockDAGNetwork,
-    isConnected,
-    isBlockDAGNetwork,
-  } = useWeb3();
+  const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
+    useWeb3();
 
   const connect = async (): Promise<void> => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
@@ -45,8 +40,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     try {
       await connectWallet();
 
-      // Check if we're on BlockDAG network after connection
-      if (isConnected && !isBlockDAGNetwork) {
+      // Check if we're on Stellar network after connection
+      if (isConnected && !isStellarNetwork) {
         setState((prev) => ({ ...prev, showNetworkModal: true }));
       }
     } catch (error: any) {
@@ -70,13 +65,13 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     });
   };
 
-  const ensureBlockDAGNetwork = async (): Promise<boolean> => {
-    if (isBlockDAGNetwork) return true;
+  const ensureStellarNetwork = async (): Promise<boolean> => {
+    if (isStellarNetwork) return true;
 
     setState((prev) => ({ ...prev, isSwitchingNetwork: true, error: null }));
 
     try {
-      const success = await switchToBlockDAGNetwork();
+      const success = await switchToStellarNetwork();
 
       if (success) {
         setState((prev) => ({ ...prev, showNetworkModal: false }));
@@ -84,7 +79,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       } else {
         setState((prev) => ({
           ...prev,
-          error: "Failed to switch to BlockDAG network. Please switch manually.",
+          error: "Failed to switch to Stellar network. Please switch manually.",
         }));
         return false;
       }
@@ -112,7 +107,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     ...state,
     connect,
     disconnect,
-    ensureBlockDAGNetwork,
+    ensureStellarNetwork,
     clearError,
     setShowNetworkModal,
   };

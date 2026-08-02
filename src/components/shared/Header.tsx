@@ -1,19 +1,14 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
-import { Moon, Sun, Shield, Wallet, ExternalLink, ChevronDown } from "lucide-react";
+import { ThemeToggle } from "./ThemeToggle";
+import { Wallet, ExternalLink, ChevronDown } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
+import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, connectWallet, disconnectWallet, isConnected, connectorType } = useWeb3();
-  const [darkMode, setDarkMode] = useState(false);
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const isDark = localStorage.getItem("darkMode") === "true";
-    setDarkMode(isDark);
-    document.documentElement.classList.toggle("dark", isDark);
-  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -25,13 +20,6 @@ export const Header = () => {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
-
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    localStorage.setItem("darkMode", newDarkMode.toString());
-    document.documentElement.classList.toggle("dark", newDarkMode);
-  };
 
   const formatAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`;
 
@@ -48,18 +36,14 @@ export const Header = () => {
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         {/* Logo */}
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-            <Shield className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-extrabold text-zinc-900 dark:text-white tracking-tight leading-none">
-              StormSale
-            </h1>
-            <p className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest leading-none mt-0.5">
-              Secure Affiliates
-            </p>
-          </div>
+        <div className="flex items-center">
+          <a href="/" className="block group">
+            <img
+              src={logo}
+              alt="StormSale Logo"
+              className="h-12 md:h-14 w-auto object-contain group-hover:scale-105 transition-transform duration-300"
+            />
+          </a>
         </div>
 
         {/* Nav — desktop only */}
@@ -84,15 +68,7 @@ export const Header = () => {
         {/* Actions */}
         <div className="flex items-center space-x-3">
           {/* Dark mode toggle */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={toggleDarkMode}
-            className="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
-            aria-label="Toggle dark mode"
-          >
-            {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-          </Button>
+          <ThemeToggle />
 
           {/* Wallet area */}
           {isConnected ? (

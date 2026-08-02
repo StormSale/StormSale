@@ -155,7 +155,7 @@ export const CreateCampaignForm = () => {
                       className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
-                      BDAG
+                      XLM
                     </div>
                   </div>
                 </InputField>
@@ -230,7 +230,7 @@ export const CreateCampaignForm = () => {
                       Estimated Budget
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
-                      {budget || "0"} BDAG
+                      {budget || "0"} XLM
                     </div>
                   </div>
                 </div>

@@ -1,14 +1,27 @@
 {
   "name": "storm-sale",
+  "version": "1.0.0",
   "private": true,
-  "version": "0.0.0",
+  "description": "\tThe future of affiliate bridging the gap between marketers and end users",
+  "homepage": "https://github.com/StormSale/StormSale#readme",
+  "bugs": {
+    "url": "https://github.com/StormSale/StormSale/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StormSale/StormSale.git"
+  },
+  "license": "ISC",
+  "author": "Jibril Raji Qasim (AJDEV)",
   "type": "module",
+  "main": "eslint.config.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.16",
@@ -40,8 +53,19 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.3.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.45.0",
     "vite": "^7.1.7"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,css,md}": [
+      "prettier --write"
+    ]
   }
 }
