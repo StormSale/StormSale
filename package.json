@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/StormSale/StormSale.git"
   },
-  "license": "ISC",
+  "license": "MIT",
   "author": "Jibril Raji Qasim (AJDEV)",
   "type": "module",
   "main": "eslint.config.js",

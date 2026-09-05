@@ -3,111 +3,126 @@
   <h1>StormSale ⚡</h1>
   <p><strong>The Future of Trustless Affiliate Marketing on Stellar</strong></p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![React](https://img.shields.io/badge/React-19.0.0-blue?logo=react)](https://react.dev/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![React](https://img.shields.io/badge/React-19.1.1-blue?logo=react)](https://react.dev/)
 [![Stellar](https://img.shields.io/badge/Network-Stellar-black?logo=stellar)](https://stellar.org/)
 [![Soroban](https://img.shields.io/badge/Smart%20Contracts-Soroban-purple)](https://soroban.stellar.org/)
+[![Docker](https://img.shields.io/badge/Deployment-Docker%20Ready-blue?logo=docker)](Dockerfile)
 </div>
 
 <br />
 
 ## 📖 Overview
 
-StormSale is a cutting-edge Web3 affiliate marketing platform built on the **Stellar Network** utilizing **Soroban Smart Contracts**. It revolutionizes the collaboration between Advertisers and Affiliates by replacing traditional, opaque tracking systems with transparent, trustless, and cryptographically secure on-chain escrows.
+**StormSale** is a decentralized Web3 affiliate marketing protocol built on the **Stellar Network** utilizing **Soroban Smart Contracts**. It revolutionizes collaboration between Merchants (Advertisers) and Marketers (Affiliates) by eliminating chargeback fraud, opaque tracking links, and net-30 payment delays through automated on-chain budget escrows.
 
-By leveraging Stellar's low fees and sub-second finality, StormSale ensures instant commission settlements while maintaining strict data privacy through advanced on-chain encryption algorithms.
+By leveraging Stellar's sub-second finality and negligible transaction costs, StormSale guarantees instant commission payouts the moment a verifiable conversion occurs.
+
+---
+
+## 🏗️ System Architecture
+
+```mermaid
+graph TD
+    A[Advertiser / Merchant] -->|1. Create Campaign & Lock Escrow| B(Soroban Smart Contract)
+    C[Affiliate / Marketer] -->|2. Share Verifiable Referral Link| D(Customer Checkout)
+    D -->|3. Log Verified Conversion| B
+    B -->|4. Automated Instant Commission Release| C
+    E[PostgreSQL NeonDB API] -.->|State Indexing & User Profiles| F[StormSale Frontend UI]
+```
+
+### Technology Stack
+
+- **Frontend App:** React 19, TypeScript, Vite, Tailwind CSS, Framer Motion, Radix UI Primitives.
+- **Web3 Connector:** Stellar Freighter Wallet (`@stellar/freighter-api`, `@stellar/stellar-sdk`).
+- **Core Ledger:** Soroban Smart Contract (Rust, `#![no_std]`).
+- **Backend Services:** Node.js / Express, Prisma ORM, Neon Serverless PostgreSQL.
+- **DevOps:** Docker Alpine multi-stage containerization.
+
+---
 
 ## ✨ Core Features
 
-- **🛡️ Cryptographically Secure Escrow:** Advertisers lock commissions into Soroban smart contracts. Funds are only released upon cryptographic verification of a valid sale, eliminating chargeback fraud and payment delays.
-- **⚡ Sub-Second Finality:** Powered by the Stellar consensus protocol, campaign deployments, sale logging, and affiliate payouts settle in under 5 seconds with fractions of a cent in fees.
-- **🔒 On-Chain Privacy:** Affiliate data and lead information are secured using hybrid AES + Public Key encryption directly on-chain, ensuring NIST/ISO compliant data handling.
+- **🛡️ Escrowed Campaign Budgets:** Advertisers deposit upfront budgets locked into the Soroban escrow. Commissions are guaranteed and mathematically bounded.
+- **⚡ Instant Settlements:** Payouts settle in under 5 seconds with fractions of a cent in fees on Stellar Testnet and Mainnet.
+- **🔒 Cryptographic Integrity:** Conversions are verified on-chain, preventing affiliate tracking spoofing and merchant default.
 - **📊 Role-Based Command Centers:**
-  - **Advertisers:** Manage smart contracts, deploy new campaigns, and track on-chain ROI.
-  - **Affiliates:** Track encrypted referrals, claim escrowed payouts, and monitor performance.
-  - **Auditors:** Transparently verify contract integrity without exposing PII (Personally Identifiable Information).
-- **🎨 Premium UI/UX:** Built with React 19, Tailwind CSS v4, and Framer Motion for a stunning, responsive, and deeply engaging user experience.
+  - **Advertisers:** Deploy campaigns, top up budgets, and monitor conversion metrics.
+  - **Affiliates:** Track referrals, review commissions, and execute instant payouts to Freighter wallets.
+- **🐳 Cloud-Native & Containerized:** Single-command local launch with Docker and automated schema synchronization.
 
-## 🏗️ Architecture & Tech Stack
-
-StormSale is composed of a decentralized frontend interacting with Soroban smart contracts.
-
-### Frontend
-
-- **Framework:** React 19, TypeScript, Vite
-- **Styling:** Tailwind CSS v4, UI Components (Radix UI)
-- **Animations:** Framer Motion
-- **Web3 Integration:** Stellar Freighter Wallet, `@stellar/freighter-api`
-
-### Smart Contracts (Soroban)
-
-- **Language:** Rust
-- **Network:** Stellar Testnet / Mainnet
-- **Tooling:** Soroban CLI, Stellar SDK
+---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
 
-- **Node.js** (v18+ recommended)
-- **npm** or **yarn**
-- **Rust** (for compiling Soroban contracts)
-- **Soroban CLI** installed
+- **Node.js**: v18.0.0 or higher
+- **npm**: v10+
+- **Freighter Wallet**: [Browser Extension](https://www.freighter.app/)
 
-### Local Development Setup
+### 1. Local Development Setup
 
-1. **Clone the repository:**
+```bash
+# Clone the repository
+git clone https://github.com/StormSale/StormSale.git
+cd StormSale
 
-   ```bash
-   git clone https://github.com/yourusername/stormsale.git
-   cd stormsale
-   ```
+# Install dependencies
+npm install
 
-2. **Install frontend dependencies:**
+# Configure environment variables
+cp .env.example .env
 
-   ```bash
-   npm install
-   ```
+# Run the development server
+npm run dev
+```
 
-3. **Start the development server:**
-   ```bash
-   npm run dev
-   ```
-   _The app will be running at `http://localhost:5173`._
+The application will be running locally at `http://localhost:5173`.
 
-### Smart Contract Deployment
+### 2. Running via Docker
 
-1. Navigate to the contracts directory:
-   ```bash
-   cd StormSale-contracts
-   ```
-2. Build the Rust contracts:
-   ```bash
-   soroban contract build
-   ```
-3. Deploy to Stellar Testnet (requires a funded testnet account):
-   ```bash
-   soroban contract deploy --wasm target/wasm32-unknown-unknown/release/stormsale.wasm --source <YOUR_IDENTITY> --network testnet
-   ```
+```bash
+# Build the production container
+docker build -t stormsale-frontend .
 
-## 🤝 Contributing
-
-We believe in the power of open source and welcome contributions from the community!
-
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature/your-feature-name`.
-3. Commit your changes: `git commit -m "feat: Add some feature"`.
-4. Push to the branch: `git push origin feature/your-feature-name`.
-5. Open a Pull Request detailing your changes.
-
-Please ensure your code adheres to our styling guidelines and passes all existing tests.
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+# Run the container
+docker run -p 5173:5173 stormsale-frontend
+```
 
 ---
 
-<div align="center">
-  <p>Built with ❤️ for the Web3 Ecosystem.</p>
-</div>
+## 🧪 Quality & Engineering Standards
+
+We enforce strict automated formatting, type-safety, and linting standards:
+
+```bash
+# Run linter
+npm run lint
+
+# Format codebase
+npm run format
+
+# Run production build validation
+npm run build
+```
+
+---
+
+## 👥 Maintainers & Lead Developers
+
+|                                         Avatar                                         |                                  Name / Role                                   |                      GitHub                      |                 Contact                 |
+| :------------------------------------------------------------------------------------: | :----------------------------------------------------------------------------: | :----------------------------------------------: | :-------------------------------------: |
+| <img src="https://github.com/AbuJulaybeeb.png" width="80" style="border-radius:50%" /> | **Jibril Raji Qasim (AJDEV)**<br/>_Lead Full-Stack & Smart Contract Developer_ | [@AbuJulaybeeb](https://github.com/AbuJulaybeeb) | [Telegram](https://t.me/AJDEV_Official) |
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions from the open-source community! Please review our [CONTRIBUTING.md](CONTRIBUTING.md) guidelines and [SECURITY.md](SECURITY.md) policy before submitting pull requests.
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
