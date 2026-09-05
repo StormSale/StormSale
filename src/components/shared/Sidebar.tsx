@@ -3,7 +3,8 @@ import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield } from "lucide-react";
+import { ChevronLeft, ChevronRight, Shield, LogOut } from "lucide-react";
+import { useWeb3 } from "../../hooks/useWeb3";
 import { useState } from "react";
 
 interface SidebarProps {
@@ -24,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   roleName,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { disconnectWallet } = useWeb3();
 
   return (
     <motion.div
@@ -140,7 +142,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-slate-200 dark:border-zinc-800">
+      <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
+        {/* Wallet Disconnect */}
+        <Button
+          variant="ghost"
+          onClick={disconnectWallet}
+          className={cn(
+            "w-full h-12 rounded-xl transition-all duration-200 group flex items-center border border-transparent hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400",
+            isCollapsed ? "justify-center px-0" : "justify-start px-4",
+          )}
+          title="Disconnect Wallet"
+        >
+          <LogOut
+            className={cn(
+              "w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110 group-hover:-translate-x-1",
+              !isCollapsed && "mr-3",
+            )}
+          />
+          {!isCollapsed && (
+            <motion.span
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="font-medium truncate"
+            >
+              Disconnect Wallet
+            </motion.span>
+          )}
+        </Button>
+
         <div
           className={cn(
             "bg-slate-50 dark:bg-zinc-900/50 rounded-xl border border-slate-200 dark:border-zinc-800/50 transition-all duration-300",

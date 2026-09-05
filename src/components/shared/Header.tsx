@@ -46,41 +46,43 @@ export const Header = () => {
           </a>
         </div>
 
-        {/* Nav — desktop only */}
-        <nav className="hidden md:flex items-center space-x-8">
-          {!isConnected ? (
-            ["Features", "How it Works", "Stats", "Testimonials"].map((item) => (
+        {/* Actions & Nav */}
+        <div className="flex items-center space-x-6">
+          {/* Nav Links */}
+          <nav className="hidden md:flex items-center space-x-4 mr-4">
+            {[
+              "Home",
+              "About Us",
+              "Features",
+              "How it Works",
+              "Pricing",
+              "Stats",
+              "FAQ",
+              "Contact",
+            ].map((item) => (
               <a
                 key={item}
-                href={`#${item.toLowerCase().replace(/ /g, "-")}`}
-                className="text-sm font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+                href={item === "Home" ? "/" : `#${item.toLowerCase().replace(/ /g, "-")}`}
+                className="text-sm font-bold text-zinc-900 dark:text-zinc-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
               >
                 {item}
               </a>
-            ))
-          ) : (
-            <span className="text-sm font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-100 dark:border-indigo-500/20">
-              Enterprise Dashboard
-            </span>
-          )}
-        </nav>
-
-        {/* Actions */}
-        <div className="flex items-center space-x-3">
+            ))}
+          </nav>
           {/* Dark mode toggle */}
           <ThemeToggle />
 
           {/* Wallet area */}
           {isConnected ? (
             <div className="flex items-center space-x-3">
-              <div className="hidden sm:flex items-center space-x-2 px-4 py-2 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
+              <div className="hidden sm:flex items-center space-x-3 px-4 py-2 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-sm font-mono font-medium text-zinc-900 dark:text-white">
                   {userAddress && formatAddress(userAddress)}
                 </span>
-                {connectorType === "walletconnect" && (
-                  <ExternalLink className="w-3 h-3 text-zinc-400 dark:text-zinc-500" />
-                )}
+                <span className="text-xs font-bold px-2 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 rounded-lg">
+                  Stellar
+                </span>
               </div>
               <Button
                 variant="outline"
@@ -104,37 +106,40 @@ export const Header = () => {
               </Button>
 
               {showWalletOptions && (
-                <div className="absolute top-full right-0 mt-2 w-52 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 z-50 overflow-hidden">
+                <div className="absolute top-full right-0 mt-2 w-60 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 z-50 overflow-hidden">
                   <div className="p-2 space-y-1">
                     <button
-                      onClick={() => handleConnect("metamask")}
+                      onClick={() => handleConnect("freighter" as any)}
                       className="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center space-x-3 transition-colors group"
                     >
-                      <div className="w-8 h-8 bg-orange-100 dark:bg-orange-500/10 rounded-lg flex items-center justify-center shrink-0">
-                        <Wallet className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                      <div className="w-8 h-8 bg-purple-100 dark:bg-purple-500/10 rounded-lg flex items-center justify-center shrink-0">
+                        <Wallet className="w-4 h-4 text-purple-600 dark:text-purple-400" />
                       </div>
                       <div>
-                        <div className="text-sm font-bold text-zinc-900 dark:text-white">
-                          MetaMask
+                        <div className="text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                          Freighter
+                          <span className="text-[10px] bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-1.5 py-0.2 rounded">
+                            Stellar
+                          </span>
                         </div>
                         <div className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
-                          Browser extension
+                          Official browser wallet
                         </div>
                       </div>
                     </button>
                     <button
-                      onClick={() => handleConnect("walletconnect")}
+                      onClick={() => handleConnect("mock" as any)}
                       className="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center space-x-3 transition-colors group"
                     >
-                      <div className="w-8 h-8 bg-blue-100 dark:bg-blue-500/10 rounded-lg flex items-center justify-center shrink-0">
-                        <ExternalLink className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-500/10 rounded-lg flex items-center justify-center shrink-0">
+                        <ExternalLink className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                       </div>
                       <div>
                         <div className="text-sm font-bold text-zinc-900 dark:text-white">
-                          WalletConnect
+                          Demo Testnet Account
                         </div>
                         <div className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
-                          Mobile & multi-wallet
+                          Quick preview & audit mode
                         </div>
                       </div>
                     </button>

@@ -43,7 +43,7 @@ const mockCampaigns: Campaign[] = [
     totalCommissions: "$2,480",
     affiliates: 12,
     createdAt: "2026-04-01",
-    contractAddress: "0xAbCd...1234",
+    contractAddress: "CA7Q...1234",
   },
   {
     id: "2",
@@ -56,7 +56,7 @@ const mockCampaigns: Campaign[] = [
     totalCommissions: "$6,675",
     affiliates: 8,
     createdAt: "2026-04-15",
-    contractAddress: "0xEfGh...5678",
+    contractAddress: "CB9E...5678",
   },
   {
     id: "3",
@@ -69,7 +69,7 @@ const mockCampaigns: Campaign[] = [
     totalCommissions: "$4,020",
     affiliates: 6,
     createdAt: "2026-03-20",
-    contractAddress: "0xIjKl...9012",
+    contractAddress: "CC2K...9012",
   },
   {
     id: "4",
@@ -82,7 +82,7 @@ const mockCampaigns: Campaign[] = [
     totalCommissions: "$1,800",
     affiliates: 5,
     createdAt: "2026-02-10",
-    contractAddress: "0xMnOp...3456",
+    contractAddress: "CD4M...3456",
   },
 ];
 

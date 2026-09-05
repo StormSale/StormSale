@@ -20,36 +20,39 @@ export const CreateCampaignForm = () => {
   const [budget, setBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const { factoryContract } = useWeb3();
+  const { createCampaignOnChain, isConnected } = useWeb3();
   const { showNotification } = useNotification();
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!factoryContract) {
+    if (!isConnected) {
       showNotification({
         type: "error",
         title: "Wallet Not Connected",
-        message: "Please connect your wallet first",
+        message: "Please connect your Freighter wallet first",
       });
       return;
     }
 
     setIsLoading(true);
     try {
-      const tx = await factoryContract.createCampaign(commissionRate, clearingPeriod);
-
       showNotification({
         type: "info",
-        title: "Transaction Submitted",
-        message: "Creating your campaign...",
+        title: "Soroban Escrow Initiated",
+        message: "Locking budget and creating campaign on Stellar...",
       });
 
-      await tx.wait();
+      const result = await createCampaignOnChain(
+        campaignName,
+        parseFloat(budget) || 1000,
+        parseFloat(commissionRate) || 10,
+        parseInt(clearingPeriod) || 604800,
+      );
 
       showNotification({
         type: "success",
-        title: "Campaign Created!",
-        message: "Your affiliate campaign is now live",
+        title: "Campaign Escrow Live!",
+        message: `Campaign #${result.campaignId} successfully deployed on Soroban.`,
       });
 
       setCommissionRate("");

@@ -88,6 +88,29 @@ export const Landing = () => {
               </div>
             </a>
           </div>
+
+          {/* Navigation Links */}
+          <nav className="hidden md:flex items-center space-x-6 mr-4">
+            {[
+              "Home",
+              "About Us",
+              "Features",
+              "How it Works",
+              "Pricing",
+              "Stats",
+              "FAQ",
+              "Contact",
+            ].map((item) => (
+              <a
+                key={item}
+                href={item === "Home" ? "/" : `#${item.toLowerCase().replace(/ /g, "-")}`}
+                className="text-sm font-bold text-zinc-900 dark:text-zinc-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              >
+                {item}
+              </a>
+            ))}
+          </nav>
+
           {/* Actions */}
           <div className="flex items-center space-x-4">
             <ThemeToggle />
@@ -267,7 +290,7 @@ export const Landing = () => {
                     Contract Executed
                   </div>
                   <div className="text-[9px] text-zinc-600 dark:text-zinc-400 mt-1 z-10 font-mono">
-                    Tx: 0x8f...4e9a
+                    Tx: 8f2b...4e9a
                   </div>
                 </div>
                 <div className="space-y-2">

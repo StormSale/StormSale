@@ -1,34 +1,51 @@
-const CONTRACT_ADDRESSES = {
-  network: {
-    // replace these values with your real network settings
-    chainId: 1046,
-    chainName: "Stellar",
-    rpcUrl: "https://relay.awakening.xlmscan.com",
-    blockExplorer: "https://explorer.stellar.network",
-  },
+import { STELLAR_CONFIG } from "../config/stellar";
+import { isConnected, getNetworkDetails } from "@stellar/freighter-api";
+
+/**
+ * Checks if Freighter wallet is currently configured for the expected Stellar network.
+ */
+export const checkStellarNetwork = async (): Promise<{
+  isCorrect: boolean;
+  currentNetwork?: string;
+  expectedNetwork: string;
+}> => {
+  try {
+    const connected = await isConnected();
+    if (!connected) {
+      return { isCorrect: false, expectedNetwork: STELLAR_CONFIG.network };
+    }
+    const details = await getNetworkDetails();
+    const isCorrect = details.network === STELLAR_CONFIG.network;
+    return {
+      isCorrect,
+      currentNetwork: details.network,
+      expectedNetwork: STELLAR_CONFIG.network,
+    };
+  } catch (error) {
+    console.error("Error checking Stellar network:", error);
+    return { isCorrect: false, expectedNetwork: STELLAR_CONFIG.network };
+  }
 };
 
-export const switchToStellarNetwork = async () => {
+/**
+ * Verifies Horizon API connectivity.
+ */
+export const verifyHorizonConnectivity = async (): Promise<boolean> => {
   try {
-    await window.ethereum.request({
-      method: "wallet_addEthereumChain",
-      params: [
-        {
-          chainId: `0x${CONTRACT_ADDRESSES.network.chainId.toString(16)}`,
-          chainName: CONTRACT_ADDRESSES.network.chainName,
-          rpcUrls: [CONTRACT_ADDRESSES.network.rpcUrl],
-          blockExplorerUrls: [CONTRACT_ADDRESSES.network.blockExplorer],
-          nativeCurrency: {
-            name: "XLM",
-            symbol: "XLM",
-            decimals: 18,
-          },
-        },
-      ],
-    });
-    return true;
-  } catch (error) {
-    console.error("Error adding Stellar network:", error);
+    const response = await fetch(STELLAR_CONFIG.horizonUrl);
+    return response.ok;
+  } catch {
     return false;
   }
+};
+
+/**
+ * Generates Stellar Expert explorer link.
+ */
+export const getStellarExplorerLink = (
+  type: "account" | "tx" | "contract",
+  identifier: string,
+): string => {
+  const base = STELLAR_CONFIG.explorerUrl;
+  return `${base}/${type}/${identifier}`;
 };

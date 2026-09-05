@@ -42,7 +42,7 @@ export const SalesList = () => {
   const mockSales: Sale[] = [
     {
       id: 1,
-      affiliate: "0x1234...5678",
+      affiliate: "GBBD...5678",
       saleAmount: "100.0",
       commissionAmount: "10.0",
       timestamp: Date.now() / 1000 - 86400,
@@ -50,7 +50,7 @@ export const SalesList = () => {
     },
     {
       id: 2,
-      affiliate: "0x1234...5678",
+      affiliate: "GBBD...5678",
       saleAmount: "250.0",
       commissionAmount: "25.0",
       timestamp: Date.now() / 1000 - 172800,

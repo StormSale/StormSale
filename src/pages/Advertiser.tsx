@@ -229,7 +229,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
               {[
                 {
                   action: "Commission Escrowed",
-                  hash: "0x8f...3a9c",
+                  hash: "8f2b...3a9c",
                   amount: "450 XLM",
                   status: "Settled",
                   statusColor:
@@ -238,7 +238,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                 },
                 {
                   action: "Sale Logged (Encrypted)",
-                  hash: "0x4b...1e2d",
+                  hash: "4b9c...1e2d",
                   amount: "1,200 XLM",
                   status: "Pending",
                   statusColor:
@@ -247,7 +247,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                 },
                 {
                   action: "Contract Deployed",
-                  hash: "0x9a...7f4b",
+                  hash: "9a1e...7f4b",
                   amount: "—",
                   status: "Confirmed",
                   statusColor:

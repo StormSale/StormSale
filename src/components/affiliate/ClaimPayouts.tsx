@@ -31,7 +31,7 @@ export const ClaimPayouts = () => {
   const mockClaimableSales: ClaimableSale[] = [
     {
       id: 1,
-      campaignAddress: "0xabc123...",
+      campaignAddress: "CA7QW5KXGPTR4N2K9J2...",
       saleAmount: "100.0",
       commissionAmount: "10.0",
       timestamp: Date.now() / 1000 - 1209600,
@@ -39,7 +39,7 @@ export const ClaimPayouts = () => {
     },
     {
       id: 2,
-      campaignAddress: "0xdef456...",
+      campaignAddress: "CB4RN8XJLP8M1K3V6P7...",
       saleAmount: "250.0",
       commissionAmount: "25.0",
       timestamp: Date.now() / 1000 - 864000,

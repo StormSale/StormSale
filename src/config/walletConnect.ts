@@ -1,24 +1,26 @@
-export const walletConnectConfig = {
-  projectId: "79aaf32eee7f421c29f132a4c3f1e5f6",
-  metadata: {
-    name: "StormSale",
-    description: "Secure Web3 Affiliate Platform",
-    url: "https://stormsale.xyz",
-    icons: ["https://stormsale.xyz/icon.png"],
+/**
+ * Supported Stellar & Soroban Wallets Configuration
+ */
+export const SUPPORTED_STELLAR_WALLETS = [
+  {
+    id: "freighter",
+    name: "Freighter",
+    icon: "https://stellar.expert/logo.svg",
+    url: "https://www.freighter.app",
+    description: "Official browser extension wallet for Stellar & Soroban",
   },
-};
-
-export const CHAINS = {
-  stellar: {
-    id: 1046,
-    name: "Stellar",
-    currency: "XLM",
-    rpcUrl: "https://relay.awakening.xlmscan.com",
-    blockExplorer: "https://explorer.stellar.network",
+  {
+    id: "albedo",
+    name: "Albedo",
+    icon: "https://albedo.link/logo.svg",
+    url: "https://albedo.link",
+    description: "Web-based signer for Stellar",
   },
-  ethereum: {
-    id: 1,
-    name: "Ethereum",
-    currency: "ETH",
+  {
+    id: "xbull",
+    name: "xBull",
+    icon: "https://xbull.app/logo.svg",
+    url: "https://xbull.app",
+    description: "Multiplatform Stellar wallet",
   },
-};
+];

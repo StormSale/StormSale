@@ -11,7 +11,7 @@ export const ConnectWallet = () => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const handleConnect = async (connectorType: "metamask" | "walletconnect") => {
+  const handleConnect = async (connectorType: "freighter" | "mock") => {
     setIsConnecting(true);
     try {
       await connectWallet(connectorType);
@@ -25,8 +25,10 @@ export const ConnectWallet = () => {
   if (isConnected) {
     return (
       <div className="flex items-center space-x-2">
-        <div className="w-2 h-2 bg-indigo-600 rounded-full"></div>
-        <span className="text-sm font-medium">{formatAddress(userAddress!)}</span>
+        <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+        <span className="text-sm font-medium font-mono text-zinc-900 dark:text-white">
+          {formatAddress(userAddress!)}
+        </span>
       </div>
     );
   }
@@ -34,22 +36,22 @@ export const ConnectWallet = () => {
   return (
     <div className="flex flex-col space-y-2">
       <Button
-        onClick={() => handleConnect("metamask")}
+        onClick={() => handleConnect("freighter")}
         disabled={isConnecting}
-        className="bg-gradient-to-r from-slate-800 to-slate-900 dark:from-indigo-600 dark:to-indigo-700 hover:from-slate-900 hover:to-slate-950 dark:hover:from-indigo-700 dark:hover:to-indigo-800 text-white"
+        className="bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-xl"
       >
         <Wallet className="w-4 h-4 mr-2" />
-        {isConnecting ? "Connecting..." : "Connect Wallet"}
+        {isConnecting ? "Connecting..." : "Connect Freighter"}
       </Button>
 
       <Button
         variant="outline"
-        onClick={() => handleConnect("walletconnect")}
+        onClick={() => handleConnect("mock")}
         disabled={isConnecting}
-        className="border-slate-200 dark:border-slate-800 hover:bg-indigo-600 dark:border-slate-200 dark:border-slate-800 dark:hover:bg-indigo-600"
+        className="border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-800 text-xs font-medium rounded-xl"
       >
-        <ExternalLink className="w-4 h-4 mr-2" />
-        WalletConnect
+        <ExternalLink className="w-3.5 h-3.5 mr-2 text-emerald-500" />
+        Demo Testnet Mode
       </Button>
     </div>
   );

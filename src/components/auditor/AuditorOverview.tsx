@@ -32,9 +32,9 @@ export const AuditorOverview = () => {
   ];
 
   const pendingRequests = [
-    { saleId: "1100", campaign: "Summer Sale 2024", requestedBy: "0xAb12...34Cd", urgency: "High" },
-    { saleId: "1089", campaign: "NFT Drop Alpha", requestedBy: "0x78Ef...90Gh", urgency: "Medium" },
-    { saleId: "1075", campaign: "DeFi Starter Pack", requestedBy: "0xBc34...56Ij", urgency: "Low" },
+    { saleId: "1100", campaign: "Summer Sale 2024", requestedBy: "GB12...34CD", urgency: "High" },
+    { saleId: "1089", campaign: "NFT Drop Alpha", requestedBy: "GC78...90GH", urgency: "Medium" },
+    { saleId: "1075", campaign: "DeFi Starter Pack", requestedBy: "GD34...56IJ", urgency: "Low" },
   ];
 
   return (

@@ -7,7 +7,7 @@ import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
-import { Header } from "./components/shared/Header";
+
 import { useState, useEffect } from "react";
 
 class ErrorBoundary extends React.Component<
@@ -62,7 +62,6 @@ function Router() {
 
   return (
     <div className="min-h-screen bg-background">
-      {currentPage !== "dashboard" && <Header />}
       <main>
         {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
         {currentPage === "advertiser" && <Advertiser onBack={() => setCurrentPage("dashboard")} />}

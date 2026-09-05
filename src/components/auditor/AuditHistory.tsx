@@ -24,7 +24,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "1042",
     campaign: "Tech Gadgets Pro",
-    campaignAddress: "0xAbCd...1234",
+    campaignAddress: "CA7Q...1234",
     status: "Verified",
     timestamp: "2026-05-16 08:12",
     notes: "Full decryption performed",
@@ -32,7 +32,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "988",
     campaign: "Web3 Masterclass",
-    campaignAddress: "0xEfGh...5678",
+    campaignAddress: "CB9E...5678",
     status: "Verified",
     timestamp: "2026-05-15 14:30",
     notes: "Compliance check passed",
@@ -40,7 +40,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "776",
     campaign: "Crypto Tools Suite",
-    campaignAddress: "0xIjKl...9012",
+    campaignAddress: "CC2K...9012",
     status: "Denied",
     timestamp: "2026-05-13 10:05",
     notes: "Key not authorized by advertiser",
@@ -48,7 +48,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "654",
     campaign: "DeFi Starter Pack",
-    campaignAddress: "0xMnOp...3456",
+    campaignAddress: "CD4M...3456",
     status: "Verified",
     timestamp: "2026-05-10 17:45",
     notes: "Regulatory audit complete",
@@ -56,7 +56,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "512",
     campaign: "NFT Drop Alpha",
-    campaignAddress: "0xQrSt...7890",
+    campaignAddress: "CE6P...7890",
     status: "Pending",
     timestamp: "2026-05-09 09:20",
     notes: "Awaiting advertiser approval",
@@ -64,7 +64,7 @@ const auditRecords: AuditRecord[] = [
   {
     saleId: "489",
     campaign: "Summer Sale 2024",
-    campaignAddress: "0xUvWx...2345",
+    campaignAddress: "CF8R...2345",
     status: "Verified",
     timestamp: "2026-05-07 13:10",
     notes: "Standard audit review",

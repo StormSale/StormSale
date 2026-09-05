@@ -135,7 +135,7 @@ export const VerifyAccess = () => {
                 <Input
                   value={campaignAddress}
                   onChange={(e) => setCampaignAddress(e.target.value)}
-                  placeholder="0x742d35Cc6634C0532925a3b8..."
+                  placeholder="CA7QW5KXGPTR4N2K9J2..."
                   className="h-12 border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950"
                 />
               </InputField>

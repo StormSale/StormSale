@@ -116,7 +116,7 @@ export const GrantAccessForm = () => {
                 <Input
                   value={campaignAddress}
                   onChange={(e) => setCampaignAddress(e.target.value)}
-                  placeholder="0x742d35Cc6634C0532925a3b8..."
+                  placeholder="CCAMPAIGN... (Soroban Contract Address or ID)"
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   required
                 />
@@ -147,7 +147,7 @@ export const GrantAccessForm = () => {
                   <Input
                     value={auditorAddress}
                     onChange={(e) => setAuditorAddress(e.target.value)}
-                    placeholder="0x..."
+                    placeholder="GAUDITOR... (Stellar Public Key)"
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     required
                   />

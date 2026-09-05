@@ -83,7 +83,7 @@ export const JoinCampaignButton = () => {
               id="campaignAddress"
               value={campaignAddress}
               onChange={(e) => setCampaignAddress(e.target.value)}
-              placeholder="0x742d35Cc6634C0532925a3b8..."
+              placeholder="CCAMPAIGN... (Soroban Contract Address or ID)"
               className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
             />
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">

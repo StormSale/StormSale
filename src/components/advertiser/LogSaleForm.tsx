@@ -78,7 +78,6 @@ export const LogSaleForm = () => {
         encryptedPayload,
         advertiserWrappedKey,
         affiliateWrappedKey,
-        { value: saleAmount },
       );
 
       await tx.wait();
@@ -144,7 +143,7 @@ export const LogSaleForm = () => {
                 <Input
                   value={campaignAddress}
                   onChange={(e) => setCampaignAddress(e.target.value)}
-                  placeholder="0x742d35Cc6634C0532925a3b8..."
+                  placeholder="e.g. Campaign #1 or Soroban Contract ID"
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   required
                 />
@@ -159,7 +158,7 @@ export const LogSaleForm = () => {
                   <Input
                     value={affiliateAddress}
                     onChange={(e) => setAffiliateAddress(e.target.value)}
-                    placeholder="0x..."
+                    placeholder="GAFFILIATE... (Stellar Public Key)"
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     required
                   />
