@@ -1,19 +1,8 @@
 import { Button } from "../components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { useWeb3 } from "../hooks/useWeb3";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
-import {
-  Shield,
-  FileCheck,
-  Zap,
-  ArrowRight,
-  Star,
-  Lock,
-  Timer,
-  Coins,
-  Code2,
-  Cpu,
-} from "lucide-react";
+import { Shield, Zap, ArrowRight, Star, Lock, Timer, Coins, Code2, Cpu } from "lucide-react";
 import { motion } from "framer-motion";
 import logo from "../assets/logo2.png";
 

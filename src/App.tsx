@@ -8,7 +8,7 @@ import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -53,7 +53,7 @@ class ErrorBoundary extends React.Component<
 }
 
 function Router() {
-  const { isConnected, userRole } = useWeb3();
+  const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
 
   if (!isConnected) {

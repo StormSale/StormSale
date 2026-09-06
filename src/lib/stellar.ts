@@ -5,7 +5,6 @@ import {
   requestAccess as requestFreighterAccess,
   getAddress as getFreighterAddress,
   getNetwork as getFreighterNetwork,
-  signTransaction as signFreighterTransaction,
 } from "@stellar/freighter-api";
 import { STELLAR_CONFIG } from "../config/stellar";
 

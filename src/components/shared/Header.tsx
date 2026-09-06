@@ -6,7 +6,7 @@ import { useState, useEffect, useRef } from "react";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, connectWallet, disconnectWallet, isConnected, connectorType } = useWeb3();
+  const { userAddress, connectWallet, disconnectWallet, isConnected } = useWeb3();
   const [showWalletOptions, setShowWalletOptions] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -23,7 +23,7 @@ export const Header = () => {
 
   const formatAddress = (address: string) => `${address.slice(0, 6)}...${address.slice(-4)}`;
 
-  const handleConnect = async (type: "metamask" | "walletconnect") => {
+  const handleConnect = async (type: "freighter" | "mock") => {
     try {
       await connectWallet(type);
       setShowWalletOptions(false);
@@ -109,7 +109,7 @@ export const Header = () => {
                 <div className="absolute top-full right-0 mt-2 w-60 bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-zinc-800 z-50 overflow-hidden">
                   <div className="p-2 space-y-1">
                     <button
-                      onClick={() => handleConnect("freighter" as any)}
+                      onClick={() => handleConnect("freighter")}
                       className="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center space-x-3 transition-colors group"
                     >
                       <div className="w-8 h-8 bg-purple-100 dark:bg-purple-500/10 rounded-lg flex items-center justify-center shrink-0">
@@ -128,7 +128,7 @@ export const Header = () => {
                       </div>
                     </button>
                     <button
-                      onClick={() => handleConnect("mock" as any)}
+                      onClick={() => handleConnect("mock")}
                       className="w-full text-left px-4 py-3 rounded-xl hover:bg-slate-100 dark:hover:bg-zinc-800 flex items-center space-x-3 transition-colors group"
                     >
                       <div className="w-8 h-8 bg-emerald-100 dark:bg-emerald-500/10 rounded-lg flex items-center justify-center shrink-0">
