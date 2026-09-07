@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Stellar Community Discussions
+    url: https://discord.gg/stellar
+    about: Join Stellar Discord for general developer discussions.
+  - name: 🛡 Security Vulnerability Report
+    url: mailto:security@stormsale.xyz
+    about: Please report security vulnerabilities privately according to SECURITY.md.
