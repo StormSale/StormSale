@@ -6,6 +6,9 @@ import {
   getCurrentNetwork,
   fetchXlmBalance,
   fundTestnetAccount,
+  createCampaignContractCall,
+  logSaleContractCall,
+  claimPayoutContractCall,
 } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
@@ -36,6 +39,8 @@ export interface Web3ContextType {
     affiliateAddress: string,
     amountXlm: number,
   ) => Promise<{ success: boolean; txHash?: string }>;
+
+  claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
   // Compatibility helpers for legacy form callers
   factoryContract: any;
@@ -156,15 +161,25 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
 
-    // Mock successful transaction hash for Testnet demonstration
-    const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-    const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-
-    return {
-      success: true,
-      campaignId: newCampaignId,
-      txHash: mockTxHash,
-    };
+    if (connectorType === "freighter") {
+      const res = await createCampaignContractCall(
+        userAddress,
+        commissionRatePercent,
+        clearingPeriodSecs,
+        budgetXlm,
+      );
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      // Mock fallback for UI preview without extension
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+      return {
+        success: true,
+        campaignId: newCampaignId,
+        txHash: mockTxHash,
+      };
+    }
   };
 
   // Soroban: Log Verified Sale
@@ -179,11 +194,35 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
     );
 
-    const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-    return {
-      success: true,
-      txHash: mockTxHash,
-    };
+    if (connectorType === "freighter") {
+      const res = await logSaleContractCall(userAddress, campaignId, affiliateAddress, amountXlm);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
+  };
+
+  // Soroban: Claim Affiliate Commission
+  const claimPayoutOnChain = async (campaignId: number) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter") {
+      const res = await claimPayoutContractCall(userAddress, campaignId);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
   };
 
   // Compatibility facade for existing form components
@@ -249,6 +288,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         requestFriendbotFunding,
         createCampaignOnChain,
         logSaleOnChain,
+        claimPayoutOnChain,
         factoryContract,
         getCampaignContract,
         provider: null,

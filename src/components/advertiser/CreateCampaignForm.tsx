@@ -51,8 +51,8 @@ export const CreateCampaignForm = () => {
 
       showNotification({
         type: "success",
-        title: "Campaign Escrow Live!",
-        message: `Campaign #${result.campaignId} successfully deployed on Soroban.`,
+        title: "Campaign Escrow Live on Stellar!",
+        message: `Campaign #${result.campaignId} deployed on Soroban. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
 
       setCommissionRate("");

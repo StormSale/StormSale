@@ -1,4 +1,7 @@
+import { useState } from "react";
 import { Button } from "../../components/ui/button";
+import { useWeb3 } from "../../hooks/useWeb3";
+import { useNotification } from "../../context/NotificationContext";
 import {
   Card,
   CardContent,
@@ -26,7 +29,35 @@ interface ClaimableSale {
 }
 
 export const ClaimPayouts = () => {
-  const isClaiming = false;
+  const { claimPayoutOnChain } = useWeb3();
+  const { showNotification } = useNotification();
+  const [claimingId, setClaimingId] = useState<number | null>(null);
+
+  const handleClaim = async (saleId: number) => {
+    setClaimingId(saleId);
+    try {
+      showNotification({
+        type: "info",
+        title: "Claiming Commission",
+        message: "Submitting payout request to Soroban contract...",
+      });
+
+      const res = await claimPayoutOnChain(saleId);
+      showNotification({
+        type: "success",
+        title: "Commission Paid Out!",
+        message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+      });
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Claim Failed",
+        message: err.message || "Failed to claim payout",
+      });
+    } finally {
+      setClaimingId(null);
+    }
+  };
 
   const mockClaimableSales: ClaimableSale[] = [
     {
@@ -148,7 +179,8 @@ export const ClaimPayouts = () => {
                     <TableCell className="py-4 pr-6">
                       <Button
                         size="sm"
-                        disabled={!isSaleClaimable(sale) || isClaiming}
+                        onClick={() => handleClaim(sale.id)}
+                        disabled={!isSaleClaimable(sale) || claimingId !== null}
                         className={`rounded-lg h-9 px-4 font-semibold text-sm transition-all ${
                           isSaleClaimable(sale)
                             ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white shadow-sm"
@@ -156,7 +188,7 @@ export const ClaimPayouts = () => {
                         }`}
                       >
                         <Zap className="w-3.5 h-3.5 mr-1" />
-                        Claim
+                        {claimingId === sale.id ? "Claiming..." : "Claim"}
                       </Button>
                     </TableCell>
                   </TableRow>

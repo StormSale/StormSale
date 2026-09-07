@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress } from "./stellar";
+import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer } from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
@@ -26,5 +26,10 @@ describe("Stellar Helpers", () => {
     expect(isValidStellarAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")).toBe(false);
     expect(isValidStellarAddress("GBBD123")).toBe(false);
     expect(isValidStellarAddress("")).toBe(false);
+  });
+
+  it("initializes Soroban RPC client with configured endpoint", () => {
+    const server = getSorobanRpcServer();
+    expect(server).toBeDefined();
   });
 });
