@@ -36,7 +36,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
   };
 
   return (
-    <div className="flex min-h-[calc(100-65px)] bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
+    <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
         onTabChange={setActiveTab}

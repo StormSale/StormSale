@@ -20,6 +20,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG } from "../config/stellar";
 
+export type WalletType = "freighter" | "albedo" | "xbull" | "mock" | "readonly";
+
 export interface StellarAccountInfo {
   address: string;
   balanceXlm: string;
@@ -51,7 +53,7 @@ export async function connectFreighterWallet(): Promise<string> {
   const isInstalled = await checkFreighterInstalled();
   if (!isInstalled) {
     throw new Error(
-      "Freighter wallet is not detected. Please install the Freighter browser extension from https://www.freighter.app/",
+      "Freighter wallet extension is not detected. If on mobile, please use Albedo (Web Wallet) or Demo Account.",
     );
   }
 
@@ -72,6 +74,156 @@ export async function connectFreighterWallet(): Promise<string> {
   }
 
   return addressResult.address;
+}
+
+/**
+ * Connects to Albedo - Universal Web & Mobile Stellar Wallet.
+ * Works on all iOS, Android, and Desktop browsers without extensions.
+ */
+export async function connectAlbedoWallet(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const width = 500;
+    const height = 700;
+    const left = window.screenLeft + (window.outerWidth - width) / 2;
+    const top = window.screenTop + (window.outerHeight - height) / 2;
+
+    const popup = window.open(
+      "https://albedo.link/confirm?intent=public_key",
+      "albedo_auth",
+      `width=${width},height=${height},top=${top},left=${left},status=no,resizable=yes`,
+    );
+
+    if (!popup) {
+      return reject(
+        new Error(
+          "Albedo window was blocked by your browser popup blocker. Please allow popups for this site.",
+        ),
+      );
+    }
+
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== "https://albedo.link") return;
+      const data = event.data;
+      if (data && data.intent === "public_key") {
+        window.removeEventListener("message", handler);
+        if (data.pubkey) {
+          resolve(data.pubkey);
+        } else if (data.error) {
+          reject(new Error(data.error.message || "Albedo login was canceled."));
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+
+    const checkClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkClosed);
+        window.removeEventListener("message", handler);
+      }
+    }, 1000);
+  });
+}
+
+/**
+ * Signs a transaction with Albedo web popup.
+ */
+export async function signAlbedoTransaction(
+  xdrBase64: string,
+  network: string = "testnet",
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const width = 500;
+    const height = 700;
+    const left = window.screenLeft + (window.outerWidth - width) / 2;
+    const top = window.screenTop + (window.outerHeight - height) / 2;
+
+    const popup = window.open(
+      `https://albedo.link/confirm?intent=tx&xdr=${encodeURIComponent(xdrBase64)}&network=${encodeURIComponent(network)}`,
+      "albedo_tx",
+      `width=${width},height=${height},top=${top},left=${left},status=no,resizable=yes`,
+    );
+
+    if (!popup) {
+      return reject(new Error("Albedo signature popup was blocked."));
+    }
+
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== "https://albedo.link") return;
+      const data = event.data;
+      if (data && data.intent === "tx") {
+        window.removeEventListener("message", handler);
+        if (data.signed_envelope_xdr) {
+          resolve(data.signed_envelope_xdr);
+        } else if (data.error) {
+          reject(new Error(data.error.message || "Transaction signature declined in Albedo."));
+        }
+      }
+    };
+
+    window.addEventListener("message", handler);
+
+    const checkClosed = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(checkClosed);
+        window.removeEventListener("message", handler);
+      }
+    }, 1000);
+  });
+}
+
+/**
+ * Connects to xBull wallet (extension / web).
+ */
+export async function connectXbullWallet(): Promise<string> {
+  const xbull = (window as any).xBullSDK || (window as any).xbull;
+  if (!xbull) {
+    throw new Error(
+      "xBull wallet extension is not installed. Please install xBull from https://xbull.app or use Albedo on mobile.",
+    );
+  }
+  try {
+    const address = await xbull.getPublicKey();
+    return address;
+  } catch (err: any) {
+    throw new Error(err.message || "xBull connection failed.");
+  }
+}
+
+/**
+ * Multi-wallet transaction signing dispatcher.
+ */
+export async function signWalletTransaction(
+  preparedXdr: string,
+  walletType: WalletType,
+): Promise<string> {
+  if (walletType === "freighter") {
+    const signResult = await signFreighterTransaction(preparedXdr, {
+      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+    });
+    if (
+      !signResult ||
+      (typeof signResult === "object" && "error" in signResult && signResult.error)
+    ) {
+      throw new Error((signResult as any)?.error || "User declined transaction in Freighter.");
+    }
+    const signedXdr =
+      typeof signResult === "string"
+        ? signResult
+        : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
+    if (!signedXdr) throw new Error("No signed transaction XDR returned from Freighter.");
+    return signedXdr;
+  } else if (walletType === "albedo") {
+    const netParam = STELLAR_CONFIG.network.toLowerCase() === "public" ? "public" : "testnet";
+    return await signAlbedoTransaction(preparedXdr, netParam);
+  } else if (walletType === "xbull") {
+    const xbull = (window as any).xBullSDK || (window as any).xbull;
+    if (!xbull) throw new Error("xBull extension is not available.");
+    return await xbull.signXDR(preparedXdr);
+  } else {
+    // Mock / Read-only fallback
+    return preparedXdr;
+  }
 }
 
 /**
@@ -156,13 +308,14 @@ export function getSorobanRpcServer(): rpc.Server {
  * 2. Builds preliminary transaction with contract call.
  * 3. Simulates transaction to resolve footprint, resource fees, and auth.
  * 4. Assembles transaction with simulation response.
- * 5. Signs transaction via Freighter wallet extension.
+ * 5. Signs transaction via active Stellar wallet (Freighter / Albedo / xBull).
  * 6. Submits to Soroban RPC and polls ledger until confirmed.
  */
 export async function invokeSorobanMethod(
   callerAddress: string,
   methodName: string,
   scValArgs: xdr.ScVal[],
+  walletType: WalletType = "freighter",
   contractIdOverride?: string,
 ): Promise<SorobanInvokeResult> {
   const server = getSorobanRpcServer();
@@ -200,28 +353,8 @@ export async function invokeSorobanMethod(
   // 5. Assemble transaction with simulated resources & auth
   const preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
 
-  // 6. Sign transaction via Freighter extension
-  const signResult = await signFreighterTransaction(preparedTx.toXDR(), {
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  });
-
-  if (
-    !signResult ||
-    (typeof signResult === "object" && "error" in signResult && signResult.error)
-  ) {
-    const errMsg = (signResult as any)?.error || "User declined transaction in Freighter.";
-    throw new Error(errMsg);
-  }
-
-  const signedXdr =
-    typeof signResult === "string"
-      ? signResult
-      : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
-
-  if (!signedXdr) {
-    throw new Error("No signed transaction XDR returned from Freighter.");
-  }
-
+  // 6. Sign transaction via the active wallet (Freighter, Albedo, xBull)
+  const signedXdr = await signWalletTransaction(preparedTx.toXDR(), walletType);
   const signedTx = TransactionBuilder.fromXDR(signedXdr, STELLAR_CONFIG.networkPassphrase);
 
   // 7. Submit transaction to Soroban RPC
@@ -268,15 +401,14 @@ export async function invokeSorobanMethod(
 
 /**
  * Creates an on-chain campaign with an XLM escrow deposit.
- * Function signature: create_campaign(advertiser: Address, commission_rate: u32, clearing_period: u32, budget: i128) -> u32
  */
 export async function createCampaignContractCall(
   advertiserAddress: string,
   commissionRatePercent: number,
   clearingPeriodSecs: number,
   budgetXlm: number,
+  walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; campaignId: number; txHash: string }> {
-  // Convert XLM to stroops (1 XLM = 10^7 stroops)
   const budgetStroops = BigInt(Math.floor(budgetXlm * 1e7));
   const rateBasisPoints = Math.floor(commissionRatePercent * 100);
 
@@ -287,7 +419,7 @@ export async function createCampaignContractCall(
     nativeToScVal(budgetStroops, { type: "i128" }),
   ];
 
-  const result = await invokeSorobanMethod(advertiserAddress, "create_campaign", args);
+  const result = await invokeSorobanMethod(advertiserAddress, "create_campaign", args, walletType);
   const campaignId =
     typeof result.resultValue === "number"
       ? result.resultValue
@@ -302,13 +434,13 @@ export async function createCampaignContractCall(
 
 /**
  * Logs an affiliate sale on-chain for a campaign.
- * Function signature: log_sale(advertiser: Address, campaign_id: u32, affiliate: Address, amount: i128) -> ()
  */
 export async function logSaleContractCall(
   advertiserAddress: string,
   campaignId: number,
   affiliateAddress: string,
   saleAmountXlm: number,
+  walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; txHash: string }> {
   const amountStroops = BigInt(Math.floor(saleAmountXlm * 1e7));
 
@@ -319,7 +451,7 @@ export async function logSaleContractCall(
     nativeToScVal(amountStroops, { type: "i128" }),
   ];
 
-  const result = await invokeSorobanMethod(advertiserAddress, "log_sale", args);
+  const result = await invokeSorobanMethod(advertiserAddress, "log_sale", args, walletType);
   return {
     success: true,
     txHash: result.txHash,
@@ -328,18 +460,18 @@ export async function logSaleContractCall(
 
 /**
  * Claims cleared affiliate commission from escrow.
- * Function signature: claim_payout(affiliate: Address, campaign_id: u32) -> ()
  */
 export async function claimPayoutContractCall(
   affiliateAddress: string,
   campaignId: number,
+  walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; txHash: string }> {
   const args: xdr.ScVal[] = [
     new Address(affiliateAddress).toScVal(),
     nativeToScVal(campaignId, { type: "u32" }),
   ];
 
-  const result = await invokeSorobanMethod(affiliateAddress, "claim_payout", args);
+  const result = await invokeSorobanMethod(affiliateAddress, "claim_payout", args, walletType);
   return {
     success: true,
     txHash: result.txHash,

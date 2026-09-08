@@ -9,6 +9,7 @@ import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
+import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,19 +57,26 @@ function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
 
-  if (!isConnected) {
-    return <Landing />;
-  }
-
   return (
-    <div className="min-h-screen bg-background">
-      <main>
-        {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-        {currentPage === "advertiser" && <Advertiser onBack={() => setCurrentPage("dashboard")} />}
-        {currentPage === "affiliate" && <Affiliate onBack={() => setCurrentPage("dashboard")} />}
-        {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-      </main>
-    </div>
+    <>
+      <ConnectWalletModal />
+      {!isConnected ? (
+        <Landing />
+      ) : (
+        <div className="min-h-screen bg-background">
+          <main>
+            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+            {currentPage === "advertiser" && (
+              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+            )}
+            {currentPage === "affiliate" && (
+              <Affiliate onBack={() => setCurrentPage("dashboard")} />
+            )}
+            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+          </main>
+        </div>
+      )}
+    </>
   );
 }
 

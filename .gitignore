@@ -13,8 +13,10 @@ dist-ssr
 *.local
 
 upload_issues.js
+label_issues.js
 .husky/
 issues.csv  
+generate_commits.sh
 
 # Editor directories and files
 .vscode/*

@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
+  connectAlbedoWallet,
+  connectXbullWallet,
   checkFreighterInstalled,
   getCurrentNetwork,
   fetchXlmBalance,
@@ -10,6 +12,7 @@ import {
   logSaleContractCall,
   claimPayoutContractCall,
 } from "../lib/stellar";
+import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 
@@ -20,8 +23,11 @@ export interface Web3ContextType {
   isStellarNetwork: boolean;
   network: string;
   xlmBalance: string;
-  connectorType: "freighter" | "mock" | null;
-  connectWallet: (connectorType?: "freighter" | "mock") => Promise<void>;
+  connectorType: WalletType | null;
+  isWalletModalOpen: boolean;
+  openWalletModal: () => void;
+  closeWalletModal: () => void;
+  connectWallet: (connectorType?: WalletType, customAddress?: string) => Promise<void>;
   disconnectWallet: () => void;
   updateUserRole: (role: string) => Promise<void>;
   requestFriendbotFunding: () => Promise<boolean>;
@@ -58,7 +64,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
-  const [connectorType, setConnectorType] = useState<"freighter" | "mock" | null>(null);
+  const [connectorType, setConnectorType] = useState<WalletType | null>(null);
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  const openWalletModal = () => setIsWalletModalOpen(true);
+  const closeWalletModal = () => setIsWalletModalOpen(false);
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -82,37 +92,46 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Primary Stellar Freighter Connection
-  const connectWallet = async (type: "freighter" | "mock" = "freighter") => {
+  // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Mock
+  const connectWallet = async (type: WalletType = "freighter", customAddress?: string) => {
     try {
+      let address = "";
       if (type === "freighter") {
         const isInstalled = await checkFreighterInstalled();
         if (!isInstalled) {
           throw new Error(
-            "Freighter extension not found. Please install Freighter from https://www.freighter.app/",
+            "Freighter extension is not installed. If you are on a mobile device, please select Albedo (Web Wallet) or Demo Account.",
           );
         }
-
-        const address = await connectFreighterWallet();
+        address = await connectFreighterWallet();
         const currentNet = await getCurrentNetwork();
-
-        setUserAddress(address);
-        setIsConnected(true);
-        setConnectorType("freighter");
         setNetwork(currentNet);
-
-        await refreshBalance(address);
-        await syncUserWithBackend(address);
+      } else if (type === "albedo") {
+        address = await connectAlbedoWallet();
+        setNetwork(STELLAR_CONFIG.network);
+      } else if (type === "xbull") {
+        address = await connectXbullWallet();
+        setNetwork(STELLAR_CONFIG.network);
+      } else if (type === "readonly") {
+        if (!customAddress) throw new Error("Please provide a valid Stellar address.");
+        address = customAddress;
+        setNetwork(STELLAR_CONFIG.network);
       } else {
-        // Mock fallback for local UI testing when extension is absent
-        const mockAddress = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
-        setUserAddress(mockAddress);
-        setIsConnected(true);
-        setConnectorType("mock");
+        // Mock fallback demo account with 10,000 XLM
+        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
         setNetwork("TESTNET");
         setXlmBalance("10000.00");
-        await syncUserWithBackend(mockAddress);
       }
+
+      setUserAddress(address);
+      setIsConnected(true);
+      setConnectorType(type);
+
+      if (type !== "mock") {
+        await refreshBalance(address);
+      }
+      await syncUserWithBackend(address);
+      setIsWalletModalOpen(false);
     } catch (error) {
       console.error("Wallet connection failed:", error);
       throw error;
@@ -161,12 +180,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
 
-    if (connectorType === "freighter") {
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await createCampaignContractCall(
         userAddress,
         commissionRatePercent,
         clearingPeriodSecs,
         budgetXlm,
+        connectorType,
       );
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
@@ -194,8 +214,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
     );
 
-    if (connectorType === "freighter") {
-      const res = await logSaleContractCall(userAddress, campaignId, affiliateAddress, amountXlm);
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await logSaleContractCall(
+        userAddress,
+        campaignId,
+        affiliateAddress,
+        amountXlm,
+        connectorType,
+      );
       return res;
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
@@ -212,8 +238,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
     console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
 
-    if (connectorType === "freighter") {
-      const res = await claimPayoutContractCall(userAddress, campaignId);
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
@@ -282,6 +308,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         network,
         xlmBalance,
         connectorType,
+        isWalletModalOpen,
+        openWalletModal,
+        closeWalletModal,
         connectWallet,
         disconnectWallet,
         updateUserRole,
