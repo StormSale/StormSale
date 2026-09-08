@@ -31,7 +31,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
       case "compliance":
         return <ComplianceReport />;
       default:
-        return <AuditorOverview />;
+        return <AuditorOverview onTabChange={setActiveTab} />;
     }
   };
 
@@ -46,7 +46,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
       />
 
       {/* Main content */}
-      <div className="flex-1 p-4 lg:p-8 overflow-y-auto">
+      <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
         <div className="max-w-6xl mx-auto">
           <AnimatePresence mode="wait">
             <motion.div

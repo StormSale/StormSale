@@ -16,7 +16,11 @@ import {
   BarChart3,
 } from "lucide-react";
 
-export const AuditorOverview = () => {
+interface AuditorOverviewProps {
+  onTabChange?: (tab: string) => void;
+}
+
+export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
   const stats = [
     { title: "Audits Completed", value: "47", change: "+5 this month", icon: CheckCircle2 },
     { title: "Active Requests", value: "3", change: "Pending review", icon: Clock },
@@ -195,7 +199,8 @@ export const AuditorOverview = () => {
                     </span>
                     <Button
                       size="sm"
-                      className="h-7 px-3 text-xs bg-zinc-900 dark:bg-indigo-600 text-white rounded-lg font-semibold"
+                      onClick={() => onTabChange?.("verify")}
+                      className="h-7 px-3 text-xs bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-lg font-semibold transition-colors"
                     >
                       Review
                     </Button>
