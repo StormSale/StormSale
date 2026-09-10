@@ -12,7 +12,7 @@ export const STELLAR_CONFIG = {
   // Deployed Soroban Contract ID on Stellar Testnet
   contractId:
     import.meta.env.VITE_STORMSALE_CONTRACT_ID ||
-    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
 
   nativeAsset: "XLM",
   nativeDecimals: 7,

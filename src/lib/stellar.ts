@@ -318,6 +318,17 @@ export async function invokeSorobanMethod(
   walletType: WalletType = "freighter",
   contractIdOverride?: string,
 ): Promise<SorobanInvokeResult> {
+  // If mock wallet is specified (e.g. automated tests or sandbox simulation), return simulated success
+  if (walletType === "mock") {
+    const mockHash =
+      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    return {
+      success: true,
+      txHash: mockHash,
+      resultValue: 1,
+    };
+  }
+
   const server = getSorobanRpcServer();
   const targetContractId = contractIdOverride || STELLAR_CONFIG.contractId;
 
