@@ -51,4 +51,15 @@ describe("Clearing Period Timer & Progress Suite", () => {
     const futureResult = calculateClearing({ timestamp: baseTimestamp, clearingPeriod }, futureNow);
     expect(futureResult.progressPercent).toBe(100);
   });
+
+  it("never displays 100% while countdown is still active (caps at 99%)", () => {
+    // 1 second before clearing completes
+    const now = baseTimestamp + clearingPeriod - 1;
+    const result = calculateClearing({ timestamp: baseTimestamp, clearingPeriod }, now);
+
+    expect(result.isUnlocked).toBe(false);
+    expect(result.remainingSeconds).toBe(1);
+    expect(result.progressPercent).toBe(99);
+    expect(result.countdownText).toBe("1s");
+  });
 });

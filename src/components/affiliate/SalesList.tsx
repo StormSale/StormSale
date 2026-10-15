@@ -43,7 +43,9 @@ export function calculateClearing(
   const unlockTimestamp = sale.timestamp + period;
   const remainingSeconds = Math.max(0, unlockTimestamp - nowSeconds);
   const elapsedSeconds = Math.max(0, nowSeconds - sale.timestamp);
-  const progressPercent = Math.min(100, Math.max(0, Math.round((elapsedSeconds / period) * 100)));
+  const rawProgress = Math.min(100, Math.max(0, Math.round((elapsedSeconds / period) * 100)));
+  // Never display 100% while countdown is still active; cap at 99% until remainingSeconds reaches zero
+  const progressPercent = remainingSeconds > 0 ? Math.min(99, rawProgress) : 100;
   const isUnlocked = remainingSeconds === 0;
 
   const days = Math.floor(remainingSeconds / 86400);
@@ -77,26 +79,15 @@ export function calculateClearing(
   };
 }
 
-export const SalesList = () => {
-  const [decryptedData, setDecryptedData] = useState<object | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isDecrypting, setIsDecrypting] = useState(false);
-  const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(Math.floor(Date.now() / 1000));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const mockSales: Sale[] = [
+const createInitialMockSales = (): Sale[] => {
+  const now = Math.floor(Date.now() / 1000);
+  return [
     {
       id: 1,
       affiliate: "GBBD...5678",
       saleAmount: "100.0",
       commissionAmount: "10.0",
-      timestamp: Math.floor(Date.now() / 1000) - 86400,
+      timestamp: now - 86400, // 1 day ago (in clearing)
       clearingPeriod: 604800,
       claimed: false,
     },
@@ -105,7 +96,7 @@ export const SalesList = () => {
       affiliate: "GBBD...5678",
       saleAmount: "250.0",
       commissionAmount: "25.0",
-      timestamp: Math.floor(Date.now() / 1000) - 172800,
+      timestamp: now - 864000, // 10 days ago (> 7-day clearing period elapsed)
       clearingPeriod: 604800,
       claimed: true,
     },
@@ -114,11 +105,26 @@ export const SalesList = () => {
       affiliate: "GBBD...5678",
       saleAmount: "180.0",
       commissionAmount: "18.0",
-      timestamp: Math.floor(Date.now() / 1000) - 700000,
+      timestamp: now - 700000, // > 7 days ago (matured & unlocked, ready to claim)
       clearingPeriod: 604800,
       claimed: false,
     },
   ];
+};
+
+export const SalesList = () => {
+  const [decryptedData, setDecryptedData] = useState<object | null>(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDecrypting, setIsDecrypting] = useState(false);
+  const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
+  const [mockSales] = useState<Sale[]>(createInitialMockSales);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleDecrypt = async (_saleId: number) => {
     setIsDecrypting(true);
