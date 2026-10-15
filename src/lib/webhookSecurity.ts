@@ -4,15 +4,17 @@ import type { WebhookSignatureVerificationResult } from "../types/webhook";
  * Generate a cryptographically secure random hex string
  */
 export function generateRandomHex(byteCount = 24): string {
-  const bytes = new Uint8Array(byteCount);
-  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
-    crypto.getRandomValues(bytes);
-  } else {
-    // Fallback in non-crypto environments
-    for (let i = 0; i < byteCount; i++) {
-      bytes[i] = Math.floor(Math.random() * 256);
-    }
+  const cryptoObj =
+    typeof crypto !== "undefined" ? crypto : (globalThis as unknown as { crypto?: Crypto }).crypto;
+
+  if (!cryptoObj || typeof cryptoObj.getRandomValues !== "function") {
+    throw new Error(
+      "Cryptographically secure PRNG (crypto.getRandomValues) is required for key/nonce generation.",
+    );
   }
+
+  const bytes = new Uint8Array(byteCount);
+  cryptoObj.getRandomValues(bytes);
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -122,10 +124,13 @@ export function constantTimeCompare(a: string, b: string): boolean {
 const seenNonces = new Map<string, number>();
 
 /**
- * Clear seen nonces older than the tolerance window
+ * Clear seen nonces older than the tolerance window relative to a reference timestamp
  */
-export function pruneExpiredNonces(maxAgeSeconds = 300): void {
-  const cutoff = Math.floor(Date.now() / 1000) - maxAgeSeconds;
+export function pruneExpiredNonces(
+  referenceTimestamp = Math.floor(Date.now() / 1000),
+  maxAgeSeconds = 300,
+): void {
+  const cutoff = referenceTimestamp - maxAgeSeconds;
   for (const [nonce, timestamp] of seenNonces.entries()) {
     if (timestamp < cutoff) {
       seenNonces.delete(nonce);
@@ -192,7 +197,7 @@ export async function verifyWebhookSignature(
     };
   }
 
-  // 1. Replay attack prevention: Timestamp tolerance validation
+  // 1. Replay attack prevention: Timestamp freshness tolerance
   const ageSeconds = currentTimestamp - timestamp;
   if (Math.abs(ageSeconds) > toleranceSeconds) {
     return {
@@ -204,9 +209,40 @@ export async function verifyWebhookSignature(
     };
   }
 
-  // 2. Replay attack prevention: Nonce uniqueness check
+  // 2. Nonce presence requirement when replay protection is enabled
+  if (!disableNonceCheck && !nonce) {
+    return {
+      isValid: false,
+      reason:
+        "Missing nonce parameter in signature header. Replay attack protection requires a nonce.",
+      timestamp,
+      ageSeconds,
+    };
+  }
+
+  // 3. Authenticity verification: Calculate expected HMAC-SHA256
+  const payloadString = normalizePayload(payload);
+  const signedData = nonce
+    ? `${timestamp}.${nonce}.${payloadString}`
+    : `${timestamp}.${payloadString}`;
+
+  const expectedSignature = await calculateHmacSha256(secret, signedData);
+  const isSignatureValid = constantTimeCompare(signature, expectedSignature);
+
+  if (!isSignatureValid) {
+    return {
+      isValid: false,
+      reason: "HMAC-SHA256 signature mismatch: payload tampered or incorrect secret key",
+      timestamp,
+      nonce,
+      ageSeconds,
+    };
+  }
+
+  // 4. Replay attack prevention: Nonce deduplication AFTER signature validation
+  // Only valid signatures are permitted to consume/reserve nonces
   if (!disableNonceCheck && nonce) {
-    pruneExpiredNonces(toleranceSeconds);
+    pruneExpiredNonces(currentTimestamp, toleranceSeconds);
     if (seenNonces.has(nonce)) {
       return {
         isValid: false,
@@ -217,26 +253,6 @@ export async function verifyWebhookSignature(
       };
     }
     seenNonces.set(nonce, timestamp);
-  }
-
-  // 3. Payload authenticity validation: Re-calculate HMAC-SHA256
-  const payloadString = normalizePayload(payload);
-  const signedData = nonce
-    ? `${timestamp}.${nonce}.${payloadString}`
-    : `${timestamp}.${payloadString}`;
-
-  const expectedSignature = await calculateHmacSha256(secret, signedData);
-
-  const isValid = constantTimeCompare(signature, expectedSignature);
-
-  if (!isValid) {
-    return {
-      isValid: false,
-      reason: "HMAC-SHA256 signature mismatch: payload tampered or incorrect secret key",
-      timestamp,
-      nonce,
-      ageSeconds,
-    };
   }
 
   return {

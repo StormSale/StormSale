@@ -56,13 +56,14 @@ export const WebhookManager = () => {
   const [endpointEvents, setEndpointEvents] = useState<WebhookEventType[]>([
     "conversion.confirmed",
   ]);
-  const [simulationMode, setSimulationMode] = useState<SimulationMode>("mock_200");
+  const [simulationMode, setSimulationMode] = useState<SimulationMode>("live");
   const [showSecretMap, setShowSecretMap] = useState<Record<string, boolean>>({});
 
-  // Dummy test state
+  // In-flight state tracking to prevent duplicate actions
   const [testingEndpointId, setTestingEndpointId] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testEventType, setTestEventType] = useState<WebhookEventType>("conversion.confirmed");
+  const [retryingDeliveries, setRetryingDeliveries] = useState<Record<string, boolean>>({});
 
   // Security validator state
   const [valSecret, setValSecret] = useState("");
@@ -77,10 +78,16 @@ export const WebhookManager = () => {
   }>({ tested: false });
 
   const { showNotification } = useNotification();
+
+  // IDs for accessibility
   const endpointNameId = useId();
   const endpointUrlId = useId();
   const endpointSecretId = useId();
   const simulationModeId = useId();
+  const valSecretId = useId();
+  const valSigId = useId();
+  const valTolId = useId();
+  const valPayloadId = useId();
 
   const refreshData = () => {
     setEndpoints(getRegisteredEndpoints());
@@ -95,13 +102,25 @@ export const WebhookManager = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Keyboard accessibility: Escape closes open modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (selectedDelivery) setSelectedDelivery(null);
+        else if (isModalOpen) setIsModalOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isModalOpen, selectedDelivery]);
+
   const handleOpenCreateModal = () => {
     setEditingEndpointId(null);
     setEndpointName("");
     setEndpointUrl("");
     setEndpointSecret(generateWebhookSecret());
     setEndpointEvents(["conversion.confirmed"]);
-    setSimulationMode("mock_200");
+    setSimulationMode("live");
     setIsModalOpen(true);
   };
 
@@ -111,23 +130,31 @@ export const WebhookManager = () => {
     setEndpointUrl(ep.url);
     setEndpointSecret(ep.secret);
     setEndpointEvents(ep.events);
-    setSimulationMode(ep.simulationMode || "mock_200");
+    setSimulationMode(ep.simulationMode || "live");
     setIsModalOpen(true);
   };
 
   const handleSaveEndpoint = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!endpointName || !endpointUrl || !endpointSecret) {
+    if (!endpointName.trim() || !endpointUrl.trim() || !endpointSecret.trim()) {
       showNotification({
         type: "warning",
         title: "Required Fields Missing",
-        message: "Please enter a name, target URL, and secret key.",
+        message: "Please enter a label, target URL, and HMAC secret key.",
       });
       return;
     }
 
     try {
-      new URL(endpointUrl);
+      const parsedUrl = new URL(endpointUrl.trim());
+      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+        showNotification({
+          type: "error",
+          title: "Unsupported Protocol",
+          message: "Webhook URLs must use standard http:// or https:// protocol.",
+        });
+        return;
+      }
     } catch {
       showNotification({
         type: "error",
@@ -137,21 +164,22 @@ export const WebhookManager = () => {
       return;
     }
 
+    const existing = editingEndpointId ? endpoints.find((ep) => ep.id === editingEndpointId) : null;
+
     const endpoint: WebhookEndpoint = {
-      id: editingEndpointId || `wh_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      name: endpointName,
-      url: endpointUrl,
-      secret: endpointSecret,
+      id: existing ? existing.id : `wh_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      name: endpointName.trim(),
+      url: endpointUrl.trim(),
+      secret: endpointSecret.trim(),
       events: endpointEvents.length > 0 ? endpointEvents : ["conversion.confirmed"],
-      isActive: true,
-      createdAt: editingEndpointId
-        ? endpoints.find((ep) => ep.id === editingEndpointId)?.createdAt || new Date().toISOString()
-        : new Date().toISOString(),
+      isActive: existing ? existing.isActive : true,
+      createdAt: existing ? existing.createdAt : new Date().toISOString(),
+      description: existing?.description,
       simulationMode,
-      failureCount: 0,
-      totalDeliveries: editingEndpointId
-        ? endpoints.find((ep) => ep.id === editingEndpointId)?.totalDeliveries || 0
-        : 0,
+      failureCount: existing ? existing.failureCount : 0,
+      totalDeliveries: existing ? existing.totalDeliveries : 0,
+      lastDeliveryStatus: existing?.lastDeliveryStatus,
+      lastDeliveryAt: existing?.lastDeliveryAt,
     };
 
     const updated = saveWebhookEndpoint(endpoint);
@@ -161,7 +189,7 @@ export const WebhookManager = () => {
     showNotification({
       type: "success",
       title: editingEndpointId ? "Endpoint Updated" : "Webhook Endpoint Registered",
-      message: `Endpoint '${endpoint.name}' is active and ready for conversion events.`,
+      message: `Endpoint '${endpoint.name}' is ${endpoint.isActive ? "active" : "paused"} and ready for conversion events.`,
     });
   };
 
@@ -185,13 +213,21 @@ export const WebhookManager = () => {
     });
   };
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    showNotification({
-      type: "info",
-      title: "Copied to Clipboard",
-      message: `${label} copied.`,
-    });
+  const handleCopy = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showNotification({
+        type: "info",
+        title: "Copied to Clipboard",
+        message: `${label} copied.`,
+      });
+    } catch {
+      showNotification({
+        type: "error",
+        title: "Copy Failed",
+        message: "Unable to write to clipboard.",
+      });
+    }
   };
 
   const handleSendTestPayload = async (endpointId: string) => {
@@ -211,7 +247,7 @@ export const WebhookManager = () => {
         showNotification({
           type: "success",
           title: "Dummy Test Payload Delivered (200 OK)",
-          message: `Endpoint successfully responded with status 200.`,
+          message: "Endpoint successfully responded with status 200.",
         });
       } else if (delivery && delivery.status === "retrying") {
         showNotification({
@@ -223,7 +259,7 @@ export const WebhookManager = () => {
         showNotification({
           type: "error",
           title: "Delivery Failed",
-          message: `Endpoint connection failed.`,
+          message: "Endpoint connection failed.",
         });
       }
     } catch (err: unknown) {
@@ -239,31 +275,54 @@ export const WebhookManager = () => {
   };
 
   const handleRetryNow = async (deliveryId: string) => {
+    if (retryingDeliveries[deliveryId]) return;
+    setRetryingDeliveries((prev) => ({ ...prev, [deliveryId]: true }));
+
     showNotification({
       type: "info",
       title: "Immediate Retry Triggered",
       message: "Bypassing exponential backoff delay and retrying delivery now...",
     });
 
-    const res = await retryDeliveryNow(deliveryId);
-    refreshData();
-    if (res?.status === "delivered") {
+    try {
+      const res = await retryDeliveryNow(deliveryId);
+      refreshData();
+
+      if (!res) {
+        showNotification({
+          type: "error",
+          title: "Delivery Not Found",
+          message: "Could not locate delivery record to retry.",
+        });
+        return;
+      }
+
+      if (res.status === "delivered") {
+        showNotification({
+          type: "success",
+          title: "Retry Succeeded!",
+          message: "Delivery recovered and received HTTP 200 OK.",
+        });
+      } else {
+        showNotification({
+          type: "warning",
+          title: "Retry Attempt Executed",
+          message: `HTTP ${res.logs.slice(-1)[0]?.httpStatusCode || "Error"} recorded.`,
+        });
+      }
+    } catch (err: unknown) {
       showNotification({
-        type: "success",
-        title: "Retry Succeeded!",
-        message: "Delivery recovered and received HTTP 200 OK.",
+        type: "error",
+        title: "Retry Dispatch Error",
+        message: err instanceof Error ? err.message : "Retry attempt failed",
       });
-    } else {
-      showNotification({
-        type: "warning",
-        title: "Retry Attempt Executed",
-        message: `HTTP ${res?.logs.slice(-1)[0]?.httpStatusCode} recorded.`,
-      });
+    } finally {
+      setRetryingDeliveries((prev) => ({ ...prev, [deliveryId]: false }));
     }
   };
 
   const handleValidateSecurity = async () => {
-    if (!valPayload || !valSignature || !valSecret) {
+    if (!valPayload.trim() || !valSignature.trim() || !valSecret.trim()) {
       showNotification({
         type: "warning",
         title: "Missing Input",
@@ -282,8 +341,8 @@ export const WebhookManager = () => {
 
       const result = await verifyWebhookSignature({
         payload: parsedPayload,
-        signatureHeader: valSignature,
-        secret: valSecret,
+        signatureHeader: valSignature.trim(),
+        secret: valSecret.trim(),
         toleranceSeconds: Number(valTolerance) || 300,
         disableNonceCheck: false,
       });
@@ -318,7 +377,7 @@ export const WebhookManager = () => {
   };
 
   const handleLoadSampleVector = async () => {
-    const sampleSecret = "whsec_sample_advertiser_secret_8f9a2b3c4d5e";
+    const sampleSecret = generateWebhookSecret();
     const samplePayload = {
       event: "conversion.confirmed",
       event_id: `evt_sample_${Date.now()}`,
@@ -584,6 +643,7 @@ export const WebhookManager = () => {
                             onClick={() => handleCopy(ep.url, "Endpoint URL")}
                             className="p-1 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded text-zinc-500"
                             title="Copy URL"
+                            aria-label="Copy Endpoint URL"
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
@@ -606,6 +666,7 @@ export const WebhookManager = () => {
                             }
                             className="p-1 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded text-zinc-500"
                             title={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
+                            aria-label={isSecretVisible ? "Hide Secret" : "Reveal Secret"}
                           >
                             {isSecretVisible ? (
                               <EyeOff className="w-3.5 h-3.5" />
@@ -617,6 +678,7 @@ export const WebhookManager = () => {
                             onClick={() => handleCopy(ep.secret, "HMAC Secret")}
                             className="p-1 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded text-zinc-500"
                             title="Copy Secret"
+                            aria-label="Copy HMAC Secret"
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
@@ -677,6 +739,7 @@ export const WebhookManager = () => {
                             onClick={() => handleDeleteEndpoint(ep.id, ep.name)}
                             className="rounded-xl h-9 w-9 p-0 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10"
                             title="Delete Endpoint"
+                            aria-label="Delete Endpoint"
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -741,6 +804,7 @@ export const WebhookManager = () => {
                 const isSuccess = delivery.status === "delivered";
                 const isRetrying = delivery.status === "retrying";
                 const isFailed = delivery.status === "failed";
+                const isRetryInFlight = retryingDeliveries[delivery.id] || false;
 
                 return (
                   <Card
@@ -823,11 +887,14 @@ export const WebhookManager = () => {
                           <Button
                             variant="outline"
                             size="sm"
+                            disabled={isRetryInFlight}
                             onClick={() => handleRetryNow(delivery.id)}
                             className="rounded-xl border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 text-xs font-bold"
                           >
-                            <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                            Retry Now
+                            <RotateCcw
+                              className={`w-3.5 h-3.5 mr-1 ${isRetryInFlight ? "animate-spin" : ""}`}
+                            />
+                            {isRetryInFlight ? "Retrying..." : "Retry Now"}
                           </Button>
                         )}
 
@@ -885,10 +952,14 @@ export const WebhookManager = () => {
 
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                    <label
+                      htmlFor={valSecretId}
+                      className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2"
+                    >
                       HMAC Secret Key (whsec_...)
                     </label>
                     <Input
+                      id={valSecretId}
                       value={valSecret}
                       onChange={(e) => setValSecret(e.target.value)}
                       placeholder="e.g. whsec_8f9a2b3c4d5e6f7a..."
@@ -897,10 +968,14 @@ export const WebhookManager = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                    <label
+                      htmlFor={valSigId}
+                      className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2"
+                    >
                       X-StormSale-Signature Header (t=...,v1=...,nonce=...)
                     </label>
                     <Input
+                      id={valSigId}
                       value={valSignature}
                       onChange={(e) => setValSignature(e.target.value)}
                       placeholder="t=1730000000,v1=abcdef123456...,nonce=987654321"
@@ -910,10 +985,14 @@ export const WebhookManager = () => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                      <label
+                        htmlFor={valTolId}
+                        className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2"
+                      >
                         Tolerance Window (Seconds)
                       </label>
                       <Input
+                        id={valTolId}
                         type="number"
                         value={valTolerance}
                         onChange={(e) => setValTolerance(Number(e.target.value))}
@@ -923,10 +1002,14 @@ export const WebhookManager = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2">
+                    <label
+                      htmlFor={valPayloadId}
+                      className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-2"
+                    >
                       Raw Request Payload (JSON)
                     </label>
                     <textarea
+                      id={valPayloadId}
                       rows={6}
                       value={valPayload}
                       onChange={(e) => setValPayload(e.target.value)}
@@ -992,24 +1075,40 @@ export const WebhookManager = () => {
                   <pre>{`// Node.js (Express / Fastify)
 import crypto from 'crypto';
 
+const seenNonces = new Set();
+
+function parseSig(header) {
+  const parts = Object.fromEntries(
+    header.split(',').map(s => s.trim().split('='))
+  );
+  return { t: parseInt(parts.t, 10), v1: parts.v1, nonce: parts.nonce };
+}
+
 function verifyStormSale(req, secret) {
   const sigHeader = req.headers['x-stormsale-signature'];
-  const { t, v1, nonce } = parseSig(sigHeader);
+  if (!sigHeader) return false;
   
-  // 1. Replay attack check: Max 300s window
+  const { t, v1, nonce } = parseSig(sigHeader);
+  if (!t || !v1 || !nonce) return false;
+  
+  // 1. Replay window: Max 300s
   const now = Math.floor(Date.now() / 1000);
-  if (Math.abs(now - t) > 300) {
-    throw new Error('Replay attack: Timestamp expired');
-  }
+  if (Math.abs(now - t) > 300) return false;
   
   // 2. Constant-time HMAC-SHA256
   const data = \`\${t}.\${nonce}.\${JSON.stringify(req.body)}\`;
   const hmac = crypto.createHmac('sha256', secret)
     .update(data).digest('hex');
     
-  return crypto.timingSafeEqual(
-    Buffer.from(v1), Buffer.from(hmac)
-  );
+  const b1 = Buffer.from(v1, 'hex');
+  const b2 = Buffer.from(hmac, 'hex');
+  if (b1.length !== b2.length) return false;
+  if (!crypto.timingSafeEqual(b1, b2)) return false;
+  
+  // 3. Record nonce after verification
+  if (seenNonces.has(nonce)) return false;
+  seenNonces.add(nonce);
+  return true;
 }`}</pre>
                 </div>
 
@@ -1037,7 +1136,12 @@ function verifyStormSale(req, secret) {
           MODAL: REGISTER / EDIT ENDPOINT
          ========================================================================= */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="endpoint-modal-title"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1045,7 +1149,10 @@ function verifyStormSale(req, secret) {
           >
             <div className="flex justify-between items-center">
               <div>
-                <h3 className="text-2xl font-black text-zinc-900 dark:text-white">
+                <h3
+                  id="endpoint-modal-title"
+                  className="text-2xl font-black text-zinc-900 dark:text-white"
+                >
                   {editingEndpointId ? "Edit Webhook Endpoint" : "Register Webhook Endpoint"}
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
@@ -1055,6 +1162,7 @@ function verifyStormSale(req, secret) {
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-white"
+                aria-label="Close"
               >
                 ✕
               </button>
@@ -1133,6 +1241,7 @@ function verifyStormSale(req, secret) {
                   onChange={(e) => setSimulationMode(e.target.value as SimulationMode)}
                   className="w-full h-11 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs font-semibold px-3 text-zinc-900 dark:text-zinc-100"
                 >
+                  <option value="live">Live HTTP Request (Real network dispatch)</option>
                   <option value="mock_200">Simulate 200 OK (Instant verified CRM receipt)</option>
                   <option value="mock_flaky">
                     Simulate 503 Flaky (Fails twice with 503, then recovers on retry)
@@ -1140,7 +1249,6 @@ function verifyStormSale(req, secret) {
                   <option value="mock_500">
                     Simulate 500 Server Error (Demonstrate retry exhaustion)
                   </option>
-                  <option value="live">Live HTTP Request (Real network dispatch)</option>
                 </select>
               </div>
 
@@ -1209,7 +1317,12 @@ function verifyStormSale(req, secret) {
           MODAL: INSPECT DELIVERY LOGS (Acceptance Criteria 2: HTTP status codes & logs)
          ========================================================================= */}
       {selectedDelivery && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delivery-inspector-title"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -1223,7 +1336,10 @@ function verifyStormSale(req, secret) {
                   </span>
                   <span className="text-xs text-zinc-400 font-mono">ID: {selectedDelivery.id}</span>
                 </div>
-                <h3 className="text-xl font-black text-zinc-900 dark:text-white">
+                <h3
+                  id="delivery-inspector-title"
+                  className="text-xl font-black text-zinc-900 dark:text-white"
+                >
                   Delivery Log Audit Inspector
                 </h3>
                 <p className="text-xs text-zinc-500 font-mono mt-0.5">{selectedDelivery.url}</p>
@@ -1231,6 +1347,7 @@ function verifyStormSale(req, secret) {
               <button
                 onClick={() => setSelectedDelivery(null)}
                 className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-white"
+                aria-label="Close"
               >
                 ✕
               </button>
@@ -1242,7 +1359,7 @@ function verifyStormSale(req, secret) {
                 Cryptographic Header: X-StormSale-Signature
               </span>
               <p className="font-mono text-xs text-indigo-600 dark:text-indigo-400 break-all select-all">
-                {selectedDelivery.signatureHeader}
+                {selectedDelivery.signatureHeader || "Generated on dispatch attempt"}
               </p>
             </div>
 

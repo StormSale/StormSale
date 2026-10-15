@@ -85,11 +85,7 @@ export const LogSaleForm = () => {
 
       // Automated Conversion Postback Dispatch
       try {
-        const postbackTxHash =
-          tx?.hash ||
-          `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("")}`;
+        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
 
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
@@ -100,7 +96,7 @@ export const LogSaleForm = () => {
           currency: "XLM",
           stellarTxHash: postbackTxHash,
           ledgerTimestamp: new Date().toISOString(),
-          customerRef: customerData || "Anonymous Customer",
+          customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
           status: "CONFIRMED_ON_LEDGER",
         });
 
@@ -113,6 +109,12 @@ export const LogSaleForm = () => {
         }
       } catch (webhookErr) {
         console.warn("Conversion postback warning:", webhookErr);
+        showNotification({
+          type: "warning",
+          title: "Postback Notice",
+          message:
+            "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
+        });
       }
 
       showNotification({

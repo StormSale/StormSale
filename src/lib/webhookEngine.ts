@@ -11,44 +11,89 @@ import { generateWebhookSecret, generateWebhookSignature } from "./webhookSecuri
 const STORAGE_ENDPOINTS_KEY = "stormsale_webhook_endpoints_v1";
 const STORAGE_DELIVERIES_KEY = "stormsale_webhook_deliveries_v1";
 
-// Default seed endpoints so merchants immediately have interactive endpoints to test
-export const DEFAULT_WEBHOOK_ENDPOINTS: WebhookEndpoint[] = [
-  {
-    id: "wh_crm_hubspot",
-    name: "HubSpot Enterprise CRM",
-    url: "https://api.crm.stormsale-demo.org/v1/conversions",
-    secret: "whsec_8f9a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e",
-    events: ["conversion.confirmed", "payout.claimed"],
-    isActive: true,
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    description: "Production CRM ingestion endpoint for affiliate sale attribute tracking",
-    simulationMode: "mock_200",
-    failureCount: 0,
-    totalDeliveries: 12,
-    lastDeliveryStatus: "delivered",
-    lastDeliveryAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    id: "wh_retry_queue_demo",
-    name: "Billing Ingestion Gateway (Flaky Endpoint Demo)",
-    url: "https://billing-webhook.stormsale-demo.org/postbacks",
-    secret: "whsec_11223344556677889900aabbccddeeff0011223344556677",
-    events: ["conversion.confirmed", "commission.escrowed"],
-    isActive: true,
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    description:
-      "Simulates transient 503 service unavailable to demonstrate automated exponential backoff",
-    simulationMode: "mock_flaky",
-    failureCount: 2,
-    totalDeliveries: 8,
-    lastDeliveryStatus: "retrying",
-    lastDeliveryAt: new Date(Date.now() - 120000).toISOString(),
-  },
-];
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Generate default seed endpoints dynamically without hardcoded secrets
+ */
+export function createDefaultWebhookEndpoints(): WebhookEndpoint[] {
+  return [
+    {
+      id: "wh_crm_hubspot",
+      name: "HubSpot Enterprise CRM (Demo)",
+      url: "https://api.crm.stormsale-demo.org/v1/conversions",
+      secret: generateWebhookSecret(),
+      events: ["conversion.confirmed", "payout.claimed"],
+      isActive: true,
+      createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+      description: "Production CRM ingestion endpoint for affiliate sale attribute tracking",
+      simulationMode: "mock_200",
+      failureCount: 0,
+      totalDeliveries: 12,
+      lastDeliveryStatus: "delivered",
+      lastDeliveryAt: new Date(Date.now() - 3600000).toISOString(),
+    },
+    {
+      id: "wh_retry_queue_demo",
+      name: "Billing Ingestion Gateway (Flaky Retry Demo)",
+      url: "https://billing-webhook.stormsale-demo.org/postbacks",
+      secret: generateWebhookSecret(),
+      events: ["conversion.confirmed", "commission.escrowed"],
+      isActive: true,
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      description:
+        "Simulates transient 503 service unavailable to demonstrate automated exponential backoff",
+      simulationMode: "mock_flaky",
+      failureCount: 2,
+      totalDeliveries: 8,
+      lastDeliveryStatus: "retrying",
+      lastDeliveryAt: new Date(Date.now() - 120000).toISOString(),
+    },
+  ];
+}
 
 // In-memory cache for SSR, Node testing, and active runtime
-let memoryEndpoints: WebhookEndpoint[] = [...DEFAULT_WEBHOOK_ENDPOINTS];
+let memoryEndpoints: WebhookEndpoint[] | null = null;
 let memoryDeliveries: WebhookDelivery[] = [];
+
+// Track in-flight deliveries and retry timers to prevent overlapping dispatches
+const inFlightDeliveries = new Set<string>();
+const pendingRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Clear a scheduled retry timer for a delivery
+ */
+export function clearPendingRetryTimer(deliveryId: string): void {
+  const timer = pendingRetryTimers.get(deliveryId);
+  if (timer) {
+    clearTimeout(timer);
+    pendingRetryTimers.delete(deliveryId);
+  }
+}
+
+/**
+ * Reset memory store (useful for unit tests)
+ */
+export function resetWebhookEngineStore(): void {
+  for (const timer of pendingRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  pendingRetryTimers.clear();
+  inFlightDeliveries.clear();
+  memoryEndpoints = null;
+  memoryDeliveries = [];
+}
 
 /**
  * Get registered endpoints from storage or default fallback
@@ -57,15 +102,20 @@ export function getRegisteredEndpoints(): WebhookEndpoint[] {
   if (typeof window !== "undefined" && window.localStorage) {
     const raw = localStorage.getItem(STORAGE_ENDPOINTS_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_ENDPOINTS_KEY, JSON.stringify(DEFAULT_WEBHOOK_ENDPOINTS));
-      memoryEndpoints = [...DEFAULT_WEBHOOK_ENDPOINTS];
+      const defaults = createDefaultWebhookEndpoints();
+      localStorage.setItem(STORAGE_ENDPOINTS_KEY, JSON.stringify(defaults));
+      memoryEndpoints = defaults;
     } else {
       try {
         memoryEndpoints = JSON.parse(raw);
       } catch {
-        memoryEndpoints = [...DEFAULT_WEBHOOK_ENDPOINTS];
+        memoryEndpoints = createDefaultWebhookEndpoints();
       }
     }
+  }
+
+  if (!memoryEndpoints) {
+    memoryEndpoints = createDefaultWebhookEndpoints();
   }
   return memoryEndpoints;
 }
@@ -158,6 +208,11 @@ export function saveWebhookDelivery(delivery: WebhookDelivery): WebhookDelivery[
  * Clear all delivery logs from storage
  */
 export function clearWebhookDeliveries(): void {
+  for (const timer of pendingRetryTimers.values()) {
+    clearTimeout(timer);
+  }
+  pendingRetryTimers.clear();
+  inFlightDeliveries.clear();
   memoryDeliveries = [];
   if (typeof window !== "undefined" && window.localStorage) {
     localStorage.removeItem(STORAGE_DELIVERIES_KEY);
@@ -167,11 +222,6 @@ export function clearWebhookDeliveries(): void {
 /**
  * Calculate Exponential Backoff Delay in milliseconds
  * Delay = min(baseDelayMs * 2^(attemptNumber - 1), maxDelayMs)
- * E.g., for baseDelay = 2000:
- * Attempt 1: 2,000 ms (2s)
- * Attempt 2: 4,000 ms (4s)
- * Attempt 3: 8,000 ms (8s)
- * Attempt 4: 16,000 ms (16s)
  */
 export function calculateBackoffDelayMs(
   attemptNumber: number,
@@ -184,7 +234,7 @@ export function calculateBackoffDelayMs(
 }
 
 /**
- * Create a new delivery record with HMAC-SHA256 signature
+ * Create a new delivery record
  */
 export async function createDeliveryRecord(
   endpoint: WebhookEndpoint,
@@ -192,13 +242,8 @@ export async function createDeliveryRecord(
   payload: Record<string, unknown>,
   maxRetries = 4,
 ): Promise<WebhookDelivery> {
-  const deliveryId = `del_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const deliveryId = `del_${generateUUID()}`;
   const now = new Date().toISOString();
-
-  const { signatureHeader } = await generateWebhookSignature({
-    payload,
-    secret: endpoint.secret,
-  });
 
   const delivery: WebhookDelivery = {
     id: deliveryId,
@@ -214,7 +259,7 @@ export async function createDeliveryRecord(
     updatedAt: now,
     payload,
     logs: [],
-    signatureHeader,
+    signatureHeader: "",
   };
 
   saveWebhookDelivery(delivery);
@@ -227,11 +272,13 @@ export interface DispatchExecutionResult {
   statusText: string;
   responseBody: string;
   durationMs: number;
+  signatureHeader: string;
   error?: string;
 }
 
 /**
  * Execute HTTP POST or simulated HTTP response
+ * Fresh HMAC signature is generated dynamically for each attempt
  */
 export async function executeHttpDispatch(
   delivery: WebhookDelivery,
@@ -239,6 +286,13 @@ export async function executeHttpDispatch(
 ): Promise<DispatchExecutionResult> {
   const startTime = Date.now();
   const mode: SimulationMode = endpoint?.simulationMode || "live";
+  const secret = endpoint?.secret || generateWebhookSecret();
+
+  // Generate fresh HMAC signature with current attempt timestamp
+  const { signatureHeader, timestamp } = await generateWebhookSignature({
+    payload: delivery.payload,
+    secret,
+  });
 
   // Simulation handlers for demonstration and sandbox evaluation
   if (mode === "mock_200") {
@@ -247,6 +301,7 @@ export async function executeHttpDispatch(
       success: true,
       httpStatusCode: 200,
       statusText: "OK",
+      signatureHeader,
       responseBody: JSON.stringify({
         status: "success",
         received_at: new Date().toISOString(),
@@ -263,6 +318,7 @@ export async function executeHttpDispatch(
       success: false,
       httpStatusCode: 500,
       statusText: "Internal Server Error",
+      signatureHeader,
       responseBody: JSON.stringify({
         error: "CRM Database connection pool exhausted",
         code: "ERR_DB_TIMEOUT",
@@ -279,6 +335,7 @@ export async function executeHttpDispatch(
       success: false,
       httpStatusCode: 503,
       statusText: "Service Unavailable",
+      signatureHeader,
       responseBody: JSON.stringify({
         error: "CRM Ingestion API is currently under maintenance",
         retry_after: 30,
@@ -290,13 +347,13 @@ export async function executeHttpDispatch(
 
   if (mode === "mock_flaky") {
     await new Promise((r) => setTimeout(r, 50));
-    // Fails on attempt 1 & 2 with 503, then successfully processes on attempt 3+
     const attempt = delivery.attempts + 1;
     if (attempt < 3) {
       return {
         success: false,
         httpStatusCode: 503,
         statusText: "Service Unavailable (Transient)",
+        signatureHeader,
         responseBody: JSON.stringify({
           error: `Transient backend queue lock (attempt ${attempt} of 3 before recovery)`,
           retry_in_progress: true,
@@ -309,6 +366,7 @@ export async function executeHttpDispatch(
         success: true,
         httpStatusCode: 200,
         statusText: "OK (Recovered)",
+        signatureHeader,
         responseBody: JSON.stringify({
           status: "success",
           message: "CRM Recovered! Postback processed after exponential retry backoff.",
@@ -321,17 +379,17 @@ export async function executeHttpDispatch(
   }
 
   // Real HTTP dispatch
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
 
+  try {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       "User-Agent": "StormSale-Conversion-Webhook-Engine/1.0",
-      "X-StormSale-Signature": delivery.signatureHeader,
+      "X-StormSale-Signature": signatureHeader,
       "X-StormSale-Event": delivery.event,
       "X-StormSale-Delivery-Id": delivery.id,
-      "X-StormSale-Timestamp": Math.floor(Date.now() / 1000).toString(),
+      "X-StormSale-Timestamp": timestamp.toString(),
     };
 
     const res = await fetch(delivery.url, {
@@ -341,14 +399,14 @@ export async function executeHttpDispatch(
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-    const durationMs = Date.now() - startTime;
     const responseText = await res.text();
+    const durationMs = Date.now() - startTime;
 
     return {
       success: res.ok,
       httpStatusCode: res.status,
       statusText: res.statusText || (res.ok ? "OK" : "Error"),
+      signatureHeader,
       responseBody: responseText.slice(0, 1000),
       durationMs,
       error: res.ok ? undefined : `HTTP ${res.status}: ${res.statusText}`,
@@ -358,8 +416,9 @@ export async function executeHttpDispatch(
     const message = err instanceof Error ? err.message : "Network dispatch failure";
     return {
       success: false,
-      httpStatusCode: 0, // Network failure / CORS block
+      httpStatusCode: 0,
       statusText: "Network/Connection Failure",
+      signatureHeader,
       responseBody: JSON.stringify({
         error: message,
         hint: "Target host refused connection or CORS policy prevented browser dispatch.",
@@ -367,112 +426,128 @@ export async function executeHttpDispatch(
       durationMs,
       error: message,
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
 /**
- * Dispatch a single delivery through the retry queue
+ * Dispatch a single delivery through the retry queue with race-condition prevention
  */
 export async function dispatchDelivery(
   deliveryId: string,
   endpoints?: WebhookEndpoint[],
 ): Promise<WebhookDelivery | null> {
+  // Clear any scheduled retry timer for this delivery
+  clearPendingRetryTimer(deliveryId);
+
+  // Prevent concurrent in-flight dispatches for the exact same delivery
+  if (inFlightDeliveries.has(deliveryId)) {
+    return getWebhookDeliveries().find((d) => d.id === deliveryId) || null;
+  }
+
   const deliveries = getWebhookDeliveries();
   const delivery = deliveries.find((d) => d.id === deliveryId);
   if (!delivery) return null;
 
-  const allEndpoints = endpoints || getRegisteredEndpoints();
-  const endpoint = allEndpoints.find((ep) => ep.id === delivery.webhookId);
-
   // Mark status as delivering
+  inFlightDeliveries.add(deliveryId);
   delivery.status = "delivering";
   delivery.updatedAt = new Date().toISOString();
   saveWebhookDelivery(delivery);
 
-  // Execute dispatch
-  const result = await executeHttpDispatch(delivery, endpoint);
-  const now = new Date().toISOString();
-  const newAttemptNumber = delivery.attempts + 1;
+  const allEndpoints = endpoints || getRegisteredEndpoints();
+  const endpoint = allEndpoints.find((ep) => ep.id === delivery.webhookId);
 
-  const attemptLog: WebhookDeliveryAttempt = {
-    attemptNumber: newAttemptNumber,
-    timestamp: now,
-    httpStatusCode: result.httpStatusCode,
-    statusText: result.statusText,
-    durationMs: result.durationMs,
-    requestHeaders: {
-      "Content-Type": "application/json",
-      "X-StormSale-Signature": delivery.signatureHeader,
-      "X-StormSale-Event": delivery.event,
-      "X-StormSale-Delivery-Id": delivery.id,
-    },
-    requestPayload: delivery.payload,
-    responseBody: result.responseBody,
-    error: result.error,
-  };
+  try {
+    const result = await executeHttpDispatch(delivery, endpoint);
+    const now = new Date().toISOString();
+    const newAttemptNumber = delivery.attempts + 1;
 
-  delivery.attempts = newAttemptNumber;
-  delivery.logs = [...delivery.logs, attemptLog];
-  delivery.updatedAt = now;
+    delivery.signatureHeader = result.signatureHeader;
 
-  if (result.success) {
-    delivery.status = "delivered";
-    delivery.nextRetryAt = null;
+    const attemptLog: WebhookDeliveryAttempt = {
+      attemptNumber: newAttemptNumber,
+      timestamp: now,
+      httpStatusCode: result.httpStatusCode,
+      statusText: result.statusText,
+      durationMs: result.durationMs,
+      requestHeaders: {
+        "Content-Type": "application/json",
+        "X-StormSale-Signature": result.signatureHeader,
+        "X-StormSale-Event": delivery.event,
+        "X-StormSale-Delivery-Id": delivery.id,
+      },
+      requestPayload: delivery.payload,
+      responseBody: result.responseBody,
+      error: result.error,
+    };
 
-    // Update endpoint stats if endpoint exists
-    if (endpoint) {
-      saveWebhookEndpoint({
-        ...endpoint,
-        totalDeliveries: endpoint.totalDeliveries + 1,
-        lastDeliveryStatus: "delivered",
-        lastDeliveryAt: now,
-      });
-    }
-  } else {
-    // Retry check
-    if (delivery.attempts < delivery.maxRetries) {
-      const backoffMs = calculateBackoffDelayMs(delivery.attempts);
-      const nextRetryDate = new Date(Date.now() + backoffMs);
+    delivery.attempts = newAttemptNumber;
+    delivery.logs = [...delivery.logs, attemptLog];
+    delivery.updatedAt = now;
 
-      delivery.status = "retrying";
-      delivery.nextRetryAt = nextRetryDate.toISOString();
-
-      if (endpoint) {
-        saveWebhookEndpoint({
-          ...endpoint,
-          failureCount: endpoint.failureCount + 1,
-          lastDeliveryStatus: "retrying",
-          lastDeliveryAt: now,
-        });
-      }
-
-      // Schedule automated background retry
-      if (typeof window !== "undefined") {
-        setTimeout(() => {
-          // Check if still in retrying state before triggering
-          const current = getWebhookDeliveries().find((d) => d.id === deliveryId);
-          if (current && current.status === "retrying") {
-            dispatchDelivery(deliveryId);
-          }
-        }, backoffMs);
-      }
-    } else {
-      delivery.status = "failed";
+    if (result.success) {
+      delivery.status = "delivered";
       delivery.nextRetryAt = null;
 
       if (endpoint) {
         saveWebhookEndpoint({
           ...endpoint,
-          failureCount: endpoint.failureCount + 1,
-          lastDeliveryStatus: "failed",
+          totalDeliveries: endpoint.totalDeliveries + 1,
+          lastDeliveryStatus: "delivered",
           lastDeliveryAt: now,
         });
       }
-    }
-  }
+    } else {
+      if (delivery.attempts < delivery.maxRetries) {
+        const backoffMs = calculateBackoffDelayMs(delivery.attempts);
+        const nextRetryDate = new Date(Date.now() + backoffMs);
 
-  saveWebhookDelivery(delivery);
-  return delivery;
+        delivery.status = "retrying";
+        delivery.nextRetryAt = nextRetryDate.toISOString();
+
+        if (endpoint) {
+          saveWebhookEndpoint({
+            ...endpoint,
+            failureCount: endpoint.failureCount + 1,
+            lastDeliveryStatus: "retrying",
+            lastDeliveryAt: now,
+          });
+        }
+
+        // Schedule automated background retry tracking current attempt number
+        const currentAttempt = newAttemptNumber;
+        if (typeof window !== "undefined") {
+          const timerId = setTimeout(() => {
+            pendingRetryTimers.delete(deliveryId);
+            const current = getWebhookDeliveries().find((d) => d.id === deliveryId);
+            if (current && current.status === "retrying" && current.attempts === currentAttempt) {
+              dispatchDelivery(deliveryId);
+            }
+          }, backoffMs);
+          pendingRetryTimers.set(deliveryId, timerId);
+        }
+      } else {
+        delivery.status = "failed";
+        delivery.nextRetryAt = null;
+
+        if (endpoint) {
+          saveWebhookEndpoint({
+            ...endpoint,
+            failureCount: endpoint.failureCount + 1,
+            lastDeliveryStatus: "failed",
+            lastDeliveryAt: now,
+          });
+        }
+      }
+    }
+
+    saveWebhookDelivery(delivery);
+    return delivery;
+  } finally {
+    inFlightDeliveries.delete(deliveryId);
+  }
 }
 
 /**
@@ -487,7 +562,7 @@ export async function triggerConversionPostback(
 
   const payload: Record<string, unknown> = {
     event: "conversion.confirmed",
-    event_id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+    event_id: `evt_${generateUUID()}`,
     timestamp: new Date().toISOString(),
     protocol: "StormSale Stellar Escrow Protocol",
     data: {
@@ -530,7 +605,7 @@ export async function dispatchTestDummyPayload(
 
   const dummyPayload: Record<string, unknown> = {
     event: eventType,
-    event_id: `test_evt_${Date.now()}`,
+    event_id: `test_evt_${generateUUID()}`,
     timestamp: new Date().toISOString(),
     is_test_event: true,
     protocol: "StormSale Stellar Escrow Protocol",
@@ -541,11 +616,9 @@ export async function dispatchTestDummyPayload(
       advertiser_address: "GADVERTISER888DEMOWALLET9999STORMTESTNET1234567890",
       amount: "250.00",
       currency: "XLM",
-      stellar_tx_hash: `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("")}`,
+      stellar_tx_hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
       ledger_timestamp: new Date().toISOString(),
-      customer_ref: "Dummy CRM Test Customer #42",
+      customer_ref: "CUST_TEST_REF_42",
       status: "CONFIRMED_ON_LEDGER",
     },
   };
@@ -558,6 +631,8 @@ export async function dispatchTestDummyPayload(
  * Manually trigger immediate retry of a delivery
  */
 export async function retryDeliveryNow(deliveryId: string): Promise<WebhookDelivery | null> {
+  clearPendingRetryTimer(deliveryId);
+
   const deliveries = getWebhookDeliveries();
   const delivery = deliveries.find((d) => d.id === deliveryId);
   if (!delivery) return null;
