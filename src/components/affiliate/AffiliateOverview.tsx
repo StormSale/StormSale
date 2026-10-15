@@ -6,9 +6,22 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import {
+  TrendingUp,
+  Users,
+  DollarSign,
+  Target,
+  Zap,
+  ArrowRight,
+  CheckCircle2,
+  Link2,
+} from "lucide-react";
 
-export const AffiliateOverview = () => {
+interface AffiliateOverviewProps {
+  onNavigate?: (tab: string) => void;
+}
+
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
   const stats = [
     {
       title: "Total Earnings",
@@ -211,19 +224,28 @@ export const AffiliateOverview = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {[
               {
+                id: "custom-links",
+                label: "Custom Short Links",
+                description: "Branded cloaked URLs",
+                icon: Link2,
+              },
+              {
+                id: "join-campaign",
                 label: "Join New Campaign",
                 description: "Discover high-paying campaigns",
                 icon: Users,
               },
               {
+                id: "performance",
                 label: "Track Performance",
                 description: "View analytics and insights",
                 icon: TrendingUp,
               },
               {
+                id: "claim-payouts",
                 label: "Withdraw Earnings",
                 description: "Claim your commissions",
                 icon: DollarSign,
@@ -234,6 +256,7 @@ export const AffiliateOverview = () => {
                 <Button
                   key={index}
                   variant="outline"
+                  onClick={() => onNavigate?.(action.id)}
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

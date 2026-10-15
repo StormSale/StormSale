@@ -10,6 +10,7 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,6 +57,14 @@ class ErrorBoundary extends React.Component<
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+
+  // Check if current route is a custom short-link path e.g. /c/:slug
+  const isShortLinkRoute =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
+
+  if (isShortLinkRoute) {
+    return <ShortLinkRedirect />;
+  }
 
   return (
     <>

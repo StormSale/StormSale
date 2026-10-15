@@ -4,7 +4,16 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
-import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
+import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
+import {
+  Users,
+  TrendingUp,
+  DollarSign,
+  BarChart3,
+  Shield,
+  LayoutDashboard,
+  Link2,
+} from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -17,6 +26,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -26,6 +36,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "custom-links":
+        return <CustomLinksManager />;
       case "join-campaign":
         return <JoinCampaignButton />;
       case "my-sales":
@@ -33,9 +45,9 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
       case "claim-payouts":
         return <ClaimPayouts />;
       case "overview":
-        return <AffiliateOverview />;
+        return <AffiliateOverview onNavigate={setActiveTab} />;
       default:
-        return <AffiliateOverview />;
+        return <AffiliateOverview onNavigate={setActiveTab} />;
     }
   };
 
