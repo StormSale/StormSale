@@ -21,8 +21,8 @@ describe("Passkey & WebAuthn Smart Signer (#128)", () => {
 
   describe("Deterministic Stellar Address Derivation", () => {
     it("should derive a valid Stellar G... public key from a passkey public key", () => {
-      const dummyKeyBase64 = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1234567890abcdef";
-      const address = deriveStellarAddressFromPasskey(dummyKeyBase64);
+      const mockKeyData = bufferToBase64Url(new Uint8Array(32).fill(7).buffer);
+      const address = deriveStellarAddressFromPasskey(mockKeyData);
 
       expect(address).toBeDefined();
       expect(address.startsWith("G")).toBe(true);
@@ -30,9 +30,9 @@ describe("Passkey & WebAuthn Smart Signer (#128)", () => {
     });
 
     it("should generate the same address for the same passkey public key", () => {
-      const key = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEdeterministic1234";
-      const addr1 = deriveStellarAddressFromPasskey(key);
-      const addr2 = deriveStellarAddressFromPasskey(key);
+      const mockDeterministicData = bufferToBase64Url(new Uint8Array(32).fill(42).buffer);
+      const addr1 = deriveStellarAddressFromPasskey(mockDeterministicData);
+      const addr2 = deriveStellarAddressFromPasskey(mockDeterministicData);
 
       expect(addr1).toBe(addr2);
     });
