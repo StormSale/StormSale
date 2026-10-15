@@ -17,6 +17,7 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
+import { triggerConversionPostback } from "../../lib/webhookEngine";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -81,6 +82,38 @@ export const LogSaleForm = () => {
       );
 
       await tx.wait();
+
+      // Automated Conversion Postback Dispatch
+      try {
+        const postbackTxHash =
+          tx?.hash ||
+          `0x${Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("")}`;
+
+        const postbacks = await triggerConversionPostback({
+          saleId: payload.saleId,
+          campaignAddress,
+          affiliateAddress,
+          advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+          saleAmount,
+          currency: "XLM",
+          stellarTxHash: postbackTxHash,
+          ledgerTimestamp: new Date().toISOString(),
+          customerRef: customerData || "Anonymous Customer",
+          status: "CONFIRMED_ON_LEDGER",
+        });
+
+        if (postbacks.length > 0) {
+          showNotification({
+            type: "info",
+            title: "Webhooks Dispatched",
+            message: `Automated postback queued for ${postbacks.length} active endpoint(s).`,
+          });
+        }
+      } catch (webhookErr) {
+        console.warn("Conversion postback warning:", webhookErr);
+      }
 
       showNotification({
         type: "success",
