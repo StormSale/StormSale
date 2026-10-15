@@ -2,21 +2,8 @@ import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../ui/table";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import {
   Zap,
   Clock,
@@ -94,9 +81,7 @@ export const ClaimPayouts = () => {
 
       // Mark claimed campaigns
       setCampaigns((prev) =>
-        prev.map((c) =>
-          selectedIds.includes(c.campaignId) ? { ...c, status: "claimed" } : c,
-        ),
+        prev.map((c) => (selectedIds.includes(c.campaignId) ? { ...c, status: "claimed" } : c)),
       );
       setSelectedIds([]);
 
@@ -179,9 +164,9 @@ export const ClaimPayouts = () => {
             </h3>
 
             <p className="text-sm text-zinc-300 leading-relaxed">
-              Bundle multiple <code className="font-mono text-indigo-300">claim_payout</code> Soroban
-              contract calls into a single Stellar transaction. Sign once and withdraw all eligible XLM
-              directly to your wallet without separate prompts.
+              Bundle multiple <code className="font-mono text-indigo-300">claim_payout</code>{" "}
+              Soroban contract calls into a single Stellar transaction. Sign once and withdraw all
+              eligible XLM directly to your wallet without separate prompts.
             </p>
 
             <div className="flex flex-wrap items-center gap-4 pt-1 text-xs text-zinc-400">
@@ -211,7 +196,8 @@ export const ClaimPayouts = () => {
                 <span className="text-lg font-bold text-indigo-400">XLM</span>
               </div>
               <div className="text-[11px] text-zinc-400 mt-0.5">
-                {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""} Selected
+                {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
+                Selected
               </div>
             </div>
 
@@ -230,7 +216,8 @@ export const ClaimPayouts = () => {
                 <>
                   <Zap className="w-4 h-4 mr-2" />
                   <span>
-                    Claim All ({selectedCampaigns.length} Campaigns) • {totalWithdrawableXlm.toFixed(2)} XLM
+                    Claim All ({selectedCampaigns.length} Campaigns) •{" "}
+                    {totalWithdrawableXlm.toFixed(2)} XLM
                   </span>
                 </>
               )}

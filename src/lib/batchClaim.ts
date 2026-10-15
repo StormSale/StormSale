@@ -8,11 +8,7 @@ import {
   BASE_FEE,
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG } from "../config/stellar";
-import {
-  signWalletTransaction,
-  getSorobanRpcServer,
-  type WalletType,
-} from "./stellar";
+import { signWalletTransaction, getSorobanRpcServer, type WalletType } from "./stellar";
 
 export interface ClaimableCampaignItem {
   campaignId: number;
@@ -81,9 +77,7 @@ export async function fetchAffiliateMaturedClaims(
 /**
  * Calculates total withdrawable XLM balance across an array of matured claim items.
  */
-export function calculateTotalClaimableXlm(
-  items: ClaimableCampaignItem[],
-): number {
+export function calculateTotalClaimableXlm(items: ClaimableCampaignItem[]): number {
   const sum = items.reduce((acc, item) => acc + item.claimableXlm, 0);
   return Math.round(sum * 100) / 100;
 }
@@ -118,10 +112,7 @@ export async function executeBatchCommissionClaim(
     (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)
   ) {
     const mockHash =
-      "0x" +
-      Array.from({ length: 64 }, () =>
-        Math.floor(Math.random() * 16).toString(16),
-      ).join("");
+      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
     return {
       success: true,
@@ -142,10 +133,7 @@ export async function executeBatchCommissionClaim(
   } catch (err: any) {
     // If account unfunded on testnet, fallback to mock hash for demonstration
     const fallbackHash =
-      "tx_batch_" +
-      Date.now().toString(16) +
-      "_" +
-      Math.random().toString(16).slice(2, 8);
+      "tx_batch_" + Date.now().toString(16) + "_" + Math.random().toString(16).slice(2, 8);
     return {
       success: true,
       txHash: fallbackHash,
@@ -179,10 +167,7 @@ export async function executeBatchCommissionClaim(
     if (!rpc.Api.isSimulationError(simResponse)) {
       const preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
       const signedXdr = await signWalletTransaction(preparedTx.toXDR(), walletType);
-      const signedTx = TransactionBuilder.fromXDR(
-        signedXdr,
-        STELLAR_CONFIG.networkPassphrase,
-      );
+      const signedTx = TransactionBuilder.fromXDR(signedXdr, STELLAR_CONFIG.networkPassphrase);
 
       const sendResponse = await server.sendTransaction(signedTx);
       const txHash = sendResponse.hash || "0xbatch_confirmed";
@@ -201,10 +186,7 @@ export async function executeBatchCommissionClaim(
 
   // Fallback return if RPC is offline
   const txHash =
-    "0x" +
-    Array.from({ length: 64 }, () =>
-      Math.floor(Math.random() * 16).toString(16),
-    ).join("");
+    "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
   return {
     success: true,

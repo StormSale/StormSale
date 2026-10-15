@@ -56,9 +56,7 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
-  batchClaimPayoutsOnChain: (
-    campaigns: ClaimableCampaignItem[],
-  ) => Promise<BatchClaimReceipt>;
+  batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
@@ -132,19 +130,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = await connectXbullWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
-        const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } = await import(
-          "../lib/ledgerBridge"
-        );
+        const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
+          await import("../lib/ledgerBridge");
         const path = derivationPath || ledgerBipPath || DEFAULT_STELLAR_BIP_PATH;
         const info = await connectLedgerDevice(path);
         address = info.address;
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "passkey") {
-        const {
-          authenticateWithPasskey,
-          loadEncryptedPasskeyVault,
-          registerPasskey,
-        } = await import("../lib/passkeySigner");
+        const { authenticateWithPasskey, loadEncryptedPasskeyVault, registerPasskey } =
+          await import("../lib/passkeySigner");
         const vault = await loadEncryptedPasskeyVault();
         if (vault.length === 0) {
           const newRecord = await registerPasskey(customAddress || "Affiliate User");

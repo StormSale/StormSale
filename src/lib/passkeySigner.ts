@@ -55,20 +55,14 @@ async function deriveVaultKey(): Promise<CryptoKey> {
 /**
  * Encrypts and saves the passkey credentials vault to localStorage.
  */
-export async function saveEncryptedPasskeyVault(
-  records: PasskeyCredentialRecord[],
-): Promise<void> {
+export async function saveEncryptedPasskeyVault(records: PasskeyCredentialRecord[]): Promise<void> {
   if (typeof window === "undefined" || !window.crypto?.subtle) return;
   try {
     const key = await deriveVaultKey();
     const iv = window.crypto.getRandomValues(new Uint8Array(12));
     const plaintext = new TextEncoder().encode(JSON.stringify(records));
 
-    const ciphertext = await window.crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      plaintext,
-    );
+    const ciphertext = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
 
     const payload = {
       iv: Array.from(iv),
@@ -95,11 +89,7 @@ export async function loadEncryptedPasskeyVault(): Promise<PasskeyCredentialReco
     const iv = new Uint8Array(payload.iv);
     const data = new Uint8Array(payload.data);
 
-    const decrypted = await window.crypto.subtle.decrypt(
-      { name: "AES-GCM", iv },
-      key,
-      data,
-    );
+    const decrypted = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
 
     const json = new TextDecoder().decode(decrypted);
     return JSON.parse(json);
@@ -118,10 +108,7 @@ export function bufferToBase64Url(buffer: ArrayBuffer): string {
   for (let i = 0; i < bytes.byteLength; i++) {
     binary += String.fromCharCode(bytes[i]);
   }
-  return btoa(binary)
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 /**
@@ -163,8 +150,8 @@ export function isPasskeySupported(): boolean {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   return Boolean(
     window.PublicKeyCredential &&
-      typeof navigator.credentials?.create === "function" &&
-      typeof navigator.credentials?.get === "function",
+    typeof navigator.credentials?.create === "function" &&
+    typeof navigator.credentials?.get === "function",
   );
 }
 
@@ -269,9 +256,7 @@ export async function registerPasskey(
 /**
  * Authenticates user via biometric prompt (FaceID / Fingerprint) and signs transaction challenge.
  */
-export async function authenticateWithPasskey(
-  challengeBytes?: Uint8Array,
-): Promise<{
+export async function authenticateWithPasskey(challengeBytes?: Uint8Array): Promise<{
   record: PasskeyCredentialRecord;
   signatureData: WebAuthnAuthSignature;
 }> {
@@ -280,10 +265,7 @@ export async function authenticateWithPasskey(
 
   // Test runner or sandbox fallback
   if (!supported || (typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__)) {
-    const mockRecord =
-      vault.length > 0
-        ? vault[0]
-        : await registerPasskey("Demo Passkey User");
+    const mockRecord = vault.length > 0 ? vault[0] : await registerPasskey("Demo Passkey User");
 
     return {
       record: mockRecord,
@@ -295,8 +277,7 @@ export async function authenticateWithPasskey(
     };
   }
 
-  const challenge =
-    challengeBytes || window.crypto.getRandomValues(new Uint8Array(32));
+  const challenge = challengeBytes || window.crypto.getRandomValues(new Uint8Array(32));
 
   const allowList = vault.map((v) => ({
     type: "public-key" as const,
@@ -312,9 +293,7 @@ export async function authenticateWithPasskey(
     },
   };
 
-  const assertion = (await navigator.credentials.get(
-    getOptions,
-  )) as PublicKeyCredential | null;
+  const assertion = (await navigator.credentials.get(getOptions)) as PublicKeyCredential | null;
 
   if (!assertion) {
     throw new Error("Biometric Passkey authentication was cancelled.");

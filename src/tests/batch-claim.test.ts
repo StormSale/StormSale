@@ -51,7 +51,9 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
     });
 
     it("should fetch matured claims for an affiliate", async () => {
-      const data = await fetchAffiliateMaturedClaims("GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D");
+      const data = await fetchAffiliateMaturedClaims(
+        "GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
+      );
       expect(data.length).toBeGreaterThan(0);
       expect(data[0].status).toBe("matured");
     });

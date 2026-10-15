@@ -75,11 +75,7 @@ export function parseHexColor(hex: string): [number, number, number] {
  */
 export function calculateRelativeLuminance(hex: string): number {
   const [r, g, b] = parseHexColor(hex);
-  return (
-    0.2126 * sRgbLuminance(r) +
-    0.7152 * sRgbLuminance(g) +
-    0.0722 * sRgbLuminance(b)
-  );
+  return 0.2126 * sRgbLuminance(r) + 0.7152 * sRgbLuminance(g) + 0.0722 * sRgbLuminance(b);
 }
 
 /**
@@ -105,8 +101,7 @@ export function evaluateWcagCompliance(hexColor: string): WcagContrastResult {
   const ratioWithDark = calculateContrastRatio(hexColor, "#09090B");
 
   const bestRatio = Math.max(ratioWithWhite, ratioWithDark);
-  const recommendedTextColor =
-    ratioWithWhite >= ratioWithDark ? "#ffffff" : "#09090b";
+  const recommendedTextColor = ratioWithWhite >= ratioWithDark ? "#ffffff" : "#09090b";
 
   const passesAaNormalText = bestRatio >= 4.5;
   const passesAaLargeText = bestRatio >= 3.0;
@@ -157,10 +152,7 @@ const BRAND_STORAGE_PREFIX = "stormsale_advertiser_brand_";
 /**
  * Saves brand configuration for an advertiser or subdomain.
  */
-export function saveBrandConfig(
-  advertiserAddress: string,
-  config: AdvertiserBrandConfig,
-): void {
+export function saveBrandConfig(advertiserAddress: string, config: AdvertiserBrandConfig): void {
   if (typeof window === "undefined") return;
   const key = `${BRAND_STORAGE_PREFIX}${advertiserAddress.toLowerCase()}`;
   const subdomainKey = `${BRAND_STORAGE_PREFIX}subdomain_${config.subdomain.toLowerCase()}`;
@@ -173,9 +165,7 @@ export function saveBrandConfig(
 /**
  * Loads brand configuration by advertiser address or subdomain.
  */
-export function loadBrandConfig(
-  identifier?: string,
-): AdvertiserBrandConfig {
+export function loadBrandConfig(identifier?: string): AdvertiserBrandConfig {
   if (typeof window === "undefined") return DEFAULT_BRAND_CONFIG;
   if (!identifier) {
     const active = localStorage.getItem(`${BRAND_STORAGE_PREFIX}active`);
@@ -189,9 +179,7 @@ export function loadBrandConfig(
     return DEFAULT_BRAND_CONFIG;
   }
 
-  const byAddr = localStorage.getItem(
-    `${BRAND_STORAGE_PREFIX}${identifier.toLowerCase()}`,
-  );
+  const byAddr = localStorage.getItem(`${BRAND_STORAGE_PREFIX}${identifier.toLowerCase()}`);
   if (byAddr) {
     try {
       return JSON.parse(byAddr);

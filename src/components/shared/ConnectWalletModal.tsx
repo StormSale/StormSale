@@ -68,7 +68,8 @@ export const ConnectWalletModal: React.FC = () => {
     } catch (err: any) {
       console.error("Wallet connection error:", err);
       setErrorMessage(
-        err.message || "Failed to connect wallet. Please ensure your device is ready and try again.",
+        err.message ||
+          "Failed to connect wallet. Please ensure your device is ready and try again.",
       );
     } finally {
       setConnectingType(null);

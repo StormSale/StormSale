@@ -21,13 +21,7 @@ import {
 import { STELLAR_CONFIG } from "../config/stellar";
 
 export type WalletType =
-  | "freighter"
-  | "albedo"
-  | "xbull"
-  | "ledger"
-  | "passkey"
-  | "mock"
-  | "readonly";
+  "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
 
 export interface StellarAccountInfo {
   address: string;
@@ -545,11 +539,7 @@ export async function batchClaimPayoutsContractCall(
     status: "matured" as const,
   }));
   const { executeBatchCommissionClaim } = await import("./batchClaim");
-  const receipt = await executeBatchCommissionClaim(
-    affiliateAddress,
-    campaigns,
-    walletType,
-  );
+  const receipt = await executeBatchCommissionClaim(affiliateAddress, campaigns, walletType);
   return {
     success: receipt.success,
     txHash: receipt.txHash,

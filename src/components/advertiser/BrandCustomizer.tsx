@@ -136,7 +136,8 @@ export const BrandCustomizer: React.FC = () => {
             </h2>
           </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-1 font-medium text-sm">
-            Customize colors, banner graphics, and copy for your public campaign marketplace with dynamic subdomains.
+            Customize colors, banner graphics, and copy for your public campaign marketplace with
+            dynamic subdomains.
           </p>
         </div>
 
@@ -223,9 +224,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     value={config.brandName}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, brandName: e.target.value }))
-                    }
+                    onChange={(e) => setConfig((prev) => ({ ...prev, brandName: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -236,9 +235,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     value={config.tagline}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, tagline: e.target.value }))
-                    }
+                    onChange={(e) => setConfig((prev) => ({ ...prev, tagline: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -414,9 +411,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     value={config.logoUrl}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, logoUrl: e.target.value }))
-                    }
+                    onChange={(e) => setConfig((prev) => ({ ...prev, logoUrl: e.target.value }))}
                     className="flex-1 px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white"
                   />
                   <label className="cursor-pointer px-3 py-2 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-xs font-semibold rounded-xl text-zinc-700 dark:text-zinc-300 shrink-0 transition-colors">
@@ -444,9 +439,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     value={config.bannerUrl}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, bannerUrl: e.target.value }))
-                    }
+                    onChange={(e) => setConfig((prev) => ({ ...prev, bannerUrl: e.target.value }))}
                     className="flex-1 px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white"
                   />
                   <label className="cursor-pointer px-3 py-2 bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-xs font-semibold rounded-xl text-zinc-700 dark:text-zinc-300 shrink-0 transition-colors">
@@ -479,9 +472,7 @@ export const BrandCustomizer: React.FC = () => {
                 <input
                   type="text"
                   value={config.heroHeadline}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, heroHeadline: e.target.value }))
-                  }
+                  onChange={(e) => setConfig((prev) => ({ ...prev, heroHeadline: e.target.value }))}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white"
                 />
               </div>
@@ -493,9 +484,7 @@ export const BrandCustomizer: React.FC = () => {
                 <textarea
                   rows={2}
                   value={config.heroSubtitle}
-                  onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, heroSubtitle: e.target.value }))
-                  }
+                  onChange={(e) => setConfig((prev) => ({ ...prev, heroSubtitle: e.target.value }))}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white"
                 />
               </div>
@@ -508,9 +497,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     value={config.ctaText}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, ctaText: e.target.value }))
-                    }
+                    onChange={(e) => setConfig((prev) => ({ ...prev, ctaText: e.target.value }))}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-xl text-xs text-zinc-900 dark:text-white"
                   />
                 </div>

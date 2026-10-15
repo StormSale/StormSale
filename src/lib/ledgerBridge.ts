@@ -82,8 +82,7 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
   ) {
     return {
       code: "USER_REJECTED",
-      friendlyMessage:
-        "Transaction or connection request was declined on your Ledger device.",
+      friendlyMessage: "Transaction or connection request was declined on your Ledger device.",
       originalError: err,
     };
   }
@@ -98,8 +97,7 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
   ) {
     return {
       code: "APP_NOT_OPEN",
-      friendlyMessage:
-        "Please open the official Stellar application on your Ledger device.",
+      friendlyMessage: "Please open the official Stellar application on your Ledger device.",
       originalError: err,
     };
   }
@@ -126,8 +124,7 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
   // Generic fallback
   return {
     code: "UNKNOWN_LEDGER_ERROR",
-    friendlyMessage:
-      err?.message || "Failed to communicate with Ledger hardware wallet.",
+    friendlyMessage: err?.message || "Failed to communicate with Ledger hardware wallet.",
     originalError: err,
   };
 }
@@ -138,10 +135,7 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
 export async function isWebHIDSupported(): Promise<boolean> {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   try {
-    return (
-      "hid" in navigator &&
-      typeof (navigator as any).hid?.requestDevice === "function"
-    );
+    return "hid" in navigator && typeof (navigator as any).hid?.requestDevice === "function";
   } catch {
     return false;
   }
@@ -275,10 +269,7 @@ export async function signLedgerTransaction(
     const app = new StrApp(transport);
 
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
-    const signatureBuffer = await app.signTransaction(
-      normalizedPath,
-      tx.signatureBase(),
-    );
+    const signatureBuffer = await app.signTransaction(normalizedPath, tx.signatureBase());
 
     const pubKeyResult = await app.getPublicKey(normalizedPath, false);
     const publicKey = StrKey.encodeEd25519PublicKey(pubKeyResult.rawPublicKey);
