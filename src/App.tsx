@@ -10,6 +10,8 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { OfflineBanner } from "./components/OfflineBanner";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -81,8 +83,10 @@ function Router() {
 }
 
 function App() {
+  const isOnline = useOnlineStatus();
   return (
     <NotificationWrapper>
+      {!isOnline && <OfflineBanner />}
       <ErrorBoundary>
         <Web3Provider>
           <NotificationProvider>
