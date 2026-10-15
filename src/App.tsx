@@ -6,6 +6,8 @@ import { NotificationProvider, NotificationWrapper } from "./context/Notificatio
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { OfflineBanner } from "./components/OfflineBanner";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
@@ -163,6 +165,8 @@ function Router() {
 }
 
 function App() {
+  const isOnline = useOnlineStatus();
+
   useEffect(() => {
     initTelegramWebApp();
     const cleanup = syncTelegramTheme();
@@ -184,6 +188,7 @@ function App() {
 
   return (
     <NotificationWrapper>
+      {!isOnline && <OfflineBanner />}
       <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
         <Web3Provider>
           <WalletConnectProvider>
