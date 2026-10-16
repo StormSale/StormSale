@@ -18,13 +18,12 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v7
+      uses: actions/checkout@v4
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
-        allow-unsafe-pr-checkout: true
 
     - name: Setup Node.js
-      uses: actions/setup-node@v7
+      uses: actions/setup-node@v4
       with:
         node-version: 22
         cache: 'npm'
@@ -39,7 +38,7 @@ jobs:
       continue-on-error: true
 
     - name: Publish Test Audit Summary
-      uses: actions/github-script@v7
+      uses: actions/github-script@v2
       with:
         script: |
           const fs = require('fs');
@@ -94,6 +93,85 @@ jobs:
           } catch (err) {
             core.setFailed("Error processing test audit results: " + err.message);
           }
+
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps chromium
+
+    - name: Run Multi-Resolution Visual Regression
+      run: |
+        npx playwright test tests/e2e/visual-regression.spec.ts --reporter=json --output=public/playwright-results.json
+      continue-on-error: true
+
+    - name: Publish Visual Regression Summary
+      uses: actions/github-script@v2
+      with:
+        script: |
+          const fs = require('fs');
+          let summary = "### 🖼️ Multi-Resolution Visual Regression Audit\n\n";
+          summary += "Comparing **375px (Mobile)** vs **1440px (Desktop)** viewports.\n\n";
+          try {
+            if (!fs.existsSync('public/playwright-results.json')) {
+              core.setFailed("Playwright results file not found.");
+              return;
+            }
+            const results = JSON.parse(fs.readFileSync('public/playwright-results.json', 'utf8'));
+            const suites = results.suites || [];
+            let total = 0, passed = 0, failed = 0;
+            const rows = [];
+            const walk = (suite, prefix) => {
+              const name = prefix ? `${prefix} › ${suite.title}` : suite.title;
+              for (const spec of suite.specs || []) {
+                for (const test of spec.tests || []) {
+                  total++;
+                  const outcome = test.results && test.results[0] && test.results[0].status;
+                  if (outcome === 'passed') passed++;
+                  else failed++;
+                  rows.push(`| \`${name} › ${spec.title}\` | ${outcome === 'passed' ? '✅ Pass' : '❌ ' + outcome} |`);
+                }
+              }
+              for (const child of suite.suites || []) walk(child, name);
+            };
+            for (const s of suites) walk(s, '');
+
+            summary += `| Metric | Count | Status |\n`;
+            summary += `| :--- | :---: | :---: |\n`;
+            summary += `| **Total Visual Checks** | **${total}** | ${failed === 0 ? '✅ All Passed' : '❌ Diffs Detected'} |\n`;
+            summary += `| **Passed** | ${passed} | ✅ |\n`;
+            summary += `| **Failed / Diffed** | ${failed} | ${failed > 0 ? '❌' : '0'} |\n\n`;
+            if (rows.length) {
+              summary += `#### 📋 Viewport Comparison Breakdown\n`;
+              summary += `| Test | Result |\n`;
+              summary += `| :--- | :---: |\n`;
+              summary += rows.join('\n') + '\n\n';
+            }
+            summary += `> 📎 Diff artifacts (if any) are uploaded as the \`visual-regression-diffs\` workflow artifact.\n`;
+
+            await core.summary.addRaw(summary).write();
+            if (context.payload.pull_request) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: summary
+              });
+            }
+            if (failed > 0) {
+              core.setFailed(`Visual regression audit detected ${failed} diff(s).`);
+            }
+          } catch (err) {
+            core.setFailed("Error processing visual regression results: " + err.message);
+          }
+
+    - name: Upload Visual Regression Diffs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: visual-regression-diffs
+        path: |
+          tests/e2e/__screenshots__/
+          test-results/
+        if-no-files-found: ignore
+        retention-days: 14
 
     - name: Run Type Check & Build
       run: npm run build

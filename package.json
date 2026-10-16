@@ -20,6 +20,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:e2e": "playwright test --config tests/e2e/visual-regression.config.ts",
+    "test:e2e:update": "playwright test --config tests/e2e/visual-regression.config.ts --update-snapshots",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
@@ -41,6 +43,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.49.0",
     "@types/node": "^26.6.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
