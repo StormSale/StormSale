@@ -3,9 +3,10 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, ShieldCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -20,6 +21,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
+    { id: "privacy", label: "Privacy", icon: ShieldCheck },
   ];
 
   const renderContent = () => {
@@ -30,6 +32,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <AuditHistory />;
       case "compliance":
         return <ComplianceReport />;
+      case "privacy":
+        return <PrivacyVerification />;
       default:
         return <AuditorOverview onTabChange={setActiveTab} />;
     }
