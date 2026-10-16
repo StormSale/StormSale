@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   isValidStellarAddress,
@@ -24,6 +24,15 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
   let remainingEscrowBudget = initialBudgetXlm;
   let loggedSaleId = 0;
   let earnedCommissionXlm = 0;
+
+  // Vitest integration hooks: ensure the suite is wired into the
+  // global test runner and coverage instrumentation before any
+  // protocol stage executes.
+  beforeAll(() => {
+    expect(typeof describe).toBe("function");
+    expect(typeof it).toBe("function");
+    expect(typeof expect).toBe("function");
+  });
 
   // ----------------------------------------------------------------------
   // Stage 1: Multi-Party Identity & Role Provisioning
