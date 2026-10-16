@@ -1,3 +1,4 @@
+import { useMemo, useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -14,6 +15,7 @@ import {
   FileSearch,
   AlertTriangle,
   BarChart3,
+  DollarSign,
 } from "lucide-react";
 
 interface AuditorOverviewProps {
@@ -21,6 +23,41 @@ interface AuditorOverviewProps {
 }
 
 export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
+  const [liveVolume, setLiveVolume] = useState({
+    escrowVolume: 4820500,
+    payoutVolume: 3912400,
+  });
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLiveVolume((prev) => ({
+        escrowVolume: prev.escrowVolume + Math.floor(Math.random() * 5000),
+        payoutVolume: prev.payoutVolume + Math.floor(Math.random() * 3500),
+      }));
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const volumeMetrics = useMemo(() => {
+    const escrowVolume = liveVolume.escrowVolume;
+    const payoutVolume = liveVolume.payoutVolume;
+    const totalVolume = escrowVolume + payoutVolume;
+    const escrowGrowth = 12.4;
+    const payoutGrowth = 8.7;
+    const totalGrowth = 10.6;
+    const trend = [42, 48, 45, 58, 62, 71, 68, 79, 85, 92, 88, 97];
+    return { escrowVolume, payoutVolume, totalVolume, escrowGrowth, payoutGrowth, totalGrowth, trend };
+  }, [liveVolume]);
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(value);
+
+  const maxTrend = Math.max(...volumeMetrics.trend);
+
   const stats = [
     { title: "Audits Completed", value: "47", change: "+5 this month", icon: CheckCircle2 },
     { title: "Active Requests", value: "3", change: "Pending review", icon: Clock },
@@ -60,6 +97,88 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </span>
         </div>
       </div>
+
+      {/* Platform Financial Volume Widget */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+                Platform Financial Volume
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400">
+                Aggregated escrow and payout metrics across the entire platform
+              </CardDescription>
+            </div>
+            <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
+              <DollarSign className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="p-5 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Total Volume
+              </p>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white mt-2 mb-1">
+                {formatCurrency(volumeMetrics.totalVolume)}
+              </p>
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" />
+                +{volumeMetrics.totalGrowth}% vs last month
+              </p>
+            </div>
+            <div className="p-5 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Escrow Volume
+              </p>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white mt-2 mb-1">
+                {formatCurrency(volumeMetrics.escrowVolume)}
+              </p>
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" />
+                +{volumeMetrics.escrowGrowth}% vs last month
+              </p>
+            </div>
+            <div className="p-5 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Payout Volume
+              </p>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white mt-2 mb-1">
+                {formatCurrency(volumeMetrics.payoutVolume)}
+              </p>
+              <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" />
+                +{volumeMetrics.payoutGrowth}% vs last month
+              </p>
+            </div>
+          </div>
+
+          {/* Growth Trend Visualization */}
+          <div className="mt-8">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Volume Growth Trend (12 mo)
+              </p>
+              <span className="text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                Monthly aggregated volume
+              </span>
+            </div>
+            <div className="flex items-end gap-2 h-32">
+              {volumeMetrics.trend.map((value, i) => (
+                <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                  <div
+                    className="w-full bg-gradient-to-t from-indigo-500 to-indigo-400 dark:from-indigo-600 dark:to-indigo-400 rounded-t-md transition-all hover:opacity-80"
+                    style={{ height: `${(value / maxTrend) * 100}%` }}
+                    title={`${value}%`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

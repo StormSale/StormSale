@@ -3,6 +3,7 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { PlatformVolumeWidget } from "../components/auditor/PlatformVolumeWidget";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
@@ -47,14 +48,15 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
       {/* Main content */}
       <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto space-y-6">
+          <PlatformVolumeWidget />
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
             >
               {renderContent()}
             </motion.div>
