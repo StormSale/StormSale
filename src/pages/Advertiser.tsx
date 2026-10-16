@@ -6,6 +6,7 @@ import { LogSaleForm } from "../components/advertiser/LogSaleForm";
 import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
 import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
+import { LedgerExplorer } from "../components/shared/LedgerExplorer";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
@@ -17,6 +18,7 @@ import {
   Eye,
   TrendingUp,
   Megaphone,
+  Blocks,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -34,6 +36,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
     { id: "analytics", label: "Campaign Analytics", icon: BarChart3 },
+    { id: "ledger-explorer", label: "Ledger Explorer", icon: Blocks },
   ];
 
   const renderContent = () => {
@@ -50,6 +53,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <AdvertiserOverview onTabChange={setActiveTab} />;
       case "my-campaigns":
         return <MyCampaignsList />;
+      case "ledger-explorer":
+        return <LedgerExplorer />;
       default:
         return <AdvertiserOverview onTabChange={setActiveTab} />;
     }
