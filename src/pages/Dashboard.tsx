@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -8,7 +8,6 @@ import {
   Users,
   Eye,
   ArrowRight,
-  Shield,
   CheckCircle2,
   Wallet,
   Activity,
@@ -22,6 +21,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
+    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
@@ -32,6 +32,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      setIsHydrated(true);
+    }
+  }, [isHydrated]);
 
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
@@ -40,18 +47,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
+      setExpandedRole(null);
     } finally {
       setIsSigning(false);
     }
   };
 
-  const formatAddress = (address: string) => {
+  const formaddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
   const roles = [
     {
       id: "advertiser",
+      roleKey: "ADVERTISER",
       title: "Advertiser",
       description:
         "Create campaigns, log sales, and manage your affiliate programs securely on-chain.",
@@ -75,6 +84,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     },
     {
       id: "affiliate",
+      roleKey: "AFFILIATE",
       title: "Affiliate",
       description:
         "Join campaigns, track sales, and claim your commissions securely with fast payouts.",
@@ -94,6 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     },
     {
       id: "auditor",
+      roleKey: "AUDITOR",
       title: "Auditor",
       description:
         "Access encrypted sale data with proper authorization and compliance verification.",
@@ -120,18 +131,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       return "bg-emerald-50/50 dark:bg-emerald-950/20";
     if (hoveredRole === "auditor" || expandedRole === "auditor")
       return "bg-slate-100/50 dark:bg-slate-900/30";
-    return "bg-slate-50 dark:bg-[#09090b]";
+    return "bg-slate-50 dark:bg-[09090b]";
   };
 
   return (
     <div
       className={`min-h-screen font-sans selection:bg-indigo-500/30 pb-24 transition-colors duration-700 ${getBgClass()}`}
+      style={{ visibility: isHydrated ? "visible" : "hidden" }}
     >
       {/* HUD Header */}
       <div className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2.5 sm:space-x-3">
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
+            <div className="w-9 h9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
               <Activity className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-500" />
             </div>
             <div>
@@ -194,7 +206,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl">
           {roles.map((role, index) => {
             const IconComponent = role.icon;
-            const isExpanded = expandedRole === role.id;
+            const isExpanded = expandedRole === role.id || userRole === role.roleKey;
 
             return (
               <motion.div
@@ -226,7 +238,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
                       {isExpanded ? (
                         <div className="bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center">
-                          Active Selection
+                          {userRole === role.roleKey ? "Current Role" : "Active Selection"}
                         </div>
                       ) : (
                         <ArrowRight className="w-5 h-5 text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-900 dark:group-hover:text-white transition-colors" />
@@ -265,35 +277,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                           className="overflow-hidden"
                         >
                           <div className="pt-6 border-t border-slate-100 dark:border-zinc-800">
-                            <div className="flex items-start space-x-3 p-4 bg-slate-50 dark:bg-zinc-950 rounded-2xl border border-slate-200 dark:border-zinc-800 mb-6">
-                              <Shield className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                              <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                                {role.consentText}
-                              </p>
+                            <div
+                              className={"text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-4 leading-relaxed"}
+                            >
+                              {role.consentText}
                             </div>
-
-                            <div className="flex space-x-3">
-                              <Button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setExpandedRole(null);
-                                }}
-                                variant="outline"
-                                className="flex-1 h-12 rounded-xl font-bold"
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleConfirmRole(role.id);
-                                }}
-                                disabled={isSigning}
-                                className={`flex-[2] h-12 rounded-xl font-bold text-white shadow-lg ${role.colorClasses.bgHover} ${role.colorClasses.shadowBtn}`}
-                              >
-                                {isSigning ? "Signing..." : "Sign & Assume Role"}
-                              </Button>
-                            </div>
+                            <Button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleConfirmRole(role.id);
+                              }}
+                              disabled={isSigning}
+                              className={`w-full h-12 rounded-xl font-black text-white transition-all duration-300 ${role.colorClasses.bgHover} ${role.colorClasses.shadowBtn}`}
+                            >
+                              {isSigning ? "Signing..." : "Confirm Role"}
+                            </Button>
                           </div>
                         </motion.div>
                       )}

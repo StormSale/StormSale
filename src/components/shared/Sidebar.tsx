@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,6 +13,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  isLoadingRole?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  isLoadingRole = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -29,6 +31,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
+
+  useEffect(() => {
+    if (isMobileDrawerOpen) {
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = "";
+      };
+    }
+  }, [isMobileDrawerOpen]);
+
+  const displayRoleName = useMemo(
+    () => (isLoadingRole ? "" : roleName),
+    [isLoadingRole, roleName],
+  );
 
   return (
     <>
@@ -58,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
                 <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {roleName}
+                  {displayRoleName}
                 </span>
               </div>
             </div>
@@ -209,7 +225,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Shield className="w-4 h-4 text-white" />
                   </div>
                   <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {roleName}
+                    {displayRoleName}
                   </span>
                 </div>
               </motion.div>

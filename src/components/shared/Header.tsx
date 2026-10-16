@@ -1,13 +1,15 @@
-import { Button } from "../../components/ui/button";
+import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useUserRole } from "../../hooks/useUserRole";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, LayoutDashboard } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const { role, isRoleLoading } = useUserRole();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -23,6 +25,12 @@ export const Header = () => {
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
   ];
+
+  const roleDashboardHref =
+    role === "admin" ? "/admin" : role === "seller" ? "/seller" : role === "buyer" ? "/buyer" : "/dashboard";
+
+  // Keep the dashboard link mounted while the role is loading to avoid layout flicker.
+  const showRoleLink = isConnected && (isRoleLoading || Boolean(roleDashboardHref));
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
@@ -49,6 +57,15 @@ export const Header = () => {
               {item.label}
             </a>
           ))}
+          {showRoleLink && (
+            <a
+              href={roleDashboardHref}
+              className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors flex items-center gap-1"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              Dashboard
+            </a>
+          )}
         </nav>
 
         {/* Desktop Actions */}
@@ -160,6 +177,16 @@ export const Header = () => {
                   {item.label}
                 </a>
               ))}
+              {showRoleLink && (
+                <a
+                  href={roleDashboardHref}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="px-3 py-2.5 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors flex items-center gap-1.5"
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  Dashboard
+                </a>
+              )}
             </div>
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">

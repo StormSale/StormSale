@@ -7,8 +7,9 @@ import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+import { useRole } from "./hooks/useRole";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 
 class ErrorBoundary extends React.Component<
@@ -53,9 +54,59 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+// Role-based route guard: maps a role to the only page that role is allowed to view.
+const ROLE_ROUTES: Record<string, string> = {
+  ADVERTISER: "advertiser",
+  AFFILIATE: "affiliate",
+  AUDITOR: "auditor",
+};
+
+const DEFAULT_ROLE_ROUTE = "dashboard";
+
 function Router() {
   const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const { userRole, isRoleLoading } = useRole();
+  const [currentPage, setCurrentPage] = useState(DEFAULT_ROLE_ROUTE);
+
+  // Keep the active route in sync with the authoritative role from the backend.
+  // This runs as soon as the role is resolved (or changes), so the UI never renders
+  // a page the current role is not allowed to see.
+  useEffect(() => {
+    if (!isConnected) {
+      setCurrentPage(DEFAULT_ROLE_ROUTE);
+      return;
+    }
+    if (isRoleLoading) return;
+    const allowed = userRole ? ROLE_ROUTES[userRole.toUpperCase()] : undefined;
+    if (allowed) {
+      setCurrentPage(allowed);
+    } else {
+      setCurrentPage(DEFAULT_ROLE_ROUTE);
+    }
+  }, [isConnected, userRole, isRoleLoading]);
+
+  // Guarded navigation: block any attempt to navigate to a route the role cannot access.
+  const navigate = (page: string) => {
+    if (page === DEFAULT_ROLE_ROUTE) {
+      setCurrentPage(page);
+      return;
+    }
+    const allowed = userRole ? ROLE_ROUTES[userRole.toUpperCase()] : undefined;
+    if (allowed === page) {
+      setCurrentPage(page);
+    }
+  };
+
+  // Do not flash the landing/dashboard while the role is being resolved.
+  // Render a stable neutral shell instead of any route content.
+  if (isConnected && isRoleLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-pulse text-sm text-muted-foreground">
+          Loading workspace…</div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -65,14 +116,14 @@ function Router() {
       ) : (
         <div className="min-h-screen bg-background">
           <main>
-            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+            {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
             {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              <Advertiser onBack={() => navigate("dashboard")} />
             )}
             {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              <Affiliate onBack={() => navigate("dashboard")} />
             )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            {currentPage === "auditor" && <Auditor onBack={() => navigate("dashboard")} />}
           </main>
         </div>
       )}
