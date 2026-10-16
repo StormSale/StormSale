@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -9,6 +10,7 @@ import { Button } from "../../components/ui/button";
 import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
 
 export const AffiliateOverview = () => {
+  const [showSep24Modal, setShowSep24Modal] = useState(false);
   const stats = [
     {
       title: "Total Earnings",
@@ -228,6 +230,11 @@ export const AffiliateOverview = () => {
                 description: "Claim your commissions",
                 icon: DollarSign,
               },
+              {
+                label: "Withdraw to Local Bank (SEP-0024)",
+                description: "Off-ramp USDC to fiat via anchor",
+                icon: DollarSign,
+              },
             ].map((action, index) => {
               const IconComponent = action.icon;
               return (
@@ -235,6 +242,11 @@ export const AffiliateOverview = () => {
                   key={index}
                   variant="outline"
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
+                  onClick={() => {
+                    if (action.label === "Withdraw to Local Bank (SEP-0024)") {
+                      setShowSep24Modal(true);
+                    }
+                  }}
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
                   <div className="text-center">
@@ -251,6 +263,37 @@ export const AffiliateOverview = () => {
           </div>
         </CardContent>
       </Card>
+
+      {showSep24Modal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-xl p-6">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Withdraw to Local Bank (SEP-0024)
+            </h2>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              Enter your bank account details to off-ramp USDC to fiat via the anchor.
+            </p>
+            <div className="mt-4 space-y-3">
+              <input
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm text-zinc-900 dark:text-white"
+                placeholder="Bank Account Number"
+              />
+              <input
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-sm text-zinc-900 dark:text-white"
+                placeholder="Routing Number"
+              />
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => setShowSep24Modal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => setShowSep24Modal(false)}>
+                Confirm Payout
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
