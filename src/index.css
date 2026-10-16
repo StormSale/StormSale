@@ -46,7 +46,7 @@
     --ring: 142 70% 50%;
   }
 
-  [data-theme='high-contrast'],
+  [data-theme="high-contrast"],
   .high-contrast {
     --background: 0 0% 0%;
     --foreground: 0 0% 100%;
