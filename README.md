@@ -223,3 +223,51 @@ We welcome community contributions! Please review [CONTRIBUTING.md](CONTRIBUTING
 ## 📄 License
 
 This project is open-source software licensed under the **[MIT License](LICENSE)**.
+
+## Storefront webhooks (Whop and Gumroad)
+
+StormSale can reward affiliates automatically when a sale or refund happens on Whop or Gumroad.
+
+### Webhook endpoints
+
+| Platform | Endpoint |
+| -------- | -------- |
+| Whop     | `https://<your-domain>/api/webhooks/whop` |
+| Gumroad  | `https://<your-domain>/api/webhooks/gumroad?secret=<GUMROAD_WEBHOOK_SECRET>` |
+
+### Setup
+
+1. Add these to your environment (see `.env.example`):
+
+```
+   WHOP_WEBHOOK_SECRET=        # signing secret shown when you create the Whop webhook
+   GUMROAD_WEBHOOK_SECRET=     # any long random string; it goes in the Gumroad URL
+   STORMSALE_ADVERTISER_ADDRESS=  # Stellar address that owns the campaign escrow
+   STORMSALE_PAYOUT_WALLET=mock   # "mock" simulates the on-chain call (testing)
+   XLM_PER_USD=                   # conversion rate used when logging the sale on-chain
+```
+
+2. **Whop:** in the Whop developer dashboard, create a webhook pointing at the Whop endpoint above and subscribe to `payment.succeeded` and `refund.created`. Copy the signing secret into `WHOP_WEBHOOK_SECRET`.
+3. **Gumroad:** in Settings, set the Ping URL to the Gumroad endpoint above (with your secret). For refund notifications, subscribe to Gumroad's refund resource through its resource subscriptions API, using the same URL.
+4. Add the affiliate and campaign to each product link: `?ref=<affiliate Stellar address>&campaign=<campaign id>`.
+
+### How it works
+
+- Each request is verified (Whop: HMAC signature with a 5-minute window; Gumroad: URL secret), then converted into one common sale/refund event.
+- A sale logs the order against the campaign escrow on-chain and credits the affiliate's ledger with a tiered commission:
+
+  | Confirmed sales | Commission rate |
+  | --------------- | --------------- |
+  | 0 to 9          | 10%             |
+  | 10 to 49        | 15%             |
+  | 50 or more      | 20%             |
+
+- A refund reverses that order's commission in the affiliate ledger (once only).
+- Repeated deliveries of the same order are ignored.
+
+### Known limitations
+
+- The ledger is in memory; production needs a persistent store.
+- On-chain signing from a server needs a server-held key; only the `mock` wallet is wired up.
+- The on-chain contract pays the campaign's flat rate; tiers are applied in the ledger.
+- Whop payload field names and Gumroad refund notifications should be confirmed with a real test event.
