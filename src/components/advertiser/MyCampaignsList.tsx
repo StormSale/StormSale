@@ -12,8 +12,18 @@ import {
   Settings,
   Search,
   Shield,
+  Clock,
+  Sparkles,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
+import { ContractTTLBadge } from "./ContractTTLBadge";
+import {
+  calculateTTLHealth,
+  formatLedgerDuration,
+  extendContractInstanceTTL,
+} from "../../lib/contractTTL";
+import { useNotification } from "../../context/NotificationContext";
+import { useWeb3 } from "../../hooks/useWeb3";
 
 type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -29,6 +39,7 @@ interface Campaign {
   affiliates: number;
   createdAt: string;
   contractAddress: string;
+  ttlRemainingLedgers: number;
 }
 
 const mockCampaigns: Campaign[] = [
@@ -44,6 +55,7 @@ const mockCampaigns: Campaign[] = [
     affiliates: 12,
     createdAt: "2026-04-01",
     contractAddress: "CA7Q...1234",
+    ttlRemainingLedgers: 7850, // Low TTL (< 10k ledgers) - requires restoration!
   },
   {
     id: "2",
@@ -57,6 +69,7 @@ const mockCampaigns: Campaign[] = [
     affiliates: 8,
     createdAt: "2026-04-15",
     contractAddress: "CB9E...5678",
+    ttlRemainingLedgers: 420000, // Healthy
   },
   {
     id: "3",
@@ -70,6 +83,7 @@ const mockCampaigns: Campaign[] = [
     affiliates: 6,
     createdAt: "2026-03-20",
     contractAddress: "CC2K...9012",
+    ttlRemainingLedgers: 38000, // Warning
   },
   {
     id: "4",
@@ -83,6 +97,7 @@ const mockCampaigns: Campaign[] = [
     affiliates: 5,
     createdAt: "2026-02-10",
     contractAddress: "CD4M...3456",
+    ttlRemainingLedgers: 0, // Archived
   },
 ];
 
@@ -102,26 +117,125 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
 };
 
 export const MyCampaignsList = () => {
+  const { userAddress, connectorType } = useWeb3();
+  const { showNotification } = useNotification();
+  const [campaigns, setCampaigns] = useState<Campaign[]>(mockCampaigns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All">("All");
+  const [extendingId, setExtendingId] = useState<string | null>(null);
 
-  const filtered = mockCampaigns.filter((c) => {
+  const lowTTLCount = campaigns.filter(
+    (c) => c.status === "Active" && c.ttlRemainingLedgers < 10000,
+  ).length;
+
+  const handleExtendCampaignTTL = async (campaignId: string, contractAddress: string) => {
+    try {
+      setExtendingId(campaignId);
+      showNotification({
+        type: "info",
+        title: "Submitting State Rent Extension",
+        message: `Extending contract ${contractAddress} by 500,000 ledgers...`,
+      });
+
+      const res = await extendContractInstanceTTL({
+        contractId: contractAddress,
+        callerAddress: userAddress || "GDX7...MOCK",
+        extendToLedgers: 500000,
+        walletType: (connectorType as any) || "freighter",
+      });
+
+      if (res.success) {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaignId
+              ? {
+                  ...c,
+                  ttlRemainingLedgers: c.ttlRemainingLedgers + 500000,
+                }
+              : c,
+          ),
+        );
+
+        showNotification({
+          type: "success",
+          title: "Contract State Rent Extended!",
+          message: `Campaign contract state extended by 500,000 ledgers (~28.9 days).`,
+        });
+      }
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Extension Failed",
+        message: err?.message || "Failed to extend contract state rent.",
+      });
+    } finally {
+      setExtendingId(null);
+    }
+  };
+
+  const filtered = campaigns.filter((c) => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || c.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const totalRevenue = mockCampaigns.reduce(
+  const totalRevenue = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalRevenue.replace(/\D/g, "")),
     0,
   );
-  const totalCommissions = mockCampaigns.reduce(
+  const totalCommissions = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalCommissions.replace(/\D/g, "")),
     0,
   );
 
   return (
     <div className="space-y-8">
+      {/* Automatic Warning Banner when any campaign has low TTL (< 10,000 ledgers) */}
+      {lowTTLCount > 0 && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="relative overflow-hidden bg-rose-500/10 border border-rose-500/30 rounded-3xl p-6 text-rose-700 dark:text-rose-300 backdrop-blur-md shadow-lg shadow-rose-500/5"
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-rose-500/20 text-rose-600 dark:text-rose-400 mt-0.5">
+                <Clock className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>
+                    Contract State Rent Warning: {lowTTLCount} Campaign(s) Require Immediate
+                    Restoration
+                  </span>
+                </h3>
+                <p className="text-sm text-rose-600/90 dark:text-rose-300/90 mt-1 max-w-2xl">
+                  One or more active Soroban campaign contracts have fallen below 10,000 ledgers
+                  (~14 hours). Contracts will be permanently archived by the ledger unless state
+                  rent is extended.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                const urgentCampaign = campaigns.find(
+                  (c) => c.status === "Active" && c.ttlRemainingLedgers < 10000,
+                );
+                if (urgentCampaign) {
+                  handleExtendCampaignTTL(urgentCampaign.id, urgentCampaign.contractAddress);
+                }
+              }}
+              disabled={extendingId !== null}
+              className="w-full md:w-auto bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-rose-600/20 flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>1-Click Extend All (+500k ledgers)</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
@@ -284,7 +398,7 @@ export const MyCampaignsList = () => {
                   </div>
 
                   {/* Details row */}
-                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-5">
+                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-4">
                     <span className="flex items-center gap-1">
                       <TrendingUp className="w-3.5 h-3.5" />
                       {campaign.commissionRate}% commission
@@ -293,6 +407,37 @@ export const MyCampaignsList = () => {
                     <span>{campaign.clearingPeriod} clearing</span>
                     <span>·</span>
                     <span>Since {campaign.createdAt}</span>
+                  </div>
+
+                  {/* Soroban Contract TTL Health Row */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-100 dark:border-zinc-800/60 mb-5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                        State Rent:
+                      </span>
+                      <ContractTTLBadge
+                        status={calculateTTLHealth(campaign.ttlRemainingLedgers)}
+                        remainingLedgers={campaign.ttlRemainingLedgers}
+                        durationText={formatLedgerDuration(campaign.ttlRemainingLedgers)}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={campaign.ttlRemainingLedgers < 10000 ? "default" : "outline"}
+                      disabled={extendingId === campaign.id}
+                      onClick={() => handleExtendCampaignTTL(campaign.id, campaign.contractAddress)}
+                      className={`h-7 text-xs rounded-xl font-bold px-3 py-1 flex items-center gap-1 ${
+                        campaign.ttlRemainingLedgers < 10000
+                          ? "bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-600/30 animate-pulse"
+                          : "border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20"
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>
+                        {campaign.ttlRemainingLedgers < 10000 ? "Restore (+500k)" : "Extend"}
+                      </span>
+                    </Button>
                   </div>
 
                   {/* Actions */}
