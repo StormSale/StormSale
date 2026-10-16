@@ -85,7 +85,8 @@ export const LogSaleForm = () => {
 
       // Automated Conversion Postback Dispatch
       try {
-        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
+        const txMeta = tx as { hash?: string; id?: string };
+        const postbackTxHash = txMeta.hash || txMeta.id || "PENDING_CONFIRMED_LEDGER_TX";
 
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
@@ -127,12 +128,12 @@ export const LogSaleForm = () => {
       setSaleAmount("");
       setCampaignAddress("");
       setCustomerData("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error logging sale:", error);
       showNotification({
         type: "error",
         title: "Logging Failed",
-        message: error.message || "Failed to log sale",
+        message: error instanceof Error ? error.message : "Failed to log sale",
       });
     } finally {
       setIsLoading(false);

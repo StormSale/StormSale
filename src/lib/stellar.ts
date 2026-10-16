@@ -32,7 +32,7 @@ export interface StellarAccountInfo {
 export interface SorobanInvokeResult {
   success: boolean;
   txHash: string;
-  resultValue?: any;
+  resultValue?: unknown;
 }
 
 /**
@@ -60,7 +60,8 @@ export async function connectFreighterWallet(): Promise<string> {
 
   // Request access if not yet allowed
   const allowed = await isFreighterAllowed();
-  if (!allowed || (allowed as any).error) {
+  const allowedState = allowed as { error?: string } | null | boolean;
+  if (!allowed || (typeof allowedState === "object" && allowedState?.error)) {
     await setFreighterAllowed();
   }
 
@@ -177,7 +178,11 @@ export async function signAlbedoTransaction(
  * Connects to xBull wallet (extension / web).
  */
 export async function connectXbullWallet(): Promise<string> {
-  const xbull = (window as any).xBullSDK || (window as any).xbull;
+  const xbullWindow = window as typeof window & {
+    xBullSDK?: { getPublicKey: () => Promise<string> };
+    xbull?: { getPublicKey: () => Promise<string> };
+  };
+  const xbull = xbullWindow.xBullSDK || xbullWindow.xbull;
   if (!xbull) {
     throw new Error(
       "xBull wallet extension is not installed. Please install xBull from https://xbull.app or use Albedo on mobile.",
@@ -186,8 +191,10 @@ export async function connectXbullWallet(): Promise<string> {
   try {
     const address = await xbull.getPublicKey();
     return address;
-  } catch (err: any) {
-    throw new Error(err.message || "xBull connection failed.");
+  } catch (err: unknown) {
+    throw new Error(err instanceof Error ? err.message : "xBull connection failed.", {
+      cause: err,
+    });
   }
 }
 
@@ -202,23 +209,35 @@ export async function signWalletTransaction(
     const signResult = await signFreighterTransaction(preparedXdr, {
       networkPassphrase: STELLAR_CONFIG.networkPassphrase,
     });
-    if (
-      !signResult ||
-      (typeof signResult === "object" && "error" in signResult && signResult.error)
-    ) {
-      throw new Error((signResult as any)?.error || "User declined transaction in Freighter.");
+    const freighterResponse = signResult as
+      string | { error?: string; signedTxXdr?: string; signedXdr?: string } | null | undefined;
+    const freighterErrorMessage =
+      typeof freighterResponse === "object" && freighterResponse && "error" in freighterResponse
+        ? freighterResponse.error
+        : "User declined transaction in Freighter.";
+    const hasFreighterError =
+      typeof freighterResponse === "object" &&
+      freighterResponse &&
+      "error" in freighterResponse &&
+      Boolean(freighterResponse.error);
+    if (!freighterResponse || hasFreighterError) {
+      throw new Error(freighterErrorMessage);
     }
     const signedXdr =
-      typeof signResult === "string"
-        ? signResult
-        : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
+      typeof freighterResponse === "string"
+        ? freighterResponse
+        : freighterResponse.signedTxXdr || freighterResponse.signedXdr;
     if (!signedXdr) throw new Error("No signed transaction XDR returned from Freighter.");
     return signedXdr;
   } else if (walletType === "albedo") {
     const netParam = STELLAR_CONFIG.network.toLowerCase() === "public" ? "public" : "testnet";
     return await signAlbedoTransaction(preparedXdr, netParam);
   } else if (walletType === "xbull") {
-    const xbull = (window as any).xBullSDK || (window as any).xbull;
+    const xbullWindow = window as typeof window & {
+      xBullSDK?: { signXDR: (xdr: string) => Promise<string> };
+      xbull?: { signXDR: (xdr: string) => Promise<string> };
+    };
+    const xbull = xbullWindow.xBullSDK || xbullWindow.xbull;
     if (!xbull) throw new Error("xBull extension is not available.");
     return await xbull.signXDR(preparedXdr);
   } else if (walletType === "ledger") {
@@ -259,8 +278,10 @@ export async function fetchXlmBalance(address: string): Promise<string> {
       }
       return "0.00";
     }
-    const data = await response.json();
-    const nativeBalance = data.balances?.find((b: any) => b.asset_type === "native");
+    const data = (await response.json()) as {
+      balances?: Array<{ asset_type: string; balance: string }>;
+    };
+    const nativeBalance = data.balances?.find((b) => b.asset_type === "native");
     return nativeBalance ? parseFloat(nativeBalance.balance).toFixed(4) : "0.0000";
   } catch (error) {
     console.warn("Error fetching Horizon account balance:", error);
@@ -344,9 +365,10 @@ export async function invokeSorobanMethod(
   let account: Account;
   try {
     account = await server.getAccount(callerAddress);
-  } catch (err: any) {
+  } catch (err: unknown) {
     throw new Error(
-      `Account ${callerAddress} is not funded on Testnet or could not be loaded: ${err?.message || err}. Use Friendbot to fund it first.`,
+      `Account ${callerAddress} is not funded on Testnet or could not be loaded: ${err instanceof Error ? err.message : String(err)}. Use Friendbot to fund it first.`,
+      { cause: err },
     );
   }
 
@@ -393,7 +415,7 @@ export async function invokeSorobanMethod(
 
     const statusResponse = await server.getTransaction(txHash);
     if (statusResponse.status === "SUCCESS") {
-      let resultValue: any = null;
+      let resultValue: unknown = null;
       if (statusResponse.returnValue) {
         try {
           resultValue = scValToNative(statusResponse.returnValue);
@@ -500,7 +522,7 @@ export async function claimPayoutContractCall(
 /**
  * Reads campaign metadata directly from Soroban contract storage.
  */
-export async function getCampaignContractQuery(campaignId: number): Promise<any> {
+export async function getCampaignContractQuery(campaignId: number): Promise<unknown> {
   const server = getSorobanRpcServer();
   const contract = new Contract(STELLAR_CONFIG.contractId);
   const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");

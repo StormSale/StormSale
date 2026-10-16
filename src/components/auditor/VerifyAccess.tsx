@@ -111,7 +111,7 @@ export const VerifyAccess: React.FC = () => {
           ? "Cryptographic permissions verified on-chain."
           : "Your auditor public key lacks authorization for this sale.",
       });
-    } catch (_err) {
+    } catch {
       showNotification({
         type: "error",
         title: "Check Failed",
@@ -138,7 +138,7 @@ export const VerifyAccess: React.FC = () => {
       };
       setDecryptedData(stubData);
       setIsDialogOpen(true);
-    } catch (_err) {
+    } catch {
       showNotification({
         type: "error",
         title: "Decryption Failed",

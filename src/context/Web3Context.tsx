@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
@@ -61,10 +62,26 @@ export interface Web3ContextType {
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
   // Compatibility helpers for legacy form callers
-  factoryContract: any;
-  getCampaignContract: (address: string) => any;
-  provider: any;
-  signer: any;
+  factoryContract: {
+    createCampaign: (rate: string, period: string) => Promise<{ wait: () => Promise<unknown> }>;
+    joinCampaign: (campaignAddr: string) => Promise<{ wait: () => Promise<{ success: boolean }> }>;
+  };
+  getCampaignContract: (address: string) => {
+    logEncryptedSale: (
+      affiliate: string,
+      amount: string,
+      payload: unknown,
+      advKey: unknown,
+      affKey: unknown,
+    ) => Promise<{ wait: () => Promise<{ success: boolean; txHash?: string }> }>;
+    grantAuditAccess: (
+      saleId: string,
+      auditor: string,
+      key: unknown,
+    ) => Promise<{ wait: () => Promise<{ success: boolean }> }>;
+  };
+  provider: unknown;
+  signer: unknown;
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
@@ -333,16 +350,16 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     logEncryptedSale: async (
       affiliate: string,
       amount: string,
-      _payload: any,
-      _advKey: any,
-      _affKey: any,
+      _payload: unknown,
+      _advKey: unknown,
+      _affKey: unknown,
     ) => {
       const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
       return {
         wait: async () => res,
       };
     },
-    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
+    grantAuditAccess: async (saleId: string, auditor: string, _key: unknown) => {
       console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
       return {
         wait: async () => ({ success: true }),

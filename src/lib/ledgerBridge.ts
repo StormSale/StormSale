@@ -12,7 +12,7 @@ export interface LedgerDeviceInfo {
 export interface LedgerErrorDetails {
   code: string;
   friendlyMessage: string;
-  originalError: any;
+  originalError: unknown;
 }
 
 /**
@@ -50,9 +50,16 @@ export function getBipPathForAccount(accountIndex: number): string {
  * - User / app rejection (0x6985)
  * - Stellar app not opened on device (0x6d00)
  */
-export function parseLedgerError(err: any): LedgerErrorDetails {
-  const errMsg = String(err?.message || err?.name || err || "").toLowerCase();
-  const statusCode = err?.statusCode || err?.statusText || err?.errorCode;
+export function parseLedgerError(err: unknown): LedgerErrorDetails {
+  const errorRecord = err as Partial<{
+    message: string;
+    name: string;
+    statusCode: number;
+    statusText: string;
+    errorCode: number;
+  }>;
+  const errMsg = String(errorRecord.message || errorRecord.name || err || "").toLowerCase();
+  const statusCode = errorRecord.statusCode || errorRecord.statusText || errorRecord.errorCode;
 
   // 1. Device locked
   if (
@@ -124,7 +131,7 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
   // Generic fallback
   return {
     code: "UNKNOWN_LEDGER_ERROR",
-    friendlyMessage: err?.message || "Failed to communicate with Ledger hardware wallet.",
+    friendlyMessage: errorRecord.message || "Failed to communicate with Ledger hardware wallet.",
     originalError: err,
   };
 }
@@ -135,7 +142,10 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
 export async function isWebHIDSupported(): Promise<boolean> {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   try {
-    return "hid" in navigator && typeof (navigator as any).hid?.requestDevice === "function";
+    const navWithHid = navigator as Navigator & {
+      hid?: { requestDevice: () => unknown };
+    };
+    return "hid" in navigator && typeof navWithHid.hid?.requestDevice === "function";
   } catch {
     return false;
   }
@@ -152,8 +162,12 @@ export async function connectLedgerDevice(
   // If in non-browser or mock test environment, return deterministic mock hardware info
   const hidSupported = await isWebHIDSupported();
   if (!hidSupported) {
+    const mockWindow =
+      typeof window !== "undefined"
+        ? (window as Window & { __MOCK_LEDGER__?: boolean })
+        : undefined;
     // If WebHID is unavailable, check if we're in automated testing or mock mode
-    if (typeof window === "undefined" || (window as any).__MOCK_LEDGER__) {
+    if (typeof window === "undefined" || mockWindow?.__MOCK_LEDGER__ === true) {
       const mockKeypair = Keypair.random();
       return {
         address: mockKeypair.publicKey(),
@@ -166,7 +180,7 @@ export async function connectLedgerDevice(
     );
   }
 
-  let transport: any = null;
+  let transport: Awaited<ReturnType<typeof TransportWebHID.create>> | null = null;
   try {
     transport = await TransportWebHID.create();
     const app = new StrApp(transport);
@@ -186,9 +200,9 @@ export async function connectLedgerDevice(
       bipPath: normalizedPath,
       appVersion: versionConfig?.version || "Ready",
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {
@@ -223,9 +237,15 @@ export function extractLedgerVerificationDetails(
     let operationType = "Transaction";
 
     if (tx.operations && tx.operations.length > 0) {
-      const firstOp: any = tx.operations[0];
-      operationType = firstOp.type || "Soroban Operation";
-      if (firstOp.func) {
+      const firstOp = tx.operations[0] as
+        | {
+            type?: string;
+            func?: unknown;
+            contractId?: string | null;
+          }
+        | undefined;
+      operationType = firstOp?.type || "Soroban Operation";
+      if (firstOp?.func) {
         contractId = firstOp.contractId || STELLAR_CONFIG.contractId;
       }
     }
@@ -254,16 +274,18 @@ export async function signLedgerTransaction(
 ): Promise<string> {
   const normalizedPath = formatBipPath(bipPath);
   const hidSupported = await isWebHIDSupported();
+  const mockWindow =
+    typeof window !== "undefined" ? (window as Window & { __MOCK_LEDGER__?: boolean }) : undefined;
 
   // Test / sandbox fallback
-  if (!hidSupported || (typeof window !== "undefined" && (window as any).__MOCK_LEDGER__)) {
+  if (!hidSupported || mockWindow?.__MOCK_LEDGER__ === true) {
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const mockSigner = Keypair.random();
     tx.sign(mockSigner);
     return tx.toXDR();
   }
 
-  let transport: any = null;
+  let transport: Awaited<ReturnType<typeof TransportWebHID.create>> | null = null;
   try {
     transport = await TransportWebHID.create();
     const app = new StrApp(transport);
@@ -277,9 +299,9 @@ export async function signLedgerTransaction(
     // Attach signature to Stellar transaction envelope
     tx.addSignature(publicKey, signatureBuffer.signature);
     return tx.toXDR();
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {

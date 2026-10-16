@@ -85,11 +85,11 @@ export const BrandCustomizer: React.FC = () => {
         title: "Published to IPFS!",
         message: `Decentralized CID: ${res.cid.slice(0, 16)}...`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       showNotification({
         type: "error",
         title: "IPFS Publishing Failed",
-        message: err.message || "Failed to publish metadata to IPFS",
+        message: err instanceof Error ? err.message : "Failed to publish metadata to IPFS",
       });
     } finally {
       setIsPublishingIpfs(false);

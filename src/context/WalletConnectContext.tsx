@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
@@ -44,11 +45,11 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       if (isConnected && !isStellarNetwork) {
         setState((prev) => ({ ...prev, showNetworkModal: true }));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Wallet connection error:", error);
       setState((prev) => ({
         ...prev,
-        error: error.message || "Failed to connect wallet",
+        error: error instanceof Error ? error.message : "Failed to connect wallet",
       }));
     } finally {
       setState((prev) => ({ ...prev, isConnecting: false }));
@@ -83,11 +84,11 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
         }));
         return false;
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Network switch error:", error);
       setState((prev) => ({
         ...prev,
-        error: error.message || "Failed to switch network",
+        error: error instanceof Error ? error.message : "Failed to switch network",
       }));
       return false;
     } finally {

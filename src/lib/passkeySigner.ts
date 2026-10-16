@@ -140,7 +140,7 @@ export function deriveStellarAddressFromPasskey(publicKeySpkiBase64: string): st
   for (let i = 0; i < 32; i++) {
     rawSeed[i] = ((bytes[i % bytes.length] || 0) ^ (i * 7)) & 0xff;
   }
-  return Keypair.fromRawEd25519Seed(rawSeed as any).publicKey();
+  return Keypair.fromRawEd25519Seed(rawSeed).publicKey();
 }
 
 /**
@@ -164,7 +164,10 @@ export async function registerPasskey(
   const supported = isPasskeySupported();
 
   // Test runner or unsupported fallback
-  if (!supported || (typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__)) {
+  const mockWindow =
+    typeof window !== "undefined" ? (window as Window & { __MOCK_PASSKEY__?: boolean }) : undefined;
+
+  if (!supported || mockWindow?.__MOCK_PASSKEY__ === true) {
     const mockKeypair = Keypair.random();
     const mockRecord: PasskeyCredentialRecord = {
       credentialId: "passkey_cred_" + Date.now().toString(36),
@@ -220,8 +223,11 @@ export async function registerPasskey(
 
   // Extract public key if available
   let pubKeyBase64 = "";
-  if (typeof (response as any).getPublicKey === "function") {
-    const pkBuffer = (response as any).getPublicKey();
+  const attestationResponse = response as AuthenticatorAttestationResponse & {
+    getPublicKey?: () => ArrayBuffer | null;
+  };
+  if (typeof attestationResponse.getPublicKey === "function") {
+    const pkBuffer = attestationResponse.getPublicKey();
     if (pkBuffer) {
       pubKeyBase64 = bufferToBase64Url(pkBuffer);
     }
@@ -262,9 +268,11 @@ export async function authenticateWithPasskey(challengeBytes?: Uint8Array): Prom
 }> {
   const vault = await loadEncryptedPasskeyVault();
   const supported = isPasskeySupported();
+  const mockWindow =
+    typeof window !== "undefined" ? (window as Window & { __MOCK_PASSKEY__?: boolean }) : undefined;
 
   // Test runner or sandbox fallback
-  if (!supported || (typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__)) {
+  if (!supported || mockWindow?.__MOCK_PASSKEY__ === true) {
     const mockRecord = vault.length > 0 ? vault[0] : await registerPasskey("Demo Passkey User");
 
     return {

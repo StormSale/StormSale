@@ -90,12 +90,12 @@ export const ClaimPayouts = () => {
         title: "Batch Commission Claim Settled!",
         message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Batch claim failure:", err);
       showNotification({
         type: "error",
         title: "Batch Claim Failed",
-        message: err.message || "Failed to execute batch claim transaction.",
+        message: err instanceof Error ? err.message : "Failed to execute batch claim transaction.",
       });
     } finally {
       setIsBatchClaiming(false);
@@ -121,11 +121,11 @@ export const ClaimPayouts = () => {
         title: "Commission Paid Out!",
         message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       showNotification({
         type: "error",
         title: "Claim Failed",
-        message: err.message || "Failed to claim commission.",
+        message: err instanceof Error ? err.message : "Failed to claim commission.",
       });
     } finally {
       setClaimingId(null);

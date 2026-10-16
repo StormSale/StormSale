@@ -106,11 +106,11 @@ export async function executeBatchCommissionClaim(
   }));
 
   // If mock/test/readonly fallback, return instant simulated transaction receipt
-  if (
-    walletType === "mock" ||
-    walletType === "readonly" ||
-    (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)
-  ) {
+  const mockBatchFlag =
+    typeof window !== "undefined" &&
+    (window as Window & { __MOCK_BATCH__?: boolean }).__MOCK_BATCH__ === true;
+
+  if (walletType === "mock" || walletType === "readonly" || mockBatchFlag) {
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
 
@@ -130,7 +130,7 @@ export async function executeBatchCommissionClaim(
   let account: Account;
   try {
     account = await server.getAccount(affiliateAddress);
-  } catch (err: any) {
+  } catch {
     // If account unfunded on testnet, fallback to mock hash for demonstration
     const fallbackHash =
       "tx_batch_" + Date.now().toString(16) + "_" + Math.random().toString(16).slice(2, 8);
