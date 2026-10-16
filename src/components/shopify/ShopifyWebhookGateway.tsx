@@ -13,7 +13,6 @@ import {
   Shop,
   Zap,
   Shield,
-  Mail,
   Link,
   Copy,
   Play,
