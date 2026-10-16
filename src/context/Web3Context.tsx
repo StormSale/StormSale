@@ -18,6 +18,7 @@ import {
   topUpCampaignEscrowContractCall,
   getCampaignStorageTTL,
   extendCampaignStorageTTL,
+  signSEP0010Challenge,
 } from "../lib/stellar";
 import type {
   WalletType,
@@ -28,7 +29,13 @@ import type {
 } from "../lib/stellar";
 import { STELLAR_CONFIG, SAC_TOKENS } from "../config/stellar";
 import type { SACTokenSymbol } from "../config/stellar";
-import { registerUser } from "../utils/api";
+import {
+  registerUser,
+  requestAuthChallenge,
+  verifyAuthChallenge,
+  getStoredSessionToken,
+  clearSessionToken,
+} from "../utils/api";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -45,6 +52,11 @@ export interface Web3ContextType {
   disconnectWallet: () => void;
   updateUserRole: (role: string) => Promise<void>;
   requestFriendbotFunding: () => Promise<boolean>;
+
+  // SEP-0010 Stellar Web Authentication
+  sessionToken: string | null;
+  isAuthenticated: boolean;
+  authenticateSession: (role?: string) => Promise<boolean>;
 
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
@@ -102,6 +114,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(() => getStoredSessionToken());
+  const isAuthenticated = Boolean(sessionToken && userAddress);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -116,17 +130,46 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Sync with backend database & persistent role
-  const syncUserWithBackend = useCallback(async (address: string) => {
+  // SEP-0010 Stellar Web Authentication
+  const authenticateSession = async (role: string = "AFFILIATE"): Promise<boolean> => {
+    if (!userAddress) return false;
     try {
-      const savedUser = await registerUser(address);
-      if (savedUser && savedUser.role) {
-        setUserRole(savedUser.role);
+      const challenge = await requestAuthChallenge(userAddress);
+      const signedXdr = await signSEP0010Challenge(
+        challenge.challengeXdr,
+        connectorType || "freighter",
+      );
+      const authResult = await verifyAuthChallenge(userAddress, signedXdr, role);
+      if (authResult.token) {
+        setSessionToken(authResult.token);
+        return true;
       }
     } catch (err) {
-      console.error("Error registering user with backend:", err);
+      console.warn("SEP-0010 authentication warning:", err);
     }
-  }, []);
+    return false;
+  };
+
+  // Sync with backend database & persistent role
+  const syncUserWithBackend = useCallback(
+    async (address: string, walletType: WalletType = "freighter") => {
+      try {
+        const challenge = await requestAuthChallenge(address);
+        const signedXdr = await signSEP0010Challenge(challenge.challengeXdr, walletType);
+        const authSession = await verifyAuthChallenge(address, signedXdr, "AFFILIATE");
+        if (authSession?.token) {
+          setSessionToken(authSession.token);
+        }
+        const savedUser = await registerUser(address);
+        if (savedUser && savedUser.role) {
+          setUserRole(savedUser.role);
+        }
+      } catch (err) {
+        console.error("Error registering user with backend:", err);
+      }
+    },
+    [],
+  );
 
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Mock
   const connectWallet = async (type: WalletType = "freighter", customAddress?: string) => {
@@ -166,7 +209,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       if (type !== "mock") {
         await refreshBalance(address);
       }
-      await syncUserWithBackend(address);
+      await syncUserWithBackend(address, type);
       setIsWalletModalOpen(false);
     } catch (error) {
       console.error("Wallet connection failed:", error);
@@ -175,6 +218,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   const disconnectWallet = () => {
+    clearSessionToken();
+    setSessionToken(null);
     setUserAddress(null);
     setUserRole(null);
     setIsConnected(false);
@@ -442,6 +487,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         disconnectWallet,
         updateUserRole,
         requestFriendbotFunding,
+        sessionToken,
+        isAuthenticated,
+        authenticateSession,
         createCampaignOnChain,
         logSaleOnChain,
         claimPayoutOnChain,

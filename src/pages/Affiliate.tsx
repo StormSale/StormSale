@@ -4,6 +4,7 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { AffiliatePerformanceCharts } from "../components/affiliate/AffiliatePerformanceCharts";
 import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -32,6 +33,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "performance":
+        return <AffiliatePerformanceCharts />;
       case "overview":
         return <AffiliateOverview />;
       default:
