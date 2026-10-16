@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
+import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import {
   Card,
   CardContent,
@@ -18,10 +19,13 @@ import {
   getPublicKeyForAddress,
 } from "../../lib/crypto";
 import { triggerConversionPostback } from "../../lib/webhookEngine";
+import { resolveRecipient } from "../../lib/stellar";
+import type { RecipientResolution } from "../../lib/stellar";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
+  const [affiliateResolution, setAffiliateResolution] = useState<RecipientResolution | null>(null);
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
@@ -39,6 +43,20 @@ export const LogSaleForm = () => {
       });
       return;
     }
+
+    // Never submit an unresolved federation string: resolve on demand if the
+    // field is still mid-lookup, otherwise use the cached resolution.
+    const resolution = affiliateResolution ?? (await resolveRecipient(affiliateAddress));
+    if (!resolution.address || (resolution.status !== "raw" && resolution.status !== "federated")) {
+      showNotification({
+        type: "warning",
+        title: "Recipient Not Verified",
+        message:
+          resolution.error || "Resolve the affiliate address or paste their raw G... public key.",
+      });
+      return;
+    }
+    const recipientAddress = resolution.address;
 
     setIsLoading(true);
     try {
@@ -62,7 +80,7 @@ export const LogSaleForm = () => {
       const encryptedPayload = await encryptPayload(payload, aesKey);
 
       const advertiserPublicKey = await getPublicKeyForAddress(userAddress!);
-      const affiliatePublicKey = await getPublicKeyForAddress(affiliateAddress);
+      const affiliatePublicKey = await getPublicKeyForAddress(recipientAddress);
 
       const advertiserWrappedKey = await wrapAESKey(aesKey, advertiserPublicKey);
       const affiliateWrappedKey = await wrapAESKey(aesKey, affiliatePublicKey);
@@ -74,7 +92,7 @@ export const LogSaleForm = () => {
       });
 
       const tx = await campaignContract.logEncryptedSale(
-        affiliateAddress,
+        recipientAddress,
         saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
@@ -90,7 +108,7 @@ export const LogSaleForm = () => {
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
           campaignAddress,
-          affiliateAddress,
+          affiliateAddress: recipientAddress,
           advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
           saleAmount,
           currency: "XLM",
@@ -124,6 +142,7 @@ export const LogSaleForm = () => {
       });
 
       setAffiliateAddress("");
+      setAffiliateResolution(null);
       setSaleAmount("");
       setCampaignAddress("");
       setCustomerData("");
@@ -187,14 +206,14 @@ export const LogSaleForm = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
-                  description="The affiliate who made this sale"
+                  description="Public key or federation address (e.g. alice*stormsale.io)"
                   required
                 >
-                  <Input
+                  <FederatedAddressInput
                     value={affiliateAddress}
-                    onChange={(e) => setAffiliateAddress(e.target.value)}
-                    placeholder="GAFFILIATE... (Stellar Public Key)"
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                    onChange={setAffiliateAddress}
+                    onResolved={setAffiliateResolution}
+                    placeholder="GAFFILIATE... or alice*stormsale.io"
                     required
                   />
                 </InputField>
