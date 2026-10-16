@@ -7,6 +7,8 @@ import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
+import { ShopifyWebhookGateway } from "../components/shopify/ShopifyWebhookGateway";
+import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { usePreference } from "../hooks/usePreference";
@@ -25,8 +27,8 @@ import {
   Building2,
   KeyRound,
   Lock,
+  ShoppingCart,
 } from "lucide-react";
-import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -129,6 +131,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "network", label: "Transaction Network", icon: Network },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
     { id: "privacy", label: "Privacy", icon: ShieldCheck },
+    { id: "shopify", label: "Shopify Integration", icon: ShoppingCart },
   ];
 
   const handleTabChange = (tab: string) => {
@@ -175,11 +178,14 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
       case "soc2":
         return <Soc2EvidenceExport />;
 
-      case "overview":
-        return <AuditorOverview onTabChange={handleTabChange} />;
-
       case "privacy":
         return <PrivacyVerification />;
+
+      case "shopify":
+        return <ShopifyWebhookGateway />;
+
+      case "overview":
+        return <AuditorOverview onTabChange={handleTabChange} />;
       default:
         return <AuditorOverview onTabChange={handleTabChange} />;
     }
