@@ -289,6 +289,170 @@ export function isValidStellarAddress(address: string): boolean {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Minimum balance reserve & spendable balance calculation                     */
+/* -------------------------------------------------------------------------- */
+
+/** Stellar protocol base reserve, in XLM (2 * 0.5 XLM = 1 XLM minimum). */
+export const STELLAR_BASE_RESERVE_XLM = STELLAR_CONFIG.baseReserveXlm;
+
+/** Fixed account overhead (the account itself + the base reserve multiplier). */
+export const STELLAR_ACCOUNT_ENTRY_COUNT = 2;
+
+export interface ReserveCalculationOptions {
+  /** Base reserve, in XLM. Defaults to 0.5 XLM. */
+  baseReserveXlm?: number;
+  /** Number of reserves this account sponsors for other accounts. */
+  numSponsoring?: number;
+  /** Number of this account's own reserves sponsored by another account. */
+  numSponsored?: number;
+}
+
+export interface ReserveBreakdown {
+  balanceXlm: number;
+  subentries: number;
+  baseReserveXlm: number;
+  reserveXlm: number;
+  spendableXlm: number;
+  numSponsoring: number;
+  numSponsored: number;
+}
+
+/** Clamps arbitrary input to a non-negative integer. */
+function toCount(value: number | undefined): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Calculates the minimum XLM reserve an account must hold:
+ * `(2 + subentries + numSponsoring - numSponsored) * baseReserve`.
+ * With the default base reserve this equals 1 XLM + 0.5 XLM per subentry.
+ */
+export function calculateAccountReserve(
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): number {
+  const baseReserveXlm = options.baseReserveXlm ?? STELLAR_BASE_RESERVE_XLM;
+  const entries = toCount(subentries);
+  const sponsoring = toCount(options.numSponsoring);
+  const sponsored = toCount(options.numSponsored);
+  return (STELLAR_ACCOUNT_ENTRY_COUNT + entries + sponsoring - sponsored) * baseReserveXlm;
+}
+
+/**
+ * Returns the full reserve breakdown for an account balance: the locked minimum
+ * reserve, the spendable balance, and the subentry count driving the reserve.
+ */
+export function calculateReserveBreakdown(
+  balanceXlm: number | string,
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): ReserveBreakdown {
+  const parsedBalance = typeof balanceXlm === "number" ? balanceXlm : parseFloat(balanceXlm);
+  const balance = Number.isFinite(parsedBalance) ? parsedBalance : 0;
+  const baseReserveXlm = options.baseReserveXlm ?? STELLAR_BASE_RESERVE_XLM;
+  const reserveXlm = calculateAccountReserve(subentries, { ...options, baseReserveXlm });
+
+  return {
+    balanceXlm: balance,
+    subentries: toCount(subentries),
+    baseReserveXlm,
+    reserveXlm,
+    spendableXlm: Math.max(0, balance - reserveXlm),
+    numSponsoring: toCount(options.numSponsoring),
+    numSponsored: toCount(options.numSponsored),
+  };
+}
+
+/**
+ * Convenience wrapper: the maximum amount an account can move out while
+ * keeping its required minimum reserve.
+ */
+export function calculateSpendableBalance(
+  balanceXlm: number | string,
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): number {
+  return calculateReserveBreakdown(balanceXlm, subentries, options).spendableXlm;
+}
+
+/** Minimal shape of a Horizon account balance entry. */
+interface HorizonAccountBalance {
+  asset_type?: string;
+  balance?: string;
+}
+
+/** Detailed Horizon account snapshot used for reserve-aware validation. */
+export interface StellarAccountDetails {
+  address: string;
+  exists: boolean;
+  balanceXlm: number;
+  subentries: number;
+  numSponsoring: number;
+  numSponsored: number;
+  trustlineCount: number;
+  reserveXlm: number;
+  spendableXlm: number;
+}
+
+/**
+ * Fetches an account's native balance, subentry count, and sponsorship data from
+ * Horizon so the UI can compute the locked reserve and spendable balance.
+ * Returns a zeroed, non-existent snapshot when the account is unfunded or the
+ * network is unreachable so callers can degrade gracefully.
+ */
+export async function fetchStellarAccountDetails(address: string): Promise<StellarAccountDetails> {
+  const empty: StellarAccountDetails = {
+    address,
+    exists: false,
+    balanceXlm: 0,
+    subentries: 0,
+    numSponsoring: 0,
+    numSponsored: 0,
+    trustlineCount: 0,
+    reserveXlm: calculateAccountReserve(0),
+    spendableXlm: 0,
+  };
+
+  try {
+    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/accounts/${address}`);
+    if (!response.ok) {
+      return empty;
+    }
+
+    const data = (await response.json()) as {
+      subentries?: number;
+      num_sponsoring?: number;
+      num_sponsored?: number;
+      balances?: HorizonAccountBalance[];
+    };
+    const balances = data.balances ?? [];
+    const nativeBalance = balances.find((b) => b.asset_type === "native");
+    const balanceXlm = nativeBalance?.balance ? parseFloat(nativeBalance.balance) : 0;
+    const subentries = Number(data.subentries) || 0;
+    const numSponsoring = Number(data.num_sponsoring) || 0;
+    const numSponsored = Number(data.num_sponsored) || 0;
+    const trustlineCount = balances.filter((b) => b.asset_type !== "native").length;
+    const reserveXlm = calculateAccountReserve(subentries, { numSponsoring, numSponsored });
+
+    return {
+      address,
+      exists: true,
+      balanceXlm,
+      subentries,
+      numSponsoring,
+      numSponsored,
+      trustlineCount,
+      reserveXlm,
+      spendableXlm: Math.max(0, balanceXlm - reserveXlm),
+    };
+  } catch (error) {
+    console.warn("Error fetching Horizon account details:", error);
+    return empty;
+  }
+}
+
 /**
  * Helper to request friendbot testnet XLM funding for new testnet accounts.
  */
