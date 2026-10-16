@@ -29,3 +29,8 @@ generate_commits.sh
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+test-results/
+playwright-report/
+e2e-results.json
