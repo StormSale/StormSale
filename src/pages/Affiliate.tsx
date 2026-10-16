@@ -4,19 +4,33 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
-import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
+import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
+import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
+import {
+  Users,
+  TrendingUp,
+  DollarSign,
+  BarChart3,
+  Shield,
+  LayoutDashboard,
+  Trophy,
+  Award,
+} from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AffiliateProps {
   onBack: () => void;
+  initialTab?: string;
 }
 
-const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "overview" }) => {
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "leaderboard", label: "Leaderboards", icon: Trophy },
+    { id: "milestones", label: "Milestone Badges", icon: Award },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -26,6 +40,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "leaderboard":
+        return <AffiliateLeaderboard onSelectMilestones={() => setActiveTab("milestones")} />;
+      case "milestones":
+        return <MilestoneBadges />;
       case "join-campaign":
         return <JoinCampaignButton />;
       case "my-sales":
@@ -33,9 +51,19 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
       case "claim-payouts":
         return <ClaimPayouts />;
       case "overview":
-        return <AffiliateOverview />;
+        return (
+          <AffiliateOverview
+            onNavigateToLeaderboard={() => setActiveTab("leaderboard")}
+            onNavigateToMilestones={() => setActiveTab("milestones")}
+          />
+        );
       default:
-        return <AffiliateOverview />;
+        return (
+          <AffiliateOverview
+            onNavigateToLeaderboard={() => setActiveTab("leaderboard")}
+            onNavigateToMilestones={() => setActiveTab("milestones")}
+          />
+        );
     }
   };
 
