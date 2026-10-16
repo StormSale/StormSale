@@ -32,12 +32,12 @@ export const JoinCampaignButton = () => {
         message: "You have successfully joined the affiliate campaign.",
       });
       setCampaignAddress("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error joining campaign:", error);
       showNotification({
         type: "error",
         title: "Failed to Join",
-        message: error.message || "Error joining campaign",
+        message: error instanceof Error ? error.message : "Error joining campaign",
       });
     } finally {
       setIsLoading(false);

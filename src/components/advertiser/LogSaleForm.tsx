@@ -92,12 +92,12 @@ export const LogSaleForm = () => {
       setSaleAmount("");
       setCampaignAddress("");
       setCustomerData("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error logging sale:", error);
       showNotification({
         type: "error",
         title: "Logging Failed",
-        message: error.message || "Failed to log sale",
+        message: error instanceof Error ? error.message : "Failed to log sale",
       });
     } finally {
       setIsLoading(false);

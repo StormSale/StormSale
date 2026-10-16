@@ -1,8 +1,17 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 import { CheckCircle2, XCircle, AlertCircle, X } from "lucide-react";
 
 type NotificationType = "success" | "error" | "warning" | "info";
+
+const createNotificationId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `notification-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 interface Notification {
   id: string;
@@ -24,7 +33,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const showNotification = (notification: Omit<Notification, "id">) => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = createNotificationId();
     const newNotification = { ...notification, id };
 
     setNotifications((prev) => [...prev, newNotification]);

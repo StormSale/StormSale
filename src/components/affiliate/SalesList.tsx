@@ -34,29 +34,30 @@ interface Sale {
   claimed: boolean;
 }
 
+const nowInSeconds = Date.now() / 1000;
+const mockSales: Sale[] = [
+  {
+    id: 1,
+    affiliate: "GBBD...5678",
+    saleAmount: "100.0",
+    commissionAmount: "10.0",
+    timestamp: nowInSeconds - 86400,
+    claimed: false,
+  },
+  {
+    id: 2,
+    affiliate: "GBBD...5678",
+    saleAmount: "250.0",
+    commissionAmount: "25.0",
+    timestamp: nowInSeconds - 172800,
+    claimed: true,
+  },
+];
+
 export const SalesList = () => {
   const [decryptedData, setDecryptedData] = useState<object | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
-
-  const mockSales: Sale[] = [
-    {
-      id: 1,
-      affiliate: "GBBD...5678",
-      saleAmount: "100.0",
-      commissionAmount: "10.0",
-      timestamp: Date.now() / 1000 - 86400,
-      claimed: false,
-    },
-    {
-      id: 2,
-      affiliate: "GBBD...5678",
-      saleAmount: "250.0",
-      commissionAmount: "25.0",
-      timestamp: Date.now() / 1000 - 172800,
-      claimed: true,
-    },
-  ];
 
   const handleDecrypt = async (_saleId: number) => {
     setIsDecrypting(true);

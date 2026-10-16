@@ -65,12 +65,12 @@ export const GrantAccessForm = () => {
       setSaleId("");
       setAuditorAddress("");
       setCampaignAddress("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error granting audit access:", error);
       showNotification({
         type: "error",
         title: "Access Grant Failed",
-        message: error.message || "Failed to grant audit access",
+        message: error instanceof Error ? error.message : "Failed to grant audit access",
       });
     } finally {
       setIsLoading(false);
