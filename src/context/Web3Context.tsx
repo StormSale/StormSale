@@ -22,6 +22,7 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import { dispatchWebhookEvent } from "../lib/webhookEngine";
+import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
@@ -285,6 +286,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setXlmBalance("10000.00");
       }
 
+      await assertNotSanctioned(address, `wallet-connect:${type}`);
+
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
@@ -346,6 +349,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "create-campaign");
 
     console.log(
       `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
@@ -464,6 +468,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "claim-payout");
 
     console.log(
       `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
@@ -522,6 +527,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     splitPlan?: SplitPlan | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
       userAddress,
