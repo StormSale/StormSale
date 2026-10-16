@@ -1,4 +1,5 @@
 import React from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Web3Provider } from "./context/Web3Context";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
@@ -10,6 +11,22 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+      refetchInterval: 30_000,
+      retry: 2,
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -82,15 +99,17 @@ function Router() {
 
 function App() {
   return (
-    <NotificationWrapper>
-      <ErrorBoundary>
-        <Web3Provider>
-          <NotificationProvider>
-            <Router />
-          </NotificationProvider>
-        </Web3Provider>
-      </ErrorBoundary>
-    </NotificationWrapper>
+    <QueryClientProvider client={queryClient}>
+      <NotificationWrapper>
+        <ErrorBoundary>
+          <Web3Provider>
+            <NotificationProvider>
+              <Router />
+            </NotificationProvider>
+          </Web3Provider>
+        </ErrorBoundary>
+      </NotificationWrapper>
+    </QueryClientProvider>
   );
 }
 

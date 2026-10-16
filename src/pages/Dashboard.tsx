@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -33,6 +34,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
 
+  const { data: rolesData } = useQuery({
+    queryKey: ["dashboard-roles"],
+    queryFn: async () => {
+      return ["advertiser", "affiliate", "auditor"];
+    },
+    staleTime: 1000 * 60 * 5,
+    refetchOnWindowFocus: true,
+  });
+
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
@@ -49,7 +59,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
-  const roles = [
+  const roles = (rolesData ?? []).length > 0 ? [
     {
       id: "advertiser",
       title: "Advertiser",
@@ -111,7 +121,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       consentText:
         "By assuming this role, you agree to verify encrypted transactions strictly for compliance purposes.",
     },
-  ];
+  ] : [];
 
   const getBgClass = () => {
     if (hoveredRole === "advertiser" || expandedRole === "advertiser")

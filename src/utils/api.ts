@@ -20,6 +20,21 @@ export const registerUser = async (walletAddress: string, role: string = "AFFILI
   }
 };
 
+export const fetchUser = async (walletAddress: string) => {
+  if (!walletAddress) return null;
+  try {
+    const res = await fetch(`${API_URL}/users/${encodeURIComponent(walletAddress)}`);
+    if (!res.ok) {
+      if (res.status === 404) return null;
+      throw new Error(`Failed to fetch user: ${res.status}`);
+    }
+    return await res.json();
+  } catch (error) {
+    console.error("Failed to fetch user:", error);
+    throw error;
+  }
+};
+
 export const fetchCampaign = async (campaignId: string) => {
   try {
     const res = await fetch(`${API_URL}/campaigns/${campaignId}`);

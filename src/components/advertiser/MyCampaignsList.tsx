@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
@@ -101,21 +102,32 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
   },
 };
 
+const fetchCampaigns = async (): Promise<Campaign[]> => {
+  return mockCampaigns;
+};
+
 export const MyCampaignsList = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All">("All");
 
-  const filtered = mockCampaigns.filter((c) => {
+  const { data: campaigns = [] } = useQuery({
+    queryKey: ["campaigns"],
+    queryFn: fetchCampaigns,
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const filtered = campaigns.filter((c) => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || c.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const totalRevenue = mockCampaigns.reduce(
+  const totalRevenue = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalRevenue.replace(/\D/g, "")),
     0,
   );
-  const totalCommissions = mockCampaigns.reduce(
+  const totalCommissions = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalCommissions.replace(/\D/g, "")),
     0,
   );
@@ -141,10 +153,10 @@ export const MyCampaignsList = () => {
       {/* Summary stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Campaigns", value: String(mockCampaigns.length), icon: Shield },
+          { label: "Total Campaigns", value: String(campaigns.length), icon: Shield },
           {
             label: "Active",
-            value: String(mockCampaigns.filter((c) => c.status === "Active").length),
+            value: String(campaigns.filter((c) => c.status === "Active").length),
             icon: Play,
           },
           { label: "Total Revenue", value: `$${totalRevenue.toLocaleString()}`, icon: TrendingUp },

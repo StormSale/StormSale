@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -14,7 +14,7 @@ import {
 } from "../lib/stellar";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
-import { registerUser } from "../utils/api";
+import { useRegisterUserMutation, useUserQuery } from "../hooks/useUser";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -70,6 +70,18 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
 
+  // TanStack Query mutation for backend user registration/role updates.
+  const registerUserMutation = useRegisterUserMutation();
+
+  // Automated refetch hook for the connected user's role across all roles.
+  const { data: userRecord } = useUserQuery(userAddress);
+
+  useEffect(() => {
+    if (userRecord && userRecord.role) {
+      setUserRole(userRecord.role);
+    }
+  }, [userRecord]);
+
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
     try {
@@ -80,17 +92,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Sync with backend database & persistent role
-  const syncUserWithBackend = useCallback(async (address: string) => {
-    try {
-      const savedUser = await registerUser(address);
-      if (savedUser && savedUser.role) {
-        setUserRole(savedUser.role);
+  // Sync with backend database & persistent role through the Query mutation.
+  const syncUserWithBackend = useCallback(
+    async (address: string) => {
+      try {
+        const savedUser = await registerUserMutation.mutateAsync({ walletAddress: address });
+        if (savedUser && savedUser.role) {
+          setUserRole(savedUser.role);
+        }
+      } catch (err) {
+        console.error("Error registering user with backend:", err);
       }
-    } catch (err) {
-      console.error("Error registering user with backend:", err);
-    }
-  }, []);
+    },
+    [registerUserMutation],
+  );
 
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Mock
   const connectWallet = async (type: WalletType = "freighter", customAddress?: string) => {
@@ -149,7 +164,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const updateUserRole = async (role: string) => {
     if (!userAddress) return;
     try {
-      const updated = await registerUser(userAddress, role);
+      const updated = await registerUserMutation.mutateAsync({
+        walletAddress: userAddress,
+        role,
+      });
       if (updated && updated.role) {
         setUserRole(updated.role);
       }
