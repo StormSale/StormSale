@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
@@ -19,6 +19,22 @@ export const CreateCampaignForm = () => {
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticCampaign, setOptimisticCampaign] = useState<{
+    campaignId: string;
+    name: string;
+    budget: number;
+    commissionRate: number;
+    clearingPeriod: number;
+    txHash?: string;
+    status: "pending" | "confirmed" | "failed";
+  } | null>(null);
+  const snapshotRef = useRef<{
+    campaignName: string;
+    budget: string;
+    commissionRate: string;
+    clearingPeriod: string;
+  } | null>(null);
+  const [lastFailedCampaign, setLastFailedCampaign] = useState<string | null>(null);
 
   const { createCampaignOnChain, isConnected } = useWeb3();
   const { showNotification } = useNotification();
@@ -35,6 +51,37 @@ export const CreateCampaignForm = () => {
     }
 
     setIsLoading(true);
+
+    // Snapshot current form state for reliable revert on failure
+    snapshotRef.current = {
+      campaignName,
+      budget,
+      commissionRate,
+      clearingPeriod,
+    };
+
+    const parsedBudget = parseFloat(budget) || 1000;
+    const parsedCommission = parseFloat(commissionRate) || 10;
+    const parsedClearing = parseInt(clearingPeriod) || 604800;
+
+    // Optimistic UI: update state instantly (<50ms) before awaiting the chain
+    const optimisticId = `pending-${Date.now()}`;
+    setOptimisticCampaign({
+      campaignId: optimisticId,
+      name: campaignName,
+      budget: parsedBudget,
+      commissionRate: parsedCommission,
+      clearingPeriod: parsedClearing,
+      status: "pending",
+    });
+    setLastFailedCampaign(null);
+
+    // Clear the form immediately for instant feedback
+    setCommissionRate("");
+    setClearingPeriod("");
+    setCampaignName("");
+    setBudget("");
+
     try {
       showNotification({
         type: "info",
@@ -44,30 +91,55 @@ export const CreateCampaignForm = () => {
 
       const result = await createCampaignOnChain(
         campaignName,
-        parseFloat(budget) || 1000,
-        parseFloat(commissionRate) || 10,
-        parseInt(clearingPeriod) || 604800,
+        parsedBudget,
+        parsedCommission,
+        parsedClearing,
       );
+
+      // Confirm the optimistic entry with the real on-chain data
+      setOptimisticCampaign({
+        campaignId: result.campaignId,
+        name: campaignName,
+        budget: parsedBudget,
+        commissionRate: parsedCommission,
+        clearingPeriod: parsedClearing,
+        txHash: result.txHash,
+        status: "confirmed",
+      });
 
       showNotification({
         type: "success",
         title: "Campaign Escrow Live on Stellar!",
         message: `Campaign #${result.campaignId} deployed on Soroban. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
-
-      setCommissionRate("");
-      setClearingPeriod("");
-      setCampaignName("");
-      setBudget("");
     } catch (error: any) {
       console.error("Error creating campaign:", error);
+
+      // Reliable revert: restore the exact pre-submit form state
+      const snapshot = snapshotRef.current;
+      if (snapshot) {
+        setCampaignName(snapshot.campaignName);
+        setBudget(snapshot.budget);
+        setCommissionRate(snapshot.commissionRate);
+        setClearingPeriod(snapshot.clearingPeriod);
+      }
+
+      // Mark the optimistic entry as failed so the UI can reflect the revert
+      setOptimisticCampaign((prev) =>
+        prev ? { ...prev, status: "failed" } : null,
+      );
+      setLastFailedCampaign(campaignName);
+
       showNotification({
         type: "error",
         title: "Creation Failed",
-        message: error.message || "Failed to create campaign",
+        message:
+          error instanceof Error ? error.message : "Failed to create campaign",
       });
     } finally {
       setIsLoading(false);
+      snapshotRef.current = null;
+      setLastFailedCampaign(null);
     }
   };
 
@@ -238,6 +310,33 @@ export const CreateCampaignForm = () => {
                   </div>
                 </div>
               </div>
+
+              {optimisticCampaign && (
+                <div
+                  className={`p-4 rounded-2xl border text-sm font-medium flex items-center justify-between ${
+                    optimisticCampaign.status === "pending"
+                      ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300"
+                      : optimisticCampaign.status === "confirmed"
+                        ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300"
+                        : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900 text-red-800 dark:text-red-300"
+                  }`}
+                >
+                  <span>
+                    {optimisticCampaign.status === "pending" &&
+                      `Creating "${optimisticCampaign.name}" (${optimisticCampaign.budget} XLM)...`}
+                    {optimisticCampaign.status === "confirmed" &&
+                      `Campaign #${optimisticCampaign.campaignId} confirmed on-chain`}
+                    {optimisticCampaign.status === "failed" &&
+                      `Creation failed — form state reverted`}
+                  </span>
+                  {optimisticCampaign.status === "pending" && (
+                    <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                  )}
+                  {optimisticCampaign.status === "failed" && lastFailedCampaign && (
+                    <span className="text-xs opacity-75">{lastFailedCampaign}</span>
+                  )}
+                </div>
+              )}
 
               <Button
                 type="submit"

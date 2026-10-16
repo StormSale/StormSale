@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -19,11 +19,18 @@ export const GrantAccessForm = () => {
   const [auditorAddress, setAuditorAddress] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticGrant, setOptimisticGrant] = useState<{
+    saleId: string;
+    auditorAddress: string;
+    campaignAddress: string;
+  } | null>(null);
+  const pendingRef = useRef(false);
   const { getCampaignContract } = useWeb3();
   const { showNotification } = useNotification();
 
   const handleGrantAccess = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pendingRef.current) return;
     if (!saleId || !auditorAddress || !campaignAddress) {
       showNotification({
         type: "warning",
@@ -32,6 +39,21 @@ export const GrantAccessForm = () => {
       });
       return;
     }
+
+    const snapshot = { saleId, auditorAddress, campaignAddress };
+
+    // Optimistic UI: apply state immediately (<50ms) before awaiting the chain.
+    pendingRef.current = true;
+    setOptimisticGrant(snapshot);
+    setSaleId("");
+    setAuditorAddress("");
+    setCampaignAddress("");
+
+    showNotification({
+      type: "info",
+      title: "Access Pending",
+      message: "Granting audit access optimistically...",
+    });
 
     setIsLoading(true);
     try {
@@ -56,6 +78,7 @@ export const GrantAccessForm = () => {
 
       await tx.wait();
 
+      setOptimisticGrant(null);
       showNotification({
         type: "success",
         title: "Access Granted!",
@@ -67,12 +90,19 @@ export const GrantAccessForm = () => {
       setCampaignAddress("");
     } catch (error: any) {
       console.error("Error granting audit access:", error);
+      // Revert optimistic state on failure.
+      setOptimisticGrant(null);
+      setSaleId(snapshot.saleId);
+      setAuditorAddress(snapshot.auditorAddress);
+      setCampaignAddress(snapshot.campaignAddress);
+      pendingRef.current = false;
       showNotification({
         type: "error",
         title: "Access Grant Failed",
         message: error.message || "Failed to grant audit access",
       });
     } finally {
+      pendingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -170,6 +200,25 @@ export const GrantAccessForm = () => {
                   </div>
                 </div>
               </div>
+
+              {optimisticGrant && (
+                <div className="bg-emerald-50 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-500/20">
+                  <div className="flex items-start space-x-3">
+                    <UserCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                    <div>
+                      <h4 className="font-bold text-emerald-900 dark:text-emerald-300">
+                        Access Pending Confirmation
+                      </h4>
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-400 mt-1 leading-relaxed">
+                        Granting access to sale #{optimisticGrant.saleId} for{" "}
+                        {optimisticGrant.auditorAddress.slice(0, 6)}...
+                        {optimisticGrant.auditorAddress.slice(-4)}. This will revert if the
+                        transaction fails.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <Button
                 type="submit"

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -32,37 +32,73 @@ export const ClaimPayouts = () => {
   const { claimPayoutOnChain } = useWeb3();
   const { showNotification } = useNotification();
   const [claimingId, setClaimingId] = useState<number | null>(null);
+  const [claimedIds, setClaimedIds] = useState<Set<number>>(new Set());
+  const [optimisticIds, setOptimisticIds] = useState<Set<number>>(new Set());
+  const inFlightRef = useRef<Set<number>>(new Set());
 
-  const handleClaim = async (saleId: number) => {
-    setClaimingId(saleId);
-    try {
-      showNotification({
-        type: "info",
-        title: "Claiming Commission",
-        message: "Submitting payout request to Soroban contract...",
-      });
+  const handleClaim = useCallback(
+    async (saleId: number) => {
+      if (inFlightRef.current.has(saleId) || claimedIds.has(saleId)) return;
+      inFlightRef.current.add(saleId);
 
-      const res = await claimPayoutOnChain(saleId);
-      showNotification({
-        type: "success",
-        title: "Commission Paid Out!",
-        message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+      // Optimistic UI: mark as claimed instantly (<50ms) before awaiting chain.
+      setOptimisticIds((prev) => {
+        const next = new Set(prev);
+        next.add(saleId);
+        return next;
       });
-    } catch (err: any) {
-      showNotification({
-        type: "error",
-        title: "Claim Failed",
-        message: err.message || "Failed to claim payout",
-      });
-    } finally {
-      setClaimingId(null);
-    }
-  };
+      setClaimingId(saleId);
+
+      try {
+        showNotification({
+          type: "info",
+          title: "Claiming Commission",
+          message: "Submitting payout request to Soroban contract...",
+        });
+
+        const res = await claimPayoutOnChain(saleId);
+
+        // Commit optimistic state on success.
+        setClaimedIds((prev) => {
+          const next = new Set(prev);
+          next.add(saleId);
+          return next;
+        });
+        setOptimisticIds((prev) => {
+          const next = new Set(prev);
+          next.delete(saleId);
+          return next;
+        });
+
+        showNotification({
+          type: "success",
+          title: "Commission Paid Out!",
+          message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+        });
+      } catch (err: any) {
+        // Revert optimistic state on failure.
+        setOptimisticIds((prev) => {
+          const next = new Set(prev);
+          next.delete(saleId);
+          return next;
+        });
+        showNotification({
+          type: "error",
+          title: "Claim Failed",
+          message: err.message || "Failed to claim payout",
+        });
+      } finally {
+        inFlightRef.current.delete(saleId);
+        setClaimingId(null);
+      }
+    },
+    [claimPayoutOnChain, claimedIds, showNotification]
+  );
 
   const mockClaimableSales: ClaimableSale[] = [
     {
       id: 1,
-      campaignAddress: "CA7QW5KXGPTR4N2K9J2...",
+      campaignAddress: "CA7QW5KXGPTRzN2K9J2...",
       saleAmount: "100.0",
       commissionAmount: "10.0",
       timestamp: Date.now() / 1000 - 1209600,
@@ -81,6 +117,9 @@ export const ClaimPayouts = () => {
   const isSaleClaimable = (sale: ClaimableSale) => {
     return Date.now() / 1000 >= sale.timestamp + sale.clearingPeriod;
   };
+
+  const isSaleClaimed = (saleId: number) =>
+    claimedIds.has(saleId) || optimisticIds.has(saleId);
 
   const formatTimestamp = (timestamp: number) => new Date(timestamp * 1000).toLocaleDateString();
 
@@ -162,33 +201,43 @@ export const ClaimPayouts = () => {
                     </TableCell>
                     <TableCell className="py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          isSaleClaimable(sale)
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${isSaleClaimed(sale.id)
+                            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
+                            : isSaleClaimable(sale)
                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
                             : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
                         }`}
                       >
-                        {isSaleClaimable(sale) ? (
+                        {isSaleClaimed(sale.id) ? (
+                          <CheckCircle2 className="w-3 h-3" />
+                        ) : isSaleClaimable(sale) ? (
                           <CheckCircle2 className="w-3 h-3" />
                         ) : (
                           <Clock className="w-3 h-3" />
                         )}
-                        {getTimeRemaining(sale)}
+                        {isSaleClaimed(sale.id) ? "Claimed" : getTimeRemaining(sale)}
                       </span>
                     </TableCell>
                     <TableCell className="py-4 pr-6">
                       <Button
                         size="sm"
                         onClick={() => handleClaim(sale.id)}
-                        disabled={!isSaleClaimable(sale) || claimingId !== null}
-                        className={`rounded-lg h-9 px-4 font-semibold text-sm transition-all ${
-                          isSaleClaimable(sale)
+                        disabled={
+                          !isSaleClaimable(sale) ||
+                          isSaleClaimed(sale.id) ||
+                          claimingId !== null
+                        }
+                        className={`rounded-lg h-9 px-4 font-semibold text-sm transition-all ${isSaleClaimable(sale) && !isSaleClaimed(sale.id)
                             ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white shadow-sm"
                             : "bg-slate-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                         }`}
                       >
                         <Zap className="w-3.5 h-3.5 mr-1" />
-                        {claimingId === sale.id ? "Claiming..." : "Claim"}
+                        {isSaleClaimed(sale.id)
+                          ? "Claimed"
+                          : claimingId === sale.id
+                          ? "Claiming..."
+                          : "Claim"}
                       </Button>
                     </TableCell>
                   </TableRow>

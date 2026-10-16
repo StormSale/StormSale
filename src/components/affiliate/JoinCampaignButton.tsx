@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -11,21 +11,71 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import { Users, Zap, Shield } from "lucide-react";
+import { Users, Zap, Shield, CheckCircle2 } from "lucide-react";
+
+export interface JoinCampaignState {
+  status: "idle" | "pending" | "confirmed";
+  campaignAddress: string;
+  txHash?: string;
+}
+
+const INITIAL_STATE: JoinCampaignState = {
+  status: "idle",
+  campaignAddress: "",
+};
 
 export const JoinCampaignButton = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [optimisticState, setOptimisticState] = useState<JoinCampaignState>({
+    ...INITIAL_STATE,
+  });
   const { factoryContract } = useWeb3();
   const { showNotification } = useNotification();
 
-  const handleJoinCampaign = async () => {
-    if (!factoryContract || !campaignAddress) return;
+  const isPending = optimisticState.status === "pending";
+  const isConfirmed = optimisticState.status === "confirmed";
 
-    setIsLoading(true);
+  /**
+   * Optimistic UI flow:
+   *  1. On click, immediately flip the local state to "pending" (<50ms).
+   *  2. Submit the transaction and wait for mining.
+   *  3. On success -> "confirmed".
+   *  4. On failure -> revert to the snapshoted prior state and surface the error.
+   */
+  const handleJoinCampaign = useCallback(async () => {
+    if (!factoryContract || !campaignAddress) {
+      return;
+    }
+
+    // Snapshot the current state so we can revert on failure.
+    const snapshot: JoinCampaignState = {
+      ...optimisticState,
+      campaignAddress,
+    };
+
+    // 1. Instant optimistic update (<50ms).
+    setOptimisticState({
+      status: "pending",
+      campaignAddress,
+    });
+
     try {
       const tx = await factoryContract.joinCampaign(campaignAddress);
+      const txHash = tx.address ?? tx.hash ?? "";
+      setOptimisticState({
+        status: "pending",
+        campaignAddress,
+        txHash,
+      });
+
       await tx.wait();
+
+      // 2. Confirmed on-chain.
+      setOptimisticState({
+        status: "confirmed",
+        campaignAddress,
+        txHash,
+      });
       showNotification({
         type: "success",
         title: "Campaign Joined!",
@@ -34,15 +84,20 @@ export const JoinCampaignButton = () => {
       setCampaignAddress("");
     } catch (error: any) {
       console.error("Error joining campaign:", error);
+
+      // 3. Reliable revert on txn failure.
+      setOptimisticState(snapshot);
       showNotification({
         type: "error",
         title: "Failed to Join",
-        message: error.message || "Error joining campaign",
+        message: error?.message || "Error joining campaign",
       });
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [factoryContract, campaignAddress, optimisticState, showNotification]);
+
+  const handleReset = useCallback(() => {
+    setOptimisticState({ ...INITIAL_STATE });
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -84,12 +139,36 @@ export const JoinCampaignButton = () => {
               value={campaignAddress}
               onChange={(e) => setCampaignAddress(e.target.value)}
               placeholder="CCAMPAIGN... (Soroban Contract Address or ID)"
+              disabled={isPending || isConfirmed}
               className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
             />
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
               Obtain the campaign address from the advertiser or StormSale marketplace.
             </p>
           </div>
+
+          {/* Optimistic status banner */}
+          {isPending && (
+            <div className="bg-amber-50 dark:bg-amber-500/10 p-5 rounded-2xl border border-amber-200 dark:border-amber-500/20">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 border-2 border-amber-500/30 border-t-amber-600 rounded-full animate-spin" />
+                <p className="font-bold text-amber-900 dark:text-amber-300 text-sm">
+                  Submitted - waiting for confirmation…
+                </p>
+              </div>
+            </div>
+          )}
+
+          {isConfirmed && (
+            <div className="bg-emerald-50 dark:bg-emerald-500/10 p-5 rounded-2xl border border-emerald-200 dark:border-emerald-500/20">
+              <div className="flex items-center gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                <p className="font-bold text-emerald-900 dark:text-emerald-300 text-sm">
+                  Confirmed on-chain.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Info block */}
           <div className="bg-indigo-50 dark:bg-indigo-500/10 p-5 rounded-2xl border border-indigo-100 dark:border-indigo-500/20">
@@ -107,23 +186,32 @@ export const JoinCampaignButton = () => {
             </div>
           </div>
 
-          <Button
-            onClick={handleJoinCampaign}
-            disabled={isLoading || !campaignAddress}
-            className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-lg rounded-xl shadow-md transition-all"
-          >
-            {isLoading ? (
-              <div className="flex items-center gap-3">
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Joining Campaign...
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <Zap className="w-5 h-5" />
-                Join Campaign
-              </div>
-            )}
-          </Button>
+          {isConfirmed ? (
+            <Button
+              onClick={handleReset}
+              className="w-full h-14 bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white border border-slate-200 dark:border-zinc-800 font-bold text-lg rounded-xl shadow-sm transition-all"
+            >
+              Join Another Campaign
+            </Button>
+          ) : (
+            <Button
+              onClick={handleJoinCampaign}
+              disabled={isPending || !campaignAddress}
+              className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-lg rounded-xl shadow-md transition-all"
+            >
+              {isPending ? (
+                <div className="flex items-center gap-3">
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Joining Campaign...
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Zap className="w-5 h-5" />
+                  Join Campaign
+                </div>
+              )}
+            </Button>
+          )}
         </CardContent>
       </Card>
     </div>

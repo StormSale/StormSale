@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -25,6 +25,18 @@ export const LogSaleForm = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticSale, setOptimisticSale] = useState<{
+    affiliateAddress: string;
+    saleAmount: string;
+    campaignAddress: string;
+    customerData: string;
+  } | null>(null);
+  const previousStateRef = useRef<{
+    affiliateAddress: string;
+    saleAmount: string;
+    campaignAddress: string;
+    customerData: string;
+  } | null>(null);
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
@@ -38,6 +50,26 @@ export const LogSaleForm = () => {
       });
       return;
     }
+
+    // Capture current state for potential revert
+    previousStateRef.current = {
+      affiliateAddress,
+      saleAmount,
+      campaignAddress,
+      customerData,
+    };
+
+    // Optimistic UI update: immediately clear form and show optimistic sale
+    setOptimisticSale({
+      affiliateAddress,
+      saleAmount,
+      campaignAddress,
+      customerData,
+    });
+    setAffiliateAddress("");
+    setSaleAmount("");
+    setCampaignAddress("");
+    setCustomerData("");
 
     setIsLoading(true);
     try {
@@ -88,12 +120,22 @@ export const LogSaleForm = () => {
         message: "Encrypted sale data has been recorded on-chain",
       });
 
-      setAffiliateAddress("");
-      setSaleAmount("");
-      setCampaignAddress("");
-      setCustomerData("");
+      // Clear optimistic state on success
+      setOptimisticSale(null);
+      previousStateRef.current = null;
     } catch (error: any) {
       console.error("Error logging sale:", error);
+
+      // Revert optimistic UI on failure
+      if (previousStateRef.current) {
+        setAffiliateAddress(previousStateRef.current.affiliateAddress);
+        setSaleAmount(previousStateRef.current.saleAmount);
+        setCampaignAddress(previousStateRef.current.campaignAddress);
+        setCustomerData(previousStateRef.current.customerData);
+      }
+      setOptimisticSale(null);
+      previousStateRef.current = null;
+
       showNotification({
         type: "error",
         title: "Logging Failed",
@@ -114,6 +156,15 @@ export const LogSaleForm = () => {
           Record a new sale with military-grade encryption and commission escrow
         </p>
       </div>
+
+      {optimisticSale && (
+        <div className="bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-4 flex items-center space-x-3">
+          <div className="w-5 h-5 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+          <div className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+            Optimistically logging sale of {optimisticSale.saleAmount} XLM for {optimisticSale.affiliateAddress.slice(0, 6)}...{optimisticSale.affiliateAddress.slice(-4)}
+          </div>
+        </div>
+      )}
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">
