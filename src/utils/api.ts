@@ -29,3 +29,33 @@ export const fetchCampaign = async (campaignId: string) => {
     return null;
   }
 };
+
+export interface AnomalyFlagPayload {
+  id: string;
+  category: string;
+  severity: string;
+  walletAddresses: string[];
+  affectedValue: number;
+  note?: string;
+}
+
+export const reportAnomaly = async (flag: AnomalyFlagPayload) => {
+  const res = await fetch(`${API_URL}/auditor/anomalies/${encodeURIComponent(flag.id)}/report`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      category: flag.category,
+      severity: flag.severity,
+      walletAddresses: flag.walletAddresses,
+      affectedValue: flag.affectedValue,
+      note: flag.note,
+    }),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "Failed to report anomaly");
+  }
+
+  return await res.json().catch(() => ({}));
+};

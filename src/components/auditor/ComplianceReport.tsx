@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -7,7 +8,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock, Flag, ShieldAlert, TrendingUp, Zap } from "lucide-react";
 
 const complianceItems = [
   {
@@ -50,6 +51,50 @@ const complianceItems = [
   },
 ];
 
+const anomalyFlags = [
+  {
+    id: "AF-001",
+    type: "Wash Trading",
+    severity: "High",
+    campaign: "Stellar Growth Q2",
+    wallet: "GDRX...4F2A",
+    pattern: "Circular buy-sell within 90s across 12 linked wallets",
+    detectedAt: "2026-05-16 14:32 UTC",
+    confidence: 94,
+  },
+  {
+    id: "AF-002",
+    type: "Rapid Claim",
+    severity: "Medium",
+    campaign: "Airdrop Wave 3",
+    wallet: "GBKT...9C1D",
+    pattern: "47 claims in 6 minutes from single IP cluster",
+    detectedAt: "2026-05-16 11:08 UTC",
+    confidence: 87,
+  },
+  {
+    id: "AF-003",
+    type: "Sybil Cluster",
+    severity: "High",
+    campaign: "Loyalty Rewards",
+    wallet: "GCMN...2E7B",
+    pattern: "38 wallets sharing identical funding source & timing",
+    detectedAt: "2026-05-15 22:47 UTC",
+    confidence: 91,
+  },
+];
+
+const severityMap: Record<string, { badge: string; dot: string }> = {
+  High: {
+    badge: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400",
+    dot: "bg-red-500",
+  },
+  Medium: {
+    badge: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400",
+    dot: "bg-amber-500",
+  },
+};
+
 const statusMap: Record<string, { badge: string; icon: ComponentType<{ className?: string }> }> = {
   Compliant: {
     badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400",
@@ -62,6 +107,12 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
 };
 
 export const ComplianceReport = () => {
+  const [reported, setReported] = useState<Record<string, boolean>>({});
+
+  const handleReport = (id: string) => {
+    setReported((prev) => ({ ...prev, [id]: true }));
+  };
+
   const compliant = complianceItems.filter((c) => c.status === "Compliant").length;
   const review = complianceItems.filter((c) => c.status === "Review Needed").length;
 
@@ -114,6 +165,105 @@ export const ComplianceReport = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Anomaly Detection */}
+      <Card className="border border-red-200 dark:border-red-500/30 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl overflow-hidden">
+        <CardHeader className="pt-8 px-8 pb-6 border-b border-red-100 dark:border-red-500/20 bg-red-50/50 dark:bg-red-500/5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-red-600 rounded-xl flex items-center justify-center shadow-md">
+                <ShieldAlert className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                  Suspicious Activity
+                  <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                    {anomalyFlags.length} Red Flags
+                  </span>
+                </CardTitle>
+                <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
+                  Wash-trading and rapid-claim patterns detected across active campaigns
+                </CardDescription>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+            {anomalyFlags.map((flag) => {
+              const sev = severityMap[flag.severity];
+              const isReported = reported[flag.id];
+              return (
+                <div
+                  key={flag.id}
+                  className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 px-8 py-6 hover:bg-red-50/30 dark:hover:bg-red-500/5 transition-colors"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20">
+                      <Flag className="w-5 h-5 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm text-zinc-900 dark:text-white">
+                          {flag.type}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${sev.badge}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+                          {flag.severity}
+                        </span>
+                        <span className="text-[10px] font-mono font-semibold text-zinc-400 dark:text-zinc-500">
+                          {flag.id}
+                        </span>
+                      </div>
+                      <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-1">
+                        {flag.campaign} · <span className="font-mono">{flag.wallet}</span>
+                      </div>
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed max-w-lg">
+                        {flag.pattern}
+                      </p>
+                      <div className="flex items-center gap-3 mt-2 text-[11px] text-zinc-400 dark:text-zinc-500">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {flag.detectedAt}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <TrendingUp className="w-3 h-3" />
+                          {flag.confidence}% confidence
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
+                    <Button
+                      onClick={() => handleReport(flag.id)}
+                      disabled={isReported}
+                      size="sm"
+                      className={`h-9 rounded-xl font-semibold shadow-sm ${
+                        isReported
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/20"
+                          : "bg-red-600 hover:bg-red-700 text-white"
+                      }`}
+                    >
+                      {isReported ? (
+                        <>
+                          <CheckCircle2 className="w-4 h-4 mr-2" />
+                          Reported
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Report Anomaly
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Compliance items */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
