@@ -58,30 +58,33 @@ export function generateShopifySharedSecret(): string {
  * Shopify sends the signature in the X-Shopify-Hmac-Sha256 header,
  * computed as HMAC-SHA256(webhook_secret, request_body).
  */
-export function validateShopifyHmac(
+export async function validateShopifyHmac(
   body: string,
   secret: string,
   signature: string,
-): WebhookValidationResult {
+): Promise<WebhookValidationResult> {
   try {
     const encoder = new TextEncoder();
     const keyData = encoder.encode(secret);
     const messageData = encoder.encode(body);
 
-    return crypto.subtle
-      .importKey("raw", keyData, { name: "HMAC", hash: "SHA-256" }, false, [
-        "sign",
-      ])
-      .then((cryptoKey) =>
-        crypto.subtle.sign("HMAC", cryptoKey, messageData),
-      )
-      .then((signatureBuffer) => {
-        const computedSignature = btoa(
-          String.fromCharCode(...Array.from(new Uint8Array(signatureBuffer))),
-        );
-        const valid = computedSignature === signature;
-        return { valid };
-      });
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const signatureBuffer = await crypto.subtle.sign(
+      "HMAC",
+      cryptoKey,
+      messageData,
+    );
+    const computedSignature = btoa(
+      String.fromCharCode(...Array.from(new Uint8Array(signatureBuffer))),
+    );
+    const valid = computedSignature === signature;
+    return { valid };
   } catch (error: any) {
     return { valid: false, error: error.message };
   }

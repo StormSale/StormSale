@@ -10,7 +10,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import {
-  Shop,
+  Store,
   Zap,
   Shield,
   Link,
@@ -37,7 +37,6 @@ export const ShopifyWebhookGateway = () => {
   const [shopDomain, setShopDomain] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
   const [isWebhookSetup, setIsWebhookSetup] = useState(false);
-  const [testBody, setTestBody] = useState("");
   const [testSignature, setTestSignature] = useState("");
   const [testSecret, setTestSecret] = useState("");
   const [testResult, setTestResult] = useState<{
@@ -189,7 +188,7 @@ export const ShopifyWebhookGateway = () => {
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
           <div className="flex items-center space-x-4">
             <div className="w-14 h-14 bg-zinc-900 dark:bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-zinc-900/30">
-              <Shop className="w-7 h-7 text-white" />
+              <Store className="w-7 h-7 text-white" />
             </div>
             <div>
               <CardTitle className="text-2xl font-bold text-zinc-900 dark:text-white">
@@ -463,7 +462,7 @@ export const ShopifyWebhookGateway = () => {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="6" className="py-12 text-center text-zinc-500 dark:text-zinc-400">
+                    <td colSpan={6} className="py-12 text-center text-zinc-500 dark:text-zinc-400">
                       No conversion logs yet. Run a test webhook to see production-style logs.
                     </td>
                   </tr>
