@@ -1,16 +1,43 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useSorobanEvents } from "../../hooks/useSorobanEvents";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Wifi, WifiOff, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const { status: eventStatus } = useSorobanEvents();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
+
+  const renderEventStatus = () => {
+    if (eventStatus === "connected") {
+      return (
+        <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 rounded-lg">
+          <Wifi className="w-3 h-3 text-emerald-500" />
+          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">Connected</span>
+        </div>
+      );
+    }
+    if (eventStatus === "reconnecting") {
+      return (
+        <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 border border-amber-500/30 rounded-lg">
+          <Loader2 className="w-3 h-3 text-amber-500 animate-spin" />
+          <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">Reconnecting</span>
+        </div>
+      );
+    }
+    return (
+      <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg">
+        <WifiOff className="w-3 h-3 text-zinc-400" />
+        <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400">Polling</span>
+      </div>
+    );
+  };
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -54,6 +81,7 @@ export const Header = () => {
         {/* Desktop Actions */}
         <div className="hidden sm:flex items-center space-x-4">
           <ThemeToggle />
+          {renderEventStatus()}
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">

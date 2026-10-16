@@ -10,6 +10,7 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { ConnectionStatusPill } from "./components/shared/ConnectionStatusPill";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -64,6 +65,9 @@ function Router() {
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
+          <div className="fixed top-4 right-4 z-40">
+            <ConnectionStatusPill />
+          </div>
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (

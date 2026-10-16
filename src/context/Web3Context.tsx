@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -11,10 +11,18 @@ import {
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
+  startSorobanEventStream,
+  SOROBAN_EVENT_TOPICS,
 } from "../lib/stellar";
-import type { WalletType } from "../lib/stellar";
+import type {
+  WalletType,
+  SorobanEvent,
+  SorobanStreamStatus,
+  SorobanEventStreamHandle,
+} from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
+import { useNotification } from "./NotificationContext";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -48,6 +56,12 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Real-time Soroban event stream
+  eventStreamStatus: SorobanStreamStatus;
+  lastEvent: SorobanStreamEvent | null;
+  eventStreamError: string | null;
+  forceEventStreamReconnect: () => void;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -56,9 +70,46 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
+export interface SorobanStreamEvent {
+  id: string;
+  topic: string;
+  contractId: string;
+  ledger: number;
+  txHash: string;
+  value: any;
+  closedAt: string;
+}
+
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
+function describeEvent(event: SorobanEvent): { title: string; message: string } {
+  const shortTx = event.txHash ? `${event.txHash.slice(0, 8)}…${event.txHash.slice(-8)}` : "";
+  switch (event.topic) {
+    case "create_campaign":
+      return {
+        title: "New campaign created",
+        message: `Campaign on ledger ${event.ledger}${shortTx ? ` • ${shortTx}` : ""}`,
+      };
+    case "log_sale":
+      return {
+        title: "Sale logged on-chain",
+        message: `Affiliate sale confirmed on ledger ${event.ledger}${shortTx ? ` • ${shortTx}` : ""}`,
+      };
+    case "claim_payout":
+      return {
+        title: "Payout claimed",
+        message: `Commission payout claimed on ledger ${event.ledger}${shortTx ? ` • ${shortTx}` : ""}`,
+      };
+    default:
+      return {
+        title: "On-chain event",
+        message: `${event.topic} on ledger ${event.ledger}`,
+      };
+  }
+}
+
 export function Web3Provider({ children }: { children: ReactNode }) {
+  const { showNotification } = useNotification();
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -66,6 +117,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  const [eventStreamStatus, setEventStreamStatus] =
+    useState<SorobanStreamStatus>("idle");
+  const [lastEvent, setLastEvent] = useState<SorobanStreamEvent | null>(null);
+  const [eventStreamError, setEventStreamError] = useState<string | null>(null);
+  const streamRef = useRef<SorobanStreamHandle | null>(null);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -115,7 +172,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       } else if (type === "readonly") {
         if (!customAddress) throw new Error("Please provide a valid Stellar address.");
         address = customAddress;
-        setNetwork(STELLAR_CONFIG.network);
+        setNetwork!(STELLAR_CONFIG.network);
       } else {
         // Mock fallback demo account with 10,000 XLM
         address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
@@ -251,6 +308,64 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Real-time Soroban event stream: start when wallet is connected.
+  useEffect(() => {
+    if (!isConnected) {
+      streamRef.current?.stop();
+      streamRef.current = null;
+      setEventStreamStatus("idle");
+      return;
+    }
+
+    const handle = startSorobanEventStream({
+      contractId: STELLAR_CONFIG.contractId,
+      topics: SOROBAN_EVENT_TOPICS,
+      onStatusChange: (status) => {
+        setEventStreamStatus(status);
+        if (status === "connected") {
+          setEventStreamError(null);
+        }
+      },
+      onError: (err) => {
+        setEventStreamError(err.message);
+      },
+      onEvent: (event: SorobanEvent) => {
+        const normalized: SorobanStreamEvent = {
+          id: event.id,
+          topic: event.topic,
+          contractId: event.contractId,
+          ledger: event.ledger,
+          txHash: event.txHash,
+          value: event.value,
+          closedAt: event.closedAt,
+        };
+        setLastEvent(normalized);
+
+        // Subtle toast notification for incoming on-chain events
+        const { title, message } = describeEvent(event);
+        showNotification({ type: "info", title, message, duration: 4000 });
+
+        // Lightweight re-validation triggers
+        if (event.topic === "log_sale" || event.topic === "claim_payout") {
+          if (userAddress) {
+            void refreshBalance(userAddress);
+          }
+        }
+      },
+    });
+
+    streamRef.current = handle;
+
+    return () => {
+      handle.stop();
+      streamRef.current = null;
+    };
+  }, [isConnected, userAddress, refreshBalance, showNotification]);
+
+  const forceEventStreamReconnect = () => {
+    streamRef.current?.forceReconnect();
+  };
+
   // Compatibility facade for existing form components
   const factoryContract = {
     createCampaign: async (rate: string, period: string) => {
@@ -318,6 +433,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         createCampaignOnChain,
         logSaleOnChain,
         claimPayoutOnChain,
+        eventStreamStatus,
+        lastEvent,
+        eventStreamError,
+        forceEventStreamReconnect,
         factoryContract,
         getCampaignContract,
         provider: null,
