@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { ReferralLinkCard } from "./ReferralLinkCard";
 import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
 
 export const AffiliateOverview = () => {
@@ -64,6 +65,8 @@ export const AffiliateOverview = () => {
           Quick Start Guide
         </Button>
       </div>
+
+      <ReferralLinkCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

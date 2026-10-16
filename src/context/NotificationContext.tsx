@@ -20,11 +20,14 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
+let notificationSeq = 0;
+const nextNotificationId = () => `notification-${++notificationSeq}`;
+
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const showNotification = (notification: Omit<Notification, "id">) => {
-    const id = Math.random().toString(36).substr(2, 9);
+    const id = nextNotificationId();
     const newNotification = { ...notification, id };
 
     setNotifications((prev) => [...prev, newNotification]);
