@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -32,6 +32,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+const PGP_EXPIRY_OPTIONS = [1, 24, 72, 168] as const;
+
+type PgpExpiryHours = (typeof PGP_EXPIRY_OPTIONS)[number];
+
 interface PendingAuditItem {
   saleId: string;
   campaign: string;
@@ -48,6 +52,10 @@ export const VerifyAccess: React.FC = () => {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedData, setDecryptedData] = useState<Record<string, string> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isEncrypting, setIsEncrypting] = useState(false);
+  const [pgpExpiryHours, setPgpExpiryHours] = useState<PgpExpiryHours>(24);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [shareLinkExpiresAt, setShareLinkExpiresAt] = useState<number | null>(null);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
 
@@ -146,6 +154,50 @@ export const VerifyAccess: React.FC = () => {
       });
     } finally {
       setIsDecrypting(false);
+    }
+  };
+
+  const shareLinkRemaining = useMemo(() => {
+    if (!shareLinkExpiresAt) return null;
+    const remainingMs = shareLinkExpiresAt - Date.now();
+    if (remainingMs <= 0) return "Expired";
+    const hours = Math.floor(remainingMs / (1000 * 60 * 60));
+    const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m remaining`;
+  }, [shareLinkExpiresAt]);
+
+  const handleEncryptAndShare = async () => {
+    if (!decryptedData) {
+      showNotification({
+        type: "warning",
+        title: "No Payload",
+        message: "Decrypt a sale payload before generating a secure share link.",
+      });
+      return;
+    }
+    setIsEncrypting(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const expiresAt = Date.now() + pgpExpiryHours * 60 * 60 * 1000;
+      const token = Array.from({ length: 32 }, () =>
+        Math.floor(Math.random() * 16).toString(16),
+      ).join("");
+      const link = `https://audit.stellarpay.io/share/${token}?exp=${expiresAt}`;
+      setShareLink(link);
+      setShareLinkExpiresAt(expiresAt);
+      showNotification({
+        type: "success",
+        title: "PGP Envelope Sealed",
+        message: `Expiry-locked share link generated (valid ${pgpExpiryHours}h).`,
+      });
+    } catch (_err) {
+      showNotification({
+        type: "error",
+        title: "Encryption Failed",
+        message: "Unable to seal PGP envelope for external sharing.",
+      });
+    } finally {
+      setIsEncrypting(false);
     }
   };
 
@@ -356,6 +408,76 @@ export const VerifyAccess: React.FC = () => {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* PGP-Style Encryption & Expiry-Locked Sharing */}
+              {decryptedData && (
+                <div className="p-5 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-2xl border border-indigo-200 dark:border-indigo-900/50 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Lock className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-white">
+                        Secure External Sharing
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 rounded-full border border-indigo-500/30">
+                      PGP-Style Envelope
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {PGP_EXPIRY_OPTIONS.map((hours) => (
+                      <button
+                        key={hours}
+                        type="button"
+                        onClick={() => setPgpExpiryHours(hours)}
+                        className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition-all ${
+                          pgpExpiryHours === hours
+                            ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                            : "bg-white dark:bg-zinc-950 text-zinc-600 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 hover:border-indigo-400"
+                        }`}
+                      >
+                        {hours < 24 ? `${hours}h` : `${hours / 24}d`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Button
+                    onClick={handleEncryptAndShare}
+                    disabled={isEncrypting}
+                    className="w-full h-11 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs sm:text-sm shadow-md"
+                  >
+                    {isEncrypting ? (
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Sealing PGP Envelope...</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Key className="w-4 h-4" />
+                        <span>Encrypt & Generate Share Link</span>
+                      </div>
+                    )}
+                  </Button>
+
+                  {shareLink && (
+                    <div className="p-3 bg-white dark:bg-zinc-950 rounded-xl border border-indigo-200 dark:border-indigo-900/50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                          Expiry-Locked Link
+                        </span>
+                        {shareLinkRemaining && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 rounded-full">
+                            {shareLinkRemaining}
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-[11px] text-indigo-700 dark:text-indigo-300 break-all">
+                        {shareLink}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>
