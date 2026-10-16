@@ -1,21 +1,30 @@
-name: Frontend CI
+name: Frontend CI & Test Audit
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches: [ "main", "dev" ]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+    - name: Checkout Code
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
+        allow-unsafe-pr-checkout: true
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v7
       with:
         node-version: 22
         cache: 'npm'
@@ -24,9 +33,67 @@ jobs:
     - name: Install Dependencies
       run: npm install
 
-    - name: Run Unit Tests
-      run: npm run test
+    - name: Run Unit Tests with Audit Export
+      run: |
+        npx vitest run --reporter=default --reporter=json --outputFile=test-results.json
+      continue-on-error: true
+
+    - name: Publish Test Audit Summary
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          let summary = "### 🧪 Unit Test Execution Audit\n\n";
+          try {
+            if (!fs.existsSync('test-results.json')) {
+              core.setFailed("Test results file not found.");
+              return;
+            }
+            const results = JSON.parse(fs.readFileSync('test-results.json', 'utf8'));
+            const passed = results.numPassedTests || 0;
+            const total = results.numTotalTests || 0;
+            const failed = results.numFailedTests || 0;
+            const suites = results.numTotalTestSuites || 0;
+
+            summary += `| Metric | Count | Status |\n`;
+            summary += `| :--- | :---: | :---: |\n`;
+            summary += `| **Total Tests Carried Out** | **${total}** | ${failed === 0 ? '✅ All Passed' : '❌ Failures Detected'} |\n`;
+            summary += `| **Passed Tests** | ${passed} | ✅ |\n`;
+            summary += `| **Failed Tests** | ${failed} | ${failed > 0 ? '❌' : '0'} |\n`;
+            summary += `| **Test Suites** | ${suites} | 📁 |\n\n`;
+
+            if (results.testResults && results.testResults.length > 0) {
+              summary += `#### 📋 Suite Breakdown\n`;
+              summary += `| Test Suite | Tests Passed | Duration |\n`;
+              summary += `| :--- | :---: | :---: |\n`;
+              for (const suite of results.testResults) {
+                const name = suite.name.replace(/^.*\/src\//, 'src/');
+                const suitePassed = (suite.assertionResults || []).filter(a => a.status === 'passed').length;
+                const suiteTotal = (suite.assertionResults || []).length;
+                const duration = Math.round(suite.endTime - suite.startTime) + 'ms';
+                summary += `| \`${name}\` | **${suitePassed} / ${suiteTotal}** | ${duration} |\n`;
+              }
+            }
+
+            // Write to GitHub Actions Step Summary (visible in Checks tab)
+            await core.summary.addRaw(summary).write();
+
+            // Post as a comment on the Pull Request
+            if (context.payload.pull_request) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: summary
+              });
+            }
+
+            if (failed > 0) {
+              core.setFailed(`Unit test audit failed with ${failed} test failures.`);
+            }
+          } catch (err) {
+            core.setFailed("Error processing test audit results: " + err.message);
+          }
 
     - name: Run Type Check & Build
       run: npm run build
-

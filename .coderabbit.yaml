@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    base_branches:
+      - "main"
+      - "dev"
+      - ".*"
+  path_instructions:
+    - path: "**/*"
+      instructions: |
+        CRITICAL REVIEW DIRECTIVES — STRICT IMPLEMENTATION & COMPLETENESS AUDIT:
+
+        1. REQUIREMENT & ACCEPTANCE CRITERIA AUDIT:
+           - Cross-reference this PR directly against the linked GitHub issue's description, User Story, and Acceptance Criteria.
+           - In the summary, provide a dedicated section: "### 📋 Acceptance Criteria & Scope Verification".
+           - Output an explicit checklist auditing each requirement:
+             - [x] Complete: Fully implemented with verified logic and UI wiring.
+             - [ ] Incomplete / Missing: Explicitly call out what was left unimplemented or partially addressed.
+           - If ANY part of the linked issue's requirements is missing or incomplete, request changes before approving.
+
+        2. INCOMPLETE CODE & STUB DETECTION:
+           - Strictly flag and reject any `TODO`, `FIXME`, empty functions, mock/hardcoded stub data in production flows, or disabled/commented-out blocks.
+           - Ensure interactive UI elements (buttons, inputs, filters, modal forms) are genuinely connected to state/context or smart contract interactions — not mere visual placeholders.
+           - Ensure loading states, error boundaries, and user feedback (toast notifications) are fully wired.
+
+        3. WEB3 & STELLAR PROTOCOL INTEGRITY:
+           - Validate all Stellar public keys (`G...`) and contract IDs (`C...`).
+           - Verify Freighter and wallet connections handle edge cases: missing browser extension, account switching, network change, and user transaction rejection.
+           - Ensure Soroban contract calls include proper error handling for simulation failures and timeouts.
+
+        4. TEST COVERAGE & TYPING:
+           - Verify that new components, hooks, or utilities are accompanied by Vitest unit tests in `src/**/*.test.ts(x)`.
+           - Enforce strict TypeScript typing and flag any unnecessary `any` casts.
+chat:
+  auto_reply: true

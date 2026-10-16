@@ -1,0 +1,52 @@
+name: Enforce Dev Target Branch
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+  contents: read
+
+jobs:
+  check-target-branch:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref != 'dev'
+    steps:
+      - name: Close Invalid PR Targeting Main
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const author = context.payload.pull_request.user.login;
+
+            const commentBody = `> 🚨 **PULL REQUEST CLOSED: INVALID TARGET BRANCH**
+            
+            Hello @${author}! Thank you for your contribution to **StormSale**.
+            
+            However, all contributor pull requests **MUST target the \`dev\` branch** (not \`main\`). This policy preserves \`main\` stability and ensures automated CI testing.
+            
+            ### How to fix:
+            1. Edit this pull request and change the base branch to \`dev\`, OR
+            2. Open a new pull request targeting the \`dev\` branch.
+            
+            Please consult our [Contributing Guidelines](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CONTRIBUTING.md) for full instructions.`;
+
+            // Post notification comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: commentBody
+            });
+
+            // Automatically close the pull request
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              state: 'closed'
+            });
+
+            core.setFailed("PR was automatically closed because it targeted 'main' instead of 'dev'.");

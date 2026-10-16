@@ -1,0 +1,42 @@
+name: PR Compliance & Issue Linking
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+  issues: read
+
+jobs:
+  validate-pr:
+    runs-on: ubuntu-latest
+    # Skip bot PRs such as dependabot
+    if: github.actor != 'dependabot[bot]' && github.actor != 'dependabot'
+    steps:
+      - name: Validate PR Title and Issue Link
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const title = (pr.title || '').trim();
+            const body = pr.body || '';
+            const errors = [];
+
+            // 1. Check Conventional Commit title format
+            const conventionalRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_\-\.\/]+\))?:\s.+/i;
+            if (!conventionalRegex.test(title)) {
+              errors.push(`- **Invalid PR Title**: "${title}". Title must follow Conventional Commits format, e.g. \`feat(affiliate): add timer\` or \`fix(web3): handle wallet error\`.`);
+            }
+
+            // 2. Check Linked Issue in PR body
+            const issueRegex = /(closes|fixes|resolves)\s*#\d+/i;
+            if (!issueRegex.test(body)) {
+              errors.push(`- **Missing Linked Issue**: PR description must link an issue using GitHub closing keywords, e.g. \`Closes #123\` or \`Resolves #45\`.`);
+            }
+
+            if (errors.length > 0) {
+              core.setFailed("PR Compliance Check Failed:\n" + errors.join("\n"));
+            } else {
+              console.log("PR Title and Linked Issue validation passed!");
+            }
