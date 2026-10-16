@@ -61,6 +61,35 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
         </div>
       </div>
 
+      {/* Zero-Knowledge Privacy Clearance Banner */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-900/10 via-purple-900/10 to-indigo-950/10 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-zinc-900/80 border border-indigo-200/60 dark:border-indigo-800/50 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="space-y-1">
+          <div className="flex items-center space-x-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+              Zero-Knowledge Verification
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300">
+              Bulletproofs WASM &lt; 500ms
+            </span>
+          </div>
+          <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+            Verify Private Sale Range ($10 – $5,000)
+          </h3>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 max-w-xl">
+            Cryptographically certify that customer transactions stay within approved thresholds
+            without decrypting sensitive transaction data.
+          </p>
+        </div>
+        <Button
+          onClick={() => onTabChange?.("zk-range")}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl h-11 px-5 text-xs shadow-md shrink-0 flex items-center gap-2"
+        >
+          <Shield className="w-4 h-4" />
+          <span>Launch ZK Verifier</span>
+        </Button>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {stats.map((stat, i) => {

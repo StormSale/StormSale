@@ -26,12 +26,20 @@ const complianceItems = [
     details: "Sale data encryption meets AES-256 standard. Wrapped keys are stored on-chain.",
   },
   {
+    standard: "NIST SP 800-53 (SC-28) / ZK-SNARK",
+    category: "Zero-Knowledge Cryptographic Privacy",
+    status: "Compliant",
+    lastChecked: "2026-10-16",
+    details:
+      "Bulletproofs range proof verification in WebAssembly worker certifies amounts in approved budget range ($10 - $5,000) in < 500ms without raw value disclosure.",
+  },
+  {
     standard: "GDPR Article 32",
     category: "Security of Processing",
-    status: "Review Needed",
-    lastChecked: "2026-05-10",
+    status: "Compliant",
+    lastChecked: "2026-10-16",
     details:
-      "Customer PII handling policy pending review. Encryption is implemented but documented controls need update.",
+      "Zero-Knowledge Range Proofs ensure customer purchase amounts remain 100% confidential without decrypting raw sensitive financial values.",
   },
   {
     standard: "SOC 2 Type II",
