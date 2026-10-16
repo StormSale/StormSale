@@ -4,7 +4,8 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
-import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
+import { TelegramAlerts } from "../components/affiliate/TelegramAlerts";
+import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard, Bell } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -21,6 +22,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
     { id: "performance", label: "Performance Analytics", icon: BarChart3 },
+    { id: "telegram-alerts", label: "Connect Telegram Alerts", icon: Bell },
     { id: "security", label: "Security Settings", icon: Shield },
   ];
 
@@ -32,6 +34,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "telegram-alerts":
+        return <TelegramAlerts />;
       case "overview":
         return <AffiliateOverview />;
       default:
@@ -73,4 +77,4 @@ export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
     <AffiliateContent {...props} />
   </NotificationProvider>
-);
+	);

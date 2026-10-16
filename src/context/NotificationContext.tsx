@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
-import { CheckCircle2, XCircle, AlertCircle, X } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, X, Telegram } from "lucide-react";
 
 type NotificationType = "success" | "error" | "warning" | "info";
 
@@ -12,16 +12,116 @@ interface Notification {
   duration?: number;
 }
 
+export interface TelegramPreferences {
+  connected: boolean;
+  muted: boolean;
+  token: string | null;
+  username: string | null;
+}
+
+export interface ConversionAlert {
+  campaignName: string;
+  saleValue: number;
+  commissionEarned: number;
+  currency?: string;
+  customerName?: string;
+}
+
 interface NotificationContextType {
   notifications: Notification[];
   showNotification: (notification: Omit<Notification, "id">) => void;
   dismissNotification: (id: string) => void;
+  telegram: TelegramPreferences;
+  connectTelegram: () => void;
+  disconnectTelegram: () => void;
+  toggleTelegramMute: () => void;
+  dispatchConversionAlert: (alert: ConversionAlert) => void;
 }
+
+const TELEGRAM_STORAGE_KEY = "stormsale_telegram_prefs";
+const TELEGRAM_BOT_USERNAME = "StormSaleBot";
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
+function generateTelegramToken(): string {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).pad-start(2, "0"))
+    .join("");
+}
+
+function buildTelegramDeepLink(token: string): string {
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${encodeURIComponent(token)}`;
+}
+
+function formatCurrency(value: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("undefined" === typeof navigator ? "en-US" : navigator.language || "en-US", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(value);
+  } catch {
+    return `${currency} ${value.toFixed(2)}`;
+  }
+}
+
+function buildConversionMessage(alert: ConversionAlert): string {
+  const currency = alert.currency || "USD";
+  const sale = formatCurrency(alert.saleValue, currency);
+  const commission = formatCurrency(alert.commissionEarned, currency);
+  const lines = [
+    "🎉 New Sale! 🎉",
+    `"🔄 Campaign: ${alert.campaignName}"`,
+    `💰 Sale Value: ${sale}`,
+    `💰 Commission Earned: ${commission}`,
+  ];
+  if (alert.customerName) {
+    lines.push(`👄 Customer: ${alert.customerName}`);
+  }
+  lines.push("🎈 Congratulations, keep up the great work!");
+  return lines.join("\n");
+}
+
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [telegram, setTelegram] = useState<TelegramPreferences>(() => {
+    const defaultPrefs: TelegramPreferences = {
+      connected: false,
+      muted: false,
+      token: null,
+      username: null,
+    };
+    if (typeof window === "undefined") return defaultPrefs;
+    try {
+      const stored = window.localStorage.getItem(TELEGRAM_STORAGE_KEY);
+      if (!stored) return defaultPrefs;
+      const parsed = JSON.parse(stored) as Partial<TelegramPreferences>;
+      return { ...defaultPrefs, ...parsed };
+    } catch {
+      return defaultPrefs;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(telegram));
+    } catch {
+      /* ignore persistence errors */
+    }
+  }, [telegram]);
+
+  const dismissNotification = (id: string) => {
+    setNotifications((prev) => prev.filter((notification) => notification.id !== id));
+  };
 
   const showNotification = (notification: Omit<Notification, "id">) => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -37,12 +137,79 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   };
 
-  const dismissNotification = (id: string) => {
-    setNotifications((prev) => prev.filter((notification) => notification.id !== id));
+  const connectTelegram = () => {
+    const token = generateTelegramToken();
+    const deepLink = buildTelegramDeepLink(token);
+    setTelegram(() => ({
+      connected: true,
+      muted: false,
+      token,
+      username: null,
+    }));
+    if (typeof window !== "undefined") {
+      window.open(deepLink, "_blank", "noopener,noreferrer");
+    }
+    showNotification({
+      type: "success",
+      title: "Telegram Alerts Connected",
+      message: "You'll now receive instant sale notifications via StormSaleBot.",
+    });
+  };
+
+  const disconnectTelegram = () => {
+    setTelegram({
+      connected: false,
+      muted: false,
+      token: null,
+      username: null,
+    });
+    showNotification( {
+      type: "info",
+      title: "Telegram Alerts Disconnected",
+      message: "You will no longer receive sale notifications.",
+    });
+  };
+
+  const toggleTelegramMute = () => {
+    setTelegram((prev) => {
+      const nextMuted = !prev.muted;
+      showNotification({
+        type: "info",
+        title: nextMuted ? "Telegram Alerts Muted" : "Telegram Alerts Unmuted",
+        message: nextMuted
+          ? "Sale alerts are paused. You can unmute anytime."
+          : "Sale alerts are now active again.",
+      });
+      return { ...prev, muted: nextMuted };
+    });
+  };
+
+  const dispatchConversionAlert = (alert: ConversionAlert) => {
+    const message = buildConversionMessage(alert);
+    if (!telegram.connected || telegram.muted) {
+      return;
+    }
+    showNotification({
+      type: "success",
+      title: "New Affiliate Sale!",
+      message,
+      duration: 8000,
+    });
   };
 
   return (
-    <NotificationContext.Provider value={{ notifications, showNotification, dismissNotification }}>
+    <NotificationContext.Provider
+      value={{
+        notifications,
+        showNotification,
+        dismissNotification,
+        telegram,
+        connectTelegram,
+        disconnectTelegram,
+        toggleTelegramMute,
+        dispatchConversionAlert,
+      }}
+    >
       {children}
       <NotificationContainer />
     </NotificationContext.Provider>
@@ -96,7 +263,7 @@ const NotificationContainer: React.FC = () => {
             <div className="flex-1">
               <h4 className="font-semibold text-sm">{notification.title}</h4>
               {notification.message && (
-                <p className="text-sm text-muted-foreground mt-1">{notification.message}</p>
+                <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">{notification.message}</p>
               )}
             </div>
             <button

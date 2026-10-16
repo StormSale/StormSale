@@ -7,6 +7,7 @@ import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+import { TelegramProvider } from "./context/TelegramContext";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
@@ -86,7 +87,9 @@ function App() {
       <ErrorBoundary>
         <Web3Provider>
           <NotificationProvider>
-            <Router />
+            <TelegramProvider>
+              <Router />
+            </TelegramProvider>
           </NotificationProvider>
         </Web3Provider>
       </ErrorBoundary>

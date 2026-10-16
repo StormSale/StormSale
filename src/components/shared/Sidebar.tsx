@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers, Send, Bell, BellOff } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 
 interface SidebarProps {
@@ -25,6 +25,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [telegramConnected, setTelegramConnected] = useState(false);
+  const [telegramMuted, setTelegramMuted] = useState(false);
   const { disconnectWallet } = useWeb3();
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
@@ -156,6 +158,65 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <LogOut className="w-3.5 h-3.5 mr-1" />
                   Disconnect
                 </Button>
+              </div>
+
+              {/* Telegram Alerts (Mobile) */}
+              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800">
+                <div className="flex items-center justify-between mb-2 px-1">
+                  <div className="flex items-center space-x-2">
+                    <Send className="w-3.5 h-3.5 text-sky-500" />
+                    <span className="text-[10px] font-bold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider">
+                      Telegram Alerts
+                    </span>
+                  </div>
+                  {telegramConnected && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                      Connected
+                    </span>
+                  )}
+                </div>
+                {!telegramConnected ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setTelegramConnected(true)}
+                    className="w-full h-9 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center justify-center space-x-2"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Connect Telegram Alerts</span>
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTelegramMuted(!telegramMuted)}
+                      className="flex-1 h-9 rounded-xl text-xs font-bold border-slate-200 dark:border-zinc-800 flex items-center justify-center space-x-1.5"
+                    >
+                      {telegramMuted ? (
+                        <>
+                          <BellOff className="w-3.5 h-3.5" />
+                          <span>Unmute</span>
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>Mute</span>
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setTelegramConnected(false);
+                        setTelegramMuted(false);
+                      }}
+                      className="flex-1 h-9 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                    >
+                      Disconnect
+                    </Button>
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
@@ -327,6 +388,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
             ) : (
               <div className="flex justify-center">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
+              </div>
+            )}
+          </div>
+
+          {/* Telegram Alerts (Desktop) */}
+          <div
+            className={cn(
+              "bg-slate-50 dark:bg-zinc-900/50 rounded-xl border border-slate-200 dark:border-zinc-800/50 transition-all duration-300",
+              isCollapsed ? "p-2" : "p-4",
+            )}
+          >
+            {!isCollapsed ? (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center space-x-2">
+                    <Send className="w-3.5 h-3.5 text-sky-500" />
+                    <div className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+                      Telegram
+                    </div>
+                  </div>
+                  {telegramConnected && (
+                    <div className="w-2 h-2 bg-sky-500 rounded-full animate-pulse" />
+                  )}
+                </div>
+                {!telegramConnected ? (
+                  <Button
+                    size="sm"
+                    onClick={() => setTelegramConnected(true)}
+                    className="w-full h-9 rounded-xl bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold flex items-center justify-center space-x-2"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Connect Telegram Alerts</span>
+                  </Button>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setTelegramMuted(!telegramMuted)}
+                      className="w-full h-9 rounded-xl text-xs font-bold border-slate-200 dark:border-zinc-800 flex items-center justify-center space-x-1.5"
+                    >
+                      {telegramMuted ? (
+                        <>
+                          <BellOff className="w-3.5 h-3.5" />
+                          <span>Unmute Alerts</span>
+                        </>
+                      ) : (
+                        <>
+                          <Bell className="w-3.5 h-3.5" />
+                          <span>Mute Alerts</span>
+                        </>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setTelegramConnected(false);
+                        setTelegramMuted(false);
+                      }}
+                      className="w-full h-9 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                    >
+                      Disconnect Bot
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex justify-center">
+                <Send
+                  className={cn(
+                    "w-4 h-4",
+                    telegramConnected ? "text-sky-500" : "text-zinc-400",
+                  )}
+                />
               </div>
             )}
           </div>

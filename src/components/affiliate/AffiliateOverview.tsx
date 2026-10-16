@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -6,7 +7,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2, Bell, BellOff, Send, Link2, Unlink } from "lucide-react";
 
 export const AffiliateOverview = () => {
   const stats = [
@@ -47,6 +48,39 @@ export const AffiliateOverview = () => {
     },
   ];
 
+  const [telegramConnected, setTelegramConnected] = useState(false);
+  const [telegramMuted, setTelegramMuted] = useState(false);
+  const [telegramToken] = useState(
+    () => `aff_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+  );
+
+  const telegramDeepLink = `https://t.me/StormSaleBot?start=${telegramToken}`;
+
+  const handleConnectTelegram = () => {
+    window.open(telegramDeepLink, "_blank", "noopener,noreferrer");
+    setTelegramConnected(true);
+    setTelegramMuted(false);
+  };
+
+  const handleToggleMute = () => {
+    setTelegramMuted((prev) => !prev);
+  };
+
+  const handleDisconnectTelegram = () => {
+    setTelegramConnected(false);
+    setTelegramMuted(false);
+  };
+
+  const formatConversionAlert = (
+    campaign: string,
+    saleValue: number,
+    commission: number
+  ) => {
+    return `🎉💰 New Sale Alert! 💰🎉\n\n🚀 Campaign: ${campaign}\n🛒 Sale Value: $${saleValue.toLocaleString()}\n💵 Commission Earned: $${commission.toLocaleString()}\n\n🔥 Keep it up, affiliate! 🏆`;
+  };
+
+  const sampleAlert = formatConversionAlert("Tech Gadgets Pro", 2500, 250);
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -64,6 +98,111 @@ export const AffiliateOverview = () => {
           Quick Start Guide
         </Button>
       </div>
+
+      {/* Telegram Notification Bot */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Send className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Connect Telegram Alerts
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
+                Get instant notifications whenever a customer buys through your referral link.
+              </CardDescription>
+            </div>
+            <span
+              className={`shrink-0 text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${
+                telegramConnected
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                  : "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
+              }`}
+            >
+              {telegramConnected ? (telegramMuted ? "Muted" : "Connected") : "Not Connected"}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          {!telegramConnected ? (
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-xl flex items-center justify-center shrink-0">
+                  <Link2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div>
+                  <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                    One-click connect to @StormSaleBot
+                  </div>
+                  <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
+                    Link your Telegram account to receive real-time sale commission alerts.
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={handleConnectTelegram}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-full px-6 h-11 font-semibold shadow-md transition-all shrink-0"
+              >
+                <Send className="w-4 h-4 mr-2" />
+                Connect Telegram Alerts
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                      Telegram connected
+                    </div>
+                    <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
+                      Alerts will be delivered to your linked Telegram account.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    variant="outline"
+                    onClick={handleToggleMute}
+                    className="rounded-full h-11 px-5 font-semibold border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                  >
+                    {telegramMuted ? (
+                      <>
+                        <Bell className="w-4 h-4 mr-2" />
+                        Unmute
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="w-4 h-4 mr-2" />
+                        Mute
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleDisconnectTelegram}
+                    className="rounded-full h-11 px-5 font-semibold border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-rose-50 dark:hover:bg-rose-500/10 hover:border-rose-200 dark:hover:border-rose-500/30 text-rose-600 dark:text-rose-400"
+                  >
+                    <Unlink className="w-4 h-4 mr-2" />
+                    Disconnect
+                  </Button>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl">
+                <div className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-2">
+                  Preview: Conversion Alert
+                </div>
+                <pre className="whitespace-pre-wrap text-sm font-medium text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                  {sampleAlert}
+                </pre>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
