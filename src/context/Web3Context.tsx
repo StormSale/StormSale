@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -16,7 +16,115 @@ import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 
-export interface Web3ContextType {
+/**
+ * Adaptive Transaction Polling System
+ * -----------------------------------------------------------------------------
+ * Provides an exponential-backoff poller for Soroban transaction confirmation.
+ * The poller is used by all on-chain mutations (create, logSale, claimPayout)
+ * to avoid hammering the RPC endpoint while still detecting confirmation as
+ * soon as possible. When the budget is exhausted, the caller receives a
+ * timeout result that includes a retry prompt and a `retry()` function.
+ */
+
+export interface PollingOptions {
+  /** Initial delay before the first poll (ms). */
+  initialDelayMs?: number;
+  /** Maximum delay between polls (ms). */
+  maxDelayMs?: number;
+  /** Multiplier applied to the delay after each attempt. */
+  backoffFactor?: number;
+  /** Total time budget before giving up (ms). */
+  timeoutMs?: number;
+  /** Maximum number of poll attempts. */
+  maxAttempts?: number;
+  /** Optional callback invoked on each poll attempt. */
+  onPoll?: (info: { attempt: number; delayMs: number; elapsedMs: number }) => void;
+}
+
+export interface PollingResult<T> {
+  success: boolean;
+  data?: T;
+  timedOut: boolean;
+  attempts: number;
+  elapsedMs: number;
+  error?: string;
+  /** Retry prompt message when the poller times out. */
+  retryPrompt?: string;
+  /** Callback to re-issue the poll after a timeout. */
+  retry?: () => Promise<PollingResult<T>>;
+}
+
+export const DEFAULT_POLLING_OPTIONS: Required<PollingOptions> = {
+  initialDelayMs: 1000,
+  maxDelayMs: 8000,
+  backoffFactor: 2,
+  timeoutMs: 60000,
+  maxAttempts: 10,
+};
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Poll a check function with exponential backoff until it resolves truthy,
+ * the time budget is exhausted, or the maximum attempt count is reached.
+ */
+export async function pollWithBackoff<T>(
+  check: (attempt: number) => Promise<T| null | undefined>,
+  options: PollingOptions = {},
+): Promise<PollingResult<T>> {
+  const { initialDelayMs, maxDelayMs, backoffFactor, timeoutMs, maxAttempts, onPoll } = {
+    ...DEFAULT_POLLING_OPTIONS,
+    ...options,
+  };
+
+  const startedAt = Date.now();
+  let attempt = 0;
+  let delayMs = initialDelayMs;
+
+  while (attempt < maxAttempts) {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= timeoutMs) break;
+
+    attempt += 1;
+    onPoll?.({ attempt, delayMs, elapsedMs });
+
+    try {
+      const result = await check(attempt);
+      if (result !== null && result !== undefined && result !== false) {
+        return {
+          success: true,
+          data: result,
+          timedOut: false,
+          attempts: attempt,
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
+    } catch (err) {
+      // Transient errors are expected while the transaction is pending.
+      // We keep polling until the budget is exhausted.
+      console.debug("[Polling] attempt errored:", err);
+    }
+
+    const remaining = timeoutMs - (Date.now() - startedAt);
+    if (remaining <= 0) break;
+
+    const waitMs = Math.min(delayMs, remaining);
+    await sleep(waitMs);
+    delayMs = Math.min(delayMs * backoffFactor, maxDelayMs);
+  }
+
+  return {
+    success: false,
+    timedOut: true,
+    attempts: attempt,
+    elapsedMs: Date.now() - startedAt,
+    error: "Transaction confirmation timed out.",
+    retryPrompt:
+      "The transaction is taking longer than expected. Would you like to retry?",
+  };
+}
+
+export interface WebContextType {
   userAddress: string | null;
   userRole: string | null;
   isConnected: boolean;
@@ -48,6 +156,14 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Adaptive Transaction Polling System
+  /** Poll an arbitrary transaction hash until confirmation. */
+  pollTransaction: <T>(
+    txHash: string,
+    check: (attempt: number) => Promise<T | null | undefined>,
+    options?: PollingOptions,
+  ) => Promise<PollingResult<T>>;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -66,6 +182,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // Track in-flight polling operations so we can avoid duplicate work and
+  // expose a cancellation path if needed.
+  const inflightPolls = useRef<Map<string, Promise<PollingResult<any>>>>(new Map());
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -166,6 +286,41 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
     return ok;
   };
+
+  /**
+   * Adaptive transaction poller. Deduplicates concurrent polls for the same
+   * transaction hash and attaches a retry handle to timeout results.
+   */
+  const pollTransaction = useCallback(
+    async function pollTransactionImpl<T>(
+      txHash: string,
+      check: (attempt: number) => Promise<T | null | undefined>,
+      options: PollingOptions = {},
+    ): Promise<PollingResult<T>> {
+      const existing = inflightPolls.current.get(txHash);
+      if (existing) {
+        return existing as Promise<PollingResult<T>>;
+      }
+
+      const run = async (): Promise<PollingResult<T>> => {
+        const result = await pollWithBackoff<T>(check, options);
+        if (result.timedOut) {
+          result.retry = async () => {
+            inflightPolls.current.delete(txHash);
+            return pollTransaction<T>(txHash, check, options);
+          };
+        }
+        return result;
+      };
+
+      const promise = run().finally(() => {
+        inflightPolls.current.delete(txHash);
+      });
+      inflightPolls.current.set(txHash, promise);
+      return promise;
+    },
+    [],
+  );
 
   // Soroban: Create Campaign Escrow
   const createCampaignOnChain = async (
@@ -318,6 +473,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         createCampaignOnChain,
         logSaleOnChain,
         claimPayoutOnChain,
+        pollTransaction,
         factoryContract,
         getCampaignContract,
         provider: null,
