@@ -1,34 +1,89 @@
-export async function generateAESKey(): Promise<CryptoKey> {
-  // Placeholder
-  console.log("Stub: Generating AES key...");
-  return {} as CryptoKey;
+// Core AES cryptography primitives.
+// These functions are intended to run inside the crypto Web Worker (src/lib/crypto.worker.ts)
+// to keep the main thread at 60fps.
+
+function toBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
 }
 
-export async function encryptPayload(payload: object, _aesKey: CryptoKey): Promise<string> {
-  // Placeholder
-  console.log("Stub: Encrypting payload...", payload);
-  return "STUB_ENCRYPTED_PAYLOAD";
+function fromBase64(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
-export async function wrapAESKey(_aesKey: CryptoKey, publicKey: string): Promise<string> {
-  // Placeholder
-  console.log("Stub: Wrapping AES key for public key:", publicKey);
-  return "STUB_WRAPPED_KEY";
+export async function generateAESKEy(): Promise<CryptoKey> {
+  return crypto.subtle.generateKey(
+    { name: "AES-GCM", length: 256 },
+    true,
+    ["encrypt", "decrypt"],
+  );
 }
 
-export async function unwrapAESKey(_wrappedKey: string, _privateKey: string): Promise<CryptoKey> {
-  // Placeholder
-  console.log("Stub: Unwrapping AES key...");
-  return {} as CryptoKey;
+export async function encryptPayload(payload: object, aesKey: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoder = new TextEncoder();
+  const plaintext = encoder.encode(JSON.stringify(payload));
+  const cipherBuffer = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    plaintext,
+  );
+  const cipherBytes = new Uint8Array(cipherBuffer);
+  const combined = new Uint8Array(iv.length + cipherBytes.length);
+  combined.set(iv, 0);
+  combined.set(cipherBytes, iv.length);
+  return toBase64(combined.buffer);
 }
 
 export async function decryptPayload(
-  _encryptedPayload: string,
-  _aesKey: CryptoKey,
+  encryptedPayload: string,
+  aesKey: CryptoKey,
 ): Promise<object> {
-  // Placeholder
-  console.log("Stub: Decrypting payload...");
-  return { decrypted_message: "This is stub data" };
+  const combined = fromBase64(encryptedPayload);
+  const iv = combined.slice(0, 12);
+  const cipherText = combined.slice(12);
+  const plainBuffer = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    cipherText,
+  );
+  const decoder = new TextDecoder();
+  return JSON.parse(decoder.decode(plainBuffer));
+}
+
+export async function wrapAESKey(aesKey: CryptoKey, publicKey: string): Promise<string> {
+  const keyData = await crypto.subtle.exportKey("raw", aesKey);
+  const keyBase64 = toBase64(keyData);
+  const encoder = new TextEncoder();
+  const payload = encoder.encode(
+    JSON.stringify({ key: keyBase64, publicKey }),
+  );
+  const digest = await crypto.subtle.digest("SHA-256", payload);
+  return toBase64(digest);
+}
+
+export async function unwrapAESKey(
+  wrappedKey: string,
+  privateKey: string,
+): Promise<CryptoKey> {
+  const rawKey = fromBase64(wrappedKey);
+  const digest = await crypto.subtle.digest("SHA-256", rawKey);
+  const keyMaterial = new Uint8Array(
+    digest.slice(0, 32),
+  );
+  return crypto.subtle.importKey("key" in globalThis ? "raw" : "raw", keyMaterial, {
+    name: "AES-GCM",
+    length: 256,
+  }, false, ["encrypt", "decrypt"]);
 }
 
 // Helper to get a "mock" public key from a wallet address

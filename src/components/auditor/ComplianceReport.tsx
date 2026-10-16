@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Card,
   CardContent,
@@ -8,6 +9,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { runCryptoAudit, type CryptoAuditResult } from "../../lib/crypto.worker";
 
 const complianceItems = [
   {
@@ -62,6 +64,39 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
 };
 
 export const ComplianceReport = () => {
+  const [auditResult, setAuditResult] = useState<CryptoAuditResult | null>(null);
+  const [auditRunning, setAuditRunning] = useState(false);
+  const [fps, setFps] = useState<number>(60);
+  const frameRef = useRef<number>(0);
+  const lastRef = useRef<number>(performance.now());
+  const framesRef = useRef<number>(0);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = (now: number) => {
+      framesRef.current += 1;
+      const elapsed = now - lastRef.current;
+      if (elapsed >= 1000) {
+        setFps(Math.round((framesRef.current * 1000) / elapsed));
+        framesRef.current = 0;
+        lastRef.current = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const handleRunAudit = async () => {
+    setAuditRunning(true);
+    try {
+      const result = await runCryptoAudit("compliance-report-audit");
+      setAuditResult(result);
+    } finally {
+      setAuditRunning(false);
+    }
+  };
+
   const compliant = complianceItems.filter((c) => c.status === "Compliant").length;
   const review = complianceItems.filter((c) => c.status === "Review Needed").length;
 
@@ -76,10 +111,28 @@ export const ComplianceReport = () => {
             Security & regulatory compliance status for active campaigns
           </p>
         </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-100 dark:bg-zinc-800/60">
+            <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              FPS
+            </span>
+            <span className="text-sm font-extrabold text-zinc-900 dark:text-white tabular-nums">
+              {fps}
+            </span>
+          </div>
+          <Button
+            onClick={handleRunAudit}
+            disabled={auditRunning}
+            className="h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm disabled:opacity-60"
+          >
+            <Lock className="w-4 h-4 mr-2" />
+            {auditRunning ? "Running Audit…" : "Run Crypto Audit"}
+          </Button>
         <Button className="h-10 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white font-semibold shadow-sm">
           <Download className="w-4 h-4 mr-2" />
           Export PDF Report
         </Button>
+        </div>
       </div>
 
       {/* Summary */}
@@ -184,6 +237,37 @@ export const ComplianceReport = () => {
                 </div>
               );
             })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Background crypto audit result */}
+      <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
+        <CardContent className="p-6">
+          <div className="flex items-start gap-4">
+            <Lock className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-bold text-zinc-900 dark:text-white text-sm">
+                Background Crypto Worker
+              </p>
+              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                AES-256-GCM audit tasks are offloaded to a non-blocking Web Worker so the UI
+                stays responsive at 60fps.
+              </p>
+              {auditResult && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                    Cipher: <span className="text-zinc-900 dark:text-white">{auditResult.cipher}</span>
+                  </div>
+                  <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                    Duration: <span className="text-zinc-900 dark:text-white">{auditResult.durationMs}ms</span>
+                  </div>
+                  <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                    Digest: <span className="text-zinc-900 dark:text-white truncate">{auditResult.digest.slice(0, 16)}…</span>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>

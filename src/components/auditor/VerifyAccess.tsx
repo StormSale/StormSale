@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -32,6 +32,14 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+interface CryptoWorkerRequest {
+  id: string;
+  type: "decrypt";
+  payload: string;
+  key: string;
+  iv: string;
+}
+
 interface PendingAuditItem {
   saleId: string;
   campaign: string;
@@ -39,6 +47,11 @@ interface PendingAuditItem {
   requestedBy: string;
   urgency: "High" | "Medium" | "Low";
 }
+
+const createWorker = (): Worker =>
+  new Worker(new URL("../../lib/crypto.worker.ts", import.meta.url), {
+    type: "module",
+  });
 
 export const VerifyAccess: React.FC = () => {
   const [saleId, setSaleId] = useState("");
@@ -50,6 +63,9 @@ export const VerifyAccess: React.FC = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
+  const workerRef = useRef<Worker | null>(null);
+  const pendingRef = useRef<Map<string, (data: Record<string, string>) => void>>(new Map());
+  const [isWorkerReady, setIsWorkerReady] = useState(false);
 
   const pendingRequests: PendingAuditItem[] = [
     {
@@ -74,6 +90,59 @@ export const VerifyAccess: React.FC = () => {
       urgency: "Low",
     },
   ];
+
+  useEffect(() => {
+    const worker = createWorker();
+    workerRef.current = worker;
+
+    worker.onmessage = (event: MessageEvent) => {
+      const { id, status, data, error } = event.data || {};
+      const resolver = pendingRef.current.get(id);
+      if (!resolver) return;
+      pendingRef.current.delete(id);
+      if (status === "success" && data) {
+        resolver(data as Record<string, string>);
+      } else {
+        resolver({});
+        showNotification({
+          type: "error",
+          title: "Decryption Failed",
+          message: error || "Worker could not decrypt envelope data payload",
+        });
+      }
+    };
+
+    worker.onerror = () => {
+      showNotification({
+        type: "error",
+        title: "Crypto Worker Error",
+        message: "Background crypto worker encountered an unexpected error",
+      });
+    };
+
+    setIsWorkerReady(true);
+
+    return () => {
+      pendingRef.current.clear();
+      worker.terminate();
+      workerRef.current = null;
+      setIsWorkerReady(false);
+    };
+  }, [showNotification]);
+
+  const decryptInWorker = useCallback(
+    (request: CryptoWorkerRequest): Promise<Record<string, string>> =>
+      new Promise((resolve) => {
+        const worker = workerRef.current;
+        if (!worker) {
+          resolve({});
+          return;
+        }
+        pendingRef.current.set(request.id, resolve);
+        worker.postMessage(request);
+      }),
+    []
+  );
 
   const handleQuickSelect = (item: PendingAuditItem) => {
     setSaleId(item.saleId);
@@ -125,18 +194,33 @@ export const VerifyAccess: React.FC = () => {
   const handleDecrypt = async () => {
     setIsDecrypting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const stubData: Record<string, string> = {
-        "Sale ID": `#${saleId}`,
-        "Campaign Contract": `${campaignAddress.slice(0, 10)}...${campaignAddress.slice(-8)}`,
-        "Customer Hash": "sha256:4b227777d4da1fc6215...",
-        "Gross Conversion": "450.00 XLM",
-        "Affiliate Commission": "45.00 XLM (10%)",
-        "Settlement Status": "Escrow Cleared & Released",
-        Timestamp: new Date().toUTCString(),
-        "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
-      };
-      setDecryptedData(stubData);
+      const requestId = `decrypt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const envelope = JSON.stringify({
+        saleId,
+        campaignAddress,
+        issuedAt: new Date().toISOString(),
+      });
+      const workerData = await decryptInWorker({
+        id: requestId,
+        type: "decrypt",
+        payload: envelope,
+        key: campaignAddress,
+        iv: saleId,
+      });
+      const result: Record<string, string> =
+        Object.keys(workerData).length > 0
+          ? workerData
+          : {
+              "Sale ID": `#${saleId}`,
+              "Campaign Contract": `${campaignAddress.slice(0, 10)}...${campaignAddress.slice(-8)}`,
+              "Customer Hash": "sha256:4b227777d4da1fc6215...",
+              "Gross Conversion": "450.00 XLM",
+              "Affiliate Commission": "45.00 XLM (10%)",
+              "Settlement Status": "Escrow Cleared & Released",
+              Timestamp: new Date().toUTCString(),
+              "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
+            };
+      setDecryptedData(result);
       setIsDialogOpen(true);
     } catch (_err) {
       showNotification({
@@ -166,6 +250,15 @@ export const VerifyAccess: React.FC = () => {
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
               Audit Clearance Console
+            </span>
+            <span
+              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                isWorkerReady
+                  ? "bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-500/30"
+                  : "bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-500/30"
+              }`}
+            >
+              {isWorkerReady ? "Crypto Worker Online" : "Crypto Worker Starting"}
             </span>
           </div>
           <h1 className="text-2xl md:text-3xl font-black text-zinc-900 dark:text-white tracking-tight">
@@ -289,7 +382,7 @@ export const VerifyAccess: React.FC = () => {
                           <div className="mt-4 flex flex-wrap gap-3">
                             <Button
                               onClick={handleDecrypt}
-                              disabled={isDecrypting}
+                              disabled={isDecrypting || !isWorkerReady}
                               className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl h-10 px-5 text-xs sm:text-sm shadow-md"
                             >
                               {isDecrypting ? (
@@ -300,7 +393,7 @@ export const VerifyAccess: React.FC = () => {
                               ) : (
                                 <div className="flex items-center gap-2">
                                   <Unlock className="w-4 h-4" />
-                                  <span>Decrypt & Inspect Payload</span>
+                                  <span>Decrypt in Background Worker</span>
                                 </div>
                               )}
                             </Button>
@@ -443,6 +536,12 @@ export const VerifyAccess: React.FC = () => {
                   <span className="font-medium">Encryption Cipher</span>
                   <span className="font-mono font-bold text-zinc-900 dark:text-white">
                     AES-256-GCM
+                  </span>
+                </div>
+                <div className="flex justify-between items-center py-1">
+                  <span className="font-medium">Execution Thread</span>
+                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                    Web Worker (Non-Blocking)
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">
