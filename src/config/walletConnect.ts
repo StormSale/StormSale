@@ -3,6 +3,13 @@
  */
 export const SUPPORTED_STELLAR_WALLETS = [
   {
+    id: "mock",
+    name: "Mock Bridge Wallet",
+    icon: "https://stellar.expert/logo.svg",
+    url: "https://example.com/mock-wallet",
+    description: "Deterministic mock wallet used for automated E2E wallet connect tests",
+  },
+  {
     id: "freighter",
     name: "Freighter",
     icon: "https://stellar.expert/logo.svg",

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
 
@@ -34,7 +34,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
   const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
     useWeb3();
 
-  const connect = async (): Promise<void> => {
+  const connect = useCallback(async (): Promise<void> => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
     try {
@@ -53,9 +53,9 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     } finally {
       setState((prev) => ({ ...prev, isConnecting: false }));
     }
-  };
+  }, [connectWallet, isConnected, isStellarNetwork]);
 
-  const disconnect = (): void => {
+  const disconnect = useCallback((): void => {
     disconnectWallet();
     setState({
       isConnecting: false,
@@ -63,9 +63,9 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       error: null,
       showNetworkModal: false,
     });
-  };
+  }, [disconnectWallet]);
 
-  const ensureStellarNetwork = async (): Promise<boolean> => {
+  const ensureStellarNetwork = useCallback(async (): Promise<boolean> => {
     if (isStellarNetwork) return true;
 
     setState((prev) => ({ ...prev, isSwitchingNetwork: true, error: null }));
@@ -93,15 +93,15 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     } finally {
       setState((prev) => ({ ...prev, isSwitchingNetwork: false }));
     }
-  };
+  }, [isStellarNetwork, switchToStellarNetwork]);
 
-  const clearError = (): void => {
+  const clearError = useCallback((): void => {
     setState((prev) => ({ ...prev, error: null }));
-  };
+  }, []);
 
-  const setShowNetworkModal = (show: boolean): void => {
+  const setShowNetworkModal = useCallback((show: boolean): void => {
     setState((prev) => ({ ...prev, showNetworkModal: show }));
-  };
+  }, []);
 
   const contextValue: WalletConnectContextType = {
     ...state,

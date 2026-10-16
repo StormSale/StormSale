@@ -21,6 +21,7 @@ export const ConnectWalletModal: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState("");
   const [showReadOnlyInput, setShowReadOnlyInput] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   if (!isWalletModalOpen) return null;
 
@@ -30,6 +31,7 @@ export const ConnectWalletModal: React.FC = () => {
       return;
     }
 
+    setIsConnecting(true);
     setConnectingType(type);
     setErrorMessage(null);
 
@@ -51,6 +53,7 @@ export const ConnectWalletModal: React.FC = () => {
       setErrorMessage(err.message || "Failed to connect wallet. Please try again.");
     } finally {
       setConnectingType(null);
+      setIsConnecting(false);
     }
   };
 
@@ -170,6 +173,7 @@ export const ConnectWalletModal: React.FC = () => {
                 <button
                   key={wallet.id}
                   disabled={connectingType !== null}
+                  data-testid={`wallet-option-${wallet.id}`}
                   onClick={() => handleSelectWallet(wallet.id)}
                   className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
                     isBusy ? "opacity-70 pointer-events-none" : ""
@@ -226,6 +230,7 @@ export const ConnectWalletModal: React.FC = () => {
                   <input
                     type="text"
                     value={customKey}
+                    data-testid="readonly-key-input"
                     onChange={(e) => setCustomKey(e.target.value)}
                     placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                     className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -239,6 +244,7 @@ export const ConnectWalletModal: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleSelectWallet("readonly")}
+                      data-testid="connect-readonly-button"
                       className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-xs font-bold rounded-xl"
                     >
                       Connect Watch Key
