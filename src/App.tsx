@@ -11,44 +11,49 @@ import { useWeb3 } from "./hooks/useWeb3";
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; error?: Error }
+  ErrorBoundaryState
 > {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
+  state: ErrorBoundaryState = { hasError: false, error: null };
 
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: any) {
-    // You can log error to an external service here
-    console.error("Unhandled error caught by ErrorBoundary:", error, info);
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("Global ErrorBoundary caught:", error, info);
   }
+
+  handleReport = () => {
+    const message = this.state.error?.message ?? "Unknown error";
+    window.location.href = `mailto:support@example.com?subject=App%20Error%20Report&body=${encodeURIComponent(
+      message
+    )}`;
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="max-w-lg text-center">
-            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              An unexpected error occurred. Please refresh the page or try again later.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-indigo-600 text-white rounded"
-            >
-              Reload
-            </button>
-          </div>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background p-6 text-center">
+          <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
+          <p className="text-muted-foreground mb-6">
+            An unexpected error occurred. You can report it below.
+          </p>
+          <button
+            onClick={this.handleReport}
+            className="px-4 py-2 rounded bg-primary text-primary-foreground"
+          >
+            Report
+          </button>
         </div>
       );
     }
-
     return this.props.children;
   }
 }
