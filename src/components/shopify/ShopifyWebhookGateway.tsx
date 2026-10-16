@@ -100,7 +100,6 @@ export const ShopifyWebhookGateway = () => {
     };
 
     const body = JSON.stringify(orderPayload, null, 2);
-    setTestBody(body);
 
     try {
       const validation = await validateShopifyHmacAsync(body, testSecret, testSignature);
