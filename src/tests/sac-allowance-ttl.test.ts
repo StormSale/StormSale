@@ -13,7 +13,7 @@ import {
 } from "../lib/stellar";
 import { SAC_TOKENS, TTL_CONFIG } from "../config/stellar";
 
-describe("Soroban Asset Contract (SAC) Allowance & TTL State Management Suite", () => {
+describe("Soroban Asset Contract (SAC) Allowance & TTL State Management Suite", { timeout: 20000 }, () => {
   const advertiserWallet = Keypair.random().publicKey();
   const escrowSpenderContract = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
 

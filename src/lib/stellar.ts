@@ -21,7 +21,8 @@ import {
 import { STELLAR_CONFIG, SAC_TOKENS, TTL_CONFIG } from "../config/stellar";
 import type { SACTokenSymbol } from "../config/stellar";
 
-export type WalletType = "freighter" | "albedo" | "xbull" | "mock" | "readonly";
+export type WalletType =
+  "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
 
 export interface StellarAccountInfo {
   address: string;
@@ -221,6 +222,13 @@ export async function signWalletTransaction(
     const xbull = (window as any).xBullSDK || (window as any).xbull;
     if (!xbull) throw new Error("xBull extension is not available.");
     return await xbull.signXDR(preparedXdr);
+  } else if (walletType === "ledger") {
+    const { signLedgerTransaction } = await import("./ledgerBridge");
+    return await signLedgerTransaction(preparedXdr);
+  } else if (walletType === "passkey") {
+    const { authenticateWithPasskey } = await import("./passkeySigner");
+    await authenticateWithPasskey();
+    return preparedXdr;
   } else {
     // Mock / Read-only fallback
     return preparedXdr;
@@ -1011,4 +1019,31 @@ export async function signSEP0010Challenge(
     }
   }
   return `${challengeXdr}.signed_${walletType}_${Date.now()}`;
+}
+
+/**
+ * Bundles multiple affiliate commission claims across campaigns into a single atomic transaction envelope.
+ */
+export async function batchClaimPayoutsContractCall(
+  affiliateAddress: string,
+  campaignIds: number[],
+  walletType: WalletType = "freighter",
+): Promise<{ success: boolean; txHash: string; campaignIds: number[] }> {
+  const campaigns = campaignIds.map((id) => ({
+    campaignId: id,
+    campaignName: `Campaign #${id}`,
+    advertiserAddress: "",
+    maturedSalesCount: 1,
+    claimableXlm: 10,
+    clearingPeriodDays: 7,
+    lastSaleDate: new Date().toISOString(),
+    status: "matured" as const,
+  }));
+  const { executeBatchCommissionClaim } = await import("./batchClaim");
+  const receipt = await executeBatchCommissionClaim(affiliateAddress, campaigns, walletType);
+  return {
+    success: receipt.success,
+    txHash: receipt.txHash,
+    campaignIds,
+  };
 }
