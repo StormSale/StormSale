@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -11,10 +11,22 @@ import {
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
+  fetchAccountSequence,
+  isSequenceError,
 } from "../lib/stellar";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
+
+export type QueueStatus = "idle" | "queued" | "submitting" | "retrying" | "resyncing" | "error";
+
+export interface QueueItem {
+  id: string;
+  label: string;
+  status: QueueStatus;
+  attempts: number;
+  error?: string;
+}
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -48,6 +60,13 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Sequence queue monitoring
+  queueStatus: QueueStatus;
+  queueLength: number;
+  queueItems: QueueItem[];
+  localSequence: string | null;
+  resyncSequence: () => Promise<void>;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -56,7 +75,15 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+const WebContext = createContext<Web3ContextType | undefined>(undefined);
+
+interface QueueTask<T> {
+  id: string;
+  label: string;
+  run: (sequence: string | undefined) => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: any) => void;
+}
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [userAddress, setUserAddress] = useState<string | null>(null);
@@ -66,6 +93,16 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // Sequence queue state
+  const [localSequence, setLocalSequence] = useState<string | null>(null);
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
+  const [queueStatus, setQueueStatus] = useState<QueueStatus>("idle");
+
+  const queueRef = useRef<QueueTask<any>[]>([]);
+  const processingRef = useRef(false);
+  const sequenceRef = useRef<string | null>(null);
+  const addressRef = useRef<string | null>(null);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -92,7 +129,143 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // -----------------------------------------------------------------------------------
+  // Sequence queue implementation
+  // -----------------------------------------------------------------------------------
+
+  const updateQueueItem = useCallback((id: string, patch: Partial<QueueItem>) => {
+    setQueueItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
+
+  const removeQueueItem = useCallback((id: string) => {
+    setQueueItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const resyncSequence = useCallback(async (): Promise<void> => {
+    const address = addressRef.current;
+    if (!address) {
+      sequenceRef.current = null;
+      setLocalSequence(null);
+      return;
+    }
+    setQueueStatus("resyncing");
+    try {
+      const next = await fetchAccountSequence(address);
+      sequenceRef.current = next;
+      setLocalSequence(next);
+    } finally {
+      setQueueStatus(queueRef.current.length > 0 ? "queued" : "idle");
+    }
+  }, []);
+
+  const ensureSequence = useCallback(async (): Promise<string | undefined> => {
+    const address = addressRef.current;
+    if (!address) return undefined;
+    if (!sequenceRef.current) {
+      const next = await fetchAccountSequence(address);
+      sequenceRef.current = next;
+      setLocalSequence(next);
+    }
+    return sequenceRef.current ?? undefined;
+  }, []);
+
+  const processQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    try {
+      while (queueRef.current.length > 0) {
+        const task = queueRef.current[0];
+        updateQueueItem(task.id, { status: "submitting" });
+        setQueueStatus("submitting");
+
+        try {
+          const seq = await ensureSequence();
+          const result = await task.run(seq);
+          // On success, advance local optimistic sequence by one.
+          if (sequenceRef.current) {
+            const next = (BigInt(sequenceRef.current) + 1n).toString();
+            sequenceRef.current = next;
+            setLocalSequence(next);
+          }
+          updateQueueItem(task.id, { status: "idle" });
+          task.resolve(result);
+        } catch (error: any) {
+          const message = typeof error === "string" ? error : error?.message || "Unknown error";
+          if (isSequenceError(message) && (task as any).attempts === 0) {
+            // Automatic resync from Horizon + single retry
+            updateQueueItem(task.id, { status: "resyncing", attempts: 1 });
+            setQueueStatus("resyncing");
+            try {
+              const fresh = addressRef.current
+                ? await fetchAccountSequence(addressRef.current)
+                : undefined;
+              sequenceRef.current = fresh ?? null;
+              setLocalSequence(fresh ?? null);
+              updateQueueItem(task.id, { status: "retrying" });
+              setQueueStatus("retrying");
+              const result = await task.run(fresh);
+              if (sequenceRef.current) {
+                const next = (BigInt(sequenceRef.current) + 1).toString();
+                sequenceRef.current = next;
+                setLocalSequence(next);
+              }
+              updateQueueItem(task.id, { status: "idle" });
+              task.resolve(result);
+            } catch (retryError: any) {
+              const retryMessage =
+                typeof retryError === "string"
+                  ? retryError
+                  : retryError?.message || "Retry failed";
+              updateQueueItem(task.id, { status: "error", error: retryMessage });
+              task.reject(retryError);
+            }
+          } else {
+            updateQueueItem(task.id, { status: "error", error: message });
+            task.reject(error);
+          }
+        } finally {
+          // Remove the completed task from the head of the queue.
+          queueRef.current.shift();
+          removeQueueItem(task.id);
+        }
+      }
+    } finally {
+      processingRef.current = false;
+      setQueueStatus(queueRef.current.length > 0 ? "queued" : "idle");
+    }
+  }, [ensureSequence, removeQueueItem, updateQueueItem]);
+
+  const enqueue = useCallback(
+    <T>(label: string, run: (sequence: string | undefined) => Promise<T>) =>
+      new Promise<T>((resolve, reject) => {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const task: QueueTask<T> = { id, label, run, resolve, reject } as any;
+        queueRef.current.push(task as QueueTask<any>);
+        setQueueItems((prev) => [
+          ...prev,
+          { id: task.id, label, status: "queued", attempts: 0 },
+        ]);
+        setQueueStatus("queued");
+        void processQueue();
+      }),
+    [processQueue],
+  );
+
+  // Reset queue when wallet disconnects or address changes
+  useEffect(() => {
+    addressRef.current = userAddress;
+    sequenceRef.current = null;
+    setLocalSequence(null);
+    if (!userAddress) {
+      queueRef.current = [];
+      setQueueItems([]);
+      setQueueStatus("idle");
+    }
+  }, [userAddress]);
+
+  // -----------------------------------------------------------------------------------
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Mock
+  // -----------------------------------------------------------------------------------
   const connectWallet = async (type: WalletType = "freighter", customAddress?: string) => {
     try {
       let address = "";
@@ -174,164 +347,85 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     commissionRatePercent: number,
     clearingPeriodSecs: number,
   ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
-    );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
-        userAddress,
+    return enqueue("Create Campaign", async (sequence) => {
+      const result = await createCampaignContractCall(
+        name,
+        budgetXlm,
         commissionRatePercent,
         clearingPeriodSecs,
-        budgetXlm,
-        connectorType,
+        sequence,
       );
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      // Mock fallback for UI preview without extension
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-      return {
-        success: true,
-        campaignId: newCampaignId,
-        txHash: mockTxHash,
-      };
-    }
+      return result;
+    });
   };
 
-  // Soroban: Log Verified Sale
+  // Soroban: Log Sale
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
   ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
-    );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await logSaleContractCall(
-        userAddress,
+    return enqueue("Log Sale", async (sequence) => {
+      const result = await logSaleContractCall(
         campaignId,
         affiliateAddress,
         amountXlm,
-        connectorType,
+        sequence,
       );
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
+      return result;
+    });
   };
 
-  // Soroban: Claim Affiliate Commission
+  // Soroban: Claim Payout
   const claimPayoutOnChain = async (campaignId: number) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
+    return enqueue("Claim Payout", async (sequence) => {
+      const result = await claimPayoutContractCall(campaignId, sequence);
+      return result;
+    });
   };
 
-  // Compatibility facade for existing form components
-  const factoryContract = {
-    createCampaign: async (rate: string, period: string) => {
-      const res = await createCampaignOnChain(
-        "Campaign",
-        1000,
-        parseFloat(rate) || 10,
-        parseInt(period) || 604800,
-      );
-      return {
-        wait: async () => res,
-      };
-    },
-    joinCampaign: async (campaignAddr: string) => {
-      console.log(`[Soroban] Joined campaign: ${campaignAddr}`);
-      return {
-        wait: async () => ({ success: true }),
-      };
-    },
+  // Compatibility helpers for legacy form callers
+  const factoryContract = null;
+  const getCampaignContract = (_address: string) => null;
+  const provider = null;
+  const signer = null;
+  const switchToStellarNetwork = async () => true;
+
+  const value: Web3ContextType = {
+    userAddress,
+    userRole,
+    isConnected,
+    isStellarNetwork: network === "TESTNET" || network === "PUBLIC",
+    network,
+    xlmBalance,
+    connectorType,
+    isWalletModalOpen,
+    openWalletModal,
+    closeWalletModal,
+    connectWallet,
+    disconnectWallet,
+    updateUserRole,
+    requestFriendbotFunding,
+    createCampaignOnChain,
+    logSaleOnChain,
+    claimPayoutOnChain,
+    queueStatus,
+    queueLength: queueItems.length,
+    queueItems,
+    localSequence,
+    resyncSequence,
+    factoryContract,
+    getCampaignContract,
+    provider,
+    signer,
+    switchToStellarNetwork,
   };
 
-  const getCampaignContract = (_address: string) => ({
-    logEncryptedSale: async (
-      affiliate: string,
-      amount: string,
-      _payload: any,
-      _advKey: any,
-      _affKey: any,
-    ) => {
-      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
-      return {
-        wait: async () => res,
-      };
-    },
-    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
-      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
-      return {
-        wait: async () => ({ success: true }),
-      };
-    },
-  });
-
-  const switchToStellarNetwork = async () => {
-    setNetwork("TESTNET");
-    return true;
-  };
-
-  return (
-    <Web3Context.Provider
-      value={{
-        userAddress,
-        userRole,
-        isConnected,
-        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
-        network,
-        xlmBalance,
-        connectorType,
-        isWalletModalOpen,
-        openWalletModal,
-        closeWalletModal,
-        connectWallet,
-        disconnectWallet,
-        updateUserRole,
-        requestFriendbotFunding,
-        createCampaignOnChain,
-        logSaleOnChain,
-        claimPayoutOnChain,
-        factoryContract,
-        getCampaignContract,
-        provider: null,
-        signer: null,
-        switchToStellarNetwork,
-      }}
-    >
-      {children}
-    </Web3Context.Provider>
-  );
+  return <WebContext.Provider value={value}>{children}</WebContext.Provider>;
 }
 
-export function useWeb3(): Web3ContextType {
-  const context = useContext(Web3Context);
+export function useWeb3() {
+  const context = useContext(WebContext);
   if (context === undefined) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }

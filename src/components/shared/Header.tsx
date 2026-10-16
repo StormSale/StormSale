@@ -7,7 +7,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const {
+    userAddress,
+    openWalletModal,
+    disconnectWallet,
+    isConnected,
+    xlmBalance,
+    queueStatus,
+  } = useWeb3();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -57,6 +64,31 @@ export const Header = () => {
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
+              {queueStatus && (queueStatus.pending > 0 || queueStatus.isResyncing) && (
+                <div
+                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-xl border text-xs font-semibold ${
+                    queueStatus.isResyncing
+                      ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300"
+                      : "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:text-indigo-300",
+                  }`}
+                  title={
+                    queueStatus.isResyncing
+                      ? "Resyncing sequence from Horizon..."
+                      : `${queueStatus.pending} transaction(s) queued`
+                  }
+                >
+                  {queueStatus.isResyncing ? (
+                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                  ) : (
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+                  )}
+                  <span>
+                    {queueStatus.isResyncing
+                      ? "Resyncing..."
+                      : `Queue: ${queueStatus.pending}`}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-xs font-mono font-semibold text-zinc-900 dark:text-white">
@@ -145,6 +177,35 @@ export const Header = () => {
                     <Coins className="w-3 h-3 mr-1" />
                     {xlmBalance} XLM
                   </div>
+                </div>
+              </div>
+            )}
+
+            {isConnected && queueStatus && (queueStatus.pending > 0 || queueStatus.isResyncing) && (
+              <div
+                className={`p-3 rounded-2xl border flex items-center justify-between ${
+                  queueStatus.isResyncing
+                    ? "bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800"
+                    : "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-900",
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`w-2 h-2 rounded-full animate-pulse ${
+                      queueStatus.isResyncing ? "bg-amber-500" : "bg-indigo-500"
+                    }`}
+                  />
+                  <span
+                    className={`text-xs font-bold ${
+                      queueStatus.isResyncing
+                        ? "text-amber-700 dark:text-amber-300"
+                        : "text-indigo-700 dark:text-indigo-300"
+                    }`}
+                  >
+                    {queueStatus.isResyncing
+                      ? "Resyncing sequence from Horizon..."
+                      : `${queueStatus.pending} transaction(s) queued`}
+                  </span>
                 </div>
               </div>
             )}
