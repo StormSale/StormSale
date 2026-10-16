@@ -1,12 +1,18 @@
 import React from "react";
 import { Web3Provider } from "./context/Web3Context";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import {
+  NotificationProvider,
+  NotificationWrapper,
+  useNotification,
+} from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
 import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
+import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
@@ -17,7 +23,7 @@ class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
 > {
-  constructor(props: any) {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -26,7 +32,7 @@ class ErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: any) {
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     // You can log error to an external service here
     console.error("Unhandled error caught by ErrorBoundary:", error, info);
   }
@@ -56,7 +62,8 @@ class ErrorBoundary extends React.Component<
 }
 
 function Router() {
-  const { isConnected } = useWeb3();
+  const { isConnected, disconnectWallet } = useWeb3();
+  const { showNotification } = useNotification();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -64,22 +71,72 @@ function Router() {
     return params.get("brand") || params.get("c") || null;
   });
 
+  const { isWarningOpen, remainingSeconds, extendSession, handleManualDisconnect } =
+    useIdleDisconnect({
+      isConnected,
+      onDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "warning",
+          title: "Session Expired",
+          message:
+            "Your wallet was automatically disconnected after 30 minutes of inactivity for your security.",
+          duration: 8000,
+        });
+      },
+      onExtend: () => {
+        showNotification({
+          type: "info",
+          title: "Session Extended",
+          message: "Your active session has been extended.",
+          duration: 3000,
+        });
+      },
+      onManualDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "info",
+          title: "Wallet Disconnected",
+          message: "You have disconnected your wallet.",
+          duration: 3000,
+        });
+      },
+    });
+
+  const isPreviewQuery =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("timeout_preview") === "1";
+
   if (activeBrandSubdomain) {
     return (
-      <BrandedCampaignView
-        brandConfig={loadBrandConfig(activeBrandSubdomain)}
-        onClose={() => {
-          setActiveBrandSubdomain(null);
-          window.history.pushState({}, "", window.location.pathname);
-        }}
-        isStandalone
-      />
+      <>
+        <SessionTimeoutModal
+          isOpen={isWarningOpen || isPreviewQuery}
+          remainingSeconds={isWarningOpen ? remainingSeconds : 115}
+          onExtend={extendSession}
+          onDisconnect={handleManualDisconnect}
+        />
+        <BrandedCampaignView
+          brandConfig={loadBrandConfig(activeBrandSubdomain)}
+          onClose={() => {
+            setActiveBrandSubdomain(null);
+            window.history.pushState({}, "", window.location.pathname);
+          }}
+          isStandalone
+        />
+      </>
     );
   }
 
   return (
     <>
       <ConnectWalletModal />
+      <SessionTimeoutModal
+        isOpen={isWarningOpen || isPreviewQuery}
+        remainingSeconds={isWarningOpen ? remainingSeconds : 115}
+        onExtend={extendSession}
+        onDisconnect={handleManualDisconnect}
+      />
       {!isConnected ? (
         <Landing />
       ) : (
