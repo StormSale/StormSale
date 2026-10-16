@@ -62,4 +62,24 @@ describe("Clearing Period Timer & Progress Suite", () => {
     expect(result.progressPercent).toBe(99);
     expect(result.countdownText).toBe("1s");
   });
+
+  it("falls back to DEFAULT_CLEARING_PERIOD for zero or negative clearing periods", () => {
+    // Zero clearing period
+    const zeroResult = calculateClearing(
+      { timestamp: baseTimestamp, clearingPeriod: 0 },
+      baseTimestamp + 302400,
+    );
+    expect(zeroResult.period).toBe(604800);
+    expect(zeroResult.unlockTimestamp).toBe(baseTimestamp + 604800);
+    expect(zeroResult.progressPercent).toBe(50);
+
+    // Negative clearing period
+    const negResult = calculateClearing(
+      { timestamp: baseTimestamp, clearingPeriod: -500 },
+      baseTimestamp + 302400,
+    );
+    expect(negResult.period).toBe(604800);
+    expect(negResult.unlockTimestamp).toBe(baseTimestamp + 604800);
+    expect(negResult.progressPercent).toBe(50);
+  });
 });

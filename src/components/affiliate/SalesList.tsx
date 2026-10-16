@@ -25,7 +25,7 @@ import {
 import { decryptPayload } from "../../lib/crypto";
 import { Shield, Lock, CheckCircle2, Clock } from "lucide-react";
 
-interface Sale {
+export interface Sale {
   id: number;
   affiliate: string;
   saleAmount: string;
@@ -35,11 +35,20 @@ interface Sale {
   claimed: boolean;
 }
 
+export interface SalesListProps {
+  sales?: Sale[];
+}
+
+export const DEFAULT_CLEARING_PERIOD = 604800; // 7 days in seconds
+
 export function calculateClearing(
   sale: Pick<Sale, "timestamp" | "clearingPeriod">,
   nowSeconds: number,
 ) {
-  const period = sale.clearingPeriod || 604800;
+  const period =
+    typeof sale.clearingPeriod === "number" && sale.clearingPeriod > 0
+      ? sale.clearingPeriod
+      : DEFAULT_CLEARING_PERIOD;
   const unlockTimestamp = sale.timestamp + period;
   const remainingSeconds = Math.max(0, unlockTimestamp - nowSeconds);
   const elapsedSeconds = Math.max(0, nowSeconds - sale.timestamp);
@@ -112,12 +121,12 @@ const createInitialMockSales = (): Sale[] => {
   ];
 };
 
-export const SalesList = () => {
+export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => {
   const [decryptedData, setDecryptedData] = useState<object | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
-  const [mockSales] = useState<Sale[]>(createInitialMockSales);
+  const [salesList] = useState<Sale[]>(() => initialSales || createInitialMockSales());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -198,7 +207,7 @@ export const SalesList = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockSales.map((sale) => {
+                  {salesList.map((sale) => {
                     const clearing = calculateClearing(sale, currentTime);
                     return (
                       <TableRow
