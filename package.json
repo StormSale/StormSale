@@ -2,7 +2,7 @@
   "name": "storm-sale",
   "version": "1.0.0",
   "private": true,
-  "description": "\tThe future of affiliate bridging the gap between marketers and end users",
+  "description": "The future of affiliate bridging the gap between marketers and end users",
   "homepage": "https://github.com/StormSale/StormSale#readme",
   "bugs": {
     "url": "https://github.com/StormSale/StormSale/issues"
@@ -36,14 +36,17 @@
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-simple-maps": "^3.0.0",
     "tailwind-merge": "^3.7.0",
-    "tailwindcss": "^4.1.16"
+    "tailwindcss": "^4.1.16",
+    "topojson": "^3.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/react-simple-maps": "^3.0.0",
     "@vitejs/plugin-react": "^6.1.1",
     "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",

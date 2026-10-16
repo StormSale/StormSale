@@ -6,9 +6,79 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2, Globe, Calendar, Filter } from "lucide-react";
+import { useMemo, useState } from "react";
+
+type GeoClick = {
+  country: string;
+  iso: string;
+  clicks: number;
+  conversions: number;
+  x: number;
+  y: number;
+};
+
+const GEO_DATA: GeoClick[] = [
+  { country: "United States", iso: "US", clicks: 4820, conversions: 168, x: 22, y: 38 },
+  { country: "United Kingdom", iso: "GB", clicks: 2140, conversions: 92, x: 46, y: 30 },
+  { country: "Germany", iso: "DE", clicks: 1890, conversions: 74, x: 51, y: 32 },
+  { country: "India", iso: "IN", clicks: 3260, conversions: 121, x: 68, y: 48 },
+  { country: "Brazil", iso: "BR", clicks: 1540, conversions: 58, x: 33, y: 66 },
+  { country: "Canada", iso: "CA", clicks: 1120, conversions: 47, x: 20, y: 28 },
+  { country: "Australia", iso: "AU", clicks: 980, conversions: 39, x: 82, y: 72 },
+  { country: "Japan", iso: "JP", clicks: 760, conversions: 31, x: 84, y: 38 },
+  { country: "France", iso: "FR", clicks: 1340, conversions: 52, x: 47, y: 34 },
+  { country: "Nigeria", iso: "NG", clicks: 620, conversions: 22, x: 50, y: 55 },
+];
+
+const DATE_RANGES = ["7d", "30d", "90d", "All"] as const;
+type DateRange = (typeof DATE_RANGES)[number];
+
+const RANGE_MULTIPLIER: Record<DateRange, number> = {
+  "7d": 0.25,
+  "30d": 1,
+  "90d": 2.4,
+  All: 3.6,
+};
+
+const CAMPAIGNS = ["All Campaigns", "Tech Gadgets Pro", "Web3 Masterclass", "Crypto Tools"] as const;
+type Campaign = (typeof CAMPAIGNS)[number];
+
+const CAMPAIGN_MULTIPLIER: Record<Campaign, number> = {
+  "All Campaigns": 1,
+  "Tech Gadgets Pro": 0.42,
+  "Web3 Masterclass": 0.31,
+  "Crypto Tools": 0.27,
+};
 
 export const AffiliateOverview = () => {
+  const [dateRange, setDateRange] = useState<DateRange>("30d");
+  const [campaign, setCampaign] = useState<Campaign>("All Campaigns");
+
+  const geoData = useMemo(() => {
+    const scale = RANGE_MULTIPLIER[dateRange] * CAMPAIGN_MULTIPLIER[campaign];
+    return GEO_DATA.map((g) => ({
+      ...g,
+      clicks: Math.round(g.clicks * scale),
+      conversions: Math.round(g.conversions * scale),
+    }));
+  }, [dateRange, campaign]);
+
+  const maxClicks = useMemo(
+    () => Math.max(...geoData.map((g) => g.clicks), 1),
+    [geoData]
+  );
+
+  const topCountries = useMemo(() => {
+    return [...geoData]
+      .sort((a, b) => b.clicks - a.clicks)
+      .slice(0, 5)
+      .map((g) => ({
+        ...g,
+        conversionRate: g.clicks > 0 ? (g.conversions / g.clicks) * 100 : 0,
+      }));
+  }, [geoData]);
+
   const stats = [
     {
       title: "Total Earnings",
@@ -66,7 +136,7 @@ export const AffiliateOverview = () => {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-4 gap-6">
         {stats.map((stat, index) => {
           const IconComponent = stat.icon;
           return (
@@ -97,157 +167,149 @@ export const AffiliateOverview = () => {
         })}
       </div>
 
-      {/* Two Column Layout */}
-      <div className="grid lg:grid-cols-2 gap-8">
-        {/* Recent Payouts */}
-        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
-          <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
-            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Recent Payouts
-            </CardTitle>
-            <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Your latest commission payments
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="space-y-4">
-              {recentPayouts.map((payout, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-xl flex items-center justify-center shrink-0">
-                      <DollarSign className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {payout.campaign}
-                      </div>
-                      <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        {payout.date}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                      {payout.amount}
-                    </div>
-                    <div className="flex items-center justify-end gap-1 mt-1">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
-                        {payout.status}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+      {/* Real-Time Click Stream Heatmap */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Globe className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Click Stream Heatmap
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400">
+                Aggregated clicks by country ISO code — no raw PII stored
+              </CardDescription>
             </div>
-            <Button
-              variant="ghost"
-              className="w-full mt-6 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-900/50"
-            >
-              View All Payouts
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* Performance Tips */}
-        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
-          <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
-            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Performance Tips
-            </CardTitle>
-            <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Boost your affiliate earnings
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-6">
-            <div className="space-y-4">
-              {[
-                {
-                  tip: "Optimize your content for higher conversions",
-                  impact: "High",
-                },
-                { tip: "Join trending campaigns early", impact: "Medium" },
-                { tip: "Use multiple promotion channels", impact: "High" },
-                {
-                  tip: "Engage with your audience regularly",
-                  impact: "Medium",
-                },
-              ].map((item, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl"
-                >
-                  <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300 pr-4">
-                    {item.tip}
-                  </div>
-                  <span
-                    className={`shrink-0 text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${
-                      item.impact === "High"
-                        ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
-                        : "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-full px-3 py-1.5">
+                <Calendar className="w-4 h-4 text-zinc-400" />
+                {DATE_RANGES.map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setDateRange(range)}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full transition-all duration-300 ${
+                      dateRange === range
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
                     }`}
                   >
-                    {item.impact}
-                  </span>
-                </div>
-              ))}
+                    {range}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 dark:bg-zinc-950/50 border border-slate-200 dark:border-zinc-800 rounded-full px-3 py-1.5">
+                <Filter className="w-4 h-4 text-zinc-400" />
+                <select
+                  value={campaign}
+                  onChange={(e) => setCampaign(e.target.value as Campaign)}
+                  className="text-xs font-bold bg-transparent text-zinc-700 dark:text-zinc-300 outline-none cursor-pointer"
+                >
+                  {CAMPAIGNS.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* SVG World Map */}
+            <div className="lg:col-span-2">
+              <div className="relative w-full aspect-[2/1] bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-2xl overflow-hidden">
+                <svg
+                  viewBox="0 0 100 80"
+                  className="w-full h-full"
+                  role="img"
+                  aria-label="World map of click density"
+                >
+                  <defs>
+                    <radialGradient id="heatGradient">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.9" />
+                      <stop offset="70%" stopColor="#6366f1" stopOpacity="0.15" />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                    </radialGradient>
+                  </defs>
+                  <rect width="100" height="80" fill="transparent" />
+                  {geoData.map((g) => {
+                    const radius = 2 + (g.clicks / maxClicks) * 10;
+                    const opacity = 0.3 + (g.clicks / maxClicks) * 0.7;
+                    return (
+                      <g key={g.iso}>
+                        <circle
+                          cx={g.x}
+                          cy={g.y}
+                          r={radius + 4}
+                          fill="url(#heatGradient)"
+                          opacity={opacity * 0.5}
+                        />
+                        <circle
+                          cx={g.x}
+                          cy={g.y}
+                          r={radius / 2}
+                          fill="#6366f1"
+                          opacity={opacity}
+                          className="transition-all duration-500"
+                        >
+                          <title>{`${g.country} (${g.iso}): ${g.clicks} clicks, ${g.conversions} conversions`}</title>
+                        </circle>
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+            <div className="lg:col-span-1">
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold text-zinc-900 dark:text-white">
+                  Top 5 Countries
+                </h3>
+                {topCountries.map((c, i) => (
+                  <div key={c.iso} className="flex items-center justify-between bg-slate-50 dark:bg-zinc-950/50 rounded-xl px-3 py-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-zinc-500">#{i + 1}</span>
+                      <span className="text-sm font-medium text-zinc-900 dark:text-white">{c.country}</span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs font-bold text-indigo-600">{c.conversionRate.toFixed(1)}%</p>
+                      <p className="text-xs text-zinc-500">{c.clicks} clicks</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Quick Actions */}
+      {/* Recent Payouts */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
           <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-            Quick Actions
+            Recent Payouts
           </CardTitle>
-          <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Get started quickly
-          </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
-            ].map((action, index) => {
-              const IconComponent = action.icon;
-              return (
-                <Button
-                  key={index}
-                  variant="outline"
-                  className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
-                >
-                  <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
-                      {action.label}
-                    </div>
-                    <div className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
-                      {action.description}
-                    </div>
+          <div className="space-y-3">
+            {recentPayouts.map((payout, i) => (
+              <div key={i} className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-zinc-800/50 last:border-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center">
+                    <CheckCircle2 className="w-4 h-4 text-indigo-600" />
                   </div>
-                </Button>
-              );
-            })}
+                  <div>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white">{payout.campaign}</p>
+                    <p className="text-xs text-zinc-500">{payout.date}</p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-zinc-900 dark:text-white">{payout.amount}</p>
+                  <p className="text-xs text-green-600">{payout.status}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
