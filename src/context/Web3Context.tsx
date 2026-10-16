@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
   connectAlbedoWallet,
-  connectXbullWallet,
+  connectXBullWallet,
   checkFreighterInstalled,
   getCurrentNetwork,
   fetchXlmBalance,
@@ -63,7 +63,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [userRole, setUserRole] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
-  const [xlmBalance, setXlmBalance] = useState<string>("0.00");
+  const [xlmBalance, setXlmBalance] = useState<string>"(0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
@@ -110,8 +110,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = await connectAlbedoWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
-        address = await connectXbullWallet();
-        setNetwork(STELLAR_CONFIG.network);
+        address = await connectXBullWallet();
+        setNetwork
+STELLAR_CONFIG.network);
       } else if (type === "readonly") {
         if (!customAddress) throw new Error("Please provide a valid Stellar address.");
         address = customAddress;
