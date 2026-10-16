@@ -93,6 +93,33 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
         })}
       </div>
 
+      {/* Merkle Tree Proof Visualizer Banner */}
+      <div className="relative overflow-hidden bg-gradient-to-r from-indigo-900 via-indigo-950 to-zinc-900 border border-indigo-500/30 rounded-3xl p-6 md:p-8 text-white shadow-xl">
+        <div className="absolute right-0 top-0 w-96 h-96 bg-gradient-to-bl from-emerald-500/15 via-indigo-500/20 to-transparent rounded-full blur-3xl pointer-events-none" />
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 relative z-10">
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              Cryptographic Audit Engine
+            </div>
+            <h2 className="text-xl md:text-2xl font-extrabold tracking-tight">
+              Interactive Merkle Tree Proof Explorer
+            </h2>
+            <p className="text-zinc-300 text-sm leading-relaxed">
+              Verify batch-settled conversion ledger logs against Soroban on-chain roots. Inspect
+              individual conversion leaves, trace Merkle verification paths highlighted in green,
+              and test transaction hashes.
+            </p>
+          </div>
+          <Button
+            onClick={() => onTabChange?.("merkle")}
+            className="h-12 px-6 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 transition-all shrink-0 hover:scale-105"
+          >
+            Launch Visualizer
+          </Button>
+        </div>
+      </div>
+
       {/* Two column */}
       <div className="grid lg:grid-cols-2 gap-8">
         {/* Recent Audit History */}

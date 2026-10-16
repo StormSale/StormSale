@@ -7,9 +7,21 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { CheckCircle2, AlertTriangle, Clock, FileText, Download, Filter } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  FileText,
+  Download,
+  Filter,
+  GitFork,
+} from "lucide-react";
 
 type AuditStatus = "Verified" | "Denied" | "Pending";
+
+interface AuditHistoryProps {
+  onTabChange?: (tab: string) => void;
+}
 
 interface AuditRecord {
   saleId: string;
@@ -92,7 +104,7 @@ const statusConfig: Record<
   },
 };
 
-export const AuditHistory = () => {
+export const AuditHistory: React.FC<AuditHistoryProps> = ({ onTabChange }) => {
   const verified = auditRecords.filter((r) => r.status === "Verified").length;
   const denied = auditRecords.filter((r) => r.status === "Denied").length;
   const pending = auditRecords.filter((r) => r.status === "Pending").length;
@@ -196,7 +208,7 @@ export const AuditHistory = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 sm:flex-col sm:items-end">
+                  <div className="flex items-center gap-3 sm:flex-col sm:items-end">
                     <span
                       className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${cfg.badge}`}
                     >
@@ -205,6 +217,17 @@ export const AuditHistory = () => {
                     <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500">
                       {record.timestamp}
                     </div>
+                    {record.status === "Verified" && onTabChange && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onTabChange("merkle")}
+                        className="h-6 px-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 flex items-center gap-1"
+                      >
+                        <GitFork className="w-3 h-3" />
+                        Merkle Proof
+                      </Button>
+                    )}
                   </div>
                 </div>
               );
