@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -29,9 +29,49 @@ interface ClaimableSale {
 }
 
 export const ClaimPayouts = () => {
-  const { claimPayoutOnChain } = useWeb3();
+  const { claimPayotOnChain } = useWeb3();
   const { showNotification } = useNotification();
   const [claimingId, setClaimingId] = useState<number | null>(null);
+  const [sales, setSales] = useState<ClaimableSale[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadClaimableSales = async () => {
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const mockClaimableSales: ClaimableSale[] = [
+          {
+            id: 1,
+            campaignAddress: "CA7QW5KXGPTR4N2K9J2K",
+            saleAmount: "100.0",
+            commissionAmount: "10.0",
+            timestamp: Date.now() / 1000 - 1209600,
+            clearingPeriod: 604800,
+          },
+          {
+            id: 2,
+            campaignAddress: "CB4RN4XJLPBM1K3V6P7",
+            saleAmount: "250.0",
+            commissionAmount: "25.0",
+            timestamp: Date.now() / 1000 - 864000,
+            clearingPeriod: 604800,
+          },
+        ];
+        if (!cancelled) setSales(mockClaimableSales);
+      } catch (err: any) {
+        if (!cancelled) setLoadError(err?.message || "Failed to load claimable sales");
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    };
+    loadClaimableSales();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleClaim = async (saleId: number) => {
     setClaimingId(saleId);
@@ -48,6 +88,7 @@ export const ClaimPayouts = () => {
         title: "Commission Paid Out!",
         message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
+      setSales((prev) => prev.filter((s) => s.id !== saleId));
     } catch (err: any) {
       showNotification({
         type: "error",
@@ -59,25 +100,6 @@ export const ClaimPayouts = () => {
     }
   };
 
-  const mockClaimableSales: ClaimableSale[] = [
-    {
-      id: 1,
-      campaignAddress: "CA7QW5KXGPTR4N2K9J2...",
-      saleAmount: "100.0",
-      commissionAmount: "10.0",
-      timestamp: Date.now() / 1000 - 1209600,
-      clearingPeriod: 604800,
-    },
-    {
-      id: 2,
-      campaignAddress: "CB4RN8XJLP8M1K3V6P7...",
-      saleAmount: "250.0",
-      commissionAmount: "25.0",
-      timestamp: Date.now() / 1000 - 864000,
-      clearingPeriod: 604800,
-    },
-  ];
-
   const isSaleClaimable = (sale: ClaimableSale) => {
     return Date.now() / 1000 >= sale.timestamp + sale.clearingPeriod;
   };
@@ -88,7 +110,7 @@ export const ClaimPayouts = () => {
     const remaining = sale.timestamp + sale.clearingPeriod - Date.now() / 1000;
     if (remaining <= 0) return "Ready to claim";
     const days = Math.ceil(remaining / 86400);
-    return `${days} day${days !== 1 ? "s" : ""} remaining`;
+    return `${days} day${ days !== 1 ? "s" : ""} remaining`;
   };
 
   return (
@@ -104,8 +126,8 @@ export const ClaimPayouts = () => {
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
           <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-              <DollarSign className="w-7 h-7 text-white" />
+            <div className="w-14 h-14 border-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+              <DollarSign className="w-7 w-7 text-white" />
             </div>
             <div>
               <CardTitle className="text-2xl font-bold text-zinc-900 dark:text-white">
@@ -143,7 +165,7 @@ export const ClaimPayouts = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {mockClaimableSales.map((sale) => (
+                {sales.map((sale) => (
                   <TableRow
                     key={sale.id}
                     className="border-b border-slate-50 dark:border-zinc-900 hover:bg-slate-50/50 dark:hover:bg-zinc-900/30 transition-colors"
@@ -162,10 +184,9 @@ export const ClaimPayouts = () => {
                     </TableCell>
                     <TableCell className="py-4">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          isSaleClaimable(sale)
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${ isSaleClaimable(sale)
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
                         }`}
                       >
                         {isSaleClaimable(sale) ? (
@@ -181,10 +202,9 @@ export const ClaimPayouts = () => {
                         size="sm"
                         onClick={() => handleClaim(sale.id)}
                         disabled={!isSaleClaimable(sale) || claimingId !== null}
-                        className={`rounded-lg h-9 px-4 font-semibold text-sm transition-all ${
-                          isSaleClaimable(sale)
-                            ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white shadow-sm"
-                            : "bg-slate-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                        className={`rounded-lg h-9 px-4 font-semibold text-sm transition-all ${ isSaleClaimable(sale)
+                          ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white shadow-sm"
+                          : "bg-slate-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                         }`}
                       >
                         <Zap className="w-3.5 h-3.5 mr-1" />
@@ -193,6 +213,27 @@ export const ClaimPayouts = () => {
                     </TableCell>
                   </TableRow>
                 ))}
+                {!isLoading && !loadError && sales.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center text-zinc-500 dark:text-zinc-400 font-medium">
+                      No claimable commissions available
+                    </TableCell>
+                  </TableRow>
+                )}
+                {isLoading && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center text-zinc-500 dark:text-zinc-400 font-medium">
+                      Loading claimable commissions...
+                    </TableCell>
+                  </TableRow>
+                )}
+                {loadError && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center text-rose-600 dark:text-rose-400 font-medium">
+                      {loadError}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>

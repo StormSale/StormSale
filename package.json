@@ -20,6 +20,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:e2": "vitest run tests/e2e/claim.spec.ts",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
