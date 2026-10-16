@@ -14,6 +14,10 @@ export const STORMSALE_CONTRACT_METHODS = {
   GET_CAMPAIGN: "get_campaign",
   GET_SALE: "get_sale",
   GET_SALES_BY_CAMPAIGN: "get_sales_by_campaign",
+  PAUSE_CONTRACT: "pause_contract",
+  UNPAUSE_CONTRACT: "unpause_contract",
+  IS_PAUSED: "is_paused",
+  GET_ADMIN: "get_admin",
 } as const;
 
 export type SorobanContractMethod =

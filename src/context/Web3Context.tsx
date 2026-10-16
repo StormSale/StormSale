@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
   connectAlbedoWallet,
-  connectXbullWallet,
+  connectXBullWallet,
   checkFreighterInstalled,
   getCurrentNetwork,
   fetchXlmBalance,
@@ -48,6 +48,12 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Admin Emergency Kill-Switch
+  isAdmin: boolean;
+  isPaused: boolean;
+  emergencyPause: () => Promise<{ success: boolean; txHash?: string }>;
+  emergencyResume: () => Promise<{ success: boolean; txHash?: string }>;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -66,6 +72,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -110,7 +117,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = await connectAlbedoWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
-        address = await connectXbullWallet();
+        address = await connectXBullWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "readonly") {
         if (!customAddress) throw new Error("Please provide a valid Stellar address.");
@@ -251,6 +258,43 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
+  // Admin Emergency Kill-Switch
+  const isAdmin = userRole === "admin";
+
+  const emergencyPause = async () => {
+    if (!isAdmin) throw new Error("Unauthorized: Admin role required.");
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Admin] Emergency pause initiated by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setIsPaused(true);
+      return { success: true, txHash: mockTxHash };
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setIsPaused(true);
+      return { success: true, txHash: mockTxHash };
+    }
+  };
+
+  const emergencyResume = async () => {
+    if (!isAdmin) throw new Error("Unauthorized: Admin role required.");
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Admin] Emergency resume initiated by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setIsPaused(false);
+      return { success: true, txHash: mockTxHash };
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setIsPaused(false);
+      return { success: true, txHash: mockTxHash };
+    }
+  };
+
   // Compatibility facade for existing form components
   const factoryContract = {
     createCampaign: async (rate: string, period: string) => {
@@ -318,6 +362,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         createCampaignOnChain,
         logSaleOnChain,
         claimPayoutOnChain,
+        isAdmin,
+        isPaused,
+        emergencyPause,
+        emergencyResume,
         factoryContract,
         getCampaignContract,
         provider: null,

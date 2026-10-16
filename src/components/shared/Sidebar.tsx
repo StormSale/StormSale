@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers, AlertOctagon } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 
 interface SidebarProps {
@@ -13,6 +13,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  isAdmin?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,6 +23,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  isAdmin = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -128,6 +130,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   );
                 })}
               </div>
+
+              {isAdmin && (
+                <div className="pt-3 mt-3 border-t border-rose-100 dark:border-rose-900/40">
+                  <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-2 px-1">
+                    Admin Controls
+                  </div>
+                  <button
+                    onClick={() => {
+                      onTabChange("emergency-pause");
+                      setIsMobileDrawerOpen(false);
+                    }}
+                    className={cn(
+                      "w-full px-3 py-2.5 rounded-xl flex items-center space-x-3 text-left transition-colors font-bold text-xs sm:text-sm border",
+                      activeTab === "emergency-pause"
+                        ? "bg-rose-600 text-white border-rose-600 shadow-md"
+                        : "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-950/50",
+                    )}
+                  >
+                    <AlertOctagon className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Emergency Pause</span>
+                  </button>
+                </div>
+              )}
 
               <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                 {onBack && (
@@ -276,6 +301,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
               );
             })}
           </div>
+
+          {isAdmin && (
+            <div className="mt-4 pt-4 border-t border-rose-100 dark:border-rose-900/40">
+              {!isCollapsed && (
+                <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-2 px-2">
+                  Admin Controls
+                </div>
+              )}
+              <Button
+                variant="ghost"
+                className={cn(
+                  "w-full h-12 rounded-xl transition-all duration-200 group relative border",
+                  activeTab === "emergency-pause"
+                    ? "bg-rose-600 text-white border-rose-600 font-bold shadow-md hover:bg-rose-700 hover:text-white"
+                    : "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/50 hover:bg-rose-100 dark:hover:bg-rose-950/50 hover:text-rose-800 dark:hover:text-rose-200",
+                  isCollapsed ? "justify-center px-0" : "justify-start px-4",
+                )}
+                onClick={() => onTabChange("emergency-pause")}
+                title="Emergency Pause"
+              >
+                <AlertOctagon
+                  className={cn(
+                    "w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110",
+                    !isCollapsed && "mr-3",
+                  )}
+                />
+                {!isCollapsed && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="truncate font-bold"
+                  >
+                    Emergency Pause
+                  </motion.span>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
