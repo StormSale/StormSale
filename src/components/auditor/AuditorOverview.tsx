@@ -16,7 +16,6 @@ import {
   AlertTriangle,
   BarChart3,
   Flag,
-  ShieldAlert,
   Send,
 } from "lucide-react";
 
@@ -24,8 +23,14 @@ interface AuditorOverviewProps {
   onTabChange?: (tab: string) => void;
 }
 
-export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
+export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
   const [reportedAnomalies, setReportedAnomalies] = useState<string[]>([]);
+
+  const handleReportAnomaly = (saleId: string) => {
+    setReportedAnomalies((prev) =>
+      prev.includes(saleId) ? prev : [...prev, saleId]
+    );
+  };
 
   const stats = [
     { title: "Audits Completed", value: "47", change: "+5 this month", icon: CheckCircle2 },
@@ -49,46 +54,27 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
 
   const anomalies = [
     {
-      id: "ANM-2041",
-      saleId: "1042",
-      campaign: "Tech Gadgets Pro",
+      saleId: "1100",
+      campaign: "Summer Sale 2024",
       type: "Wash Trading",
-      severity: "Critical",
-      detail: "12 self-matched trades from 3 linked wallets within 40 minutes.",
-      detectedAt: "18 min ago",
-    },
-    {
-      id: "ANM-2038",
-      saleId: "988",
-      campaign: "Web3 Masterclass",
-      type: "Rapid Claim",
       severity: "High",
-      detail: "47 claims executed in 9 seconds from a single funding source.",
-      detectedAt: "2 hours ago",
+      detail: "Circular wallet transfers detected across 6 addresses within 12 minutes.",
     },
     {
-      id: "ANM-2033",
+      saleId: "1089",
+      campaign: "NFT Drop Alpha",
+      type: "Rapid Claims",
+      severity: "Medium",
+      detail: "14 claims from a single cluster within a 90-second window.",
+    },
+    {
       saleId: "776",
       campaign: "Crypto Tools Suite",
       type: "Wash Trading",
-      severity: "Medium",
-      detail: "Circular trade pattern detected across 4 addresses.",
-      detectedAt: "1 day ago",
+      severity: "High",
+      detail: "Repeated buy/sell cycles between two linked wallets.",
     },
   ];
-
-  const handleReportAnomaly = (anomalyId: string) => {
-    setReportedAnomalies((prev) =>
-      prev.includes(anomalyId) ? prev : [...prev, anomalyId]
-    );
-  };
-
-  const severityStyles = (severity: string) =>
-    severity === "Critical"
-      ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
-      : severity === "High"
-        ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
-        : "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400";
 
   return (
     <div className="space-y-8">
@@ -103,12 +89,93 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
           </p>
         </div>
         <div className="flex items-center gap-2 mt-6 lg:mt-0 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-full">
-          <Shield className="w-4 h-t text-indigo-600 dark:text-indigo-400" />
+          <Shield className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
           <span className="text-sm font-bold text-indigo-700 dark:text-indigo-300">
-            NIST/ISOCompliant
+            NIST/ISO Compliant
           </span>
         </div>
       </div>
+
+      {/* Suspicious Activity & Anomaly Detection */}
+      <Card className="border border-red-200 dark:border-red-500/30 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-red-100 dark:border-red-500/20 pb-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-500 dark:text-red-400" />
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+              Suspicious Activity & Anomaly Detection
+            </CardTitle>
+          </div>
+          <CardDescription className="text-zinc-500 dark:text-zinc-400">
+            Flagged wash-trading and rapid-claim patterns requiring review
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            {anomalies.map((anomaly) => {
+              const isReported = reportedAnomalies.includes(anomaly.saleId);
+              return (
+                <div
+                  key={anomaly.saleId}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-red-50/50 dark:bg-red-500/5 border border-red-100 dark:border-red-500/20 rounded-xl"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500/30 rounded-xl flex items-center justify-center shrink-0">
+                      <Flag className="w-5 h-5 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm text-zinc-900 dark:text-white">
+                          {anomaly.campaign}
+                        </span>
+                        <span
+                          className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
+                            anomaly.severity === "High"
+                              ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                          }`}
+                        >
+                          {anomaly.severity} Risk
+                        </span>
+                        <span className="inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                          {anomaly.type}
+                        </span>
+                      </div>
+                      <div className="text-xs font-mono font-medium text-zinc-400 dark:text-zinc-500 mt-1">
+                        Sale #{anomaly.saleId}
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md">
+                        {anomaly.detail}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleReportAnomaly(anomaly.saleId)}
+                    disabled={isReported}
+                    className={`h-8 px-3 text-xs rounded-lg font-semibold transition-colors shrink-0 ${
+                      isReported
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 cursor-default"
+                        : "bg-red-600 hover:bg-red-500 text-white"
+                    }`}
+                  >
+                    {isReported ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                        Reported
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5 mr-1.5" />
+                        Report Anomaly
+                      </>
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -142,82 +209,6 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
         })}
       </div>
 
-      {/* Anomaly Detection */}
-      <Card className="border border-red-200 dark:border-red-500/30 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
-        <CardHeader className="border-b border-red-100 dark:border-red-500/20 pb-4">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="w-5 h-5 text-red-500 dark:text-red-400" />
-            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Suspicious Activity &amp; Anomalies
-            </CardTitle>
-          </div>
-          <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Wash-trading and rapid-claim patterns flagged for review
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
-            {anomalies.map((anomaly) => {
-              const isReported = reportedAnomalies.includes(anomaly.id);
-              return (
-                <div
-                  key={anomaly.id}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-red-50/50 dark:bg-red-500/5 border border-red-100 dark:border-red-500/20 rounded-xl"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl flex items-center justify-center shrink-0">
-                      <Flag className="w-5 h-5 text-red-600 dark:text-red-400" />
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-sm text-zinc-900 dark:text-white">
-                          {anomaly.campaign}
-                        </span>
-                        <span
-                          className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${severityStyles(anomaly.severity)}`}
-                        >
-                          {anomaly.severity}
-                        </span>
-                      </div>
-                      <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        {anomaly.id} · Sale #{anomaly.saleId} · {anomaly.type}
-                      </div>
-                      <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 mt-1">
-                        {anomaly.detail}
-                      </p>
-                      <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mt-1">
-                        Detected {anomaly.detectedAt}
-                      </div>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    disabled={isReported}
-                    onClick={() => handleReportAnomaly(anomaly.id)}
-                    className={`h-8 px-3 text-xs rounded-lg font-semibold transition-colors shrink-0 ${isReported
-                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 cursor-default"
-                        : "bg-red-600 hover:bg-red-500 text-white"
-                      }`}
-                  >
-                    {isReported ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                        Reported
-                      </>
-                    ) : (
-                      <>
-                        <Send className="w-3.5 h-3.5 mr-1" />
-                        Report
-                      </>
-                    )}
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Two column */}
       <div className="grid lg:grid-cols-2 gap-8">
         {/* Recent Audit History */}
@@ -239,7 +230,8 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
                 >
                   <div className="flex items-center space-x-3">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${audit.status === "Verified"
+                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        audit.status === "Verified"
                           ? "bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20"
                           : "bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20"
                       }`}
@@ -261,14 +253,15 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
                   </div>
                   <div className="text-right">
                     <span
-                      className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full ${audit.status === "Verified"
+                      className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full ${
+                        audit.status === "Verified"
                           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
                           : "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
                       }`}
                     >
                       {audit.status}
                     </span>
-                    <div className="text-[11px] font-medium text-zinc-400 dark:text-zinc-500 mt-1">
+                    <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mt-1">
                       {audit.timestamp}
                     </div>
                   </div>
@@ -278,53 +271,55 @@ export const AuditorOverview = ({ onTabChange }: AuditorOverviewProps) => {
           </CardContent>
         </Card>
 
-        {/* Pending Requests */}
+        {/* Pending Access Requests */}
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
           <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
             <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
               Pending Requests
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Awaiting your review
+              Audit access requests awaiting review
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-4">
-              {pendingRequests.map((request, i) => (
-                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors">
-                  <div className="flex items-center space-x-3">
+              {pendingRequests.map((req, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl"
+                >
+                  <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
                       <FileSearch className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                     </div>
                     <div>
                       <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {request.campaign}
+                        {req.campaign}
                       </div>
-                      <div className="text-xs font-mono font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        Sale #{request.saleId} · {request.requestedBy}
+                      <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
+                        {req.requestedBy} · Sale #{req.saleId}
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="flex flex-col items-end gap-2">
                     <span
-                      className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${request.urgency === "High"
+                      className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full ${
+                        req.urgency === "High"
                           ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
-                          : request.urgency === "Medium"
+                          : req.urgency === "Medium"
                             ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
                             : "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
                       }`}
                     >
-                      {request.urgency}
+                      {req.urgency}
                     </span>
-                    <div className="mt-2">
-                      <Button
-                        size="sm"
-                        onClick={() => onTabChange?.("requests")}
-                        className="h-7 px-2 text-[11px] rounded-lg font-sembold bg-indigo-600 hover:bg-indigo-500 text-white"
-                      >
-                        Review
-                      </Button>
-                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => onTabChange?.("verify")}
+                      className="h-7 px-3 text-xs bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-lg font-semibold transition-colors"
+                    >
+                      Review
+                    </Button>
                   </div>
                 </div>
               ))}
