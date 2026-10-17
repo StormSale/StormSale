@@ -1,6 +1,9 @@
 import React from "react";
 import { Web3Provider } from "./context/Web3Context";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { EventStreamProvider } from "./context/EventStreamContext";
+import { NotificationWrapper, NotificationProvider } from "./context/NotificationContext";
+import { ConnectionStatusPill } from "./components/shared/ConnectionStatusPill";
+import { EventToastHost } from "./components/shared/EventToastHost";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
 import { Advertiser } from "./pages/Advertiser";
@@ -10,6 +13,8 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
+import { loadBrandConfig } from "./lib/branding";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,6 +61,24 @@ class ErrorBoundary extends React.Component<
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("brand") || params.get("c") || null;
+  });
+
+  if (activeBrandSubdomain) {
+    return (
+      <BrandedCampaignView
+        brandConfig={loadBrandConfig(activeBrandSubdomain)}
+        onClose={() => {
+          setActiveBrandSubdomain(null);
+          window.history.pushState({}, "", window.location.pathname);
+        }}
+        isStandalone
+      />
+    );
+  }
 
   return (
     <>
@@ -64,6 +87,9 @@ function Router() {
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
+          <div className="flex items-center justify-end px-4 pt-3">
+            <ConnectionStatusPill />
+          </div>
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (
@@ -76,6 +102,7 @@ function Router() {
           </main>
         </div>
       )}
+      <EventToastHost />
     </>
   );
 }
@@ -85,9 +112,11 @@ function App() {
     <NotificationWrapper>
       <ErrorBoundary>
         <Web3Provider>
-          <NotificationProvider>
-            <Router />
-          </NotificationProvider>
+          <EventStreamProvider>
+            <NotificationProvider>
+              <Router />
+            </NotificationProvider>
+          </EventStreamProvider>
         </Web3Provider>
       </ErrorBoundary>
     </NotificationWrapper>

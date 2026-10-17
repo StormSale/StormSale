@@ -20,15 +20,16 @@ import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 
-export type SorobanConnectionStatus = "Connected" | "Polling" | "Reconnecting" | "Disconnected";
+export type SorobanConnectionStatus = "Connected" | "Polling" | "Reconnecting";
 
-export interface SorobanEventPayload {
+export interface SorobanEvent {
+  id: string;
   topic: string;
-  contractId: string;
-  txHash: string;
   ledger: number;
-  values: unknown[];
-  rawEvent: unknown;
+  txHash: string;
+  contractId: string;
+  values?: unknown;
+  receivedAt: number;
 }
 
 export interface Web3ContextType {
@@ -53,6 +54,12 @@ export interface Web3ContextType {
   updateUserRole: (role: string) => Promise<void>;
   requestFriendbotFunding: () => Promise<boolean>;
 
+  // Real-time Soroban event stream
+  sorobanConnectionStatus: SorobanConnectionStatus;
+  lastSorobanEvent: SorobanEvent | null;
+  sorobanEvents: SorobanEvent[];
+  subscribeToSorobanEvents: (handler: (event: SorobanEvent) => void) => () => void;
+
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
     name: string,
@@ -74,15 +81,6 @@ export interface Web3ContextType {
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
-  // Soroban real-time event streaming
-  sorobanStatus: SorobanConnectionStatus;
-  lastSorobanEvent: SorobanEventPayload | null;
-  sorobanEventCount: number;
-  sorobanPollIntervalMs: number;
-  subscribeToSorobanEvents: (
-    handler: (event: SorobanEventPayload) => void,
-  ) => (() => void);
-
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -91,40 +89,44 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+const WEBC_CONTEXT = createContext<Web3ContextType | undefined>(undefined);
 
 const SOROBAN_TOPICS = ["create_campaign", "log_sale", "claim_payout"] as const;
-const BASE_POLL_INTERVAL_MS = 5000;
-const MAX_POLL_INTERVAL_MS = 30000;
-const MAX_BACKOFF_MS = 30000;
-const PAGE_SIZE = 25;
+const POLL_INTERVAL_ACTIVE_MS = 5_000;
+const POLL_INTERVAL_BLURRED_MS = 30_000;
+const MAX_BACKOFF_MS = 30_000;
+const INITIAL_BACKOFF_MS = 1_000;
+const EVENT_CACHE_LIMIT = 100;
 
-function toTopicString(topic: unknown): string | null {
+function toStringTopic(topic: unknown): string {
   if (typeof topic === "string") return topic;
   if (topic && typeof topic === "object") {
-    const cast = topic as { switch?: { value?: unknown }; value?: unknown };
-    if (cast.switch && cast.switch.value !== undefined) {
-      return String(cast.switch.value);
+    const candidate = topic as { toString?: () => string; value?: () => unknown };
+    if (typeof candidate.toString === "function") {
+      try {
+        const s = candidate.toString();
+        if (s && s !== "[object Object]") return s;
+      } catch {
+        // ignore and fall through
+      }
     }
-    if (cast.value !== undefined) return String(cast.value);
   }
-  return null;
+  return String(topic);
 }
 
-function extractEventPayload(event: any): SorobanEventPayload | null {
-  if (!event) return null;
-  const topics: unknown[] = Array.isArray(event.topic) ? event.topic : [];
-  const matchedTopic = topics.map(toTopicString).find((t) => t && SOROBAN_TOPICS.includes(t as any));
-  if (!matchedTopic) return null;
-  const values: unknown[] = Array.isArray(event.value) ? event.value : [];
-  return {
-    topic: matchedTopic,
-    contractId: String(event.contractId ?? ""),
-    txHash: String(event.txHash ?? ""),
-    ledger: Number(event.ledger ?? 0),
-    values,
-    rawEvent: event,
-  };
+function toStringTopicSafe(topic: unknown): string {
+  try {
+    return toStringTopic(topic);
+  } catch {
+    return "";
+  }
+}
+
+function matchesTopicFilter(topics: unknown[], filter: string): boolean {
+  return topics.some((t) => {
+    const s = toStringTopicSafe(t);
+    return s === filter || s.includes(filter);
+  });
 }
 
 export function Web3Provider({ children }: { children: ReactNode }) {
@@ -134,21 +136,23 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
-  const [sorobanStatus, setSorobanStatus] = useState<SorobanConnectionStatus>("Disconnected");
-  const [lastSorobanEvent, setLastSorobanEvent] = useState<SorobanEventPayload | null>(null);
-  const [sorobanEventCount, setSorobanEventCount] = useState(0);
-  const [sorobanPollIntervalMs, setSorobanPollIntervalMs] = useState(BASE_POLL_INTERVAL_MS);
+  // Real-time Soroban event stream state
+  const [sorobanConnectionStatus, setSorobanConnectionStatus] =
+    useState<SorobanConnectionStatus>("Polling");
+  const [lastSorobanEvent, setLastSorobanEvent] = useState<SorobanEvent | null>(null);
+  const [sorobanEvents, setSorobanEvents] = useState<SorobanEvent[]>([]);
 
-  const eventListenersRef = useRef<Set<(event: SorobanEventPayload) => void>>(new Set());
-  const cursorRef = useRef<string | null>(null);
-  const backoffRef = useRef(BASE_POLL_INTERVAL_MS);
-  const blurredRef = useRef(false);
+  const subscribersRef = useRef<Set<(event: SorobanEvent) => void>>(new Set());
+  const cursorRef = useRef({ lastLedger: 0 });
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const backoffMsRef = useRef(INITIAL_BACKOFF_MS);
+  const isBlurredRef = useRef(typeof document !== "undefined" && document.hidden);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeRef = useRef(false);
-  const inFlightRef = useRef(false);
+  const runningRef = useRef(false);
+  const abortRef = useRef(false);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -273,253 +277,242 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return ok;
   };
 
-  // Soroban: Create Campaign Escrow
-  const createCampaignOnChain = async (
-    name: string,
-    budgetXlm: number,
-    commissionRatePercent: number,
-    clearingPeriodSecs: number,
-  ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
-    );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
-        userAddress,
-        commissionRatePercent,
-        clearingPeriodSecs,
-        budgetXlm,
-        connectorType,
-      );
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      // Mock fallback for UI preview without extension
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-      return {
-        success: true,
-        campaignId: newCampaignId,
-        txHash: mockTxHash,
-      };
-    }
-  };
-
-  // Soroban: Log Verified Sale
-  const logSaleOnChain = async (
-    campaignId: number,
-    affiliateAddress: string,
-    amountXlm: number,
-  ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
-    );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await logSaleContractCall(
-        userAddress,
-        campaignId,
-        affiliateAddress,
-        amountXlm,
-        connectorType,
-      );
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
-  };
-
-  // Soroban: Claim Affiliate Commission
-  const claimPayoutOnChain = async (campaignId: number) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(`[Soroban] Claiming payout for Campaign #${campaignId}`);
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
-  };
-
-  // Soroban: Refund Expired Campaign Escrow
-  const refundCampaignEscrow = async (campaignId: number) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(`[Soroban] Refunding Campaign #${campaignId}`);
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
-  };
-
-  // Soroban: Batch Claim Payouts
-  const batchClaimPayoutsOnChain = async (
-    campaigns: ClaimableCampaignItem[],
-  ): Promise<BatchClaimReceipt> => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const receipts: BatchClaimReceipt["receipts"] = [];
-    for (const c of campaigns) {
-      try {
-        const res = await claimPayoutOnChain(c.campaignId);
-        receipts.push({ campaignId: c.campaignId, success: res.success, txHash: res.txHash });
-      } catch (err) {
-        receipts.push({
-          campaignId: c.campaignId,
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return { receipts };
-  };
-
-  // Soroban: Register Passkey Account
-  const registerPasskeyAccount = async (userName?: string) => {
-    const { registerPasskey } = await import("../lib/passkeySigner");
-    return registerPasskey(userName || "Affiliate User");
-  };
-
-  // Soroban: Real-time event subscription
-  const subscribeToSorobanEvents = (
-    handler: (event: SorobanEventPayload) => void,
-  ) => {
-    eventListenersRef.current.add(handler);
+  // Real-time Soroban event subscription (consumed by HUD/toast layers)
+  const subscribeToSorobanEvents = useCallback((handler: (event: SorobanEvent) => void) => {
+    subscribersRef.current.add(handler);
     return () => {
-      eventListenersRef.current.delete(handler);
+      subscribersRef.current.delete(handler);
     };
-  };
+  }, []);
 
-  // Soroban event polling worker with exponential backoff
+  const dispatchEvent = useCallback((event: SorobanEvent) => {
+    setLastSorobanEvent(event);
+    setSorobanEvents((prev) => {
+      const next = [event, ...prev];
+      return next.length > EVENT_CACHE_LIMIT ? next.slice(0, EVENT_CACHE_LIMIT) : next;
+    });
+    subscribersRef.current.forEach((handler) => {
+      try {
+        handler(event);
+      } catch (err) {
+        console.error("Soroban event subscriber failed:", err);
+      }
+    });
+  }, []);
+
+  // Exponential backoff polling worker using server.getEvents()
   useEffect(() => {
-    activeRef.current = true;
-    setSorobanStatus("Polling");
+    if (typeof window === "undefined") return;
+
+    const contractId = STELLAR_CONFIG.contractId || "";
+    if (!contractId) {
+      setSorobanConnectionStatus("Polling");
+      return;
+    }
+
+    abortRef.current = false;
+    runningRef.current = true;
 
     const clearTimer = () => {
-      if (timerRef.current !== null) {
+      if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
     };
 
-    const computeDelay = () => {
-      const base = blurredRef.current ? MAX_POLL_INTERVAL_MS : BASE_POLL_INTERVAL_MS;
-      return Math.min(Math.max(backoffRef.current, base), MAX_BACKOFF_MS);
-    };
-
-    const scheduleNext = (delay: number) => {
+    const scheduleNext = (delayMs: number) => {
       clearTimer();
-      if (!activeRef.current) return;
-      setSorobanPollIntervalMs(delay);
+      if (abortRef.current) return;
       timerRef.current = setTimeout(() => {
         void poll();
-      }, delay);
+      }, delayMs);
     };
 
-    const poll = async () => {
-      if (!activeRef.current || inFlightRef.current) return;
-      inFlightRef.current = true;
+    const poll = async (): Promise<void> => {
+      if (abortRef.current) return;
       try {
         const server = getSorobanServer();
         const response = await server.getEvents({
           filters: [
             {
               type: "contract",
-              contractIds: [STELLAR_CONFIG.contractId],
-              topics: [[...SOROBAN_TOPICS]],
+              contractIds: [contractId],
+              topics: [SOROBAN_TOPICS.map((t) => [t]) as any],
             },
           ],
-          cursor: cursorRef.current ?? undefined,
-          limit: PAGE_SIZE,
+          startLedger: cursorRef.current.lastLedger || undefined,
+          limit: 50,
         });
 
-        const events = Array.isArray(response.events) ? response.events : [];
-        for (const raw of events) {
-          const payload = extractEventPayload(raw);
-          if (!payload) continue;
-          setLastSorobanEvent(payload);
-          setSorobanEventCount((count) => count + 1);
-          for (const listener of Array.from(eventListenersRef.current)) {
-            try {
-              listener(payload);
-            } catch (listenerErr) {
-              console.warn("[Soroban] Event listener error:", listenerErr);
+        const rawEvents = (response as { events?: any[] }).events || [];
+        for (const raw of rawEvents as any[]) {
+          const id = String(
+            raw.id || `${raw.txHash}-${raw.ledger}-${raw.type}${JSON.stringify(raw.topic || [])}`,
+          );
+          if (seenEventIdsRef.current.has(id)) continue;
+          seenEventIdsRef.current.add(id);
+          if (seenEventIdsRef.current.size > EVENT_CACHE_LIMIT * 2) {
+            const iter = seenEventIdsRef.current.values();
+            const trimToLimit = EVENT_CACHE_LIMIT;
+            while (seenEventIdsRef.current.size > trimToLimit) {
+              const next = iter.next();
+              if (next.done) break;
+              seenEventIdsRef.current.delete(next.value);
             }
           }
+
+          const topics = Array.isArray(raw.topic) ? raw.topic : [];
+          const matched = SOROBAN_TOPICS.find((t) => matchesTopicFilter(topics, t));
+          if (!matched) continue;
+
+          const event: SorobanEvent = {
+            id,
+            topic: matched,
+            ledger: Number(raw.ledger || 0),
+            txHash: String(raw.txHash || ""),
+            contractId: String(raw.contractId || contractId),
+            values: raw.value,
+            receivedAt: Date.now(),
+          };
+          dispatchEvent(event);
         }
 
-        if (response.cursor) {
-          cursorRef.current = response.cursor;
+        const latestLedger = Number((response as { latestLedger?: number }).latestLedger || 0);
+        if (latestLedger > cursorRef.current.lastLedger) {
+          cursorRef.current.lastLedger = latestLedger;
         }
 
-        backoffRef.current = BASE_POLL_INTERVAL_MS;
-        setSorobanStatus("Connected");
-        scheduleNext(computeDelay());
+        setSorobanConnectionStatus("Connected");
+        backoffMsRef.current = INITIAL_BACKOFF_MS;
+        const delay = isBlurredRef.current
+          ? POLL_INTERVAL_BLURRED_MS
+          : POLL_INTERVAL_ACTIVE_MS;
+        scheduleNext(delay);
       } catch (err) {
-        console.warn("[Soroban] Poll failed, backing off:", err);
-        setSorobanStatus("Reconnecting");
-        backoffRef.current = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS);
-        scheduleNext(computeDelay());
-      } finally {
-        inFlightRef.current = false;
+        console.warn("Soroban event poll failed, retrying with backoff:", err);
+        setSorobanConnectionStatus("Reconnecting");
+        const nextBackoff = Math.min(backoffMsref.current * 2, MAX_BACKOFF_MS);
+        backoffMsref.current = nextBackoff;
+        const effectiveDelay = isBlurredRef.current
+          ? Math.max(nextBackoff, POLL_INTERVAL_BLURRED_MS)
+          : nextBackoff;
+        scheduleNext(Math.min(effectiveDelay, MAX_BACKOFF_MS));
       }
     };
 
     const handleVisibility = () => {
-      const hidden = document.visibilityState === "hidden";
-      blurredRef.current = hidden;
-      if (!hidden && activeRef.ref) {
-        // Nothing to do here; the next scheduled poll will use the blurred backoff.
+      isBlurredRef.current = document.hidden;
+      if (!document.hidden) {
+        // Resume immediately when tab regains focus
+        backoffMsRef.current = INITIAL_BACKOFF_MS;
+        clearTimer();
+        void poll();
       }
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
-    blurredRef.current = document.visibilityState === "hidden";
 
+    // Kick off the polling loop
     void poll();
 
     return () => {
-      activeRef.current = false;
+      abortRef.current = true;
+      runningRef.current = false;
       clearTimer();
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, []);
+  }, [dispatchEvent]);
 
-  // Compatibility helpers for legacy form callers
-  const factoryContract = null;
-  const getCampaignContract = (_address: string) => null;
-  const provider = null;
-  const signer = null;
-  const switchToStellarNetwork = async () => true;
+  // Soroban Smart Contract Operations
+  const createCampaignOnChain = async (
+    name: string,
+    budgetXlm: number,
+    commissionRatePercent: number,
+    clearingPeriodSecs: number,
+  ): Promise<{ success: boolean; campaignId: number; txHash?: string }> => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const result = await createCampaignContractCall({
+      address: userAddress,
+      name,
+      budgetXlm,
+      commissionRatePercent,
+      clearingPeriodSecs,
+    });
+    return {
+      success: true,
+      campaignId: result.campaignId,
+      txHash: result.txHash,
+    };
+  };
+
+  const logSaleOnChain = async (
+    campaignId: number,
+    affiliateAddress: string,
+    amountXlm: number,
+  ): Promise<{ success: boolean; txHash?: string }> => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const result = await logSaleContractCall({
+      address: userAddress,
+      campaignId,
+      affiliateAddress,
+      amountXlm,
+    });
+    return { success: true, txHash: result.txHash };
+  };
+
+  const claimPayoutOnChain = async (
+    campaignId: number,
+  ): Promise<{ success: boolean; txHash?: string }> => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const result = await claimPayoutContractCall({
+      address: userAddress,
+      campaignId,
+    });
+    return { success: true, txHash: result.txHash };
+  };
+
+  const refundCampaignEscrow = async (
+    campaignId: number,
+  ): Promise<{ success: boolean; txHash?: string }> => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const result = await refundCampaignEscrowContractCall({
+      address: userAddress,
+      campaignId,
+    });
+    return { success: true, txHash: result.txHash };
+  };
+
+  const batchClaimPayoutsOnChain = async (
+    campaigns: ClaimableCampaignItem[],
+  ): Promise<BatchClaimReceipt> => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const { batchClaimPayouts } = await import("../lib/batchClaim");
+    return batchClaimPayouts(userAddress, campaigns);
+  };
+
+  const registerPasskeyAccount = async (
+    userName?: string,
+  ): Promise<PasskeyCredentialRecord> => {
+    const { registerPasskey } = await import("../lib/passkeySigner");
+    return registerPasskey(userName || "Affiliate User");
+  };
+
+  const switchToStellarNetwork = async (): Promise<boolean> => {
+    try {
+      const current = await getCurrentNetwork();
+      setNetwork(current);
+      return current === STELLAR_CONFIG.network;
+    } catch (err) {
+      console.error("Failed to switch Stellar worker network:", err);
+      return false;
+    }
+  };
 
   const value: Web3ContextType = {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork: network === "TESTNET" || network === "PUBLIC",
+    isStellarNetwork: network === STELLAR_CONFIG.network,
     network,
     xlmBalance,
     connectorType,
@@ -532,29 +525,28 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     disconnectWallet,
     updateUserRole,
     requestFriendbotFunding,
+    sorobanConnectionStatus,
+    lastSorobanEvent,
+    sorobanEvents,
+    subscribeToSorobanEvents,
     createCampaignOnChain,
     logSaleOnChain,
     claimPayoutOnChain,
     refundCampaignEscrow,
     batchClaimPayoutsOnChain,
     registerPasskeyAccount,
-    sorobanStatus,
-    lastSorobanEvent,
-    sorobanEventCount,
-    sorobanPollIntervalMs,
-    subscribeToSorobanEvents,
-    factoryContract,
-    getCampaignContract,
-    provider,
-    signer,
-    switchToStellarNetwork: switchToStellarNetwork,
+    factoryContract: null,
+    getCampaignContract: () => null,
+    provider: null,
+    signer: null,
+    switchToStellarNetwork,
   };
 
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
+  return <WEBC_CONTEXT.Provider value={value}>{children}</WEBC_CONTEXT.Provider>;
 }
 
 export function useWeb3(): Web3ContextType {
-  const ctx = useContext(Web3Context);
+  const ctx = useContext(WEBC_CONTEXT);
   if (!ctx) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -9,8 +9,7 @@ import {
   ExternalLink,
   ArrowRight,
 } from "lucide-react";
-import { SorobanEventStream, type SorobanConnectionStatus } from "../lib/sorobanEventStream";
-import type { SorobanEvent } from "../lib/sorobanEventStream";
+import { SorobanEventStream, type SorobanStreamStatus, type SorobanContractEvent } from "../lib/sorobanEventStream";
 
 export type NotificationType = "success" | "error" | "warning" | "info";
 
@@ -48,9 +47,9 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
-  connectionStatus: SorobanConnectionStatus;
+  streamStatus: SorobanStreamStatus;
   lastEventAt: number | null;
-  subscribeToEvent: (listener: (event: SorobanEvent) => void) => () => void;
+  reconnectStream: () => void;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -78,6 +77,20 @@ export function evaluateCampaignEscrowLevel(campaign: EscrowMonitoredCampaign): 
     remainingXlm: campaign.escrowBalance,
     percentageRemaining: percentage,
   };
+}
+
+const STREAM_TOPICS = ["create_campaign", "log_sale", "claim_payout"] as const;
+
+const STREAM_EVENT_COPY: Record<string, { type: NotificationType; title: string }> = {
+  create_campaign: { type: "info", title: "New Campaign Created" },
+  log_sale: { type: "success", title: "Sale Logged On-Chain" },
+  claim_payout: { type: "success", title: "Payout Claimed" },
+};
+
+function formatStreamEventMessage(event: SorobanContractEvent): string {
+  const topic = event.topic[0] ?? "contract_event";
+  const shortTx = event.txHash ? `${event.txHash.slice(0, 8)}...${event.txHash.slice(-6)}` : "unknown tx";
+  return `Topic "${topic}" observed in ledger ${event.ledger} (${shortTx}).`;
 }
 
 /**
@@ -110,35 +123,13 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
-const TOPIC_LABELS: Record<string, string> = {
-  create_campaign: "Campaign Created",
-  log_sale: "Sale Logged",
-  claim_payout: "Payout Claimed",
-};
-
-/**
- * Builds a subtle toast notification payload for an incoming Soroban contract event.
- */
-export function buildSorobanEventNotification(event: SorobanEvent): Omit<Notification, "id"> {
-  const label = TOPIC_LABELS[event.topic] ?? event.topic;
-  const shortTx = event.txHash ? `${event.txHash.slice(0, 6)}…${event.txHash.slice(-4)}` : undefined;
-  return {
-    type: "info",
-    title: `On-chain: ${label}`,
-    message: shortTx ? `Ledger ${event.ledger} · tx ${shortTx}` : `Ledger ${event.ledger}`,
-    duration: 4000,
-    campaignId: event.campaignId,
-  };
-}
-
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [connectionStatus, setConnectionStatus] = useState<SorobanConnectionStatus>("polling");
+  const [streamStatus, setStreamStatus] = useState<SorobanStreamStatus>("connecting");
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const streamRef = useRef<SorobanEventStream | null>(null);
-  const listenersRef = useRef<Set<(event: SorobanEvent) => void>>(new Set());
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -148,7 +139,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications([]);
   };
 
-  const showNotification = (notification: Omit<Notification, "id">): string => {
+  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
     const id = Math.random().toString(36).substring(2, 11);
     const isPersistent = notification.persistent === true || notification.duration === 0;
 
@@ -169,31 +160,42 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
 
     return id;
-  };
+  }, []);
 
-  const subscribeToEvent = (listener: (event: SorobanEvent) => void) => {
-    listenersRef.current.add(listener);
-    return () => {
-      listenersRef.current.delete(listener);
-    };
-  };
+  const handleStreamEvent = useCallback(
+    (event: SorobanContractEvent) => {
+      setLastEventAt(Date.now());
+      const topic = event.topic[0] ?? "contract_event";
+      const copy = STREAM_EVENT_COPY[topic] ?? {
+        type: "info" as NotificationType,
+        title: "On-Chain Event Received",
+      };
+      showNotification({
+        type: copy.type,
+        title: copy.title,
+        message: formatStreamEventMessage(event),
+        duration: 6000,
+      });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("soroban:event", {
+            detail: { topic, event },
+          }),
+        );
+      }
+    },
+    [showNotification],
+  );
 
-  // Lifecycle: start the Soroban RPC event streaming worker once per provider mount.
+  const reconnectStream = useCallback(() => {
+    streamRef.current?.reconnectNow();
+  }, []);
+
   useEffect(() => {
     const stream = new SorobanEventStream({
-      topics: ["create_campaign", "log_sale", "claim_payout"],
-      onStatusChange: (status) => setConnectionStatus(status),
-      onEvent: (event) => {
-        setLastEventAt(Date.now());
-        listenersRef.current.forEach((listener) => {
-          try {
-            listener(event);
-          } catch {
-            // Listener errors must not break the stream loop.
-          }
-        });
-        showNotification(buildSorobanEventNotification(event));
-      },
+      topics: [...STREAM_TOPICS],
+      onEvent: handleStreamEvent,
+      onStatusChange: (status) => setStreamStatus(status),
     });
     streamRef.current = stream;
     stream.start();
@@ -201,8 +203,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       stream.stop();
       streamRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [handleStreamEvent]);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = (params: {
@@ -245,9 +246,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
-        connectionStatus,
+        streamStatus,
         lastEventAt,
-        subscribeToEvent,
+        reconnectStream,
       }}
     >
       {children}
@@ -257,7 +258,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 };
 
 const NotificationContainer: React.FC = () => {
-  const { notifications, dismissNotification, connectionStatus } = useNotification();
+  const { notifications, dismissNotification, streamStatus, reconnectStream } = useNotification();
 
   const getIcon = (type: NotificationType) => {
     switch (type) {
@@ -289,11 +290,54 @@ const NotificationContainer: React.FC = () => {
     }
   };
 
+  const getStatusPill = () => {
+    switch (streamStatus) {
+      case "connected":
+        return {
+          label: "Connected",
+          className:
+            "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
+          dot: "bg-emerald-500",
+        };
+      case "polling":
+        return {
+          label: "Polling",
+          className:
+            "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800",
+          dot: "bg-indigo-500",
+        };
+      case "reconnecting":
+        return {
+          label: "Reconnecting",
+          className:
+            "bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800",
+          dot: "bg-amber-500 animate-pulse",
+        };
+      default:
+        return {
+          label: "Connecting",
+          className:
+            "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700",
+          dot: "bg-zinc-400 animate-pulse",
+        };
+    }
+  };
+
   if (notifications.length === 0) return null;
 
   return (
     <div className="fixed top-4 right-4 z-50 space-y-3 max-w-md w-full px-4 sm:px-0">
-      <ConnectionStatusPill status={connectionStatus} />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={reconnectStream}
+          title="Click to force reconnect to Soroban RPC"
+          className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border shadow-sm transition-colors ${getStatusPill().className}`}
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${getStatusPill().dot}`} />
+          <span>{getStatusPill().label}</span>
+        </button>
+      </div>
       {notifications.map((notification) => {
         const actionLabel = notification.actionLabel || notification.action?.label;
         const actionUrl = notification.actionUrl || notification.action?.url;
@@ -380,37 +424,6 @@ const NotificationContainer: React.FC = () => {
           </div>
         );
       })}
-    </div>
-  );
-};
-
-const ConnectionStatusPill: React.FC<{ status: SorobanConnectionStatus }> = ({ status }) => {
-  const config: Record<SorobanConnectionStatus, { label: string; dot: string; bg: string }> = {
-    connected: {
-      label: "Connected",
-      dot: "bg-emerald-500",
-      bg: "bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300",
-    },
-    polling: {
-      label: "Polling",
-      dot: "bg-amber-500",
-      bg: "bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300",
-    },
-    reconnecting: {
-      label: "Reconnecting",
-      dot: "bg-rose-500 animate-pulse",
-      bg: "bg-rose-50 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300",
-    },
-  };
-  const { label, dot, bg } = config[status];
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold shadow-sm backdrop-blur-md ${bg}`}
-    >
-      <span className={`w-2 h-2 rounded-full ${dot}`} />
-      <span>{label}</span>
     </div>
   );
 };
