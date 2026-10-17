@@ -5,10 +5,12 @@ import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
+import { useEventStream } from "../../hooks/useEventStream";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { status } = useEventStream();
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -54,6 +56,26 @@ export const Header = () => {
         {/* Desktop Actions */}
         <div className="hidden sm:flex items-center space-x-4">
           <ThemeToggle />
+
+          <div
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl"
+            title={`Event stream: ${status}`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                status === "connected"
+                  ? "bg-emerald-500 animate-pulse"
+                  : status === "reconnecting"
+                  ? "bg-amber-500 animate-pulse"
+                  : status === "polling"
+                  ? "bg-sky-500 animate-pulse"
+                  : "bg-zinc-400"
+              }`}
+            />
+            <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-600 dark:text-zinc-300">
+              {status === "connected" ? "Connected" : status === "reconnecting" ? "Reconnecting" : "Polling"}
+            </span>
+          </div>
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
