@@ -3,17 +3,26 @@ import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Plus,
+  Play,
   Users,
   BarChart3,
   TrendingUp,
   Eye,
-  Pause,
-  Play,
-  Settings,
   Search,
   Shield,
+  AlertCircle,
+  Sparkles,
+  Sliders,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
+import { EscrowReserveIndicator } from "./EscrowReserveIndicator";
+import { AutoRefillConfigModal } from "./AutoRefillConfigModal";
+import {
+  calculateEscrowReserveStatus,
+  depositEscrowRefillContractCall,
+} from "../../lib/escrowAutoRefill";
+import { useNotification } from "../../context/NotificationContext";
+import { useWeb3 } from "../../hooks/useWeb3";
 
 type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -29,6 +38,9 @@ interface Campaign {
   affiliates: number;
   createdAt: string;
   contractAddress: string;
+  currentBalanceXlm: number;
+  initialBudgetXlm: number;
+  refillThresholdPercent: number;
 }
 
 const mockCampaigns: Campaign[] = [
@@ -44,6 +56,9 @@ const mockCampaigns: Campaign[] = [
     affiliates: 12,
     createdAt: "2026-04-01",
     contractAddress: "CA7Q...1234",
+    initialBudgetXlm: 2480,
+    currentBalanceXlm: 280, // Low balance (11.3% < 15% threshold)
+    refillThresholdPercent: 15,
   },
   {
     id: "2",
@@ -57,6 +72,9 @@ const mockCampaigns: Campaign[] = [
     affiliates: 8,
     createdAt: "2026-04-15",
     contractAddress: "CB9E...5678",
+    initialBudgetXlm: 6675,
+    currentBalanceXlm: 4800,
+    refillThresholdPercent: 15,
   },
   {
     id: "3",
@@ -70,6 +88,9 @@ const mockCampaigns: Campaign[] = [
     affiliates: 6,
     createdAt: "2026-03-20",
     contractAddress: "CC2K...9012",
+    initialBudgetXlm: 4020,
+    currentBalanceXlm: 1500,
+    refillThresholdPercent: 20,
   },
   {
     id: "4",
@@ -83,6 +104,9 @@ const mockCampaigns: Campaign[] = [
     affiliates: 5,
     createdAt: "2026-02-10",
     contractAddress: "CD4M...3456",
+    initialBudgetXlm: 1800,
+    currentBalanceXlm: 0,
+    refillThresholdPercent: 10,
   },
 ];
 
@@ -102,26 +126,128 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
 };
 
 export const MyCampaignsList = () => {
+  const { userAddress, connectorType } = useWeb3();
+  const { showNotification } = useNotification();
+  const [campaigns, setCampaigns] = useState<Campaign[]>(mockCampaigns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All">("All");
+  const [selectedCampaignForConfig, setSelectedCampaignForConfig] = useState<Campaign | null>(null);
+  const [refillingId, setRefillingId] = useState<string | null>(null);
 
-  const filtered = mockCampaigns.filter((c) => {
+  const lowReserveCampaigns = campaigns.filter(
+    (c) =>
+      c.status === "Active" &&
+      calculateEscrowReserveStatus(
+        c.currentBalanceXlm,
+        c.initialBudgetXlm,
+        c.refillThresholdPercent,
+      ).isLowReserve,
+  );
+
+  const handleQuickRefill = async (campaign: Campaign, amountXlm: number = 500) => {
+    setRefillingId(campaign.id);
+    try {
+      showNotification({
+        type: "info",
+        title: "Submitting Escrow Refill",
+        message: `Depositing ${amountXlm.toLocaleString()} XLM to campaign escrow...`,
+      });
+
+      const result = await depositEscrowRefillContractCall({
+        campaignId: campaign.id,
+        amountXlm,
+        callerAddress: userAddress || "GDX7...MOCK",
+        walletType: (connectorType as any) || "freighter",
+      });
+
+      if (result.success) {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaign.id
+              ? {
+                  ...c,
+                  currentBalanceXlm: result.newBalanceXlm,
+                }
+              : c,
+          ),
+        );
+
+        showNotification({
+          type: "success",
+          title: "Escrow Refilled!",
+          message: `Campaign escrow topped up by ${amountXlm.toLocaleString()} XLM. New balance: ${result.newBalanceXlm.toLocaleString()} XLM.`,
+        });
+      }
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Deposit Failed",
+        message: err?.message || "Failed to submit escrow deposit.",
+      });
+    } finally {
+      setRefillingId(null);
+    }
+  };
+
+  const filtered = campaigns.filter((c) => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = statusFilter === "All" || c.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const totalRevenue = mockCampaigns.reduce(
+  const totalRevenue = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalRevenue.replace(/\D/g, "")),
     0,
   );
-  const totalCommissions = mockCampaigns.reduce(
+  const totalCommissions = campaigns.reduce(
     (acc, c) => acc + parseInt(c.totalCommissions.replace(/\D/g, "")),
     0,
   );
 
   return (
     <div className="space-y-8">
+      {/* Low-Reserve Warning Alert Banner */}
+      {lowReserveCampaigns.length > 0 && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="relative overflow-hidden bg-amber-500/10 border border-amber-500/30 rounded-3xl p-6 text-amber-700 dark:text-amber-300 backdrop-blur-md shadow-lg shadow-amber-500/5"
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 mt-0.5">
+                <AlertCircle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>
+                    Escrow Low-Balance Alert: {lowReserveCampaigns.length} Campaign(s) Below
+                    Threshold
+                  </span>
+                </h3>
+                <p className="text-sm text-amber-600/90 dark:text-amber-300/90 mt-1 max-w-2xl">
+                  One or more active campaigns have fallen below their configured escrow reserve
+                  threshold. Top up now to guarantee uninterrupted affiliate commission payouts.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (lowReserveCampaigns[0]) {
+                  handleQuickRefill(lowReserveCampaigns[0], 500);
+                }
+              }}
+              disabled={refillingId !== null}
+              className="w-full md:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-amber-600/20 flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>1-Click Refill (+500 XLM)</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
@@ -284,7 +410,7 @@ export const MyCampaignsList = () => {
                   </div>
 
                   {/* Details row */}
-                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-5">
+                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-4">
                     <span className="flex items-center gap-1">
                       <TrendingUp className="w-3.5 h-3.5" />
                       {campaign.commissionRate}% commission
@@ -294,6 +420,20 @@ export const MyCampaignsList = () => {
                     <span>·</span>
                     <span>Since {campaign.createdAt}</span>
                   </div>
+
+                  {/* Escrow Reserve Level & Threshold Indicator */}
+                  <EscrowReserveIndicator
+                    status={calculateEscrowReserveStatus(
+                      campaign.currentBalanceXlm,
+                      campaign.initialBudgetXlm,
+                      campaign.refillThresholdPercent,
+                      campaign.id,
+                    )}
+                    onOpenSettings={() => setSelectedCampaignForConfig(campaign)}
+                    onQuickRefill={() => handleQuickRefill(campaign, 500)}
+                    isRefilling={refillingId === campaign.id}
+                    className="mb-5"
+                  />
 
                   {/* Actions */}
                   <div className="flex gap-3">
@@ -308,15 +448,11 @@ export const MyCampaignsList = () => {
                     <Button
                       variant="outline"
                       size="sm"
+                      onClick={() => setSelectedCampaignForConfig(campaign)}
                       className="h-10 w-10 rounded-xl border border-slate-200 dark:border-zinc-800 p-0 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                      title="Configure Auto-Refill Trigger"
                     >
-                      {campaign.status === "Active" ? (
-                        <Pause className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                      ) : campaign.status === "Paused" ? (
-                        <Play className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                      ) : (
-                        <Settings className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                      )}
+                      <Sliders className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
                     </Button>
                     <Button
                       size="sm"
@@ -331,6 +467,25 @@ export const MyCampaignsList = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Auto-Refill Configuration & Deposit Modal */}
+      {selectedCampaignForConfig && (
+        <AutoRefillConfigModal
+          isOpen={true}
+          onClose={() => setSelectedCampaignForConfig(null)}
+          campaignId={selectedCampaignForConfig.id}
+          campaignName={selectedCampaignForConfig.name}
+          currentBalanceXlm={selectedCampaignForConfig.currentBalanceXlm}
+          initialBudgetXlm={selectedCampaignForConfig.initialBudgetXlm}
+          onRefillComplete={(newBalance) => {
+            setCampaigns((prev) =>
+              prev.map((c) =>
+                c.id === selectedCampaignForConfig.id ? { ...c, currentBalanceXlm: newBalance } : c,
+              ),
+            );
+          }}
+        />
       )}
     </div>
   );
