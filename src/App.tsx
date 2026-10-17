@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
@@ -6,10 +6,11 @@ import { Dashboard } from "./pages/Dashboard";
 import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
+import { Admin } from "./pages/Admin";
 import { useWeb3 } from "./hooks/useWeb3";
-
-import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
+import { loadBrandConfig } from "./lib/branding";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,6 +57,24 @@ class ErrorBoundary extends React.Component<
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("brand") || params.get("c") || null;
+  });
+
+  if (activeBrandSubdomain) {
+    return (
+      <BrandedCampaignView
+        brandConfig={loadBrandConfig(activeBrandSubdomain)}
+        onClose={() => {
+          setActiveBrandSubdomain(null);
+          window.history.pushState({}, "", window.location.pathname);
+        }}
+        isStandalone
+      />
+    );
+  }
 
   return (
     <>
@@ -73,6 +92,7 @@ function Router() {
               <Affiliate onBack={() => setCurrentPage("dashboard")} />
             )}
             {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            {currentPage === "admin" && <Admin onBack={() => setCurrentPage("dashboard")} />}
           </main>
         </div>
       )}

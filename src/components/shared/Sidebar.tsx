@@ -3,8 +3,9 @@ import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
+import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers, PauseCircle } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
   activeTab: string;
@@ -13,6 +14,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  isAdmin?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,6 +24,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  isAdmin = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -29,6 +32,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
+  const isAdminRole = isAdmin || roleName.toLowerCase().includes("admin");
 
   return (
     <>
@@ -65,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               size="sm"
@@ -128,6 +133,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   );
                 })}
               </div>
+
+              {isAdminRole && (
+                <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800">
+                  <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-2 px-1">
+                    Admin Controls
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      onTabChange("emergency-pause");
+                      setIsMobileDrawerOpen(false);
+                    }}
+                    className="w-full justify-start text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                  >
+                    <PauseCircle className="w-3.5 h-3.5 mr-2" />
+                    Emergency Pause
+                  </Button>
+                </div>
+              )}
 
               <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                 {onBack && (
@@ -278,6 +304,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
+        {isAdminRole && (
+          <div className="px-4 pb-2">
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => onTabChange("emergency-pause")}
+              className={cn(
+                "w-full h-12 rounded-xl transition-all duration-200 border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-bold",
+                isCollapsed ? "justify-center px-0" : "justify-start px-4",
+              )}
+              title="Emergency Pause"
+            >
+              <PauseCircle className={cn("w-5 h-5 shrink-0", !isCollapsed && "mr-3")} />
+              {!isCollapsed && <span className="truncate">Emergency Pause</span>}
+            </Button>
+          </div>
+        )}
+
         {/* Footer */}
         <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
           <Button
@@ -323,6 +367,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">
                   NIST Compliant
                 </div>
+                {isAdminRole && (
+                  <div className="mt-2 text-[10px] font-bold text-rose-500 uppercase tracking-widest">
+                    Admin Access
+                  </div>
+                )}
               </>
             ) : (
               <div className="flex justify-center">

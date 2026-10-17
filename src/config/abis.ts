@@ -1,4 +1,4 @@
-/**
+/*
  * StormSale Soroban Smart Contract Methods & Interface Definitions
  *
  * Unlike EVM contracts which rely on JSON ABI files, Soroban smart contracts
@@ -14,9 +14,18 @@ export const STORMSALE_CONTRACT_METHODS = {
   GET_CAMPAIGN: "get_campaign",
   GET_SALE: "get_sale",
   GET_SALES_BY_CAMPAIGN: "get_sales_by_campaign",
+  // Admin emergency controls
+  PAUSE: "pause",
+  UNPAUSE: "unpause",
+  IS_PAUSED: "is_paused",
 } as const;
 
 export type SorobanContractMethod =
   (typeof STORMSALE_CONTRACT_METHODS)[keyof typeof STORMSALE_CONTRACT_METHODS];
 
 export type UserRole = "ADMIN" | "ADVERTISER" | "AFFILIATE" | "AUDITOR" | "NONE";
+
+export const isAdminRole = (role: UserRole | null | undefined): boolean =>
+  role === "ADMIN";
+
+export type PauseState = { paused: boolean; updatedAt?: number };
