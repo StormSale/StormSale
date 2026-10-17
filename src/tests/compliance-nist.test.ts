@@ -328,6 +328,15 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       const pdfDoc = generateCompliancePdf(pack);
       expect(pdfDoc).toBeDefined();
       expect(pdfDoc.internal.pages.length).toBeGreaterThan(0);
+
+      // Inspect the generated drawing commands to verify distinct colors for PASS, REVIEW, and FAIL:
+      // PASS (Emerald [16, 185, 129]) -> '0.06 0.73 0.51 rg'
+      // REVIEW (Amber [245, 158, 11]) -> '0.96 0.62 0.04 rg'
+      // FAIL (Rose [239, 68, 68]) -> '0.94 0.27 0.27 rg'
+      const pdfContent = pdfDoc.output();
+      expect(pdfContent).toContain("0.06 0.73 0.51 rg");
+      expect(pdfContent).toContain("0.96 0.62 0.04 rg");
+      expect(pdfContent).toContain("0.94 0.27 0.27 rg");
     });
   });
 
@@ -447,19 +456,62 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       fetchSpy.mockRestore();
     });
 
-    it("should handle live Horizon fetch failure gracefully with fallback", async () => {
+    it("should select the Horizon endpoint corresponding to networkOverride", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          _embedded: { records: [] },
+        }),
+      } as Response);
+
+      await fetchLiveOnChainTelemetry("PUBLIC");
+      expect(fetchSpy).toHaveBeenCalledWith(
+        expect.stringContaining("https://horizon.stellar.org/transactions"),
+        expect.objectContaining({
+          headers: { Accept: "application/json" },
+        }),
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it("should handle live Horizon fetch failure gracefully with fallback when throwOnError is false", async () => {
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
         .mockRejectedValueOnce(new Error("Network offline"));
 
-      const telemetry = await fetchLiveOnChainTelemetry();
+      const telemetry = await fetchLiveOnChainTelemetry("TESTNET", { throwOnError: false });
       expect(telemetry.isOnline).toBe(false);
       expect(telemetry.recentTransactions).toBeUndefined();
 
       fetchSpy.mockRestore();
     });
 
-    it("fetchLiveNistControls should combine live telemetry with controls", async () => {
+    it("fetchLiveNistControls should propagate Horizon query failures instead of falsely passing", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValueOnce(new Error("Connection refused by Horizon"));
+
+      await expect(fetchLiveNistControls("TESTNET")).rejects.toThrow(
+        "Connection refused by Horizon",
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it("fetchLiveNistControls should abort the fetch and throw on timeout", async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(abortError);
+
+      await expect(fetchLiveNistControls("TESTNET", { timeoutMs: 100 })).rejects.toThrow(
+        /Horizon telemetry query timed out after 100ms/,
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it("fetchLiveNistControls should combine live telemetry with controls on specified network", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -473,13 +525,15 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
         }),
       } as Response);
 
-      const { controls, telemetry } = await fetchLiveNistControls();
+      const { controls, telemetry } = await fetchLiveNistControls("PUBLIC");
       expect(telemetry.isOnline).toBe(true);
       expect(controls.length).toBeGreaterThan(0);
 
       const ac3 = controls.find((c) => c.id === "AC-3");
       const txEvidence = ac3?.evidenceLinks.find((l) => l.type === "transaction");
       expect(txEvidence?.identifier).toBe("1".repeat(64));
+      // Confirms explorer URL uses public for PUBLIC network
+      expect(txEvidence?.url).toContain("explorer/public");
 
       fetchSpy.mockRestore();
     });

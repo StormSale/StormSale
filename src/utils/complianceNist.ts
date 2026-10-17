@@ -5,8 +5,8 @@
  */
 
 import { jsPDF } from "jspdf";
-import { CONTRACT_ADDRESSES, STELLAR_NETWORK } from "../config/contracts";
-import { STELLAR_CONFIG } from "../config/stellar";
+import { CONTRACT_ADDRESSES } from "../config/contracts";
+import { STELLAR_CONFIG, STELLAR_NETWORKS } from "../config/stellar";
 import type {
   ComplianceAuditPack,
   NistControl,
@@ -15,12 +15,39 @@ import type {
 } from "../types/compliance";
 
 /**
+ * Resolves network configuration (Horizon URL, Explorer URL, and Passphrase)
+ * based on an optional network override or default configuration.
+ */
+export function getNetworkConfig(networkOverride?: string) {
+  const norm = (networkOverride || STELLAR_CONFIG.network).toUpperCase();
+  if (norm === "PUBLIC" || norm === "MAINNET") {
+    return {
+      network: "PUBLIC" as const,
+      horizonUrl: STELLAR_NETWORKS.PUBLIC.horizonUrl,
+      explorerUrl: "https://stellar.expert/explorer/public",
+      passphrase: STELLAR_NETWORKS.PUBLIC.passphrase,
+    };
+  }
+  return {
+    network: "TESTNET" as const,
+    horizonUrl: STELLAR_NETWORKS.TESTNET.horizonUrl,
+    explorerUrl: "https://stellar.expert/explorer/testnet",
+    passphrase: STELLAR_NETWORKS.TESTNET.passphrase,
+  };
+}
+
+/**
  * Deterministically computes SHA-256 hash string for data integrity seals.
  */
 export interface LiveTelemetryData {
   latestLedger?: number;
   recentTransactions?: string[];
   isOnline: boolean;
+}
+
+export interface TelemetryFetchOptions {
+  timeoutMs?: number;
+  throwOnError?: boolean;
 }
 
 /**
@@ -51,13 +78,31 @@ export async function computeSha256(data: string): Promise<string> {
 
 /**
  * Queries live Stellar Horizon API for real on-chain transaction records and ledger sequence height.
+ * Selects the Horizon endpoint matching the target network (TESTNET or PUBLIC).
+ * Enforces a timeout via AbortController to prevent hanging audit executions.
+ * Propagates errors when throwOnError is true (for requested live verifications),
+ * while retaining the offline fallback when throwOnError is false (for display defaults).
  */
-export async function fetchLiveOnChainTelemetry(): Promise<LiveTelemetryData> {
+export async function fetchLiveOnChainTelemetry(
+  networkOverride?: string,
+  options: TelemetryFetchOptions = {},
+): Promise<LiveTelemetryData> {
+  const { timeoutMs = 8000, throwOnError = false } = options;
+  const netConfig = getNetworkConfig(networkOverride);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
-    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/transactions?limit=5&order=desc`, {
+    const response = await fetch(`${netConfig.horizonUrl}/transactions?limit=5&order=desc`, {
       headers: { Accept: "application/json" },
+      signal: controller.signal,
     });
     if (!response.ok) {
+      if (throwOnError) {
+        throw new Error(
+          `Horizon returned HTTP status ${response.status} (${response.statusText || "Error"}) for network ${netConfig.network}`,
+        );
+      }
       return { isOnline: false };
     }
     const data = await response.json();
@@ -71,8 +116,20 @@ export async function fetchLiveOnChainTelemetry(): Promise<LiveTelemetryData> {
       recentTransactions: hashes,
       isOnline: hashes.length > 0,
     };
-  } catch {
+  } catch (err: unknown) {
+    if (throwOnError) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(
+          `Horizon telemetry query timed out after ${timeoutMs}ms for network ${netConfig.network}.`,
+        );
+      }
+      throw err instanceof Error
+        ? err
+        : new Error(`Failed to query live Horizon telemetry for network ${netConfig.network}.`);
+    }
     return { isOnline: false };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -84,7 +141,8 @@ export function getStandardNistControls(
   networkOverride?: string,
   telemetry?: LiveTelemetryData,
 ): NistControl[] {
-  const explorerUrl = STELLAR_CONFIG.explorerUrl;
+  const netConfig = getNetworkConfig(networkOverride);
+  const explorerUrl = netConfig.explorerUrl;
   const escrowContract = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW;
   const sacContract = CONTRACT_ADDRESSES.NATIVE_XLM_SAC;
 
@@ -248,9 +306,9 @@ export function getStandardNistControls(
         {
           label: "Stellar Network Passphrase",
           type: "ledger",
-          identifier: networkOverride || STELLAR_CONFIG.network,
+          identifier: netConfig.network,
           url: `${explorerUrl}`,
-          description: `Active remote ledger network: ${STELLAR_NETWORK.passphrase}`,
+          description: `Active remote ledger network: ${netConfig.passphrase}`,
         },
       ],
       notes: "Cryptographically verified client-side signing verified.",
@@ -591,12 +649,20 @@ export function calculateScorecardSummary(
 
 /**
  * Fetches live on-chain telemetry from Stellar Horizon and updates NIST controls with live data.
+ * Queries Horizon matching networkOverride, aborts on timeout, and propagates network/timeout
+ * errors so active audit verification reports failures rather than falsely reporting success.
  */
-export async function fetchLiveNistControls(networkOverride?: string): Promise<{
+export async function fetchLiveNistControls(
+  networkOverride?: string,
+  options: { timeoutMs?: number } = {},
+): Promise<{
   controls: NistControl[];
   telemetry: LiveTelemetryData;
 }> {
-  const telemetry = await fetchLiveOnChainTelemetry();
+  const telemetry = await fetchLiveOnChainTelemetry(networkOverride, {
+    timeoutMs: options.timeoutMs ?? 8000,
+    throwOnError: true,
+  });
   const controls = getStandardNistControls(networkOverride, telemetry);
   return { controls, telemetry };
 }
@@ -607,8 +673,10 @@ export async function fetchLiveNistControls(networkOverride?: string): Promise<{
 export async function generateCompliancePackJson(
   auditorAddress: string = "Unattributed (Wallet Not Connected)",
   customControls?: NistControl[],
+  networkOverride?: string,
 ): Promise<ComplianceAuditPack> {
-  const controls = customControls || getStandardNistControls();
+  const netConfig = getNetworkConfig(networkOverride);
+  const controls = customControls || getStandardNistControls(networkOverride);
   const summary = calculateScorecardSummary(controls);
 
   // Compute deterministic SHA-256 integrity seal over the entire canonical pack content
@@ -617,7 +685,7 @@ export async function generateCompliancePackJson(
     framework: "NIST SP 800-53 Rev. 5" as const,
     systemName: "StormSale Decentralized Affiliate Protocol",
     auditorAddress,
-    network: STELLAR_CONFIG.network,
+    network: netConfig.network,
     generatedAt: summary.lastEvaluatedAt,
     summary: {
       totalControls: summary.totalControls,
@@ -632,8 +700,8 @@ export async function generateCompliancePackJson(
     contracts: {
       campaignEscrow: CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
       nativeXlmSac: CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
-      networkPassphrase: STELLAR_NETWORK.passphrase,
-      explorerUrl: STELLAR_CONFIG.explorerUrl,
+      networkPassphrase: netConfig.passphrase,
+      explorerUrl: netConfig.explorerUrl,
     },
   };
   const sealHash = await computeSha256(JSON.stringify(canonicalPackToSeal));
@@ -929,8 +997,9 @@ export function exportCompliancePdf(pack: ComplianceAuditPack): void {
 export async function exportFullCompliancePack(
   auditorAddress?: string,
   customControls?: NistControl[],
+  networkOverride?: string,
 ): Promise<{ success: boolean; pack: ComplianceAuditPack }> {
-  const pack = await generateCompliancePackJson(auditorAddress, customControls);
+  const pack = await generateCompliancePackJson(auditorAddress, customControls, networkOverride);
   exportCompliancePackJson(pack);
   exportCompliancePdf(pack);
   return { success: true, pack };

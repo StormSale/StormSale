@@ -78,7 +78,7 @@ export const NistScorecard: React.FC = () => {
     setIsExporting(true);
     try {
       const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
-      await exportFullCompliancePack(activeAuditor, controls);
+      await exportFullCompliancePack(activeAuditor, controls, network);
       showNotification({
         type: "success",
         title: "1-Click Export Complete",
@@ -99,7 +99,7 @@ export const NistScorecard: React.FC = () => {
   const handleExportPdf = async () => {
     try {
       const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
-      const pack = await generateCompliancePackJson(activeAuditor, controls);
+      const pack = await generateCompliancePackJson(activeAuditor, controls, network);
       exportCompliancePdf(pack);
       showNotification({
         type: "success",
@@ -119,7 +119,7 @@ export const NistScorecard: React.FC = () => {
   const handleExportJson = async () => {
     try {
       const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
-      const pack = await generateCompliancePackJson(activeAuditor, controls);
+      const pack = await generateCompliancePackJson(activeAuditor, controls, network);
       exportCompliancePackJson(pack);
       showNotification({
         type: "success",
