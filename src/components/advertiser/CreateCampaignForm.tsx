@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
@@ -19,6 +19,10 @@ export const CreateCampaignForm = () => {
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticCampaign, setOptimisticCampaign] = useState<null | { name: string; commission: number; budget: number; clearing: number }>(null);
+  const [optimisticError, setOptimisticError] = useState<string | null>(null);
+
+  const isSubmittingRef = useRef(false);
 
   const { createCampaignOnChain, isConnected } = useWeb3();
   const { showNotification } = useNotification();
@@ -34,6 +38,22 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
+    const optimisticSnapshot = {
+      name: campaignName,
+      commission: parseFloat(commissionRate) || 10,
+      budget: parseFloat(budget) || 1000,
+      clearing: parseInt(clearingPeriod) || 604800,
+    };
+    setOptimisticCampaign(optimisticSnapshot);
+    setOptimisticError(null);
+    setCampaignName("");
+    setCommissionRate("");
+    setClearingPeriod("");
+    setBudget("");
+
     setIsLoading(true);
     try {
       showNotification({
@@ -43,10 +63,10 @@ export const CreateCampaignForm = () => {
       });
 
       const result = await createCampaignOnChain(
-        campaignName,
-        parseFloat(budget) || 1000,
-        parseFloat(commissionRate) || 10,
-        parseInt(clearingPeriod) || 604800,
+        optimisticSnapshot.name,
+        optimisticSnapshot.commission,
+        optimisticSnapshot.budget,
+        optimisticSnapshot.clearing
       );
 
       showNotification({
@@ -55,12 +75,14 @@ export const CreateCampaignForm = () => {
         message: `Campaign #${result.campaignId} deployed on Soroban. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
 
-      setCommissionRate("");
-      setClearingPeriod("");
-      setCampaignName("");
-      setBudget("");
     } catch (error: any) {
       console.error("Error creating campaign:", error);
+      setOptimisticCampaign(null);
+      setOptimisticError(error.message || "Failed to create campaign");
+      setCampaignName(optimisticSnapshot.name);
+      setCommissionRate(String(optimisticSnapshot.commission));
+      setClearingPeriod(String(optimisticSnapshot.clearing));
+      setBudget(String(optimisticSnapshot.budget));
       showNotification({
         type: "error",
         title: "Creation Failed",
@@ -68,6 +90,7 @@ export const CreateCampaignForm = () => {
       });
     } finally {
       setIsLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -86,7 +109,21 @@ export const CreateCampaignForm = () => {
         <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
           Set up a new affiliate campaign with commission rates and payout terms
         </p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 font-medium">
+          Your campaign appears instantly and will be reverted if the transaction fails.
+        </p>
       </div>
+
+      {optimisticCampaign && (
+        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-5 py-4 text-sm font-medium text-indigo-800 dark:text-indigo-200">
+          Optimistically created campaign "{optimisticCampaign.name}" — awaiting on-chain confirmation…
+        </div>
+      )}
+      {optimisticError && (
+        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm font-medium text-red-800 dark:text-red-200">
+          Transaction failed — changes reverted: {optimisticError}
+        </div>
+      )}
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">

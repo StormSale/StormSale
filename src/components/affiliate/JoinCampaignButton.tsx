@@ -11,29 +11,39 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import { Users, Zap, Shield } from "lucide-react";
+import { Users, Zap, Shield, Check } from "lucide-react";
 
 export const JoinCampaignButton = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // Optimistic state: reflects the join immediately (<50ms) before the tx mines.
+  const [optimisticJoined, setOptimisticJoined] = useState(false);
   const { factoryContract } = useWeb3();
   const { showNotification } = useNotification();
 
   const handleJoinCampaign = async () => {
     if (!factoryContract || !campaignAddress) return;
 
+    const previousAddress = campaignAddress;
+
+    // Instant feedback: apply optimistic state before awaiting the transaction.
     setIsLoading(true);
+    setOptimisticJoined(true);
+    setCampaignAddress("");
+
     try {
-      const tx = await factoryContract.joinCampaign(campaignAddress);
+      const tx = await factoryContract.joinCampaign(previousAddress);
       await tx.wait();
       showNotification({
         type: "success",
         title: "Campaign Joined!",
         message: "You have successfully joined the affiliate campaign.",
       });
-      setCampaignAddress("");
     } catch (error: any) {
       console.error("Error joining campaign:", error);
+      // Reliable revert: restore pre-transaction state on failure.
+      setOptimisticJoined(false);
+      setCampaignAddress(previousAddress);
       showNotification({
         type: "error",
         title: "Failed to Join",
@@ -72,6 +82,19 @@ export const JoinCampaignButton = () => {
           </div>
         </CardHeader>
         <CardContent className="px-8 pb-8 pt-6 space-y-6">
+          {optimisticJoined && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-500/20"
+            >
+              <Check className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+              <p className="text-sm font-bold text-emerald-900 dark:text-emerald-300">
+                {isLoading ? "Joining campaign… confirming on-chain" : "Joined! Your wallet is registered."}
+              </p>
+            </div>
+          )}
+
           <div className="space-y-3">
             <Label
               htmlFor="campaignAddress"
