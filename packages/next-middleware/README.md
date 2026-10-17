@@ -18,10 +18,10 @@ runtime dependencies; Next.js is a peer dependency.
 
 ```ts
 // middleware.ts
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
 import { withStormSaleReferral } from "@stormsale/next-middleware";
 
-const middleware = withStormSaleReferral((request: NextRequest) => {
+const middleware = withStormSaleReferral((request: NextRequest, event: NextFetchEvent) => {
   // Keep your existing middleware logic here.
   return NextResponse.next();
 });
@@ -33,10 +33,12 @@ export const config = {
 };
 ```
 
-The wrapper preserves the response produced by your middleware, including its
-status and body, and appends the attribution cookie when appropriate. It does
-not replace an existing valid attribution cookie unless `overwriteExisting` is
-enabled.
+The wrapper forwards all arguments (including `request` and `event`) and preserves
+the response produced by your middleware, including its status and body, while
+appending the attribution cookie when appropriate. Handlers may return a
+`Response`, `NextResponse`, or `void` / `undefined` (which creates a pass-through
+response with Next.js's continue header). It does not replace an existing valid
+attribution cookie unless `overwriteExisting` is enabled.
 
 ## Read attribution in a Server Component or route handler
 

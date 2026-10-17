@@ -31,16 +31,44 @@ export interface StormSaleCookieStore {
   get(name: string): { readonly value: string } | undefined;
 }
 
-export type StormSaleMiddlewareHandler = (request: Request) => Response | Promise<Response>;
+/**
+ * Middleware handler function type compatible with Next.js middleware.
+ */
+export type StormSaleMiddlewareHandler<
+  RequestType extends Request = Request,
+  Rest extends unknown[] = unknown[],
+> = (
+  request: RequestType,
+  ...rest: Rest
+) => Response | void | undefined | Promise<Response | void | undefined>;
 
+/**
+ * Validates whether a given string is a valid referral token slug.
+ *
+ * @param value - Candidate referral slug to validate.
+ * @returns True if the slug conforms to length and character set limits.
+ */
 function isValidSlug(value: string): boolean {
   return value.length <= MAX_SLUG_LENGTH && SLUG_PATTERN.test(value);
 }
 
+/**
+ * Validates whether a cookie name complies with RFC 6265 token rules.
+ *
+ * @param value - Candidate cookie name to validate.
+ * @returns True if the cookie name contains only valid characters.
+ */
 function isValidCookieName(value: string): boolean {
   return COOKIE_NAME_PATTERN.test(value);
 }
 
+/**
+ * Extracts and decodes a specific cookie value from a Cookie header string.
+ *
+ * @param cookieHeader - Raw Cookie header value from the request.
+ * @param cookieName - Name of the cookie to search for.
+ * @returns The validated cookie value, or null if missing or invalid.
+ */
 function parseCookie(cookieHeader: string | null, cookieName: string): string | null {
   if (!cookieHeader) {
     return null;
@@ -64,6 +92,14 @@ function parseCookie(cookieHeader: string | null, cookieName: string): string | 
   return null;
 }
 
+/**
+ * Determines whether the given URL pathname should be skipped based on
+ * configured ignore paths or custom matcher functions.
+ *
+ * @param pathname - URL pathname to check.
+ * @param options - Referral options containing ignorePaths and matcher.
+ * @returns True if the pathname should be skipped.
+ */
 function isIgnoredPath(pathname: string, options: StormSaleReferralOptions): boolean {
   if (options.matcher && !options.matcher(pathname)) {
     return true;
@@ -79,6 +115,14 @@ function isIgnoredPath(pathname: string, options: StormSaleReferralOptions): boo
   });
 }
 
+/**
+ * Formats and validates a Set-Cookie header attribute string for the attribution cookie.
+ *
+ * @param cookieName - Name of the cookie.
+ * @param slug - Referral slug to store.
+ * @param options - Cookie configuration options (maxAge, path, domain).
+ * @returns Formatted Set-Cookie header string, or null if configuration is invalid.
+ */
 function serializeCookie(
   cookieName: string,
   slug: string,
@@ -118,6 +162,11 @@ function serializeCookie(
 /**
  * Adds a secure attribution cookie to an existing middleware response.
  * On invalid input or processing errors, returns the original response unchanged.
+ *
+ * @param request - Incoming HTTP request containing query parameters and headers.
+ * @param response - Outgoing HTTP response to append the Set-Cookie header to.
+ * @param options - Optional configuration for query parameter name, cookie attributes, and matching.
+ * @returns The response with the attribution cookie appended if valid, or unchanged otherwise.
  */
 export function stormsaleMiddleware(
   request: Request,
@@ -168,13 +217,29 @@ export function stormsaleMiddleware(
 /**
  * Wraps a Next.js-compatible middleware handler and adds referral attribution to
  * the response it returns. Errors thrown by the wrapped handler are not swallowed.
+ *
+ * Forwards additional middleware arguments (such as `NextFetchEvent`) to the
+ * wrapped handler. If the handler returns `void` or `undefined`, a pass-through
+ * response with Next.js's continue header (`x-middleware-next: "1"`) is created
+ * so attribution can still be attached.
+ *
+ * @template RequestType - Type of the incoming Request object.
+ * @template Rest - Types of additional arguments passed to the handler.
+ * @param handler - Next.js middleware handler function to wrap.
+ * @param options - Configuration options for referral cookie handling.
+ * @returns A Next.js-compatible middleware function.
  */
-export function withStormSaleReferral<RequestType extends Request>(
-  handler: (request: RequestType) => Response | Promise<Response>,
+export function withStormSaleReferral<RequestType extends Request, Rest extends unknown[]>(
+  handler: (
+    request: RequestType,
+    ...rest: Rest
+  ) => Response | void | undefined | Promise<Response | void | undefined>,
   options: StormSaleReferralOptions = {},
-): (request: RequestType) => Promise<Response> {
-  return async (request) => {
-    const response = await handler(request);
+): (request: RequestType, ...rest: Rest) => Promise<Response> {
+  return async (request, ...rest) => {
+    const response =
+      (await handler(request, ...rest)) ??
+      new Response(null, { headers: { "x-middleware-next": "1" } });
     return stormsaleMiddleware(request, response, options);
   };
 }
@@ -182,6 +247,10 @@ export function withStormSaleReferral<RequestType extends Request>(
 /**
  * Reads and validates the attribution cookie from a Cookie header or a cookie
  * store such as the value returned by Next.js `cookies()`.
+ *
+ * @param cookieSource - Raw Cookie header string, null, or a cookie store object with a `get` method.
+ * @param options - Options containing custom cookieName if configured differently.
+ * @returns The decoded and validated referral slug string, or null if missing/invalid.
  */
 export function readStormSaleReferralCookie(
   cookieSource: string | null | StormSaleCookieStore,

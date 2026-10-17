@@ -5,6 +5,13 @@ import {
   withStormSaleReferral,
 } from "./index.js";
 
+/**
+ * Helper to construct a Request object with an optional Cookie header for testing.
+ *
+ * @param url - Request URL string.
+ * @param cookie - Optional Cookie header value.
+ * @returns Initialized Request object.
+ */
 function createRequest(url: string, cookie?: string): Request {
   return new Request(url, {
     headers: cookie ? { cookie } : undefined,
@@ -105,6 +112,35 @@ describe("@stormsale/next-middleware", () => {
     expect(response.status).toBe(201);
     expect(await response.text()).toBe("middleware response");
     expect(response.headers.get("set-cookie")).toContain("__stormsale_ref=affiliate-123");
+  });
+
+  it("handles void or undefined returning handlers by creating a continue response", async () => {
+    let handlerCalled = false;
+    const middleware = withStormSaleReferral(() => {
+      handlerCalled = true;
+    });
+
+    const response = await middleware(
+      createRequest("https://stormsale.xyz/c/campaign-123?ref=affiliate-123"),
+    );
+
+    expect(handlerCalled).toBe(true);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("set-cookie")).toContain("__stormsale_ref=affiliate-123");
+  });
+
+  it("forwards extra arguments such as event to the wrapped handler", async () => {
+    let capturedEvent: unknown;
+    const mockEvent = { waitUntil: () => {} };
+    const middleware = withStormSaleReferral((_req: Request, event: typeof mockEvent) => {
+      capturedEvent = event;
+      return new Response("ok");
+    });
+
+    const request = createRequest("https://stormsale.xyz/c/campaign-123?ref=affiliate-123");
+    await middleware(request, mockEvent);
+
+    expect(capturedEvent).toBe(mockEvent);
   });
 
   it("returns the validated referral from headers and a Next.js cookie store", () => {
