@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
@@ -27,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
+  const isOnline = useOnlineStatus();
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
@@ -36,7 +38,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* =========================================================================
           1. MOBILE & TABLET TOP BAR & DRAWER (Visible on screens < lg / 1024px)
          ========================================================================= */}
-      <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm">
+      <div
+        className={`lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky ${
+          isOnline ? "top-0" : "top-10"
+        } z-30 shadow-sm`}
+      >
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             {onBack && (

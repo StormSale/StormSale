@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { useWeb3 } from "../hooks/useWeb3";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { useDashboardCache } from "../hooks/useDashboardCache";
 import {
   Megaphone,
@@ -30,6 +31,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     xlmBalance,
     connectorType,
   } = useWeb3();
+  const isOnline = useOnlineStatus();
   const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
@@ -151,7 +153,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       className={`min-h-screen font-sans selection:bg-indigo-500/30 pb-24 transition-colors duration-700 ${getBgClass()}`}
     >
       {/* HUD Header */}
-      <div className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
+      <div
+        className={`border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky ${
+          isOnline ? "top-0" : "top-10"
+        } z-50`}
+      >
         <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2.5 sm:space-x-3">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
@@ -166,6 +172,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 Stellar {network || "Testnet"}
               </div>
             </div>
+            {!isOnline && (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <span className="w-2 h-2 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>
+                Offline Mode
+              </span>
+            )}
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-4">
