@@ -7,8 +7,13 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import { CampaignRecommendations } from "./CampaignRecommendations";
 
-export const AffiliateOverview = () => {
+interface AffiliateOverviewProps {
+  onBrowseMarketplace: () => void;
+}
+
+export const AffiliateOverview = ({ onBrowseMarketplace }: AffiliateOverviewProps) => {
   const stats = [
     {
       title: "Total Earnings",
@@ -96,6 +101,8 @@ export const AffiliateOverview = () => {
           );
         })}
       </div>
+
+      <CampaignRecommendations layout="carousel" onBrowse={onBrowseMarketplace} />
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">

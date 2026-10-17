@@ -12,6 +12,7 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { Users, Zap, Shield } from "lucide-react";
+import { CampaignRecommendations } from "./CampaignRecommendations";
 
 export const JoinCampaignButton = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -48,12 +49,14 @@ export const JoinCampaignButton = () => {
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-          Join Campaign
+          Campaign Marketplace
         </h2>
         <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-          Enter a campaign contract address to register as an affiliate
+          Explore campaigns ranked for your niche, then register with a campaign contract address.
         </p>
       </div>
+
+      <CampaignRecommendations layout="grid" />
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl max-w-2xl">
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
