@@ -6,6 +6,7 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import {
   getStandardNistControls,
+  fetchLiveNistControls,
   calculateScorecardSummary,
   exportFullCompliancePack,
   exportCompliancePdf,
@@ -16,6 +17,7 @@ import type { NistControl, NistControlFamily } from "../../types/compliance";
 import {
   ShieldCheck,
   CheckCircle2,
+  AlertTriangle,
   Download,
   FileText,
   FileCode,
@@ -44,24 +46,27 @@ export const NistScorecard: React.FC = () => {
 
   const summary = useMemo(() => calculateScorecardSummary(controls), [controls]);
 
-  // Handle re-running live compliance simulation
+  // Handle re-running live compliance verification against Stellar Horizon / Soroban
   const handleRunAudit = async () => {
     setIsAuditing(true);
     try {
-      // Simulate live on-chain & cryptographic verification
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const freshControls = getStandardNistControls();
+      const { controls: freshControls, telemetry } = await fetchLiveNistControls(network);
       setControls(freshControls);
       showNotification({
         type: "success",
-        title: "NIST Audit Refreshed",
-        message: "Live telemetry and contract cryptographic proofs re-verified on-chain.",
+        title: "On-Chain Audit Completed",
+        message: telemetry.isOnline
+          ? `Live Stellar ${network || "Testnet"} ledger #${telemetry.latestLedger ?? "latest"} queried. Verified contract authorization proofs and recent transactions.`
+          : "Live telemetry queried; verified protocol contract configuration and cryptographic parameters.",
       });
-    } catch {
+    } catch (err: unknown) {
       showNotification({
         type: "error",
-        title: "Audit Refresh Error",
-        message: "Failed to query Soroban ledger state for compliance re-evaluation.",
+        title: "Audit Verification Failed",
+        message:
+          err instanceof Error
+            ? err.message
+            : "Failed to query Soroban ledger state for compliance re-evaluation.",
       });
     } finally {
       setIsAuditing(false);
@@ -72,8 +77,7 @@ export const NistScorecard: React.FC = () => {
   const handleExportFullPack = async () => {
     setIsExporting(true);
     try {
-      const activeAuditor =
-        userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
       await exportFullCompliancePack(activeAuditor, controls);
       showNotification({
         type: "success",
@@ -94,8 +98,7 @@ export const NistScorecard: React.FC = () => {
   // Export PDF only
   const handleExportPdf = async () => {
     try {
-      const activeAuditor =
-        userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
       const pack = await generateCompliancePackJson(activeAuditor, controls);
       exportCompliancePdf(pack);
       showNotification({
@@ -115,8 +118,7 @@ export const NistScorecard: React.FC = () => {
   // Export JSON only
   const handleExportJson = async () => {
     try {
-      const activeAuditor =
-        userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
       const pack = await generateCompliancePackJson(activeAuditor, controls);
       exportCompliancePackJson(pack);
       showNotification({
@@ -247,7 +249,15 @@ export const NistScorecard: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Overall Score */}
         <Card className="border border-slate-200 dark:border-zinc-800 rounded-3xl bg-white dark:bg-zinc-900/70 relative overflow-hidden shadow-sm">
-          <div className="absolute top-0 left-0 w-1.5 h-full bg-emerald-500" />
+          <div
+            className={`absolute top-0 left-0 w-1.5 h-full ${
+              summary.complianceScorePercent === 100
+                ? "bg-emerald-500"
+                : summary.complianceScorePercent >= 70
+                  ? "bg-amber-500"
+                  : "bg-rose-500"
+            }`}
+          />
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
@@ -257,12 +267,36 @@ export const NistScorecard: React.FC = () => {
                 <div className="text-3xl font-black text-zinc-900 dark:text-white mt-1">
                   {summary.complianceScorePercent}%
                 </div>
-                <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Full Compliance Pass
+                <div
+                  className={`text-xs font-semibold mt-1 flex items-center gap-1 ${
+                    summary.complianceScorePercent === 100
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : summary.complianceScorePercent >= 70
+                        ? "text-amber-600 dark:text-amber-400"
+                        : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {summary.complianceScorePercent === 100 ? (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  ) : (
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                  )}
+                  {summary.complianceScorePercent === 100
+                    ? "Full Compliance Pass"
+                    : summary.complianceScorePercent >= 70
+                      ? "Partial Compliance / Review"
+                      : "Compliance Action Required"}
                 </div>
               </div>
-              <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-100 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+              <div
+                className={`w-12 h-12 rounded-2xl flex items-center justify-center border ${
+                  summary.complianceScorePercent === 100
+                    ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-100 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                    : summary.complianceScorePercent >= 70
+                      ? "bg-amber-50 dark:bg-amber-500/10 border-amber-100 dark:border-amber-500/20 text-amber-600 dark:text-amber-400"
+                      : "bg-rose-50 dark:bg-rose-500/10 border-rose-100 dark:border-rose-500/20 text-rose-600 dark:text-rose-400"
+                }`}
+              >
                 <ShieldCheck className="w-6 h-6" />
               </div>
             </div>
@@ -342,9 +376,16 @@ export const NistScorecard: React.FC = () => {
       {/* Filter Bar & Evaluation Identity */}
       <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-white dark:bg-zinc-900/50 p-4 rounded-2xl border border-slate-200 dark:border-zinc-800">
         {/* Family Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div
+          role="tablist"
+          aria-label="Filter controls by family"
+          className="flex flex-wrap items-center gap-1.5"
+        >
           <button
             id="tab-family-all"
+            role="tab"
+            aria-selected={selectedFamily === "ALL"}
+            aria-pressed={selectedFamily === "ALL"}
             onClick={() => setSelectedFamily("ALL")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "ALL"
@@ -356,6 +397,9 @@ export const NistScorecard: React.FC = () => {
           </button>
           <button
             id="tab-family-ac"
+            role="tab"
+            aria-selected={selectedFamily === "AC"}
+            aria-pressed={selectedFamily === "AC"}
             onClick={() => setSelectedFamily("AC")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "AC"
@@ -367,6 +411,9 @@ export const NistScorecard: React.FC = () => {
           </button>
           <button
             id="tab-family-au"
+            role="tab"
+            aria-selected={selectedFamily === "AU"}
+            aria-pressed={selectedFamily === "AU"}
             onClick={() => setSelectedFamily("AU")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "AU"
@@ -378,6 +425,9 @@ export const NistScorecard: React.FC = () => {
           </button>
           <button
             id="tab-family-sc"
+            role="tab"
+            aria-selected={selectedFamily === "SC"}
+            aria-pressed={selectedFamily === "SC"}
             onClick={() => setSelectedFamily("SC")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "SC"
@@ -454,8 +504,20 @@ export const NistScorecard: React.FC = () => {
 
                   {/* Status Badge */}
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
-                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                    <span
+                      className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                        control.status === "PASS"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                          : control.status === "REVIEW"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                            : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                      }`}
+                    >
+                      {control.status === "PASS" ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      ) : (
+                        <AlertTriangle className="w-3.5 h-3.5 mr-1" />
+                      )}
                       {control.status}
                     </span>
                   </div>
@@ -500,7 +562,15 @@ export const NistScorecard: React.FC = () => {
                           <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 truncate mr-2">
                             {metric.name}
                           </span>
-                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 shrink-0">
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.2 rounded shrink-0 ${
+                              metric.status === "PASS"
+                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                                : metric.status === "WARN"
+                                  ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                                  : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                            }`}
+                          >
                             {metric.status}
                           </span>
                         </div>

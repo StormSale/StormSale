@@ -7,6 +7,8 @@ import {
   generateCompliancePdf,
   exportFullCompliancePack,
   downloadFile,
+  fetchLiveOnChainTelemetry,
+  fetchLiveNistControls,
 } from "../utils/complianceNist";
 import type { NistControl } from "../types/compliance";
 
@@ -203,9 +205,32 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       const hash2 = await computeSha256("deterministic-test-data");
       expect(hash1).toBe(hash2);
     });
+
+    it("should throw an Error if SubtleCrypto is unavailable", async () => {
+      const originalSubtle = globalThis.crypto?.subtle;
+      try {
+        Object.defineProperty(globalThis.crypto, "subtle", {
+          value: undefined,
+          configurable: true,
+        });
+        await expect(computeSha256("test-data")).rejects.toThrow(
+          "Cryptographic SHA-256 primitive (SubtleCrypto) is unavailable in this environment.",
+        );
+      } finally {
+        Object.defineProperty(globalThis.crypto, "subtle", {
+          value: originalSubtle,
+          configurable: true,
+        });
+      }
+    });
   });
 
   describe("generateCompliancePackJson", () => {
+    it("should default to Unattributed (Wallet Not Connected) when no auditor address is passed", async () => {
+      const pack = await generateCompliancePackJson();
+      expect(pack.auditorAddress).toBe("Unattributed (Wallet Not Connected)");
+    });
+
     it("should generate a complete, valid NIST compliance pack JSON structure", async () => {
       const auditor = "GB1234567890TESTAUDITORSTORMKEY99999999999999999999999999";
       const pack = await generateCompliancePackJson(auditor);
@@ -230,6 +255,79 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
 
       expect(pdfDoc).toBeDefined();
       expect(pdfDoc.internal.pages.length).toBeGreaterThan(1);
+    });
+
+    it("should handle mixed control statuses (PASS, REVIEW, FAIL) with dynamic colors", async () => {
+      const mockControls: NistControl[] = [
+        {
+          id: "AC-1",
+          title: "Access Policy",
+          family: "AC",
+          familyName: "Access Control",
+          nistDescription: "Policy description",
+          platformImplementation: "Role based control",
+          status: "PASS",
+          verificationMethod: "Smart Contract RBAC",
+          lastEvaluated: "2026-10-16",
+          metrics: [
+            {
+              name: "Metric 1",
+              value: "100%",
+              status: "PASS",
+              threshold: "100%",
+              description: "Full enforcement",
+            },
+          ],
+          evidenceLinks: [],
+        },
+        {
+          id: "AU-1",
+          title: "Audit Logging",
+          family: "AU",
+          familyName: "Audit and Accountability",
+          nistDescription: "Audit description",
+          platformImplementation: "Horizon records",
+          status: "REVIEW",
+          verificationMethod: "Manual Review",
+          lastEvaluated: "2026-10-16",
+          metrics: [
+            {
+              name: "Audit Trail",
+              value: "Partial",
+              status: "WARN",
+              threshold: "Complete",
+              description: "Partial audit records",
+            },
+          ],
+          evidenceLinks: [],
+        },
+        {
+          id: "SC-1",
+          title: "Encryption Policy",
+          family: "SC",
+          familyName: "System and Communications Protection",
+          nistDescription: "Encryption standard",
+          platformImplementation: "AES-256-GCM",
+          status: "FAIL",
+          verificationMethod: "Protocol Spec",
+          lastEvaluated: "2026-10-16",
+          metrics: [
+            {
+              name: "Key Rotation",
+              value: "Expired",
+              status: "FAIL",
+              threshold: "30 Days",
+              description: "Key expired",
+            },
+          ],
+          evidenceLinks: [],
+        },
+      ];
+
+      const pack = await generateCompliancePackJson(undefined, mockControls);
+      const pdfDoc = generateCompliancePdf(pack);
+      expect(pdfDoc).toBeDefined();
+      expect(pdfDoc.internal.pages.length).toBeGreaterThan(0);
     });
   });
 
@@ -324,6 +422,66 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
         g.window = originalWindow;
         g.URL = originalUrl;
       }
+    });
+  });
+
+  describe("fetchLiveOnChainTelemetry and fetchLiveNistControls", () => {
+    it("should handle live Horizon fetch success and populate recent transactions", async () => {
+      const mockRecords = [
+        { hash: "a".repeat(64), ledger: 123456 },
+        { hash: "b".repeat(64), ledger: 123455 },
+      ];
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          _embedded: { records: mockRecords },
+        }),
+      } as Response);
+
+      const telemetry = await fetchLiveOnChainTelemetry();
+      expect(telemetry.isOnline).toBe(true);
+      expect(telemetry.latestLedger).toBe(123456);
+      expect(telemetry.recentTransactions).toHaveLength(2);
+      expect(telemetry.recentTransactions?.[0]).toBe("a".repeat(64));
+
+      fetchSpy.mockRestore();
+    });
+
+    it("should handle live Horizon fetch failure gracefully with fallback", async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValueOnce(new Error("Network offline"));
+
+      const telemetry = await fetchLiveOnChainTelemetry();
+      expect(telemetry.isOnline).toBe(false);
+      expect(telemetry.recentTransactions).toBeUndefined();
+
+      fetchSpy.mockRestore();
+    });
+
+    it("fetchLiveNistControls should combine live telemetry with controls", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          _embedded: {
+            records: [
+              { hash: "1".repeat(64), ledger: 99999 },
+              { hash: "2".repeat(64), ledger: 99998 },
+              { hash: "3".repeat(64), ledger: 99997 },
+            ],
+          },
+        }),
+      } as Response);
+
+      const { controls, telemetry } = await fetchLiveNistControls();
+      expect(telemetry.isOnline).toBe(true);
+      expect(controls.length).toBeGreaterThan(0);
+
+      const ac3 = controls.find((c) => c.id === "AC-3");
+      const txEvidence = ac3?.evidenceLinks.find((l) => l.type === "transaction");
+      expect(txEvidence?.identifier).toBe("1".repeat(64));
+
+      fetchSpy.mockRestore();
     });
   });
 });
