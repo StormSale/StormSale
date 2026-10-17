@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+
+import { useEffect } from "react";
 import { Moon, Sun } from "lucide-react";
+import { usePreference } from "../../hooks/usePreference";
 
 export function resolveEffectiveTheme(): boolean {
   try {
@@ -12,9 +14,11 @@ export function resolveEffectiveTheme(): boolean {
   } catch {
     // Degrade gracefully if storage is blocked
   }
+
   if (typeof document !== "undefined") {
     return document.documentElement.classList.contains("dark");
   }
+
   return false;
 }
 
@@ -22,43 +26,61 @@ export function applyTheme(newDarkMode: boolean) {
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem("darkMode", newDarkMode.toString());
+
       const raw = localStorage.getItem("stormsale_affiliate_settings");
+
       if (raw) {
         const parsed = JSON.parse(raw);
         parsed.theme = newDarkMode ? "dark" : "light";
-        localStorage.setItem("stormsale_affiliate_settings", JSON.stringify(parsed));
+
+        localStorage.setItem(
+          "stormsale_affiliate_settings",
+          JSON.stringify(parsed)
+        );
       }
     }
   } catch {
     // Degrade gracefully if storage is blocked
   }
+
   if (typeof document !== "undefined") {
     document.documentElement.classList.toggle("dark", newDarkMode);
   }
+
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event("storage"));
   }
 }
 
 export function ThemeToggle() {
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = usePreference<boolean>(
+    "stormsale.theme.dark",
+    false
+  );
 
   useEffect(() => {
     const checkDark = () => {
       const isDark = resolveEffectiveTheme();
+
       setDarkMode(isDark);
+
       if (typeof document !== "undefined") {
         document.documentElement.classList.toggle("dark", isDark);
       }
     };
 
     checkDark();
+
     window.addEventListener("storage", checkDark);
-    return () => window.removeEventListener("storage", checkDark);
-  }, []);
+
+    return () => {
+      window.removeEventListener("storage", checkDark);
+    };
+  }, [setDarkMode]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
+
     setDarkMode(newDarkMode);
     applyTheme(newDarkMode);
   };

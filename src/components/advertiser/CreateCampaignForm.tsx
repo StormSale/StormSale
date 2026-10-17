@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { createCampaignSchema, getFieldErrors } from "../../lib/validation";
 import { Zap, Target, Clock, DollarSign } from "lucide-react";
 
 export const CreateCampaignForm = () => {
@@ -19,12 +20,15 @@ export const CreateCampaignForm = () => {
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { createCampaignOnChain, isConnected } = useWeb3();
   const { showNotification } = useNotification();
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrors({});
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -34,6 +38,19 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    const result = createCampaignSchema.safeParse({
+      campaignName,
+      commissionRate,
+      budget: budget || undefined,
+      clearingPeriod,
+    });
+
+    if (!result.success) {
+      setErrors(getFieldErrors(result.error));
+      return;
+    }
+
+    const { data } = result;
     setIsLoading(true);
     try {
       showNotification({
@@ -42,17 +59,17 @@ export const CreateCampaignForm = () => {
         message: "Locking budget and creating campaign on Stellar...",
       });
 
-      const result = await createCampaignOnChain(
-        campaignName,
-        parseFloat(budget) || 1000,
-        parseFloat(commissionRate) || 10,
-        parseInt(clearingPeriod) || 604800,
+      const campaignResult = await createCampaignOnChain(
+        data.campaignName,
+        data.budget ? parseFloat(data.budget) : 1000,
+        parseFloat(data.commissionRate),
+        parseInt(data.clearingPeriod),
       );
 
       showNotification({
         type: "success",
         title: "Campaign Escrow Live on Stellar!",
-        message: `Campaign #${result.campaignId} deployed on Soroban. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+        message: `Campaign #${campaignResult.campaignId} deployed on Soroban. Tx: ${campaignResult.txHash ? campaignResult.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
 
       setCommissionRate("");
@@ -106,26 +123,31 @@ export const CreateCampaignForm = () => {
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
-          <form onSubmit={handleCreateCampaign}>
+          <form onSubmit={handleCreateCampaign} noValidate>
             <div className="space-y-8">
               <InputField
                 label="Campaign Name"
                 description="Give your campaign a recognizable name"
+                error={errors.campaignName}
                 required
               >
                 <Input
                   value={campaignName}
-                  onChange={(e) => setCampaignName(e.target.value)}
+                  onChange={(e) => {
+                    setCampaignName(e.target.value);
+                    if (errors.campaignName) setErrors((prev) => ({ ...prev, campaignName: "" }));
+                  }}
                   placeholder="e.g., Summer Sale 2024"
+                  variant={errors.campaignName ? "error" : "default"}
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                  required
                 />
               </InputField>
 
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Commission Rate"
-                  description="Percentage commission for affiliates"
+                  description="Percentage commission for affiliates (1–50%)"
+                  error={errors.commissionRate}
                   required
                 >
                   <div className="relative">
@@ -134,10 +156,14 @@ export const CreateCampaignForm = () => {
                       min="1"
                       max="50"
                       value={commissionRate}
-                      onChange={(e) => setCommissionRate(e.target.value)}
+                      onChange={(e) => {
+                        setCommissionRate(e.target.value);
+                        if (errors.commissionRate)
+                          setErrors((prev) => ({ ...prev, commissionRate: "" }));
+                      }}
                       placeholder="e.g., 15 for 15%"
+                      variant={errors.commissionRate ? "error" : "default"}
                       className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                      required
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
                       %
@@ -148,13 +174,18 @@ export const CreateCampaignForm = () => {
                 <InputField
                   label="Campaign Budget"
                   description="Total budget allocated for commissions"
+                  error={errors.budget}
                 >
                   <div className="relative">
                     <Input
                       type="number"
                       value={budget}
-                      onChange={(e) => setBudget(e.target.value)}
+                      onChange={(e) => {
+                        setBudget(e.target.value);
+                        if (errors.budget) setErrors((prev) => ({ ...prev, budget: "" }));
+                      }}
                       placeholder="e.g., 10000"
+                      variant={errors.budget ? "error" : "default"}
                       className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
@@ -166,7 +197,8 @@ export const CreateCampaignForm = () => {
 
               <InputField
                 label="Payout Clearing Period"
-                description="Time before affiliates can claim commissions"
+                description="Time before affiliates can claim commissions (min 1 hour)"
+                error={errors.clearingPeriod}
                 required
               >
                 <div className="space-y-4">
@@ -181,7 +213,11 @@ export const CreateCampaignForm = () => {
                             ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
                             : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
                         }`}
-                        onClick={() => setClearingPeriod(period.value)}
+                        onClick={() => {
+                          setClearingPeriod(period.value);
+                          if (errors.clearingPeriod)
+                            setErrors((prev) => ({ ...prev, clearingPeriod: "" }));
+                        }}
                       >
                         {period.label}
                       </Button>
@@ -192,8 +228,13 @@ export const CreateCampaignForm = () => {
                     <Input
                       type="number"
                       value={clearingPeriod}
-                      onChange={(e) => setClearingPeriod(e.target.value)}
+                      onChange={(e) => {
+                        setClearingPeriod(e.target.value);
+                        if (errors.clearingPeriod)
+                          setErrors((prev) => ({ ...prev, clearingPeriod: "" }));
+                      }}
                       placeholder="Or enter custom period in seconds"
+                      variant={errors.clearingPeriod ? "error" : "default"}
                       className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">

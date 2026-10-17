@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/shared/Sidebar";
 import { CreateCampaignForm } from "../components/advertiser/CreateCampaignForm";
@@ -10,6 +9,7 @@ import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { usePreference } from "../hooks/usePreference";
 import {
   ArrowRight,
   Plus,
@@ -28,8 +28,22 @@ interface AdvertiserProps {
   onBack: () => void;
 }
 
+const ADVERTISER_TABS = [
+  "overview",
+  "create-campaign",
+  "my-campaigns",
+  "log-sale",
+  "grant-access",
+  "analytics",
+] as const;
+type AdvertiserTab = (typeof ADVERTISER_TABS)[number];
+
 const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = usePreference<AdvertiserTab>(
+    "stormsale.advertiser.tab",
+    "overview",
+    (v) => ADVERTISER_TABS.includes(v as AdvertiserTab),
+  );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
@@ -57,11 +71,11 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
       case "analytics":
         return <CampaignAnalytics />;
       case "overview":
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
       case "my-campaigns":
         return <MyCampaignsList />;
       default:
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
     }
   };
 
@@ -69,7 +83,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Advertiser Pro"

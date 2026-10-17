@@ -1,10 +1,10 @@
-import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
+import { usePreference } from "../hooks/usePreference";
 import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -12,8 +12,15 @@ interface AuditorProps {
   onBack: () => void;
 }
 
+const AUDITOR_TABS = ["overview", "verify", "history", "compliance"] as const;
+type AuditorTab = (typeof AUDITOR_TABS)[number];
+
 const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = usePreference<AuditorTab>(
+    "stormsale.auditor.tab",
+    "overview",
+    (v) => AUDITOR_TABS.includes(v as AuditorTab),
+  );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
@@ -30,8 +37,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <AuditHistory />;
       case "compliance":
         return <ComplianceReport />;
-      default:
-        return <AuditorOverview onTabChange={setActiveTab} />;
+      case "overview":
+        return <AuditorOverview onTabChange={(tab) => setActiveTab(tab as AuditorTab)} />;
     }
   };
 
@@ -39,7 +46,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => setActiveTab(tab as AuditorTab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Auditor Enterprise"
