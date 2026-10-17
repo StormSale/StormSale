@@ -62,7 +62,7 @@ export function calculateClearing(
   const minutes = Math.floor((remainingSeconds % 3600) / 60);
   const seconds = Math.floor(remainingSeconds % 60);
 
-  let countdownText = "";
+  let countdownText: string;
   if (days > 0) {
     countdownText = `${days}d ${hours}h ${minutes}m ${seconds}s`;
   } else if (hours > 0) {

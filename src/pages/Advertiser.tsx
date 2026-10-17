@@ -8,6 +8,7 @@ import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
+import { CampaignAssetLibrary } from "../components/advertiser/CampaignAssetLibrary";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
@@ -21,6 +22,7 @@ import {
   Megaphone,
   Radio,
   Palette,
+  FolderArchive,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -36,6 +38,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
+    { id: "asset-library", label: "Promotion Assets & IPFS", icon: FolderArchive },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
@@ -48,6 +51,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CreateCampaignForm />;
       case "brand-customizer":
         return <BrandCustomizer />;
+      case "asset-library":
+        return <CampaignAssetLibrary />;
       case "log-sale":
         return <LogSaleForm />;
       case "webhooks":
@@ -348,6 +353,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-sky-500/10",
                   hoverText: "group-hover:text-sky-500",
                   hoverBorder: "hover:border-sky-500/30",
+                },
+                {
+                  label: "Promotion Assets",
+                  icon: FolderArchive,
+                  action: "asset-library",
+                  hoverBg: "group-hover:bg-purple-500/10",
+                  hoverText: "group-hover:text-purple-500",
+                  hoverBorder: "hover:border-purple-500/30",
                 },
                 {
                   label: "Grant Access",
