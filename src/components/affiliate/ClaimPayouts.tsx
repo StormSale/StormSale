@@ -136,7 +136,6 @@ export const ClaimPayouts = () => {
       setClaimingId(null);
     }
   };
-
   return (
     <div className="space-y-8">
       {/* Page Title */}
