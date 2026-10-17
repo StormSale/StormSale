@@ -1,35 +1,49 @@
 import { createContext, useContext, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import {
-  connectFreeterWallet,
+  connectFreighterWallet,
   connectAlbedoWallet,
-  connectXBullWallet,
-  checkFreeterInstalled,
+  connectXbullWallet,
+  checkFreighterInstalled,
   getCurrentNetwork,
-  fetchXmlBalance,
+  fetchXlmBalance,
   fundTestnetAccount,
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
   refundCampaignEscrowContractCall,
+  fetchTransactionStatus,
 } from "../lib/stellar";
-import type { WalletType } from "../lib/stellar";
+import type { WalletType, TransactionStatusResult } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
-import { pollSorobanTransaction } from "../lib/transactionPoller";
-import type { PollResult } from "../lib/transactionPoller";
 
-export interface TransactionPollState {
-  id: string;
-  txHash: string;
-  status: "PENDING" | "SUCCESS" | "FAILED" | "TIMEOUT";
+export interface TransactionPollingOptions {
+  /** Initial delay before the first poll (ms). */
+  initialDelayMs?: number;
+  /** Maximum delay between polls (ms). */
+  maxDelayMs?: number;
+  /** Multiplier applied to the delay after each poll. */
+  backoffFactor?: number;
+  /** Maximum total time to poll before timing out (ms). */
+  timeoutMs?: number;
+  /** Optional hard cap on the number of poll attempts. */
+  maxAttempts?: number;
+}
+
+export interface TransactionPollingResult {
+  success: boolean;
+  status: "SUCCESS" | "FAILED" | "TIMEOUT" | "PENDING" | "UNKNOWN";
+  timedOut: boolean;
   attempts: number;
   elapsedMs: number;
+  txHash?: string;
+  lastResult?: TransactionStatusResult;
   error?: string;
-  canRetry: boolean;
-  label?: string;
+  /** True when the caller should prompt the user to retry. */
+  retrySuggested: boolean;
 }
 
 export interface Web3ContextType {
@@ -54,6 +68,17 @@ export interface Web3ContextType {
   updateUserRole: (role: string) => Promise<void>;
   requestFriendbotFunding: () => Promise<boolean>;
 
+  // Adaptive Transaction Polling
+  pollTransactionStatus: (
+    txHash: string,
+    options?: TransactionPollingOptions,
+  ) => Promise<TransactionPollingResult>;
+  waitForTransaction: (
+    txHash: string,
+    options?: TransactionPollingOptions,
+  ) => Promise<TransactionPollingResult>;
+  cancelTransactionPolling: (txHash?: string) => void;
+
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
     name: string,
@@ -75,12 +100,6 @@ export interface Web3ContextType {
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
-  // Adaptive Transaction Polling
-  transactionPolls: TransactionPollState[];
-  pollTransaction: (txHash: string, label?: string) => Promise<PollResult<any>>;
-  retryTransactionPoll: (id: string) => Promise<PollResult<any>>;
-  dismissTransactionPoll: (id: string) => void;
-
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -91,6 +110,32 @@ export interface Web3ContextType {
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
+export const DEFAULT_POLLING_OPTIONS: Required<TransactionPollingOptions> = {
+  initialDelayMs: 1000,
+  maxDelayMs: 15000,
+  backoffFactor: 1.6,
+  timeoutMs: 60000,
+  maxAttempts: 12,
+};
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [userAddress, setUserAddress] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -98,10 +143,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-  const [transactionPolls, setTransactionPolls] = useState<TransactionPollState[]>([]);
-  const pollRegistry = useRef<Map<string, { txHash: string; label?: string }>>(new Map());
+
+  // Track active polling operations so they can be cancelled on disconnect/unmount.
+  const pollingControllers = useRef<Map<string, AbortController>>(new Map());
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -109,8 +155,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
     try {
-      const bal = await fetchXmlBalance(address);
-      setXmlBalance(bal);
+      const bal = await fetchXlmBalance(address);
+      setXlmBalance(bal);
     } catch (err) {
       console.warn("Could not fetch balance:", err);
     }
@@ -128,29 +174,173 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Multi-Wallet Stellar Connection: Freeter, Albedo, xBull, Ledger, Passkey, Mock
+  // Adaptive polling with exponential backoff and timeout handling.
+  const pollTransactionStatus = useCallback(
+    async (
+      txHash: string,
+      options?: TransactionPollingOptions,
+    ): Promise<TransactionPollingResult> => {
+      const opts = { ...DEFAULT_POLLING_OPTIONS,...options };
+      const startedAt = Date.now();
+      let delay = Math.max(0, opts.initialDelayMs);
+      let attempts = 0;
+      let lastResult: TransactionStatusResult | undefined;
+
+      const existing = pollingControllers.current.get(txHash);
+      existing?.abort();
+      const controller = new AbortController();
+      pollingControllers.current.set(txHash, controller);
+
+      const finish = (result: TransactionPollingResult): TransactionPollingResult => {
+        pollingControllers.current.delete(txHash);
+        return result;
+      };
+
+      try {
+        while (true) {
+          const elapsed = Date.now() - startedAt;
+          if (elapsed >= opts.timeoutMs) {
+            return finish({
+              success: false,
+              status: "TIMEOUT",
+              timedOut: true,
+              attempts,
+              elapsedMs: elapsed,
+              txHash,
+              lastResult,
+              retrySuggested: true,
+              error: "Transaction confirmation timed out.",
+            });
+          }
+
+          const remaining = opts.timeoutMs - elapsed;
+          const waitMs = Math.min(delay, remaining);
+          if (waitMs > 0) {
+            await sleep(waitMx, controller.signal);
+          }
+
+          attempts += 1;
+          try {
+            lastResult = await fetchTransactionStatus(txHash);
+          } catch (err) {
+            // Transient network errors are tolerated and retried with backoff.
+            console.warn(`[Polling] Transient error for ${txHash}:`, err);
+            lastResult = undefined;
+          }
+
+          if (lastResult) {
+            if (lastResult.status === "SUCCESS") {
+              return finish({
+                success: true,
+                status: "SUCCESS",
+                timedOut: false,
+                attempts,
+                elapsedMs: Date.now() - startedAt,
+                txHash,
+                lastResult,
+                retrySuggested: false,
+              });
+            }
+            if (lastResult.status === "FAILED") {
+              return finish({
+                success: false,
+                status: "FAILED",
+                timedOut: false,
+                attempts,
+                elapsedMs: Date.now() - startedAt,
+                txHash,
+                lastResult,
+                retrySuggested: true,
+                error: lastResult.error || "Transaction failed.",
+              });
+            }
+          }
+
+          if (opts.maxAttempts !== undefined && attempts >= opts.maxAttempts) {
+            return finish({
+              success: false,
+              status: "TIMEOUT",
+              timedOut: true,
+              attempts,
+              elapsedMs: Date.now() - startedAt,
+              txHash,
+              lastResult,
+              retrySuggested: true,
+              error: "Maximum polling attempts reached.",
+            });
+          }
+
+          // Exponential backoff with cap.
+          delay = Math.min(opts.maxDelayMs, Math.max(1, delay * opts.backoffFactor));
+        }
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") {
+          return finish({
+            success: false,
+            status: "PENDING",
+            timedOut: false,
+            attempts,
+            elapsedMs: Date.now() - startedAt,
+            txHash,
+            lastResult,
+            retrySuggested: true,
+            error: "Polling cancelled.",
+          });
+        }
+        return finish({
+          success: false,
+          status: "UNKNOWN",
+          timedOut: false,
+          attempts,
+          elapsedMs: Date.now() - startedAt,
+          txHash,
+          lastResult,
+          retrySuggested: true,
+          error: (err as Error)?.message || "Unknown polling error.",
+        });
+      } finally {
+        pollingControllers.current.delete(txHash);
+      }
+    },
+    [],
+  );
+
+  // Alias for callers that want an explicit "wait" semantic.
+  const waitForTransaction = pollTransactionStatus;
+
+  const cancelTransactionPolling = useCallback((txHash?: string) => {
+    if (txHash) {
+      pollingControllers.current.get(txHash)?.abort();
+      pollingControllers.current.delete(txHash);
+      return;
+    }
+    pollingControllers.current.forEach((ctrl) => ctrl.abort());
+    pollingControllers.current.clear();
+  }, []);
+
+  // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Ledger, Passkey, Mock
   const connectWallet = async (
-    type: WalletType = "freeter",
+    type: WalletType = "freighter",
     customAddress?: string,
     derivationPath?: string,
   ) => {
     try {
       let address = "";
-      if (type === "freeter") {
-        const isInstalled = await checkFreeterInstalled();
+      if (type === "freighter") {
+        const isInstalled = await checkFreighterInstalled();
         if (!isInstalled) {
           throw new Error(
-            "Freeter extension is not installed. If you are on a mobile device, please select Albedo (Web Wallet) or Demo Account.",
+            "Freighter extension is not installed. If you are on a mobile device, please select Albedo (Web Wallet) or Demo Account.",
           );
         }
-        address = await connectFreeterWallet();
+        address = await connectFreighterWallet();
         const currentNet = await getCurrentNetwork();
         setNetwork(currentNet);
       } else if (type === "albedo") {
         address = await connectAlbedoWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
-        address = await connectXBullWallet();
+        address = await connectXbullWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
         const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
@@ -177,9 +367,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setNetwork(STELLAR_CONFIG.network);
       } else {
         // Mock fallback demo account with 10,000 XLM
-        address = "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777";
+        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
         setNetwork("TESTNET");
-        setXmlBalance("10000.00");
+        setXlmBalance("10000.00");
       }
 
       setUserAddress(address);
@@ -198,6 +388,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   const disconnectWallet = () => {
+    // Cancel any in-flight transaction polling before clearing wallet state.
+    pollingControllers.current.forEach((ctrl) => ctrl.abort());
+    pollingControllers.current.clear();
     setUserAddress(null);
     setUserRole(null);
     setIsConnected(false);
@@ -226,105 +419,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return ok;
   };
 
-  // Adaptive Transaction Polling helpers
-  const updatePollState = (
-    id: string,
-    patch: Partial<TransactionPollState>,
-  ) => {
-    setTransactionPolls((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  };
-
-  const runPoll = useCallback(
-    async (id: string, txHash: string, label?: string): Promise<PollResult<any>> => {
-      const startedAt = Date.now();
-      updatePollState(id, {
-        status: "PENDING",
-        attempts: 0,
-        elapsedMs: 0,
-        error: undefined,
-        canRetry: false,
-        label,
-        txHash,
-      });
-
-      const result = await pollSorobanTransaction(txHash, {
-        onAttempt: (attempts, delayMs) => {
-          updatePollState(id, {
-            attempts,
-            elapsedMs: Date.now() - startedAt,
-            error: `${attempts} attempt(s) — waiting ${Math.round(delayMs / 1000)}s`,
-          });
-        },
-      });
-
-      if (result.status === "SUCCESS") {
-        updatePollState(id, {
-          status: "SUCCESS",
-          attempts: result.attempts,
-          elapsedMs: result.elapsedMs,
-          canRetry: false,
-          error: undefined,
-        });
-        if (userAddress) setTimeout(() => refreshBalance(userAddress), 500);
-      } else if (result.status === "FAILED") {
-        updatePollState(id, {
-          status: "FAILED",
-          attempts: result.attempts,
-          elapsedMs: result.elapsedMs,
-          canRetry: true,
-          error: result.lastError || "Transaction failed on-chain",
-        });
-      } else {
-        updatePollState(id, {
-          status: "TIMEOUT",
-          attempts: result.attempts,
-          elapsedMs: result.elapsedMs,
-          canRetry: true,
-          error: result.lastError || "Polling timed out",
-        });
-      }
-      return result;
-    },
-    [userAddress, refreshBalance],
-  );
-
-  const pollTransaction = useCallback(
-    async (txHash: string, label?: string): Promise<PollResult<any>> => {
-      const id = `poll_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-      pollRegistry.current.set(id, { txHash, label });
-      setTransactionPolls((prev) => [
-        ...prev,
-        {
-          id,
-          txHash,
-          status: "PENDING",
-          attempts: 0,
-          elapsedMs: 0,
-          canRetry: false,
-          label,
-        },
-      ]);
-      return runPoll(id, txHash, label);
-    },
-    [runPoll],
-  );
-
-  const retryTransactionPoll = useCallback(
-    async (id: string): Promise<PollResult<any>> => {
-      const entry = pollRegistry.current.get(id);
-      if (!entry) {
-        throw new Error(`Unknown transaction poll id: ${id}`);
-      }
-      return runPoll(id, entry.txHash, entry.label);
-    },
-    [runPoll],
-  );
-
-  const dismissTransactionPoll = useCallback((id: string) => {
-    pollRegistry.current.delete(id);
-    setTransactionPolls((prev) => prev.filter((p) => p.id !== id));
-  }, []);
-
   // Soroban: Create Campaign Escrow
   const createCampaignOnChain = async (
     name: string,
@@ -338,7 +432,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
 
-    if (connectorType === "freeter" || connectorType === "albedo" || connectorType === "xbull") {
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await createCampaignContractCall(
         userAddress,
         commissionRatePercent,
@@ -346,9 +440,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         budgetXlm,
         connectorType,
       );
-      if (res.txHash) {
-        void pollTransaction(res.txHash, `Create campaign: ${name}`);
-      }
+      setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
       // Mock fallback for UI preview without extension
@@ -362,7 +454,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Soroban: Log Sale
+  // Soroban: Log Verified Sale
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
@@ -370,7 +462,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    if (connectorType === "freeter" || connectorType === "albedo" || connectorType === "xbull") {
+    console.log(
+      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await logSaleContractCall(
         userAddress,
         campaignId,
@@ -378,104 +474,116 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         amountXlm,
         connectorType,
       );
-      if (res.txHash) {
-        void pollTransaction(res.txHash, `Log sale #d{campaignId}`);
-      }
       return res;
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return { success: true, txHash: mockTxHash };
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Soroban: Claim Payout
+  // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    if (connectorType === "freeter" || connectorType === "albedo" || connectorType === "xbull") {
+    console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
-      if (res.txHash) {
-        void pollTransaction(res.txHash, `Claim payout #d{campaignId}`);
-      }
+      setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return { success: true, txHash: mockTxHash };
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Soroban: Refund Campaign Escrow
+  // Soroban: Refund Unused Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    if (connectorType === "freeter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await refundCampaignEscrowContractCall(
-        userAddress,
-        campaignId,
-        connectorType,
-      );
-      if (res.txHash) {
-        void pollTransaction(res.txHash, `Refund escrow #d{campaignId}`);
-      }
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return { success: true, txHash: mockTxHash };
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Batch Claim Payouts
-  const batchClaimPayoutsOnChain = async (
-    campaigns: ClaimableCampaignItem[],
-  ): Promise<BatchClaimReceipt> => {
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  const batchClaimPayoutsOnChain = async (campaigms: ClaimableCampaignItem[]) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const receipts: BatchClaimReceipt[] = [];
-    for (const campaign of campaigns) {
-      try {
-        const res = await claimPayoutOnChain(campaign.campaignId);
-        receipts.push({ campaignId: campaign.campaignId, success: res.success, txHash: res.txHash });
-      } catch (err) {
-        receipts.push({
-          campaignId: campaign.campaignId,
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return receipts;
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
   };
 
-  // Passkey account registration
+  // Passkey Smart Account Registration
   const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
     const record = await registerPasskey(userName || "Affiliate User");
-    setUserAddress(record.stellarAddress);
-    setIsConnected(true);
-    setConnectorType("passkey");
+    await connectWallet("passkey");
     return record;
   };
 
-  // Compatibility helpers
-  const factoryContract = null;
-  const getCampaignContract = (_address: string) => null;
-  const provider = null;
-  const signer = null;
-  const switchToStellarNetwork = async (): Promise<boolean> => {
+  // Compatibility facade for existing form components
+  const factoryContract = {
+    createCampaign: async (rate: string, period: string) => {
+      const res = await createCampaignOnChain(
+        "Campaign",
+        1000,
+        parseFloat(rate) || 10,
+        parseInt(period) || 604800,
+      );
+      return {
+        wait: async () => res,
+      };
+    },
+    joinCampaign: async (campaignAddr: string) => {
+      console.log(`[Soroban] Join campaign ${campaignAddr}`);
+      return { success: true };
+    },
+  };
+
+  const getCampaignContract = (address: string) => ({
+    address,
+    logSale: async (affiliateAddress: string, amountXlm: number) =>
+      logSaleOnChain(0, affiliateAddress, amountXlm),
+    claimPayout: async () => claimPayoutOnChain(0),
+  });
+
+  const switchToStellarNetwork = async () => {
     try {
-      setNetwork(STELLAR_CONFIG.network);
-      return true;
+      const current = await getCurrentNetwork();
+      setNetwork(current);
+      return current === STELLAR_CONFIG.network;
     } catch {
       return false;
     }
   };
 
-  const isStellarNetwork = network.toUpperCase().includes("STELLAR") || network.toUpperCase().includes("TESTNET");
-
   const value: Web3ContextType = {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork,
+    isStellarNetwork: network === STELLAR_CONFIG.network,
     network,
     xlmBalance,
     connectorType,
@@ -488,21 +596,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     disconnectWallet,
     updateUserRole,
     requestFriendbotFunding,
+    pollTransactionStatus,
+    waitForTransaction,
+    cancelTransactionPolling,
     createCampaignOnChain,
     logSaleOnChain,
     claimPayoutOnChain,
     refundCampaignEscrow,
     batchClaimPayoutsOnChain,
     registerPasskeyAccount,
-    transactionPolls,
-    pollTransaction,
-    retryTransactionPoll,
-    dismissTransactionPoll,
     factoryContract,
     getCampaignContract,
-    provider,
-    signer,
-    switchToStellarNetwork,
+    provider: null,
+    signer: null,
+    switchToStellarNetwork: switchToStellarNetwork,
   };
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
