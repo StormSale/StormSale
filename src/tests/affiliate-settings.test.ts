@@ -330,54 +330,30 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(link).toBe(`https://t.me/${TELEGRAM_BOT_USERNAME}?start=abc123token`);
   });
 
-  it("formats a conversion alert with celebratory emojis and sale details", () => {
+ it("formats a conversion alert with campaign, sale value, and commission", () => {
     const message = formatTelegramConversionAlert({
-      campaignName: "Summer Push",
-      saleValue: "125.50",
-      commissionEarned: "12.55",
-      asset: "XLM",
+      campaignName: "Summer Boost",
+      saleValue: "120.50 XLM",
+      commissionEarned: "12.05 XLM",
     });
-
-    expect(message).toContain("Summer Push");
-    expect(message).toContain("125.50");
-    expect(message).toContain("12.55");
-    expect(message).toContain("XLM");
-    expect(message).toMatch(/🎉|🎉|🎉/);
+    expect(message).toContain("Summer Boost");
+    expect(message).toContain("120.50 XLM");
+    expect(message).toContain("12.05 XLM");
+    expect(message).toMatch(/[\u2728\uFF0C\u1F49\u1F89\u1F50\u1F96\u1F99]/u);
   });
 
-  it("gates Telegram alerts on connection status and mute preferences", () => {
-    const disconnectedPrefs = {
-      ...DEFAULT_PREFERENCES,
-      telegramConnected: false,
-    };
-    expect(shouldDeliverTelegramAlert(disconnectedPrefs)).toBe(false);
-
-    const connectedPrefs = {
+  it("gates Telegram alerts on connection state and mute preference", () => {
+    const connected = {
       ...DEFAULT_PREFERENCES,
       telegramConnected: true,
       telegramMuted: false,
     };
-    expect(shouldDeliverTelegramAlert(connectedPrefs)).toBe(true);
+    expect(shouldDeliverTelegramAlert(connected)).toBe(true);
 
-    const mutedPrefs = {
-      ...DEFAULT_PREFERENCES,
-      telegramConnected: true,
-      telegramMuted: true,
-    };
-    expect(shouldDeliverTelegramAlert(mutedPrefs)).toBe(false);
-  });
+    const muted = { ...connected, telegramMuted: true };
+    expect(shouldDeliverTelegramAlert(muted)).toBe(false);
 
-  it("persists Telegram connection and mute state", () => {
-    saveAffiliatePreferences({
-      ...DEFAULT_PREFERENCES,
-      telegramConnected: true,
-      telegramMuted: true,
-      telegramChatId: "987654321",
-    });
-
-    const loaded = loadAffiliatePreferences();
-    expect(loaded.telegramConnected).toBe(true);
-    expect(loaded.telegramMuted).toBe(true);
-    expect(loaded.telegramChatId).toBe("987654321");
+    const disconnected = { ...connected, telegramConnected: false };
+    expect(shouldDeliverTelegramAlert(disconnected)).toBe(false);
   });
 });

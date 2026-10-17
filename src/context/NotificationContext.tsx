@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -32,6 +32,27 @@ export interface Notification {
   campaignId?: string;
 }
 
+export interface EscrowMonitoredCampaign {
+  id: string;
+  name: string;
+  escrowInitial: number;
+  escrowBalance: number;
+  status?: string;
+}
+
+export interface TelegramAlertPreferences {
+  connected: boolean;
+  muted: boolean;
+  telegramUsername?: string;
+}
+
+export interface ConversionAlertParams {
+  campaignName: string;
+  saleValue: number;
+  commissionEarned: number;
+  currency?: string;
+}
+
 export interface NotificationContextType {
   notifications: Notification[];
   showNotification: (notification: Omit<Notification, "id">) => string;
@@ -46,30 +67,12 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
-  telegramConnected: boolean;
-  telegramMuted: boolean;
-  connectTelegram: () => string;
+  telegramPreferences: TelegramAlertPreferences;
+  connectTelegram: (token?: string) => string;
   disconnectTelegram: () => void;
   toggleTelegramMute: () => void;
-  notifyAffiliateConversion: (params: AffiliateConversionParams) => string;
+  notifyConversion: (params: ConversionAlertParams) => string | null;
 }
-
-export interface EscrowMonitoredCampaign {
-  id: string;
-  name: string;
-  escrowInitial: number;
-  escrowBalance: number;
-  status?: string;
-}
-
-export interface AffiliateConversionParams {
-  campaignName: string;
-  saleValue: number;
-  commissionEarned: number;
-  currency?: string;
-}
-
-const TELEGRAM_BOT_USERNAME = "StormSaleBot";
 
 /**
  * Evaluates campaign escrow funds and determines whether a critical low-balance condition exists (< 10%).
@@ -88,6 +91,27 @@ export function evaluateCampaignEscrowLevel(campaign: EscrowMonitoredCampaign): 
     remainingXlm: campaign.escrowBalance,
     percentageRemaining: percentage,
   };
+}
+
+/**
+ * Builds the one-click deep link to the official StormSale Telegram bot.
+ */
+export function buildTelegramConnectLink(token: string): string {
+  return `https://t.me/StormSaleBot?start=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Formats a celebratory conversion alert message for Telegram delivery.
+ */
+export function formatConversionAlert(params: ConversionAlertParams): string {
+  const currency = params.currency || "XLM";
+  return [
+    "🎉 💰 New Sale Conversion! 💰🎉",
+    `📣 Campaign: ${params.campaignName}`,
+    `🛒 Sale Value: ${params.saleValue.toLocaleString()} ${currency}`,
+    `🏆 Commission Earned: ${params.commissionEarned.toLocaleString()} ${currency}`,
+    "😀 Keep up the great work!",
+  ].join("\n");
 }
 
 /**
@@ -120,80 +144,14 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
-/**
- * Builds a one-click Telegram deep link for connecting the affiliate account to the official bot.
- */
-export function buildTelegramDeepLink(token: string): string {
-  return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${encodeURIComponent(token)}`;
-}
-
-/**
- * Formats a celebratory conversion alert message for Telegram delivery.
- */
-export function formatAffiliateConversionMessage(params: AffiliateConversionParams): string {
-  const currency = params.currency || "XLM";
-  return [
-    "🎉💰 New Sale Conversion! 💰🎉",
-    `📣 Campaign: ${params.campaignName}`,
-    `🛒 Sale Value: ${params.saleValue.toLocaleString()} ${currency}`,
-    `🏆 Commission Earned: ${params.commissionEarned.toLocaleString()} ${currency}`,
-    "🚀 Keep it up!",
-  ].join("\n");
-}
-
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [telegramConnected, setTelegramConnected] = useState<boolean>(false);
-  const [telegramMuted, setTelegramMuted] = useState<boolean>(false);
-
-  useEffect(() => {
-    try {
-      const storedConnected = localStorage.getItem("telegram_connected");
-      const storedMuted = localStorage.getItem("telegram_muted");
-      if (storedConnected === "true") setTelegramConnected(true);
-      if (storedMuted === "true") setTelegramMuted(true);
-    } catch {
-      // localStorage unavailable; keep defaults
-    }
-  }, []);
-
-  const connectTelegram = (): string => {
-    const token = Math.random().toString(36).substring(2, 15);
-    setTelegramConnected(true);
-    setTelegramMuted(false);
-    try {
-      localStorage.setItem("telegram_connected", "true");
-      localStorage.setItem("telegram_muted", "false");
-    } catch {
-      // ignore storage errors
-    }
-    return buildTelegramDeepLink(token);
-  };
-
-  const disconnectTelegram = () => {
-    setTelegramConnected(false);
-    setTelegramMuted(false);
-    try {
-      localStorage.setItem("telegram_connected", "false");
-      localStorage.setItem("telegram_muted", "false");
-    } catch {
-      // ignore storage errors
-    }
-  };
-
-  const toggleTelegramMute = () => {
-    setTelegramMuted((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("telegram_muted", String(next));
-      } catch {
-        // ignore storage errors
-      }
-      return next;
-    });
-  };
+  const [telegramPreferences, setTelegramPreferences] = useState<TelegramAlertPreferences>({
+    connected: false,
+    muted: false,
+  });
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -238,20 +196,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     return showNotification(buildLowEscrowNotification(params));
   };
 
-  // Dispatch a real-time affiliate conversion alert (respects mute preference)
-  const notifyAffiliateConversion = (params: AffiliateConversionParams): string => {
-    if (!telegramConnected || telegramMuted) {
-      return "";
-    }
-    const message = formatAffiliateConversionMessage(params);
-    return showNotification({
-      type: "success",
-      title: "🎉 New Sale Conversion!",
-      message,
-      duration: 8000,
-    });
-  };
-
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = (campaigns: EscrowMonitoredCampaign[]) => {
     campaigns.forEach((campaign) => {
@@ -272,6 +216,35 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     });
   };
 
+  const connectTelegram = useCallback((token?: string): string => {
+    const connectToken = token || Math.random().toString(36).substring(2, 15);
+    setTelegramPreferences({ connected: true, muted: false });
+    return buildTelegramConnectLink(connectToken);
+  }, []);
+
+  const disconnectTelegram = useCallback(() => {
+    setTelegramPreferences({ connected: false, muted: false });
+  }, []);
+
+  const toggleTelegramMute = useCallback(() => {
+    setTelegramPreferences((prev) => ({ ...prev, muted: !prev.muted }));
+  }, []);
+
+  const notifyConversion = useCallback(
+    (params: ConversionAlertParams): string | null => {
+      if (!telegramPreferences.connected || telegramPreferences.muted) {
+        return null;
+      }
+      return showNotification({
+        type: "success",
+        title: "🎉 New Sale Conversion!",
+        message: formatConversionAlert(params),
+        duration: 8000,
+      });
+    },
+    [telegramPreferences.connected, telegramPreferences.muted],
+  );
+
   return (
     <NotificationContext.Provider
       value={{
@@ -281,12 +254,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
-        telegramConnected,
-        telegramMuted,
+        telegramPreferences,
         connectTelegram,
         disconnectTelegram,
         toggleTelegramMute,
-        notifyAffiliateConversion,
+        notifyConversion,
       }}
     >
       {children}
@@ -295,7 +267,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   );
 };
 
-function NotificationContainer(): React.ReactElement | null {
+function NotificationContainer() {
   const { notifications, dismissNotification } = useNotification();
 
   const getIcon = (type: NotificationType) => {
@@ -303,7 +275,7 @@ function NotificationContainer(): React.ReactElement | null {
       case "success":
         return <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />;
       case "error":
-        return <XCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />;
+        return <XCircle2 className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />;
       case "warning":
         return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />;
       case "info":
@@ -375,10 +347,10 @@ function NotificationContainer(): React.ReactElement | null {
                           if (notification.action?.onClick) notification.action.onClick();
                           dismissNotification(notification.id);
                         }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow"
                       >
-                        <span>{actionLabel}</span>
-                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                        {actionLabel}
+                        <ExternalLink className="w-3.5 h-3.5 ml-1.5" />
                       </a>
                     ) : (
                       <button
@@ -388,20 +360,12 @@ function NotificationContainer(): React.ReactElement | null {
                           if (notification.action?.onClick) notification.action.onClick();
                           dismissNotification(notification.id);
                         }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow"
                       >
-                        <span>{actionLabel}</span>
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                        {actionLabel}
+                        <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
                       </button>
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => dismissNotification(notification.id)}
-                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
-                    >
-                      Dismiss
-                    </button>
                   </div>
                 )}
               </div>
@@ -409,8 +373,8 @@ function NotificationContainer(): React.ReactElement | null {
               <button
                 type="button"
                 onClick={() => dismissNotification(notification.id)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
-                aria-label="Close notification"
+                className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300 shrink-0 p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                aria-label="Dismiss notification"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -422,24 +386,10 @@ function NotificationContainer(): React.ReactElement | null {
   );
 }
 
-export const useNotification = () => {
+export function useNotification(): NotificationContextType {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
-};
-
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
-  return <NotificationProvider>{children}</NotificationProvider>;
-}
-
-export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
-    return (
-      <NotificationProvider>
-        <Component {...props} />
-      </NotificationProvider>
-    );
-  };
 }
