@@ -22,9 +22,11 @@ import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webho
 import { getAffiliateAccess } from "../../lib/campaignAccess";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
+import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
+import { BatchSaleUploader } from "./BatchSaleUploader";
 
 export const LogSaleForm = () => {
+  const [mode, setMode] = useState<"single" | "batch">("single");
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -227,15 +229,64 @@ export const LogSaleForm = () => {
     }
   };
 
+  if (mode === "batch") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode("single")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Single Sale Entry
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("batch")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Batch Uploader (CSV/JSON)
+            </button>
+          </div>
+        </div>
+        <BatchSaleUploader />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-          Log Encrypted Sale
-        </h2>
-        <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-          Record a new sale with military-grade encryption and commission escrow
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+            Log Encrypted Sale
+          </h2>
+          <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
+            Record a new sale with military-grade encryption and commission escrow
+          </p>
+        </div>
+
+        <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs self-start">
+          <button
+            type="button"
+            onClick={() => setMode("single")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Single Sale
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("batch")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Batch CSV/JSON
+          </button>
+        </div>
       </div>
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
