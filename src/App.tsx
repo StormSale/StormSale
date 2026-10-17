@@ -10,6 +10,9 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
+import { loadBrandConfig } from "./lib/branding";
+import { ResourceDiagnostic } from "./components/shared/ResourceDiagnostic";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,10 +59,46 @@ class ErrorBoundary extends React.Component<
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("brand") || params.get("c") || null;
+  });
+  const [devMode, setDevMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("dev") === "1" || params.get("devMode") === "true";
+  });
+
+  if (activeBrandSubdomain) {
+    return (
+      <BrandedCampaignView
+        brandConfig={loadBrandConfig(activeBrandSubdomain)}
+        onClose={() => {
+          setActiveBrandSubdomain(null);
+          window.history.pushState({}, "", window.location.pathname);
+        }}
+        isStandalone
+      />
+    );
+  }
 
   return (
     <>
       <ConnectWalletModal />
+      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs shadow ring-1 ring-border">
+        <label htmlFor="dev-mode-toggle" className="cursor-pointer select-none">
+          Dev mode
+        </label>
+        <input
+          id="dev-mode-toggle"
+          type="checkbox"
+          checked={devMode}
+          onChange={(e) => setDevMode(e.target.checked)}
+          className="h-4 w-4 cursor-pointer"
+        />
+      </div>
+      {devMode && <ResourceDiagnostic />}
       {!isConnected ? (
         <Landing />
       ) : (

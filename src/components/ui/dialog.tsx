@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "../../lib/utils";
 
 const Dialog = DialogPrimitive.Root;
@@ -87,6 +88,34 @@ const DialogDescription = React.forwardRef<
 ));
 DialogDescription.displayName = DialogPrimitive.Description.displayName;
 
+const DialogResourceDiagnostic = ({
+  className,
+  minResourceFee,
+  cpuInstructions,
+  memoryBytes,
+  ...props
+}: React.HTMLAttributes<HTMLDetailsElement> & {
+  minResourceFee?: string | number;
+  cpuInstructions?: string | number;
+  memoryBytes?: string | number;
+}) => (
+  <details className={cn("group rounded-md border p-3 text-sm", className)} {...props}>
+    <summary className="flex cursor-pointer items-center justify-between font-medium">
+      <span>Resource Diagnostic</span>
+      <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+    </summary>
+    <dl className="mt-2 grid grid-cols-2 gap-1 text-muted-foreground">
+      <dt>Min Resource Fee</dt>
+      <dd>{minResourceFee ?? "—"}</dd>
+      <dt>CPU Instructions</dt>
+      <dd>{cpuInstructions ?? "—"}</dd>
+      <dt>Memory Bytes</dt>
+      <dd>{memoryBytes ?? "—"}</dd>
+    </dl>
+  </details>
+);
+DialogResourceDiagnostic.displayName = "DialogResourceDiagnostic";
+
 export {
   Dialog,
   DialogPortal,
@@ -98,4 +127,5 @@ export {
   DialogFooter,
   DialogTitle,
   DialogDescription,
+  DialogResourceDiagnostic,
 };

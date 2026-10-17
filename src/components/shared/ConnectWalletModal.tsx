@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -11,6 +11,11 @@ import {
   CheckCircle2,
   Loader2,
   ArrowRight,
+  Fingerprint,
+  Usb,
+  ChevronDown,
+  Cpu,
+  Activity,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import type { WalletType } from "../../lib/stellar";
@@ -22,7 +27,52 @@ export const ConnectWalletModal: React.FC = () => {
   const [customKey, setCustomKey] = useState("");
   const [showReadOnlyInput, setShowReadOnlyInput] = useState(false);
 
+  // Ledger hardware path state
+  const [showLedgerSettings, setShowLedgerSettings] = useState(false);
+  const [ledgerAccountIndex, setLedgerAccountIndex] = useState(0);
+  const [customBipPath, setCustomBipPath] = useState("m/44'/148'/0'");
+  const [useCustomPath, setUseCustomPath] = useState(false);
+
+  // Soroban resource diagnostic state
+  const [showResourceDiagnostic, setShowResourceDiagnostic] = useState(false);
+  const [devModeEnabled, setDevModeEnabled] = useState(false);
+  const [simulationData, setSimulationData] = useState<SorobanSimulationResult | null>(null);
+
   if (!isWalletModalOpen) return null;
+
+  const getActiveBipPath = () => {
+    if (useCustomPath) {
+      return customBipPath.trim() || "m/44'/148'/0'";
+    }
+    return `m/44'/148'/${ledgerAccountIndex}'`;
+  };
+
+  const resourceDiagnostic = useMemo(() => {
+    if (!simulationData) return null;
+    const { minResourceFee, cpuInstructions, memoryBytes, ledgerReadBytes, ledgerWriteBytes } =
+      simulationData;
+    const warnings: string[] = [];
+    if (cpuInstructions > 100_000_000) {
+      warnings.push("High CPU instruction count — contract footprint may be unoptimized.");
+    }
+    if (memoryBytes > 40 * 1024 * 1024) {
+      warnings.push("Memory usage exceeds 40MB — consider reducing contract state size.");
+    }
+    if (ledgerWriteBytes > 100_000) {
+      warnings.push("Large ledger write footprint — batch or minimize storage writes.");
+    }
+    if (ledgerReadBytes > 500_000) {
+      warnings.push("Heavy ledger read footprint — cache or reduce cross-contract calls.");
+    }
+    return {
+      minResourceFee,
+      cpuInstructions,
+      memoryBytes,
+      ledgerReadBytes,
+      ledgerWriteBytes,
+      warnings,
+    };
+  }, [simulationData]);
 
   const handleSelectWallet = async (type: WalletType) => {
     if (type === "readonly" && !showReadOnlyInput) {
@@ -42,13 +92,19 @@ export const ConnectWalletModal: React.FC = () => {
           );
         }
         await connectWallet("readonly", trimmed);
+      } else if (type === "ledger") {
+        const bipPath = getActiveBipPath();
+        await connectWallet("ledger", undefined, bipPath);
       } else {
         await connectWallet(type);
       }
       closeWalletModal();
     } catch (err: any) {
       console.error("Wallet connection error:", err);
-      setErrorMessage(err.message || "Failed to connect wallet. Please try again.");
+      setErrorMessage(
+        err.message ||
+          "Failed to connect wallet. Please ensure your device is ready and try again.",
+      );
     } finally {
       setConnectingType(null);
     }
@@ -56,16 +112,30 @@ export const ConnectWalletModal: React.FC = () => {
 
   const walletOptions = [
     {
-      id: "albedo" as WalletType,
-      name: "Albedo",
-      badge: "Mobile Recommended",
+      id: "passkey" as WalletType,
+      name: "Continue with Passkey",
+      badge: "FaceID / Fingerprint",
+      badgeColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
+      description:
+        "Zero-install smart wallet. Sign instantly using Apple FaceID, TouchID, or Android biometrics with sponsored platform gas.",
+      icon: Fingerprint,
+      accent: "from-blue-600 to-indigo-600",
+      borderHover:
+        "hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 border-blue-500/30 bg-blue-50/20 dark:bg-blue-950/10",
+      featured: true,
+    },
+    {
+      id: "ledger" as WalletType,
+      name: "Ledger Hardware Wallet",
+      badge: "Direct USB / WebHID",
       badgeColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
       description:
-        "Universal web wallet. Works on all iOS Safari, Android, & Desktop browsers with zero install.",
-      icon: Smartphone,
-      accent: "from-emerald-500 to-teal-600",
+        "Sign high-value campaign escrows & contracts directly on your Ledger Nano S/X/Plus hardware screen.",
+      icon: Usb,
+      accent: "from-emerald-600 to-teal-700",
       borderHover:
         "hover:border-emerald-500/50 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20",
+      hasSettings: true,
     },
     {
       id: "freighter" as WalletType,
@@ -77,6 +147,18 @@ export const ConnectWalletModal: React.FC = () => {
       icon: Shield,
       accent: "from-purple-500 to-indigo-600",
       borderHover: "hover:border-purple-500/50 hover:bg-purple-50/50 dark:hover:bg-purple-950/20",
+    },
+    {
+      id: "albedo" as WalletType,
+      name: "Albedo",
+      badge: "Universal Web Wallet",
+      badgeColor: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+      description:
+        "Universal web wallet. Works on all iOS Safari, Android, & Desktop browsers with zero install.",
+      icon: Smartphone,
+      accent: "from-emerald-500 to-teal-600",
+      borderHover:
+        "hover:border-emerald-500/50 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20",
     },
     {
       id: "xbull" as WalletType,
@@ -127,14 +209,14 @@ export const ConnectWalletModal: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                  Stellar Network
+                  Stellar Network • Soroban Smart Accounts
                 </span>
               </div>
               <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight mt-1">
                 Connect Stellar Wallet
               </h2>
               <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
-                Select your preferred wallet to access Soroban smart contracts.
+                Select your preferred hardware, biometric passkey, or extension wallet.
               </p>
             </div>
             <button
@@ -154,9 +236,47 @@ export const ConnectWalletModal: React.FC = () => {
             >
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-rose-500" />
               <div className="flex-1">
-                <span className="font-semibold block">Connection Error</span>
+                <span className="font-semibold block">Connection Notice</span>
                 <span>{errorMessage}</span>
               </div>
+            </motion.div>
+          )}
+
+          {/* Connecting State Prompt */}
+          {connectingType === "ledger" && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mx-6 mt-4 p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl text-xs text-emerald-800 dark:text-emerald-300 space-y-1.5"
+            >
+              <div className="flex items-center space-x-2 font-bold">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                <span>Connecting to Ledger Hardware Wallet...</span>
+              </div>
+              <ol className="list-decimal list-inside space-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400 pl-1">
+                <li>Connect Ledger via USB or Bluetooth.</li>
+                <li>Enter your PIN to unlock the device.</li>
+                <li>Open the official Stellar app on your device screen.</li>
+                <li>
+                  Derivation Path: <span className="font-mono font-bold">{getActiveBipPath()}</span>
+                </li>
+              </ol>
+            </motion.div>
+          )}
+
+          {connectingType === "passkey" && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              className="mx-6 mt-4 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 rounded-2xl text-xs text-blue-800 dark:text-blue-300 space-y-1.5"
+            >
+              <div className="flex items-center space-x-2 font-bold">
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                <span>Awaiting Biometric Authentication...</span>
+              </div>
+              <p className="text-[11px] text-blue-700 dark:text-blue-400">
+                Please complete FaceID, TouchID, or fingerprint verification on your browser prompt.
+              </p>
             </motion.div>
           )}
 
@@ -167,40 +287,104 @@ export const ConnectWalletModal: React.FC = () => {
               const isBusy = connectingType === wallet.id;
 
               return (
-                <button
-                  key={wallet.id}
-                  disabled={connectingType !== null}
-                  onClick={() => handleSelectWallet(wallet.id)}
-                  className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
-                    isBusy ? "opacity-70 pointer-events-none" : ""
-                  }`}
-                >
-                  <div
-                    className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${wallet.accent} flex items-center justify-center text-white shadow-md shrink-0 group-hover:scale-105 transition-transform`}
+                <div key={wallet.id} className="space-y-2">
+                  <button
+                    disabled={connectingType !== null}
+                    onClick={() => handleSelectWallet(wallet.id)}
+                    className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
+                      isBusy ? "opacity-70 pointer-events-none" : ""
+                    }`}
                   >
-                    {isBusy ? (
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                    ) : (
-                      <Icon className="w-5 h-5" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-sm sm:text-base text-zinc-900 dark:text-white truncate">
-                        {wallet.name}
-                      </span>
-                      <span
-                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${wallet.badgeColor}`}
-                      >
-                        {wallet.badge}
-                      </span>
+                    <div
+                      className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${wallet.accent} flex items-center justify-center text-white shadow-md shrink-0 group-hover:scale-105 transition-transform`}
+                    >
+                      {isBusy ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Icon className="w-5 h-5" />
+                      )}
                     </div>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-relaxed">
-                      {wallet.description}
-                    </p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold text-sm sm:text-base text-zinc-900 dark:text-white truncate">
+                          {wallet.name}
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${wallet.badgeColor}`}
+                        >
+                          {wallet.badge}
+                        </span>
+                      </div>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-relaxed">
+                        {wallet.description}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
+                  </button>
+
+                  {/* Ledger Derivation Path Customizer Accordion */}
+                  {wallet.id === "ledger" && (
+                    <div className="px-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowLedgerSettings(!showLedgerSettings)}
+                        className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center space-x-1 transition-colors"
+                      >
+                        <span>Derivation Path: {getActiveBipPath()}</span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 transition-transform ${showLedgerSettings ? "rotate-180" : ""}`}
+                        />
+                      </button>
+
+                      {showLedgerSettings && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          className="mt-2 p-3.5 bg-slate-100/70 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/60 space-y-2 text-xs"
+                        >
+                          <div className="font-bold text-zinc-800 dark:text-zinc-200">
+                            BIP-44 Derivation Path Selection
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            {[0, 1, 2].map((idx) => (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => {
+                                  setLedgerAccountIndex(idx);
+                                  setUseCustomPath(false);
+                                }}
+                                className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition-colors ${
+                                  !useCustomPath && ledgerAccountIndex === idx
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
+                                }`}
+                              >
+                                Account #{idx} (m/44'/148'/{idx}')
+                              </button>
+                            ))}
+                          </div>
+
+                          <div className="pt-1">
+                            <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">
+                              Or Custom BIP-44 Path
+                            </label>
+                            <input
+                              type="text"
+                              value={customBipPath}
+                              onChange={(e) => {
+                                setCustomBipPath(e.target.value);
+                                setUseCustomPath(true);
+                              }}
+                              placeholder="m/44'/148'/0'"
+                              className="w-full px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono text-zinc-900 dark:text-white"
+                            />
+                          </div>
+                        </motion.div>
+                      )}
+                    </div>
+                  )}
+                </div>
               );
             })}
 
@@ -247,13 +431,128 @@ export const ConnectWalletModal: React.FC = () => {
                 </motion.div>
               )}
             </div>
+
+            {/* Soroban Resource Diagnostic Accordion */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResourceDiagnostic(!showResourceDiagnostic)}
+                className="w-full py-2.5 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white flex items-center justify-between transition-colors"
+              >
+                <span className="flex items-center space-x-2">
+                  <Activity className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Resource Diagnostic</span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform ${showResourceDiagnostic ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {showResourceDiagnostic && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="mt-2 p-3.5 bg-slate-100/70 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/60 space-y-3 text-xs"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                      Soroban Simulation Budget
+                    </span>
+                    <label className="flex items-center space-x-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={devModeEnabled}
+                        onChange={(e) => setDevModeEnabled(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded accent-indigo-600"
+                      />
+                      <span className="text-[10px] uppercase font-bold text-zinc-500">
+                        Dev Mode
+                      </span>
+                    </label>
+                  </div>
+
+                  {!devModeEnabled ? (
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      Enable Dev Mode to reveal CPU instruction and memory resource consumption
+                      breakdown from <span className="font-mono">simulateTransaction</span>.
+                    </p>
+                  ) : !resourceDiagnostic ? (
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      No simulation data available. Run a testnet RPC{" "}
+                      <span className="font-mono">simulateTransaction</span> to populate resource
+                      metrics.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="p-2 bg-white dark:bg-zinc-900 rounded-lg border border-slate-200 dark:border-zinc-700">
+                          <div className="text-[10px] uppercase font-bold text-zinc-500 flex items-center">
+                            <Cpu className="w-3 h-3 mr-1 text-indigo-500" />
+                            CPU Instructions
+                          </div>
+                          <div className="font-mono font-bold text-zinc-900 dark:text-white mt-0.5">
+                            {resourceDiagnostic.cpuInstructions.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="p-2 bg-white dark:bg-zinc-900 rounded-lg border border-slate-200 dark:border-zinc-700">
+                          <div className="text-[10px] uppercase font-bold text-zinc-500 flex items-center">
+                            <Activity className="w-3 h-3 mr-1 text-emerald-500" />
+                            Memory Bytes
+                          </div>
+                          <div className="font-mono font-bold text-zinc-900 dark:text-white mt-0.5">
+                            {resourceDiagnostic.memoryBytes.toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="p-2 bg-white dark:bg-zinc-900 rounded-lg border border-slate-200 dark:border-zinc-700">
+                          <div className="text-[10px] uppercase font-bold text-zinc-500">
+                            Ledger Read
+                          </div>
+                          <div className="font-mono font-bold text-zinc-900 dark:text-white mt-0.5">
+                            {resourceDiagnostic.ledgerReadBytes.toLocaleString()} B
+                          </div>
+                        </div>
+                        <div className="p-2 bg-white dark:bg-zinc-900 rounded-lg border border-slate-200 dark:border-zinc-700">
+                          <div className="text-[10px] uppercase font-bold text-zinc-500">
+                            Ledger Write
+                          </div>
+                          <div className="font-mono font-bold text-zinc-900 dark:text-white mt-0.5">
+                            {resourceDiagnostic.ledgerWriteBytes.toLocaleString()} B
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between p-2 bg-indigo-50 dark:bg-indigo-950/30 rounded-lg border border-indigo-200 dark:border-indigo-800/50">
+                        <span className="text-[10px] uppercase font-bold text-indigo-700 dark:text-indigo-300">
+                          Min Resource Fee
+                        </span>
+                        <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                          {resourceDiagnostic.minResourceFee} stroops
+                        </span>
+                      </div>
+                      {resourceDiagnostic.warnings.length > 0 && (
+                        <div className="space-y-1">
+                          {resourceDiagnostic.warnings.map((w, i) => (
+                            <div
+                              key={i}
+                              className="flex items-start space-x-1.5 p-2 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-300"
+                            >
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                              <span className="text-[11px] leading-relaxed">{w}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </div>
           </div>
 
           {/* Footer Note */}
           <div className="p-4 bg-slate-50 dark:bg-zinc-950/60 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
             <span className="flex items-center">
               <Shield className="w-3.5 h-3.5 mr-1.5 text-indigo-500" />
-              Non-custodial & secure
+              Non-custodial, WebHID & WebAuthn P-256
             </span>
             <a
               href="https://stellar.org/soroban"
