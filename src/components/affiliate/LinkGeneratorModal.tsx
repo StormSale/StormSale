@@ -181,7 +181,7 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
       showNotification({
         type: "success",
         title: "Short Link Generated!",
-        message: `Custom slug '/c/${newLink.slug}' is ready with active tracking headers.`,
+        message: `Custom slug '/c/${newLink.slug}' is ready with attribution parameters.`,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to create custom short link.";
@@ -397,7 +397,7 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
               >
                 <span className="flex items-center gap-2">
                   <Sliders className="w-4 h-4 text-indigo-500" />
-                  Preserved Attribution & UTM Headers
+                  Preserved Attribution & UTM Parameters
                 </span>
                 {showAdvanced ? (
                   <ChevronUp className="w-4 h-4 text-zinc-400" />
