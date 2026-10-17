@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer } from "./stellar";
+import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri } from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
@@ -31,5 +31,23 @@ describe("Stellar Helpers", () => {
   it("initializes Soroban RPC client with configured endpoint", () => {
     const server = getSorobanRpcServer();
     expect(server).toBeDefined();
+  });
+
+  it("builds a SEP-0007 tx URI with base64 XDR and replace=false", () => {
+    const xdr = "AAAAAgAAAAB=";
+    const uri = buildSep0007TxUri(xdr);
+    expect(uri).toBe(`web+stellar:tx?xdr=${encodeURIComponent(xdr)}&replace=false`);
+  });
+
+  it("encodes XDR containing reserved URI characters", () => {
+    const xdr = "AAA+/A==&?";
+    const uri = buildSep0007TxUri(xdr);
+    expect(uri.startsWith("web+stellar:tx?xdr=")).toBe(true);
+    expect(uri.endsWith("&replace=false")).toBe(true);
+    expect(uri).not.toContain("?xdr=AAA+/A==&?");
+  });
+
+  it("rejects empty XDR when building a SEP-0007 tx URI", () => {
+    expect(() => buildSep0007TxUri("")).toThrow();
   });
 });

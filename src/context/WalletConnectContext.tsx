@@ -1,12 +1,15 @@
 import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
+import { buildSep7TxUri, pollTransactionInclusion } from "../lib/stellar";
 
 interface WalletConnectState {
   isConnecting: boolean;
   isSwitchingNetwork: boolean;
   error: string | null;
   showNetworkModal: boolean;
+  sep7Uri: string | null;
+  isAwaitingSep7Confirmation: boolean;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -15,6 +18,7 @@ interface WalletConnectContextType extends WalletConnectState {
   ensureStellarNetwork: () => Promise<boolean>;
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
+  signWithSep7MobileWallet: (xdr: string, account: string) => Promise<void>;
 }
 
 const WalletConnectContext = createContext<WalletConnectContextType | undefined>(undefined);
@@ -29,6 +33,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     isSwitchingNetwork: false,
     error: null,
     showNetworkModal: false,
+    sep7Uri: null,
+    isAwaitingSep7Confirmation: false,
   });
 
   const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
@@ -62,6 +68,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       isSwitchingNetwork: false,
       error: null,
       showNetworkModal: false,
+      sep7Uri: null,
+      isAwaitingSep7Confirmation: false,
     });
   };
 
@@ -103,6 +111,27 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, showNetworkModal: show }));
   };
 
+  const signWithSep7MobileWallet = async (xdr: string, account: string): Promise<void> => {
+    setState((prev) => ({
+      ...prev,
+      error: null,
+      sep7Uri: buildSep7TxUri(xdr),
+      isAwaitingSep7Confirmation: true,
+    }));
+
+    try {
+      await pollTransactionInclusion(account);
+      setState((prev) => ({ ...prev, isAwaitingSep7Confirmation: false }));
+    } catch (error: any) {
+      console.error("SEP-0007 confirmation error:", error);
+      setState((prev) => ({
+        ...prev,
+        isAwaitingSep7Confirmation: false,
+        error: error.message || "Failed to confirm transaction on the Stellar ledger",
+      }));
+    }
+  };
+
   const contextValue: WalletConnectContextType = {
     ...state,
     connect,
@@ -110,6 +139,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     ensureStellarNetwork,
     clearError,
     setShowNetworkModal,
+    signWithSep7MobileWallet,
   };
 
   return (
