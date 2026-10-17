@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useRef, useEffect, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -32,24 +32,31 @@ export interface Notification {
   campaignId?: string;
 }
 
-export interface TransactionPollingState {
-  isPolling: boolean;
-  attempt: number;
-  elapsedMs: number;
-  timedOut: boolean;
-  txHash?: string;
+export interface TransactionPollingOptions {
+  /** Maximum number of polling attempts before timing out. Default: 10 */
+  maxAttempts?: number;
+  /** Initial delay in ms before the first retry. Default: 1000 */
+  initialDelayMs?: number;
+  /** Multiplier applied to the delay after each failed attempt. Default: 2 */
+  backoffFactor?: number;
+  /** Upper bound for the delay between attempts in ms. Default: 30000 */
+  maxDelayMs?: number;
+  /** Optional callback invoked when polling times out. */
+  onTimeout?: (info: { attempts: number; lastError?: unknown }) => void;
+  /** Optional callback invoked on each failed attempt. */
+  onRetry?: (info: { attempt: number; delayMs: number; error?: unknown }) => void;
 }
 
-export interface TransactionPollingOptions {
-  txHash: string;
-  checkStatus: () => Promise<"pending" | "success" | "failed">;
-  initialDelayMs?: number;
-  maxDelayMs?: number;
-  backoffFactor?: number;
-  timeoutMs?: number;
-  onSuccess?: (txHash: string) => void;
-  onFailure?: (txHash: string) => void;
-  onTimeout?: (txHash: string, state: TransactionPollingState) => void;
+export interface TransactionPollingResult {
+  confirmed: boolean;
+  attempts: number;
+  timedOut: boolean;
+  lastError?: unknown;
+}
+
+export interface TransactionPollingHandle {
+  cancel: () => void;
+  promise: Promise<TransactionPollingResult>;
 }
 
 export interface NotificationContextType {
@@ -64,11 +71,17 @@ export interface NotificationContextType {
     topUpUrl?: string;
     onTopUp?: () => void;
   }) => string;
-  checkEscrowBalances: (campaigms: EscrowMonitoredCampaign[]) => void;
+  checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
-  startTransactionPolling: (options: TransactionPollingOptions) => void;
-  stopTransactionPolling: (txHash: string) => void;
-  getPollingState: (txHash: string) => TransactionPollingState | undefined;
+  pollTransaction: (
+    checkFn: () => Promise<boolean>,
+    options?: TransactionPollingOptions,
+  ) => TransactionPollingHandle;
+  notifyTransactionTimeout: (params: {
+    txHash?: string;
+    onRetry: () => void;
+    attempts?: number;
+  }) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -99,33 +112,6 @@ export function evaluateCampaignEscrowLevel(campaign: EscrowMonitoredCampaign): 
 }
 
 /**
- * Computes the next polling delay using exponential backoff with a cap.
- */
-export function computeBackoffDelay(
-  attempt: number,
-  initialDelayMs = 1000,
-  backoffFactor = 2,
-  maxDelayMs = 30000,
-): number {
-  const delay = initialDelayMs * Math.pow(backoffFactor, Math.max(0, attempt));
-  return Math.min(delay, maxDelayMs);
-}
-
-/**
- * Builds a persistent timeout notification with a retry prompt action.
- */
-export function buildTransactionTimeoutNotification(txHash: string): Omit<Notification, "id"> {
-  return {
-    type: "warning",
-    title: "Transaction Confirmation Timed Out",
-    message: `We could not confirm transaction ${txHash.slice(0, 10)}... within the expected time. It may still be pending on-chain.`,
-    persistent: true,
-    duration: 0,
-    actionLabel: "Retry Confirmation",
-  };
-}
-
-/**
  * Builds a structured persistent notification payload with Top Up flow action details.
  */
 export function buildLowEscrowNotification(params: {
@@ -144,8 +130,8 @@ export function buildLowEscrowNotification(params: {
     type: "warning",
     title: `Low Escrow Alert: ${params.campaignName}`,
     message: `Remaining balance is critically low at ${params.remainingXlm.toLocaleString()} XLM (${params.percentageRemaining.toFixed(
-       1,
-     )}%). Payouts will stall if escrow is exhausted.`,
+      1,
+    )}%). Payouts will stall if escrow is exhausted.`,
     persistent: true,
     duration: 0,
     campaignId: params.campaignId,
@@ -155,12 +141,52 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Computes the delay for a given polling attempt using exponential backoff.
+ * Attempt 0 returns initialDelayMs; each subsequent attempt multiplies by backoffFactor,
+ * clamped to maxDelayMs.
+ */
+export function computeBackoffDelay(
+  attempt: number,
+  options: Pick<TransactionPollingOptions, "initialDelayMs" | "backoffFactor" | "maxDelayMs"> = {},
+): number {
+  const initialDelayMs = options.initialDelayMs ?? 1000;
+  const backoffFactor = options.backoffFactor ?? 2;
+  const maxDelayMs = options.maxDelayMs ?? 30000;
+  const safeAttempt = Math.max(0, attempt);
+  const raw = initialDelayMs * Math.pow(backoffFactor, safeAttempt);
+  return Math.min(raw, maxDelayMs);
+}
+
+/**
+ * Builds a persistent notification prompting the user to retry a timed-out transaction.
+ */
+export function buildTransactionTimeoutNotification(params: {
+  txHash?: string;
+  onRetry: () => void;
+  attempts?: number;
+}): Omit<Notification, "id"> {
+  const attemptsText = params.attempts ? ` after ${params.attempts} attempts` : "";
+  return {
+    type: "error",
+    title: "Transaction Confirmation Timed Out",
+    message: `We could not confirm your transaction${attemptsText}.${
+      params.txHash ? ` Hash: ${params.txHash.slice(0, 10)}…` : ""
+    } You can retry polling or check the explorer.`,
+    persistent: true,
+    duration: 0,
+    actionLabel: "Retry",
+    onAction: params.onRetry,
+  };
+}
+
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const pollingStatesRef = useRef<Map<string, TransactionPollingState>>(new Map());
-  const pollingTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // Track active polling handles so they can be cancelled on unmount.
+  const activePollsRef = useRef<Set<() => void>>(new Set());
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -169,15 +195,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   const clearAllNotifications = () => {
     setNotifications([]);
   };
-
-  const stopTransactionPolling = useCallback((txHash: string) => {
-    const timer = pollingTimersRef.current.get(txHash);
-    if (timer) {
-      clearTimeout(timer);
-      pollingTimersRef.current.delete(txHash);
-    }
-    pollingStatesRef.current.delete(txHash);
-  }, []);
 
   const showNotification = (notification: Omit<Notification, "id">): string => {
     const id = Math.random().toString(36).substring(2, 11);
@@ -201,125 +218,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     return id;
   };
-
-  const startTransactionPolling = useCallback(
-    (options: TransactionPollingOptions) => {
-      const {
-        txHash,
-        checkStatus,
-        initialDelayMs = 1000,
-        maxDelayMs = 30000,
-        backoffFactor = 2,
-        timeoutMs = 120000,
-        onSuccess,
-        onFailure,
-        onTimeout,
-      } = options;
-
-      // Reset any existing polling for this tx
-      const existingTimer = pollingTimersRef.current.get(txHash);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-        pollingTimersRef.current.delete(txHash);
-      }
-
-      const startedAt = Date.now();
-      const initialState: TransactionPollingState = {
-        isPolling: true,
-        attempt: 0,
-        elapsedMs: 0,
-        timedOut: false,
-        txHash,
-      };
-      pollingStatesRef.current.set(txHash, initialState);
-
-      const runAttempt = async (attempt: number) => {
-        const elapsed = Date.now() - startedAt;
-
-        if (elapsed >= timeoutMs) {
-          pollingStatesRef.current.set(txHash, {
-            isPolling: false,
-            attempt,
-            elapsedMs: elapsed,
-            timedOut: true,
-            txHash,
-          });
-          pollingTimersRef.current.delete(txHash);
-
-          const timeoutNotification = buildTransactionTimeoutNotification(txHash);
-          showNotification({
-            ...timeoutNotification,
-            onAction: () => {
-              startTransactionPolling(options);
-            },
-          });
-
-          if (onTimeout) onTimeout(txHash, pollingStatesRef.current.get(txHash)!);
-          return;
-        }
-
-        try {
-          const status = await checkStatus();
-          if (status === "success") {
-            pollingStatesRef.current.set(txHash, {
-              isPolling: false,
-              attempt,
-              elapsedMs: Date.now() - startedAt,
-              timedOut: false,
-              txHash,
-            });
-            pollingTimersRef.current.delete(txHash);
-            if (onSuccess) onSuccess(txHash);
-            return;
-          }
-          if (status === "failed") {
-            pollingStatesRef.current.set(txHash, {
-              isPolling: false,
-              attempt,
-              elapsedMs: Date.now() - startedAt,
-              timedOut: false,
-              txHash,
-            });
-            pollingTimersRef.current.delete(txHash);
-            if (onFailure) onFailure(txHash);
-            return;
-          }
-        } catch {
-          // Treat transient errors as pending and continue polling
-        }
-
-        const nextAttempt = attempt + 1;
-        const delay = computeBackoffDelay(nextAttempt, initialDelayMs, backoffFactor, maxDelayMs);
-        pollingStatesRef.current.set(txHash, {
-          isPolling: true,
-          attempt: nextAttempt,
-          elapsedMs: Date.now() - startedAt,
-          timedOut: false,
-          txHash,
-        });
-
-        const timer = setTimeout(() => {
-          runAttempt(nextAttempt);
-        }, delay);
-        pollingTimersRef.current.set(txHash, timer);
-      };
-
-      runAttempt(0);
-    },
-    [showNotification],
-  );
-
-  const getPollingState = useCallback((txHash: string) => {
-    return pollingStatesRef.current.get(txHash);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      pollingTimersRef.current.forEach((timer) => clearTimeout(timer));
-      pollingTimersRef.current.clear();
-      pollingStatesRef.current.clear();
-    };
-  }, []);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = (params: {
@@ -353,6 +251,113 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     });
   };
 
+  // Exponential-backoff polling for blockchain transaction confirmation.
+  const pollTransaction = useCallback(
+    (
+      checkFn: () => Promise<boolean>,
+      options: TransactionPollingOptions = {},
+    ): TransactionPollingHandle => {
+      const maxAttempts = options.maxAttempts ?? 10;
+      let cancelled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const cancelRef: { current: () => void } = { current: () => {} };
+
+      const promise = new Promise<TransactionPollingResult>((resolve) => {
+        const finish = (result: TransactionPollingResult) => {
+          if (timer) {
+            clearTimeout(timer);
+            timer = null;
+          }
+          activePollsRef.current.delete(cancelRef.current);
+          resolve(result);
+        };
+
+        cancelRef.current = () => {
+          cancelled = true;
+          finish({ confirmed: false, attempts: 0, timedOut: false });
+        };
+        activePollsRef.current.add(cancelRef.current);
+
+        const attempt = async (attemptIndex: number, lastError?: unknown) => {
+          if (cancelled) return;
+
+          if (attemptIndex >= maxAttempts) {
+            const result: TransactionPollingResult = {
+              confirmed: false,
+              attempts: attemptIndex,
+              timedOut: true,
+              lastError,
+            };
+            if (options.onTimeout) {
+              try {
+                options.onTimeout({ attempts: attemptIndex, lastError });
+              } catch {
+                // swallow callback errors
+              }
+            }
+            finish(result);
+            return;
+          }
+
+          let confirmed = false;
+          let error: unknown = lastError;
+          try {
+            confirmed = await checkFn();
+          } catch (err) {
+            error = err;
+          }
+
+          if (cancelled) return;
+
+          if (confirmed) {
+            finish({
+              confirmed: true,
+              attempts: attemptIndex + 1,
+              timedOut: false,
+              lastError: error,
+            });
+            return;
+          }
+
+          const delayMs = computeBackoffDelay(attemptIndex, options);
+          if (options.onRetry) {
+            try {
+              options.onRetry({ attempt: attemptIndex + 1, delayMs, error });
+            } catch {
+              // swallow callback errors
+            }
+          }
+
+          timer = setTimeout(() => {
+            void attempt(attemptIndex + 1, error);
+          }, delayMs);
+        };
+
+        void attempt(0);
+      });
+
+      return { cancel: () => cancelRef.current(), promise };
+    },
+    [],
+  );
+
+  const notifyTransactionTimeout = (params: {
+    txHash?: string;
+    onRetry: () => void;
+    attempts?: number;
+  }): string => {
+    return showNotification(buildTransactionTimeoutNotification(params));
+  };
+
+  // Cancel any in-flight polls when the provider unmounts.
+  useEffect(() => {
+    const polls = activePollsRef.current;
+    return () => {
+      polls.forEach((cancel) => cancel());
+      polls.clear();
+    };
+  }, []);
+
   return (
     <NotificationContext.Provider
       value={{
@@ -362,9 +367,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
-        startTransactionPolling,
-        stopTransactionPolling,
-        getPollingState,
+        pollTransaction,
+        notifyTransactionTimeout,
       }}
     >
       {children}
@@ -381,7 +385,7 @@ const NotificationContainer: React.FC = () => {
       case "success":
         return <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />;
       case "error":
-        return <XCircle2 className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />;
+        return <XCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />;
       case "warning":
         return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />;
       case "info":
@@ -394,81 +398,130 @@ const NotificationContainer: React.FC = () => {
   const getBackgroundColor = (type: NotificationType) => {
     switch (type) {
       case "success":
-        return "bg-emerald-50/95 border-emerald-200";
+        return "bg-white dark:bg-zinc-900 border-emerald-300 dark:border-emerald-800/80 shadow-emerald-500/10";
       case "error":
-        return "bg-rose-50/95 border-rose-200";
+        return "bg-white dark:bg-zinc-900 border-rose-300 dark:border-rose-800/80 shadow-rose-500/10";
       case "warning":
-        return "bg-amber-50/95 border-amber-200";
+        return "bg-white dark:bg-zinc-900 border-amber-300 dark:border-amber-800/80 shadow-amber-500/10";
       case "info":
-        return "bg-indigo-50/95 border-indigo-200";
+        return "bg-white dark:bg-zinc-900 border-indigo-300 dark:border-indigo-800/80 shadow-indigo-500/10";
       default:
-        return "bg-zinc-50/95 border-zinc-200";
+        return "bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800 shadow-zinc-500/10";
     }
   };
 
   if (notifications.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2 p-4">
-      {notifications.map((n) => (
-        <div
-          key={N.id}
-          className={`pointer-events-auto flex items-start gap-3 rounded-lg border p-4 shadow-lg ${getBackgroundColor(n.type)}`}
-        >
-          {getIcon(n.type)}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-zinc-900">{n.title}</p>
-            {n.message && (
-              <p className="mt-1 text-sm text-zinc-600">{n.message}</p>
-            )}
-            {(n.actionLabel || n.action) && (
-              <div className="mt-2 flex items-center gap-2">
-                {n.actionUrl ? (
-                  <a
-                    href={n.actionUrl}
-                    onClick={() => {
-                      n.onAction && n.onAction();
-                      dismissNotification(n.id);
-                    }}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-                  >
-                    {n.actionLabel || n.action?.label}
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      n.onAction && n.onAction();
-                      dismissNotification(n.id);
-                    }}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-                  >
-                    {n.actionLabel || n.action?.label}
-                    <ArrowRight className="w-3 h-3" />
-                  </button>
+    <div className="fixed top-4 right-4 z-50 space-y-3 max-w-md w-full px-4 sm:px-0">
+      {notifications.map((notification) => {
+        const actionLabel = notification.actionLabel || notification.action?.label;
+        const actionUrl = notification.actionUrl || notification.action?.url;
+
+        return (
+          <div
+            key={notification.id}
+            role="alert"
+            className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transform transition-all duration-300 ${getBackgroundColor(
+              notification.type,
+            )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
+          >
+            <div className="flex items-start space-x-3">
+              {getIcon(notification.type)}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
+                    {notification.title}
+                  </h4>
+                  {notification.persistent && (
+                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+                      Persistent Alert
+                    </span>
+                  )}
+                </div>
+
+                {notification.message && (
+                  <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
+                    {notification.message}
+                  </p>
+                )}
+
+                {/* Interactive Action: Link or Button to "Top Up" flow */}
+                {actionLabel && (
+                  <div className="mt-3 flex items-center gap-2 pt-1">
+                    {actionUrl ? (
+                      <a
+                        href={actionUrl}
+                        onClick={() => {
+                          if (notification.onAction) notification.onAction();
+                          if (notification.action?.onClick) notification.action.onClick();
+                          dismissNotification(notification.id);
+                        }}
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                      >
+                        <span>{actionLabel}</span>
+                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (notification.onAction) notification.onAction();
+                          if (notification.action?.onClick) notification.action.onClick();
+                          dismissNotification(notification.id);
+                        }}
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                      >
+                        <span>{actionLabel}</span>
+                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => dismissNotification(notification.id)}
+                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 )}
               </div>
-            )}
+
+              <button
+                type="button"
+                onClick={() => dismissNotification(notification.id)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
+                aria-label="Close notification"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => dismissNotification(n.id)}
-            className="shrink-0 rounded p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
-            aria-label="Dismiss notification"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
 
-export const useNotification = (): NotificationContextType => {
-  const ctx = useContext(NotificationContext);
-  if (!ctx) {
+export const useNotification = () => {
+  const context = useContext(NotificationContext);
+  if (context === undefined) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
-  return ctx;
+  return context;
 };
+
+export function NotificationWrapper({ children }: { children: React.ReactNode }) {
+  return <NotificationProvider>{children}</NotificationProvider>;
+}
+
+export function withNotification<P extends object>(Component: React.ComponentType<P>) {
+  return function WrappedWithNotification(props: P) {
+    return (
+      <NotificationProvider>
+        <Component {...props} />
+      </NotificationProvider>
+    );
+  };
+}
