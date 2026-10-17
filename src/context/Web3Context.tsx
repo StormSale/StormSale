@@ -16,6 +16,7 @@ import {
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
+import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 
@@ -161,6 +162,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setXlmBalance("10000.00");
       }
 
+      await assertNotSanctioned(address, `wallet-connect:${type}`);
+
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
@@ -213,6 +216,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     clearingPeriodSecs: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "create-campaign");
 
     console.log(
       `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
@@ -273,6 +277,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "claim-payout");
 
     console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
 
@@ -311,6 +316,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
   const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
       userAddress,
