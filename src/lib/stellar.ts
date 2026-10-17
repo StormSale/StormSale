@@ -521,28 +521,31 @@ export async function getCampaignContractQuery(campaignId: number): Promise<any>
 }
 
 /**
- * Bundles multiple affiliate commission claims across campaigns into a single atomic transaction envelope.
+ * Refunds remaining unused escrow balance from a completed or ended campaign back to advertiser.
  */
-export async function batchClaimPayoutsContractCall(
-  affiliateAddress: string,
-  campaignIds: number[],
+export async function refundCampaignEscrowContractCall(
+  advertiserAddress: string,
+  campaignId: number,
   walletType: WalletType = "freighter",
-): Promise<{ success: boolean; txHash: string; campaignIds: number[] }> {
-  const campaigns = campaignIds.map((id) => ({
-    campaignId: id,
-    campaignName: `Campaign #${id}`,
-    advertiserAddress: "",
-    maturedSalesCount: 1,
-    claimableXlm: 10,
-    clearingPeriodDays: 7,
-    lastSaleDate: new Date().toISOString(),
-    status: "matured" as const,
-  }));
-  const { executeBatchCommissionClaim } = await import("./batchClaim");
-  const receipt = await executeBatchCommissionClaim(affiliateAddress, campaigns, walletType);
+): Promise<{ success: boolean; txHash: string; refundedAmount?: number }> {
+  if (walletType === "mock" || advertiserAddress.startsWith("GASTORMSALE7") || !advertiserAddress) {
+    const mockHash =
+      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    return {
+      success: true,
+      txHash: mockHash,
+    };
+  }
+
+  const args: xdr.ScVal[] = [
+    new Address(advertiserAddress).toScVal(),
+    nativeToScVal(campaignId, { type: "u32" }),
+  ];
+
+  const result = await invokeSorobanMethod(advertiserAddress, "refund_escrow", args, walletType);
   return {
-    success: receipt.success,
-    txHash: receipt.txHash,
-    campaignIds,
+    success: true,
+    txHash: result.txHash,
   };
 }
+

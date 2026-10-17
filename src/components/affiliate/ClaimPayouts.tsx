@@ -24,6 +24,7 @@ import {
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
 import { motion, AnimatePresence } from "framer-motion";
+import { shouldDeliverAffiliateNotification } from "./AffiliateSettings";
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
@@ -85,11 +86,13 @@ export const ClaimPayouts = () => {
       );
       setSelectedIds([]);
 
-      showNotification({
-        type: "success",
-        title: "Batch Commission Claim Settled!",
-        message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
-      });
+      if (shouldDeliverAffiliateNotification("payout")) {
+        showNotification({
+          type: "success",
+          title: "Batch Commission Claim Settled!",
+          message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
+        });
+      }
     } catch (err: any) {
       console.error("Batch claim failure:", err);
       showNotification({
@@ -116,11 +119,13 @@ export const ClaimPayouts = () => {
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
-      showNotification({
-        type: "success",
-        title: "Commission Paid Out!",
-        message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
-      });
+      if (shouldDeliverAffiliateNotification("payout")) {
+        showNotification({
+          type: "success",
+          title: "Commission Paid Out!",
+          message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+        });
+      }
     } catch (err: any) {
       showNotification({
         type: "error",

@@ -1,14 +1,10 @@
-import React from "react";
+import React, { Suspense, useState } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
-import { Advertiser } from "./pages/Advertiser";
-import { Affiliate } from "./pages/Affiliate";
-import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
 
-import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { OfflineBanner } from "./components/OfflineBanner";
@@ -16,6 +12,16 @@ import { InstallPrompt } from "./components/InstallPrompt";
 import { PwaRegistrationFeedback } from "./components/PwaRegistrationFeedback";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
+
+const Advertiser = React.lazy(() =>
+  import("./pages/Advertiser").then((mod) => ({ default: mod.Advertiser })),
+);
+const Affiliate = React.lazy(() =>
+  import("./pages/Affiliate").then((mod) => ({ default: mod.Affiliate })),
+);
+const Auditor = React.lazy(() =>
+  import("./pages/Auditor").then((mod) => ({ default: mod.Auditor })),
+);
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -91,12 +97,20 @@ function Router() {
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
             )}
             {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
             )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            {currentPage === "auditor" && (
+              <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                <Auditor onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
+            )}
           </main>
         </div>
       )}
