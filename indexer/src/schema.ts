@@ -7,8 +7,11 @@ import type { CampaignRecord, ClaimRecord, SaleRecord } from "./types.js";
 const typeDefs = readFileSync(fileURLToPath(new URL("../schema.graphql", import.meta.url)), "utf8");
 
 type Page = { limit?: number; offset?: number };
-const page = <T>(rows: T[], limit = 100, offset = 0) =>
-  rows.slice(offset, offset + Math.min(limit, 1000));
+/** Slices a page. Negative offset or limit is treated as 0 and limit is capped at 1000. */
+const page = <T>(rows: T[], limit = 100, offset = 0) => {
+  const start = Math.max(offset, 0);
+  return rows.slice(start, start + Math.min(Math.max(limit, 0), 1000));
+};
 const sum = (xs: string[]) => xs.reduce((a, x) => a + BigInt(x), 0n).toString();
 
 export function buildSchema(store: Store) {

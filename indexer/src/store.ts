@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import type { CampaignRecord, ClaimRecord, IndexerState, SaleRecord } from "./types.js";
 
 interface Snapshot {
@@ -42,7 +42,10 @@ export class Store {
       claims: this.claims,
       state: this.state,
     };
-    writeFileSync(this.filePath, JSON.stringify(snap));
+        // Write to a temp file first, then rename, so a crash can't leave a half-written snapshot.
+    const tmp = `${this.filePath}.tmp`;
+    writeFileSync(tmp, JSON.stringify(snap));
+    renameSync(tmp, this.filePath);
   }
 
   /** Each add* is idempotent so re-polling the same ledgers never duplicates data. */

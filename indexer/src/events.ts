@@ -31,12 +31,13 @@ function toObject(data: unknown, fields: string[]): Native {
 const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 const num = (v: unknown) => Number(v ?? 0);
 
-export function applyEvent(store: Store, ev: rpc.Api.EventResponse, index = 0): boolean {
+/** Applies one contract event to the store. Returns true if the event was recognised. */
+export function applyEvent(store: Store, ev: rpc.Api.EventResponse, _index = 0): boolean {
   const topics = ev.topic.map((t) => scValToNative(t));
   const name = String(topics[0] ?? "");
   const data = scValToNative(ev.value);
   const when = new Date(ev.ledgerClosedAt).toISOString();
-  const id = `${ev.txHash}:${index}:${ev.id}`;
+    const id = ev.id;
   const topicCampaignId = topics[1] !== undefined ? num(topics[1]) : undefined;
 
   if ((EVENT_NAMES.campaignCreated as readonly string[]).includes(name)) {
