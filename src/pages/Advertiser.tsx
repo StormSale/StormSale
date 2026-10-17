@@ -8,6 +8,7 @@ import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
+import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
@@ -21,6 +22,7 @@ import {
   Megaphone,
   Radio,
   Palette,
+  FileSpreadsheet,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -37,6 +39,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
+    { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
     { id: "analytics", label: "Campaign Analytics", icon: BarChart3 },
@@ -50,6 +53,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <BrandCustomizer />;
       case "log-sale":
         return <LogSaleForm />;
+      case "batch-sales":
+        return <BatchSaleUploader />;
       case "webhooks":
         return <WebhookManager />;
       case "grant-access":
@@ -332,6 +337,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-emerald-500/10",
                   hoverText: "group-hover:text-emerald-500",
                   hoverBorder: "hover:border-emerald-500/30",
+                },
+                {
+                  label: "Batch Sale Uploader",
+                  icon: FileSpreadsheet,
+                  action: "batch-sales",
+                  hoverBg: "group-hover:bg-indigo-500/10",
+                  hoverText: "group-hover:text-indigo-500",
+                  hoverBorder: "hover:border-indigo-500/30",
                 },
                 {
                   label: "Webhooks",
