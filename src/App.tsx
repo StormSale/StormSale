@@ -1,5 +1,6 @@
 import React from "react";
 import { Web3Provider } from "./context/Web3Context";
+import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
@@ -105,9 +106,11 @@ function App() {
     <NotificationWrapper>
       <ErrorBoundary>
         <Web3Provider>
-          <NotificationProvider>
-            <Router />
-          </NotificationProvider>
+          <WalletConnectProvider>
+            <NotificationProvider>
+              <Router />
+            </NotificationProvider>
+          </WalletConnectProvider>
         </Web3Provider>
       </ErrorBoundary>
     </NotificationWrapper>
