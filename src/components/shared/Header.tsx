@@ -1,19 +1,19 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
-import { useEventStream } from "../../hooks/useEventStream";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, Radio } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
+import { useEventStream } from "../../hooks/useEventStream";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
-  const eventStream = useEventStream();
-  const status: "connected" | "polling" | "reconnecting" = (eventStream?.status as "connected" | "polling" | "reconnecting") ?? "polling";
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
+  const { status } = useEventStream();
+  const streamStatus: "connected" | "polling" | "reconnecting" = (status as "connected" | "polling" | "reconnecting") ?? "reconnecting";
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -26,31 +26,6 @@ export const Header = () => {
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
   ];
-
-  const statusConfig = {
-    connected: {
-      label: "Connected",
-      dot: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-50 dark:bg-emerald-950/40",
-      border: "border-emerald-500/30",
-    },
-    polling: {
-      label: "Polling",
-      dot: "bg-amber-500",
-      text: "text-amber-600 dark:text-amber-400",
-      bg: "bg-amber-50 dark:bg-amber-950/40",
-      border: "border-amber-500/30",
-    },
-    reconnecting: {
-      label: "Reconnecting",
-      dot: "bg-rose-500",
-      text: "text-rose-600 dark:text-rose-400",
-      bg: "bg-rose-50 dark:bg-rose-950/40",
-      border: "border-rose-500/30",
-    },
-  } as const;
-  const currentStatus = statusConfig[status] ?? statusConfig.polling;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
@@ -84,14 +59,17 @@ export const Header = () => {
           <ThemeToggle />
 
           <div
-            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border ${currentStatus.bg} ${currentStatus.border}`}
-            title={`Event stream: ${currentStatus.label}`}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wide ${
+              streamStatus === "connected"
+                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
+                : streamStatus === "polling"
+                ? "bg-amber-50 dark:bg-amber-950/40 border-amber-500/30 text-amber-600 dark:text-amber-400"
+                : "bg-rose-50 dark:bg-rose-950/40 border-rose-500/30 text-rose-600 dark:text-rose-400"
+            }`}
+            aria-live="polite"
           >
-            <Radio className={`w-3 h-3 ${currentStatus.text}`} />
-            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
-            <span className={`text-[10px] font-bold uppercase tracking-wide ${currentStatus.text}`}>
-              {currentStatus.label}
-            </span>
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            <span>{streamStatus === "connected" ? "Connected" : streamStatus === "polling" ? "Polling" : "Reconnecting"}</span>
           </div>
 
           {isConnected ? (
@@ -128,13 +106,6 @@ export const Header = () => {
         {/* Mobile / Tablet Controls (Right) */}
         <div className="flex sm:hidden items-center space-x-2">
           <ThemeToggle />
-          <div
-            className={`flex items-center space-x-1 px-2 py-1.5 rounded-xl border ${currentStatus.bg} ${currentStatus.border}`}
-            title={`Event stream: ${currentStatus.label}`}
-          >
-            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
-            <span className={`text-[10px] font-bold ${currentStatus.text}`}>{currentStatus.label}</span>
-          </div>
           {!isConnected ? (
             <Button
               size="sm"
@@ -194,17 +165,6 @@ export const Header = () => {
                 </div>
               </div>
             )}
-
-            <div className={`p-2.5 rounded-xl border flex items-center justify-between ${currentStatus.bg} ${currentStatus.border}`}>
-              <div className="flex items-center space-x-2">
-                <Radio className={`w-3.5 h-3.5 ${currentStatus.text}`} />
-                <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400">EVENT STREAM</span>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
-                <span className={`text-[11px] font-bold ${currentStatus.text}`}>{currentStatus.label}</span>
-              </div>
-            </div>
 
             <div className="grid grid-cols-2 gap-2">
               {navLinks.map((item) => (

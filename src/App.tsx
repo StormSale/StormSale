@@ -7,19 +7,17 @@ import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
-import { SorobanEventProvider, useSorobanEvents } from "./context/SorobanEventContext";
-import { useNotifications } from "./hooks/useNotifications";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
+import { SorobanEventStreamer, useSorobanEventStatus } from "./context/SorobanEventContext";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
->
-{
+> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false };
@@ -58,49 +56,32 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-const STATUS_STYLES: Record<string, { label: string; color: string; dot: string }> = {
-  connected: { label: "Connected", color: "text-emerald-700", dot: "bg-emerald-500" },
-  polling: { label: "Polling", color: "text-amber-700", dot: "bg-amber-500" },
-  reconnecting: { label: "Reconnecting", color: "text-rose-700", dot: "bg-rose-500" },
-  idle: { label: "Idle", color: "text-slate-600", dot: "bg-slate-400" },
-};
-
 function ConnectionStatusPill() {
-  const { status, lastEventAt } = useSorobanEvents();
-  const style = STATUS_STYLES[status] ?? STATUS_STYLES.idle;
+  const { status, lastEventAt } = useSorobanEventStatus();
+
+  const config = {
+    connected: { label: "Connected", dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
+    polling: { label: "Polling", dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50" },
+    reconnecting: { label: "Reconnecting", dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50" },
+  } as const;
+
+  const c = config[status];
+
   return (
     <div
-      className="fixed top-3 right-3 z-50 flex items-center gap-2 rounded-full border bg-white/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur"
+      className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm ${c.bg} ${c.text}`}
       role="status"
       aria-live="polite"
-      title={lastEventAt ? `Last event: ${new Date(lastEventAt).toLocaleTimeString()}` : "Awaiting for on-chain events"}
+      title={lastEventAt ? `Last event: ${lastEventAt.toLocaleString()}` : "Waiting for chain events"}
     >
-      <span className={` inline-block h-2 w-2 rounded-full ${style.dot}`} />
-      <span className={style.color}>{style.label}</span>
+      <span className={`relative flex h-2 w-2 rounded-full ${c.dot}`}>
+        {status === "connected" && (
+          <span className={`absolute inline-flex h-ifull w-full animate-ping rounded-full opacity-75-${c.dot}`} />
+        )}
+      </span>
+      {c.label}
     </div>
   );
-}
-
-function EventToastBridge() {
-  const { lastEvent } = useSorobanEvents();
-  const { notify } = useNotifications();
-
-  useEffect(() => {
-    if (!lastEvent) return;
-    const labels: Record<string, string> = {
-      create_campaign: "New campaign created",
-      log_sale: "Sale logged on-chain",
-      claim_payout: "Payout claimed",
-    };
-    const message = labels[lastEvent.topic] ?? "On-chain event received";
-    notify({
-      title: message,
-      message: lastEvent.contractId ? `Contract ${lastEvent.contractId}` : undefined,
-      type: "success",
-    });
-  }, [lastEvent, notify]);
-
-  return null;
 }
 
 function Router() {
@@ -132,8 +113,6 @@ function Router() {
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
-          <ConnectionStatusPill />
-          <EventToastBridge />
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (
@@ -144,6 +123,7 @@ function Router() {
             )}
             {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
           </main>
+          <ConnectionStatusPill />
         </div>
       )}
     </>
@@ -156,9 +136,9 @@ function App() {
       <ErrorBoundary>
         <Web3Provider>
           <NotificationProvider>
-            <SorobanEventProvider>
+            <SorobanEventStreamer>
               <Router />
-            </SorobanEventProvider>
+            </SorobanEventStreamer>
           </NotificationProvider>
         </Web3Provider>
       </ErrorBoundary>
