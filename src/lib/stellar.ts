@@ -19,6 +19,7 @@ import {
   xdr,
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG } from "../config/stellar";
+import { type CommissionTier, mapTiersToScValVec } from "./commissionTiers";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -427,6 +428,7 @@ export async function createCampaignContractCall(
   clearingPeriodSecs: number,
   budgetXlm: number,
   walletType: WalletType = "freighter",
+  tiers?: CommissionTier[],
 ): Promise<{ success: boolean; campaignId: number; txHash: string }> {
   const budgetStroops = BigInt(Math.floor(budgetXlm * 1e7));
   const rateBasisPoints = Math.floor(commissionRatePercent * 100);
@@ -437,6 +439,10 @@ export async function createCampaignContractCall(
     nativeToScVal(clearingPeriodSecs, { type: "u32" }),
     nativeToScVal(budgetStroops, { type: "i128" }),
   ];
+
+  if (tiers && tiers.length > 0) {
+    args.push(mapTiersToScValVec(tiers));
+  }
 
   const result = await invokeSorobanMethod(advertiserAddress, "create_campaign", args, walletType);
   const campaignId =
@@ -548,4 +554,3 @@ export async function refundCampaignEscrowContractCall(
     txHash: result.txHash,
   };
 }
-

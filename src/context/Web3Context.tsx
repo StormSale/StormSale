@@ -18,6 +18,7 @@ import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
+import type { CommissionTier } from "../lib/commissionTiers";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -47,6 +48,7 @@ export interface Web3ContextType {
     budgetXlm: number,
     commissionRatePercent: number,
     clearingPeriodSecs: number,
+    tiers?: CommissionTier[],
   ) => Promise<{ success: boolean; campaignId: number; txHash?: string }>;
 
   logSaleOnChain: (
@@ -211,11 +213,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     budgetXlm: number,
     commissionRatePercent: number,
     clearingPeriodSecs: number,
+    tiers?: CommissionTier[],
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
     console.log(
-      `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
+      `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s${tiers ? `, Tiers=${tiers.length}` : ""}`,
     );
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
@@ -225,6 +228,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         clearingPeriodSecs,
         budgetXlm,
         connectorType,
+        tiers,
       );
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
