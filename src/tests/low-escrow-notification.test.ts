@@ -90,7 +90,7 @@ describe("[Advertiser] Low Escrow Balance Notification System (#41)", () => {
           ...notif,
           id,
           persistent: isPersistent,
-          duration: isPersistent ? 0 : notif.duration ?? 5000,
+          duration: isPersistent ? 0 : (notif.duration ?? 5000),
         };
         notifications.push(entry);
         return entry;

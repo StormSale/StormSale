@@ -188,7 +188,7 @@ export async function connectLedgerDevice(
     };
   } catch (err: any) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {
@@ -279,7 +279,7 @@ export async function signLedgerTransaction(
     return tx.toXDR();
   } catch (err: any) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {

@@ -5,7 +5,7 @@ import { refundCampaignEscrowContractCall } from "../lib/stellar";
 describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
   const isCampaignLowEscrow = (c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;
-    return c.escrowBalance / c.escrowInitial < 0.10 && c.escrowBalance > 0;
+    return c.escrowBalance / c.escrowInitial < 0.1 && c.escrowBalance > 0;
   };
 
   describe("Visual Alert at <10% Balance", () => {
@@ -14,13 +14,13 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
       const campaign2 = initialMockCampaigns.find((c) => c.id === "2");
       expect(campaign2).toBeDefined();
       expect(isCampaignLowEscrow(campaign2!)).toBe(true);
-      expect(campaign2!.escrowBalance / campaign2!.escrowInitial).toBeLessThan(0.10);
+      expect(campaign2!.escrowBalance / campaign2!.escrowInitial).toBeLessThan(0.1);
 
       // Campaign 3 has 680 / 8000 = 8.5%
       const campaign3 = initialMockCampaigns.find((c) => c.id === "3");
       expect(campaign3).toBeDefined();
       expect(isCampaignLowEscrow(campaign3!)).toBe(true);
-      expect(campaign3!.escrowBalance / campaign3!.escrowInitial).toBeLessThan(0.10);
+      expect(campaign3!.escrowBalance / campaign3!.escrowInitial).toBeLessThan(0.1);
     });
 
     it("does not flag campaigns with 10% or higher escrow as low escrow", () => {
@@ -28,7 +28,7 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
       const campaign1 = initialMockCampaigns.find((c) => c.id === "1");
       expect(campaign1).toBeDefined();
       expect(isCampaignLowEscrow(campaign1!)).toBe(false);
-      expect(campaign1!.escrowBalance / campaign1!.escrowInitial).toBeGreaterThanOrEqual(0.10);
+      expect(campaign1!.escrowBalance / campaign1!.escrowInitial).toBeGreaterThanOrEqual(0.1);
     });
 
     it("does not flag completed campaigns even if balance is low or zero", () => {

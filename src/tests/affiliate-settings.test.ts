@@ -191,7 +191,7 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
   it("normalizes legacy frequency settings to instant", () => {
     mockLocalStorage.setItem(
       SETTINGS_STORAGE_KEY,
-      JSON.stringify({ notificationFrequency: "daily" })
+      JSON.stringify({ notificationFrequency: "daily" }),
     );
     const prefs = loadAffiliatePreferences();
     expect(prefs.notificationFrequency).toBe("instant");
@@ -322,7 +322,10 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
   });
 
   it("rolls back storage writes if writing darkMode fails after settings write", () => {
-    mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_PREFERENCES, theme: "light" }));
+    mockLocalStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ ...DEFAULT_PREFERENCES, theme: "light" }),
+    );
     mockLocalStorage.setItem("darkMode", "false");
 
     let attempt = 0;

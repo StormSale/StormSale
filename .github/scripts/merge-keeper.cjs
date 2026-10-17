@@ -10,7 +10,7 @@
  * 6. Merges the PR when all conditions are satisfied.
  */
 
-const KEEPER_MARKER = '<!-- stormsale-merge-keeper -->';
+const KEEPER_MARKER = "<!-- stormsale-merge-keeper -->";
 
 async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
   // 1. Fetch full PR details
@@ -20,12 +20,12 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
     pull_number: prNumber,
   });
 
-  if (pr.state !== 'open') {
+  if (pr.state !== "open") {
     return { skipped: true, reason: `PR #${prNumber} is already ${pr.state}.` };
   }
 
   const headSha = pr.head.sha;
-  const isTargetDev = pr.base.ref === 'dev';
+  const isTargetDev = pr.base.ref === "dev";
 
   // If GitHub has not computed mergeability yet (mergeable is null), wait briefly and re-fetch
   if (pr.mergeable === null) {
@@ -54,7 +54,7 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
   } else if (pr.mergeable === true) {
     hasConflicts = false;
     mergeableClean = true;
-    conflictDetails = 'No merge conflicts.';
+    conflictDetails = "No merge conflicts.";
   } else {
     // Null: GitHub background calculation is still pending. Do not falsely claim conflicts.
     hasConflicts = false;
@@ -71,14 +71,18 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
   });
 
   const checkRuns = checkRunsData.check_runs.filter(
-    (cr) => !cr.name.toLowerCase().includes('merge keeper')
+    (cr) => !cr.name.toLowerCase().includes("merge keeper"),
   );
 
   // Group check runs by workflow/job
   const requiredCheckNames = [
-    { key: 'ci', patterns: ['frontend ci', 'build-and-test'], label: 'Frontend CI & Test Audit' },
-    { key: 'secret', patterns: ['secret & key leak', 'secret-scan'], label: 'Secret & Key Leak Scan' },
-    { key: 'compliance', patterns: ['pr compliance', 'validate-pr'], label: 'PR Compliance' },
+    { key: "ci", patterns: ["frontend ci", "build-and-test"], label: "Frontend CI & Test Audit" },
+    {
+      key: "secret",
+      patterns: ["secret & key leak", "secret-scan"],
+      label: "Secret & Key Leak Scan",
+    },
+    { key: "compliance", patterns: ["pr compliance", "validate-pr"], label: "PR Compliance" },
   ];
 
   let ciPassed = true;
@@ -88,18 +92,18 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
 
   for (const req of requiredCheckNames) {
     const found = checkRuns.find((cr) =>
-      req.patterns.some((p) => cr.name.toLowerCase().includes(p))
+      req.patterns.some((p) => cr.name.toLowerCase().includes(p)),
     );
 
     if (!found) {
       ciPassed = false;
       ciRunning = true;
       ciDetails.push(`- **${req.label}**: ⏳ Pending trigger`);
-    } else if (found.status !== 'completed') {
+    } else if (found.status !== "completed") {
       ciPassed = false;
       ciRunning = true;
       ciDetails.push(`- **${req.label}**: ⏳ Running (${found.status})`);
-    } else if (found.conclusion === 'success') {
+    } else if (found.conclusion === "success") {
       ciDetails.push(`- **${req.label}**: ✅ Passed`);
     } else {
       ciPassed = false;
@@ -116,19 +120,19 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
   });
 
   for (const status of combinedStatus.statuses) {
-    if (status.context.toLowerCase().includes('vercel')) {
+    if (status.context.toLowerCase().includes("vercel")) {
       // Ignore Vercel fork authorization requirement
       continue;
     }
-    if (status.context.toLowerCase().includes('coderabbit')) {
+    if (status.context.toLowerCase().includes("coderabbit")) {
       // Evaluated separately in CodeRabbit section
       continue;
     }
-    if (status.state === 'failure') {
+    if (status.state === "failure") {
       ciPassed = false;
       failingChecks.push(status.context);
       ciDetails.push(`- **${status.context}**: ❌ Failed`);
-    } else if (status.state === 'pending') {
+    } else if (status.state === "pending") {
       ciPassed = false;
       ciRunning = true;
       ciDetails.push(`- **${status.context}**: ⏳ Pending`);
@@ -146,37 +150,39 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
   const codeRabbitReviews = reviews.filter(
     (r) =>
       r.user &&
-      (r.user.login.toLowerCase().includes('coderabbit') ||
-        r.user.login.toLowerCase().includes('coderabbitai'))
+      (r.user.login.toLowerCase().includes("coderabbit") ||
+        r.user.login.toLowerCase().includes("coderabbitai")),
   );
 
   let codeRabbitClean = false;
-  let codeRabbitStatus = '';
-  let codeRabbitDetails = '';
+  let codeRabbitStatus = "";
+  let codeRabbitDetails = "";
   let actionableCommentsCount = 0;
 
   if (codeRabbitReviews.length === 0) {
     codeRabbitClean = false;
-    codeRabbitStatus = 'Awaiting Review';
-    codeRabbitDetails = '⏳ CodeRabbit AI review is pending. Awaiting initial analysis.';
+    codeRabbitStatus = "Awaiting Review";
+    codeRabbitDetails = "⏳ CodeRabbit AI review is pending. Awaiting initial analysis.";
   } else {
     // Get latest review from CodeRabbit
     const latestCRReview = codeRabbitReviews[codeRabbitReviews.length - 1];
 
     // Check actionable comments in latest review body
-    const match = latestCRReview.body ? latestCRReview.body.match(/Actionable comments posted:\s*(\d+)/i) : null;
+    const match = latestCRReview.body
+      ? latestCRReview.body.match(/Actionable comments posted:\s*(\d+)/i)
+      : null;
     if (match) {
       actionableCommentsCount = parseInt(match[1], 10);
     }
 
-    if (latestCRReview.state === 'CHANGES_REQUESTED') {
+    if (latestCRReview.state === "CHANGES_REQUESTED") {
       codeRabbitClean = false;
-      codeRabbitStatus = 'Changes Requested';
+      codeRabbitStatus = "Changes Requested";
       codeRabbitDetails = `⚠️ CodeRabbit requested changes with ${actionableCommentsCount} actionable suggestion(s). All inline suggestions must be addressed.`;
-    } else if (latestCRReview.state === 'APPROVED') {
+    } else if (latestCRReview.state === "APPROVED") {
       codeRabbitClean = true;
-      codeRabbitStatus = 'Approved';
-      codeRabbitDetails = '✅ CodeRabbit approved this pull request.';
+      codeRabbitStatus = "Approved";
+      codeRabbitDetails = "✅ CodeRabbit approved this pull request.";
     } else if (actionableCommentsCount > 0) {
       // Check if unaddressed inline review comments remain
       const { data: reviewComments } = await github.rest.pulls.listReviewComments({
@@ -189,48 +195,60 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
       const crComments = reviewComments.filter(
         (c) =>
           c.user &&
-          c.user.login.toLowerCase().includes('coderabbit') &&
-          !c.body.includes('✅ Addressed in commit')
+          c.user.login.toLowerCase().includes("coderabbit") &&
+          !c.body.includes("✅ Addressed in commit"),
       );
 
       if (crComments.length > 0) {
         codeRabbitClean = false;
-        codeRabbitStatus = 'Suggestions Pending';
+        codeRabbitStatus = "Suggestions Pending";
         codeRabbitDetails = `⚠️ ${crComments.length} unaddressed CodeRabbit suggestion(s) remain. Please review and apply the fixes.`;
       } else {
         codeRabbitClean = true;
-        codeRabbitStatus = 'Suggestions Addressed';
-        codeRabbitDetails = '✅ All CodeRabbit suggestions have been addressed.';
+        codeRabbitStatus = "Suggestions Addressed";
+        codeRabbitDetails = "✅ All CodeRabbit suggestions have been addressed.";
       }
     } else {
       codeRabbitClean = true;
-      codeRabbitStatus = 'Clean';
-      codeRabbitDetails = '✅ CodeRabbit review completed with 0 actionable issues.';
+      codeRabbitStatus = "Clean";
+      codeRabbitDetails = "✅ CodeRabbit review completed with 0 actionable issues.";
     }
   }
 
   // 5. Compile Action Items
   const actionItems = [];
   if (!isTargetDev) {
-    actionItems.push(`**Change base branch to \`dev\`**: This PR currently targets \`${pr.base.ref}\`. All pull requests must target the \`dev\` branch.`);
+    actionItems.push(
+      `**Change base branch to \`dev\`**: This PR currently targets \`${pr.base.ref}\`. All pull requests must target the \`dev\` branch.`,
+    );
   }
   if (hasConflicts) {
     actionItems.push(`**Resolve merge conflicts with \`dev\`**: This branch has conflicting files with \`dev\`. Run \`git fetch origin dev && git rebase origin/dev\`, resolve the conflict markers, and push.`);
   }
   if (failingChecks.length > 0) {
-    actionItems.push(`**Fix failing CI check(s)**: Address errors in ${failingChecks.map(c => `\`${c}\``).join(', ')}.`);
+    actionItems.push(
+      `**Fix failing CI check(s)**: Address errors in ${failingChecks.map((c) => `\`${c}\``).join(", ")}.`,
+    );
   } else if (ciRunning) {
-    actionItems.push(`**Wait for CI checks to complete**: Automated tests and audits are currently executing.`);
+    actionItems.push(
+      `**Wait for CI checks to complete**: Automated tests and audits are currently executing.`,
+    );
   }
   if (!codeRabbitClean) {
-    if (codeRabbitStatus === 'Awaiting Review') {
-      actionItems.push(`**Wait for CodeRabbit AI review**: The review is currently queued or in progress.`);
+    if (codeRabbitStatus === "Awaiting Review") {
+      actionItems.push(
+        `**Wait for CodeRabbit AI review**: The review is currently queued or in progress.`,
+      );
     } else {
-      actionItems.push(`**Apply CodeRabbit suggested fixes**: Inspect inline review comments from CodeRabbit, apply the changes, and push updates.`);
+      actionItems.push(
+        `**Apply CodeRabbit suggested fixes**: Inspect inline review comments from CodeRabbit, apply the changes, and push updates.`,
+      );
     }
   }
   if (pr.draft) {
-    actionItems.push(`**Mark PR ready for review**: Remove draft status once implementation is complete.`);
+    actionItems.push(
+      `**Mark PR ready for review**: Remove draft status once implementation is complete.`,
+    );
   }
 
   const canMerge = isTargetDev && mergeableClean && ciPassed && codeRabbitClean && !pr.draft;
@@ -243,7 +261,7 @@ async function evaluatePR({ github, owner, repo, prNumber, dryRun = false }) {
         owner,
         repo,
         pull_number: prNumber,
-        merge_method: 'squash',
+        merge_method: "squash",
         commit_title: `${pr.title} (#${prNumber})`,
         commit_message: `Automated merge by StormSale Merge Keeper after all CI checks, test audits, and CodeRabbit review verifications passed.`,
       });
@@ -280,12 +298,12 @@ Thank you for your contribution to **StormSale**! 🎉`;
 <details>
 <summary>🔍 <b>Detailed Check Breakdown</b></summary>
 
-${ciDetails.join('\n')}
+${ciDetails.join("\n")}
 
 </details>
 
 ### 📋 Action Items for Contributor:
-${actionItems.map((item) => `- [ ] ${item}`).join('\n')}
+${actionItems.map((item) => `- [ ] ${item}`).join("\n")}
 
 ---
 *The Merge Keeper monitors this PR and will automatically re-evaluate upon new commits, CI completions, or CodeRabbit reviews.*`;
@@ -346,7 +364,7 @@ async function run({ github, context, core, specificPrNumber = null, dryRun = fa
     prNumbers = openPRs.map((pr) => pr.number).sort((a, b) => a - b);
   }
 
-  core.info(`Merge Keeper evaluating ${prNumbers.length} PR(s): ${prNumbers.join(', ')}`);
+  core.info(`Merge Keeper evaluating ${prNumbers.length} PR(s): ${prNumbers.join(", ")}`);
 
   const results = [];
   for (const num of prNumbers) {

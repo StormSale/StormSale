@@ -7,6 +7,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import { IncomeProjectionTool } from "./IncomeProjectionTool";
 
 export const AffiliateOverview = () => {
   const stats = [
@@ -96,6 +97,9 @@ export const AffiliateOverview = () => {
           );
         })}
       </div>
+
+      {/* Dynamic Income Projection Tool */}
+      <IncomeProjectionTool />
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">

@@ -187,7 +187,7 @@ export async function connectXbullWallet(): Promise<string> {
     const address = await xbull.getPublicKey();
     return address;
   } catch (err: any) {
-    throw new Error(err.message || "xBull connection failed.");
+    throw new Error(err.message || "xBull connection failed.", { cause: err });
   }
 }
 
@@ -347,6 +347,7 @@ export async function invokeSorobanMethod(
   } catch (err: any) {
     throw new Error(
       `Account ${callerAddress} is not funded on Testnet or could not be loaded: ${err?.message || err}. Use Friendbot to fund it first.`,
+      { cause: err },
     );
   }
 
@@ -548,4 +549,3 @@ export async function refundCampaignEscrowContractCall(
     txHash: result.txHash,
   };
 }
-

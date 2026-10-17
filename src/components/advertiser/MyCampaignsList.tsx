@@ -149,7 +149,7 @@ export const MyCampaignsList = () => {
   // Low balance threshold: < 10%
   const isCampaignLowEscrow = (c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;
-    return c.escrowBalance / c.escrowInitial < 0.10 && c.escrowBalance > 0;
+    return c.escrowBalance / c.escrowInitial < 0.1 && c.escrowBalance > 0;
   };
 
   const handleRefund = async (campaign: Campaign) => {
@@ -194,11 +194,7 @@ export const MyCampaignsList = () => {
 
       // Update local campaign state to refunded
       setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === campaign.id
-            ? { ...c, escrowBalance: 0, isRefunded: true }
-            : c,
-        ),
+        prev.map((c) => (c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c)),
       );
 
       showNotification({
@@ -244,7 +240,8 @@ export const MyCampaignsList = () => {
             My Campaigns & Escrow Monitor
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Monitor real-time Soroban contract balances, low-escrow alerts, and claim refunds for ended campaigns.
+            Monitor real-time Soroban contract balances, low-escrow alerts, and claim refunds for
+            ended campaigns.
           </p>
         </div>
         <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
@@ -262,13 +259,17 @@ export const MyCampaignsList = () => {
             </div>
             <div>
               <h4 className="font-bold text-amber-900 dark:text-amber-200 text-base flex items-center gap-2">
-                <span>Low Escrow Balance Detected ({lowEscrowCount} campaign{lowEscrowCount > 1 ? "s" : ""})</span>
+                <span>
+                  Low Escrow Balance Detected ({lowEscrowCount} campaign
+                  {lowEscrowCount > 1 ? "s" : ""})
+                </span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-amber-200 dark:bg-amber-900 text-amber-800 dark:text-amber-200 font-extrabold">
                   &lt; 10% Remaining
                 </span>
               </h4>
               <p className="text-sm text-amber-800/90 dark:text-amber-300/90 mt-1">
-                One or more campaigns have dropped below 10% of their initial escrow deposit. Affiliate commission payouts may pause if escrow is exhausted.
+                One or more campaigns have dropped below 10% of their initial escrow deposit.
+                Affiliate commission payouts may pause if escrow is exhausted.
               </p>
             </div>
           </div>
@@ -321,7 +322,9 @@ export const MyCampaignsList = () => {
                     </p>
                     <p
                       className={`text-xl font-extrabold mt-1 ${
-                        s.alert ? "text-amber-600 dark:text-amber-400" : "text-zinc-900 dark:text-white"
+                        s.alert
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-zinc-900 dark:text-white"
                       }`}
                     >
                       {s.value}
@@ -406,7 +409,10 @@ export const MyCampaignsList = () => {
             const isLowBalance = isCampaignLowEscrow(campaign);
             const balancePercentage =
               campaign.escrowInitial > 0
-                ? Math.min(100, Math.max(0, (campaign.escrowBalance / campaign.escrowInitial) * 100))
+                ? Math.min(
+                    100,
+                    Math.max(0, (campaign.escrowBalance / campaign.escrowInitial) * 100),
+                  )
                 : 0;
             const isRefundingThis = refundingCampaignId === campaign.id;
 
@@ -480,7 +486,10 @@ export const MyCampaignsList = () => {
                       </div>
                       <div className="font-mono font-bold text-zinc-900 dark:text-white">
                         <span>{campaign.escrowBalance.toLocaleString()}</span>
-                        <span className="text-zinc-400 font-normal"> / {campaign.escrowInitial.toLocaleString()} XLM</span>
+                        <span className="text-zinc-400 font-normal">
+                          {" "}
+                          / {campaign.escrowInitial.toLocaleString()} XLM
+                        </span>
                         <span
                           className={`ml-2 text-xs font-bold ${
                             isLowBalance
@@ -500,8 +509,8 @@ export const MyCampaignsList = () => {
                           isLowBalance
                             ? "bg-rose-500 animate-pulse"
                             : balancePercentage > 30
-                            ? "bg-emerald-500"
-                            : "bg-amber-500"
+                              ? "bg-emerald-500"
+                              : "bg-amber-500"
                         }`}
                         style={{ width: `${balancePercentage}%` }}
                       />
@@ -512,7 +521,8 @@ export const MyCampaignsList = () => {
                       <div className="mt-2.5 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1.5 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
                         <span>
-                          Critical: Less than 10% escrow remaining. Top up to prevent payout disruption.
+                          Critical: Less than 10% escrow remaining. Top up to prevent payout
+                          disruption.
                         </span>
                       </div>
                     )}
@@ -563,7 +573,10 @@ export const MyCampaignsList = () => {
                         {campaign.isRefunded ? (
                           <div className="w-full h-11 rounded-xl bg-slate-100 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700/60 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-400 space-x-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            <span>Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM Settled)</span>
+                            <span>
+                              Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM
+                              Settled)
+                            </span>
                           </div>
                         ) : (
                           <Button
@@ -581,7 +594,8 @@ export const MyCampaignsList = () => {
                               <div className="flex items-center space-x-2">
                                 <RotateCcw className="w-4 h-4" />
                                 <span>
-                                  Refund Unused Escrow ({campaign.escrowBalance.toLocaleString()} XLM)
+                                  Refund Unused Escrow ({campaign.escrowBalance.toLocaleString()}{" "}
+                                  XLM)
                                 </span>
                               </div>
                             )}

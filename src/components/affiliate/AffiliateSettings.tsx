@@ -77,7 +77,7 @@ export type NotificationTriggerEvent = "commission" | "clearing" | "payout";
 
 export function shouldDeliverAffiliateNotification(
   event: NotificationTriggerEvent,
-  prefs: AffiliatePreferences = loadAffiliatePreferences()
+  prefs: AffiliatePreferences = loadAffiliatePreferences(),
 ): boolean {
   if (prefs.notificationFrequency === "muted") return false;
   if (event === "commission" && !prefs.notifyOnCommission) return false;
@@ -94,7 +94,7 @@ export function syncSystemThemeListener(
     addListener?: any;
     removeListener?: any;
   },
-  onThemeChange?: (isDark: boolean) => void
+  onThemeChange?: (isDark: boolean) => void,
 ): () => void {
   const applySystemTheme = () => {
     const isDark = Boolean(mediaQuery.matches);
@@ -545,8 +545,8 @@ export const AffiliateSettings: React.FC = () => {
                   saveFailed
                     ? "bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-500/25"
                     : isSaved
-                    ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-500/25"
-                    : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md hover:shadow-indigo-500/25"
+                      ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-500/25"
+                      : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md hover:shadow-indigo-500/25"
                 }`}
               >
                 {saveFailed ? (

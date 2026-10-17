@@ -3,23 +3,23 @@ name: StormSale Merge Keeper
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
-    branches: [ "dev" ]
+    branches: ["dev"]
   pull_request_review:
     types: [submitted]
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'Specific PR number to evaluate (leave blank to sweep all open PRs)'
+        description: "Specific PR number to evaluate (leave blank to sweep all open PRs)"
         required: false
         type: string
       dry_run:
-        description: 'Dry run mode (evaluate and report status without performing merge)'
+        description: "Dry run mode (evaluate and report status without performing merge)"
         required: false
         type: boolean
         default: false
   schedule:
     # Sweep open PRs targeting dev every 15 minutes
-    - cron: '*/15 * * * *'
+    - cron: "*/15 * * * *"
 
 permissions:
   contents: write
