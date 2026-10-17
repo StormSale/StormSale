@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { EncryptedLinkQRCard } from "./EncryptedLinkQRCard";
 import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
 
 export const AffiliateOverview = () => {
@@ -200,7 +201,10 @@ export const AffiliateOverview = () => {
         </Card>
       </div>
 
-      {/* Quick Actions */}
+      <EncryptedLinkQRCard
+        campaignId="5632"
+        affiliateAddress="GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+      />
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
           <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
@@ -254,3 +258,4 @@ export const AffiliateOverview = () => {
     </div>
   );
 };
+
