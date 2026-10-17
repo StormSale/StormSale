@@ -16,6 +16,11 @@ export const STELLAR_CONFIG = {
 
   nativeAsset: "XLM",
   nativeDecimals: 7,
+
+  // Stellar protocol base reserve (XLM).
+  // The minimum account reserve is (2 + subentries) * baseReserveXlm,
+  // i.e. 1 XLM base + 0.5 XLM for every additional subentry.
+  baseReserveXlm: 0.5,
 };
 
 export const STELLAR_NETWORKS = {
