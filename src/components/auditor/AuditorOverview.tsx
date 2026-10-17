@@ -28,6 +28,23 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     { title: "Avg. Response Time", value: "2.3h", change: "–0.4h improved", icon: BarChart3 },
   ];
 
+  const platformVolume = [
+    { title: "Total Escrow Volume", value: "$4.82M", change: "+12.4% vs last month", icon: Shield },
+    { title: "Total Payout Volume", value: "$3.97M", change: "+9.1% vs last month", icon: TrendingUp },
+    { title: "Escrow Locked", value: "$850.2K", change: "Across 128 active sales", icon: Clock },
+    { title: "Payouts Settled", value: "1,204", change: "+86 this week", icon: CheckCircle2 },
+  ];
+
+  const volumeTrend = [
+    { label: "Jan", escrow: 42, payout: 30 },
+    { label: "Feb", escrow: 55, payout: 41 },
+    { label: "Mar", escrow: 48, payout: 39 },
+    { label: "Apr", escrow: 67, payout: 52 },
+    { label: "May", escrow: 74, payout: 61 },
+    { label: "Jun", escrow: 88, payout: 72 },
+  ];
+  const maxVolume = Math.max(...volumeTrend.map((point) => Math.max(point.escrow, point.payout)));
+
   const recentAudits = [
     { saleId: "1042", campaign: "Tech Gadgets Pro", status: "Verified", timestamp: "2 hours ago" },
     { saleId: "988", campaign: "Web3 Masterclass", status: "Verified", timestamp: "1 day ago" },
@@ -91,6 +108,84 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
             </Card>
           );
         })}
+      </div>
+
+      {/* Platform Financial Volume */}
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {platformVolume.map((metric, i) => {
+            const Icon = metric.icon;
+            return (
+              <Card
+                key={i}
+                className="bg-white dark:bg-zinc-900/80 shadow-sm border border-slate-200 dark:border-zinc-800 hover:shadow-md transition-shadow rounded-2xl"
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                        {metric.title}
+                      </p>
+                      <p className="text-2xl font-extrabold text-zinc-900 dark:text-white mt-2 mb-1">
+                        {metric.value}
+                      </p>
+                      <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                        {metric.change}
+                      </p>
+                    </div>
+                    <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-500/10 rounded-xl flex items-center justify-center border border-emerald-100 dark:border-emerald-500/20 shrink-0">
+                      <Icon className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+          <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+              Volume Growth Trend
+            </CardTitle>
+            <CardDescription className="text-zinc-500 dark:text-zinc-400">
+              Escrow vs payout volume over the last 6 months
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="flex items-end justify-between gap-3 h-48">
+              {volumeTrend.map((point) => (
+                <div key={point.label} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="flex items-end gap-1 h-40 w-full justify-center">
+                    <div
+                      className="w-3 rounded-t bg-indigo-500 dark:bg-indigo-400"
+                      style={{ height: `${(point.escrow / maxVolume) * 100}%` }}
+                      title={`Escrow: $${point.escrow}K`}
+                    />
+                    <div
+                      className="w-3 rounded-t bg-emerald-500 dark:bg-emerald-400"
+                      style={{ height: `${(point.payout / maxVolume) * 100}%` }}
+                      title={`Payout: $${point.payout}K`}
+                    />
+                  </div>
+                  <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    {point.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-6 mt-4">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded bg-indigo-500 dark:bg-indigo-400" />
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Escrow</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded bg-emerald-500 dark:bg-emerald-400" />
+                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Payout</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Two column */}
