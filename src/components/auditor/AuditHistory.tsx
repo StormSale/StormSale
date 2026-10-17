@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import type { ComponentType } from "react";
 import {
   Card,
@@ -8,6 +9,10 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { CheckCircle2, AlertTriangle, Clock, FileText, Download, Filter } from "lucide-react";
+import {
+  getDecryptionAuditLogs,
+  AUDIT_LOG_EVENT,
+} from "../../lib/masterDecryptionService";
 
 type AuditStatus = "Verified" | "Denied" | "Pending";
 
@@ -20,14 +25,14 @@ interface AuditRecord {
   notes: string;
 }
 
-const auditRecords: AuditRecord[] = [
+const initialAuditRecords: AuditRecord[] = [
   {
     saleId: "1042",
     campaign: "Tech Gadgets Pro",
     campaignAddress: "CA7Q...1234",
     status: "Verified",
     timestamp: "2026-05-16 08:12",
-    notes: "Full decryption performed",
+    notes: "Full master decryption performed",
   },
   {
     saleId: "988",
@@ -93,9 +98,34 @@ const statusConfig: Record<
 };
 
 export const AuditHistory = () => {
-  const verified = auditRecords.filter((r) => r.status === "Verified").length;
-  const denied = auditRecords.filter((r) => r.status === "Denied").length;
-  const pending = auditRecords.filter((r) => r.status === "Pending").length;
+  const [records, setRecords] = useState<AuditRecord[]>(initialAuditRecords);
+
+  useEffect(() => {
+    const updateRecords = () => {
+      const logs = getDecryptionAuditLogs();
+      const mapped: AuditRecord[] = logs.map((log) => ({
+        saleId: log.saleId.replace("#", ""),
+        campaign: log.campaign,
+        campaignAddress: `${log.campaignAddress.slice(0, 4)}...${log.campaignAddress.slice(-4)}`,
+        status: log.status === "Verified" ? "Verified" : "Denied",
+        timestamp: new Date(log.timestamp).toISOString().slice(0, 16).replace("T", " "),
+        notes: log.verificationNotes,
+      }));
+
+      // Deduplicate by saleId against initial records
+      const existingSaleIds = new Set(mapped.map((m) => m.saleId));
+      const filteredInitial = initialAuditRecords.filter((r) => !existingSaleIds.has(r.saleId));
+      setRecords([...mapped, ...filteredInitial]);
+    };
+
+    updateRecords();
+    window.addEventListener(AUDIT_LOG_EVENT, updateRecords);
+    return () => window.removeEventListener(AUDIT_LOG_EVENT, updateRecords);
+  }, []);
+
+  const verified = records.filter((r) => r.status === "Verified").length;
+  const denied = records.filter((r) => r.status === "Denied").length;
+  const pending = records.filter((r) => r.status === "Pending").length;
 
   return (
     <div className="space-y-6">
@@ -150,12 +180,12 @@ export const AuditHistory = () => {
             All Audit Records
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            {auditRecords.length} total entries logged on-chain
+            {records.length} total entries logged on-chain
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-            {auditRecords.map((record, i) => {
+            {records.map((record, i) => {
               const cfg = statusConfig[record.status];
               const StatusIcon = cfg.icon;
               return (

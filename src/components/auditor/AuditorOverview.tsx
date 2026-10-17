@@ -1,3 +1,4 @@
+import React, { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -6,6 +7,12 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { MasterDecryptionPortal } from "./MasterDecryptionPortal";
+import {
+  getDecryptionAuditLogs,
+  AUDIT_LOG_EVENT,
+} from "../../lib/masterDecryptionService";
+import type { DecryptionAuditLogEntry } from "../../types/masterDecryption";
 import {
   Shield,
   TrendingUp,
@@ -14,6 +21,7 @@ import {
   FileSearch,
   AlertTriangle,
   BarChart3,
+  Unlock,
 } from "lucide-react";
 
 interface AuditorOverviewProps {
@@ -21,25 +29,65 @@ interface AuditorOverviewProps {
 }
 
 export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
+  const [selectedSaleForPortal, setSelectedSaleForPortal] = useState<string>("1042");
+  const [auditLogs, setAuditLogs] = useState<DecryptionAuditLogEntry[]>([]);
+
+  useEffect(() => {
+    setAuditLogs(getDecryptionAuditLogs());
+
+    const handleUpdate = () => {
+      setAuditLogs(getDecryptionAuditLogs());
+    };
+
+    window.addEventListener(AUDIT_LOG_EVENT, handleUpdate);
+    return () => window.removeEventListener(AUDIT_LOG_EVENT, handleUpdate);
+  }, []);
+
+  const totalAuditsCount = 47 + auditLogs.length;
+
   const stats = [
-    { title: "Audits Completed", value: "47", change: "+5 this month", icon: CheckCircle2 },
+    {
+      title: "Audits Completed",
+      value: String(totalAuditsCount),
+      change: `+${auditLogs.length} decrypted live`,
+      icon: CheckCircle2,
+    },
     { title: "Active Requests", value: "3", change: "Pending review", icon: Clock },
     { title: "Success Rate", value: "98%", change: "+1.2% vs last month", icon: TrendingUp },
     { title: "Avg. Response Time", value: "2.3h", change: "–0.4h improved", icon: BarChart3 },
   ];
 
-  const recentAudits = [
+  // Merge live decrypted logs with base recent audits
+  const baseRecentAudits = [
     { saleId: "1042", campaign: "Tech Gadgets Pro", status: "Verified", timestamp: "2 hours ago" },
     { saleId: "988", campaign: "Web3 Masterclass", status: "Verified", timestamp: "1 day ago" },
     { saleId: "776", campaign: "Crypto Tools Suite", status: "Denied", timestamp: "3 days ago" },
     { saleId: "654", campaign: "DeFi Starter Pack", status: "Verified", timestamp: "1 week ago" },
   ];
 
+  const dynamicRecentAudits = [
+    ...auditLogs.slice(0, 3).map((log) => ({
+      saleId: log.saleId.replace("#", ""),
+      campaign: log.campaign,
+      status: log.status,
+      timestamp: new Date(log.timestamp).toLocaleTimeString(),
+    })),
+    ...baseRecentAudits,
+  ].slice(0, 5);
+
   const pendingRequests = [
     { saleId: "1100", campaign: "Summer Sale 2024", requestedBy: "GB12...34CD", urgency: "High" },
     { saleId: "1089", campaign: "NFT Drop Alpha", requestedBy: "GC78...90GH", urgency: "Medium" },
     { saleId: "1075", campaign: "DeFi Starter Pack", requestedBy: "GD34...56IJ", urgency: "Low" },
   ];
+
+  const handleReviewSale = (saleIdToReview: string) => {
+    setSelectedSaleForPortal(saleIdToReview);
+    const portalElement = document.getElementById("master-decryption-portal");
+    if (portalElement) {
+      portalElement.scrollIntoView({ behavior: "smooth" });
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -50,7 +98,7 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
             Auditor Dashboard
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Oversee encrypted sale data access and maintain on-chain compliance.
+            Oversee encrypted sale data access, execute authorized master decryptions, and maintain on-chain compliance.
           </p>
         </div>
         <div className="flex items-center gap-2 mt-6 lg:mt-0 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-full">
@@ -59,6 +107,16 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
             NIST/ISO Compliant
           </span>
         </div>
+      </div>
+
+      {/* Authorized Master Decryption Portal Anchor */}
+      <div id="master-decryption-portal">
+        <MasterDecryptionPortal
+          initialSaleId={selectedSaleForPortal}
+          onAuditLogged={(newLog) => {
+            setAuditLogs((prev) => [newLog, ...prev.filter((l) => l.id !== newLog.id)]);
+          }}
+        />
       </div>
 
       {/* Zero-Knowledge Privacy Clearance Banner */}
@@ -131,12 +189,12 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
               Recent Audits
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Latest access verifications
+              Latest access verifications & decryptions
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-4">
-              {recentAudits.map((audit, i) => (
+              {dynamicRecentAudits.map((audit, i) => (
                 <div
                   key={i}
                   className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
@@ -228,10 +286,11 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
                     </span>
                     <Button
                       size="sm"
-                      onClick={() => onTabChange?.("verify")}
-                      className="h-7 px-3 text-xs bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-lg font-semibold transition-colors"
+                      onClick={() => handleReviewSale(req.saleId)}
+                      className="h-7 px-3 text-xs bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-lg font-semibold transition-colors flex items-center gap-1"
                     >
-                      Review
+                      <span>Decrypt</span>
+                      <Unlock className="w-3 h-3" />
                     </Button>
                   </div>
                 </div>
@@ -243,3 +302,4 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     </div>
   );
 };
+

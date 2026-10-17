@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
+import { MasterDecryptionPortal } from "../components/auditor/MasterDecryptionPortal";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { ZKRangeProofConsole } from "../components/auditor/ZKRangeProofConsole";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck, ShieldCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, ShieldCheck, Key } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -18,6 +19,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "master-decryption", label: "Master Decryption", icon: Key },
     { id: "zk-range", label: "ZK Range Proofs", icon: ShieldCheck },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
@@ -26,6 +28,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "master-decryption":
+        return <MasterDecryptionPortal />;
       case "zk-range":
         return <ZKRangeProofConsole />;
       case "verify":
