@@ -10,69 +10,54 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
-
-class ErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { hasError: boolean; error?: Error }
-> {
-  constructor(props: any) {
-    super(props);
-    this.state = { hasError: false };
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, info: any) {
-    // You can log error to an external service here
-    console.error("Unhandled error caught by ErrorBoundary:", error, info);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="min-h-screen flex items-center justify-center p-4">
-          <div className="max-w-lg text-center">
-            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
-            <p className="text-sm text-muted-foreground mb-4">
-              An unexpected error occurred. Please refresh the page or try again later.
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-indigo-600 text-white rounded"
-            >
-              Reload
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
+import { ErrorBoundary } from "./components/shared/ErrorBoundary";
+import { loadBrandConfig } from "./lib/branding";
 
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("brand") || params.get("c") || null;
+  });
+
+  if (activeBrandSubdomain) {
+    return (
+      <ErrorBoundary>
+        <BrandedCampaignView
+          brandConfig={loadBrandConfig(activeBrandSubdomain)}
+          onClose={() => {
+            setActiveBrandSubdomain(null);
+            window.history.pushState({}, "", window.location.pathname);
+          }}
+          isStandalone
+        />
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <>
       <ConnectWalletModal />
       {!isConnected ? (
-        <Landing />
+        <ErrorBoundary>
+          <Landing />
+        </ErrorBoundary>
       ) : (
         <div className="min-h-screen bg-background">
           <main>
-            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-            {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
-            )}
-            {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
-            )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            <ErrorBoundary key={currentPage}>
+              {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+              {currentPage === "advertiser" && (
+                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              )}
+              {currentPage === "affiliate" && (
+                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              )}
+              {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            </ErrorBoundary>
           </main>
         </div>
       )}
@@ -82,15 +67,19 @@ function Router() {
 
 function App() {
   return (
-    <NotificationWrapper>
-      <ErrorBoundary>
-        <Web3Provider>
-          <NotificationProvider>
-            <Router />
-          </NotificationProvider>
-        </Web3Provider>
-      </ErrorBoundary>
-    </NotificationWrapper>
+    <ErrorBoundary>
+      <NotificationWrapper>
+        <ErrorBoundary>
+          <Web3Provider>
+            <ErrorBoundary>
+              <NotificationProvider>
+                <Router />
+              </NotificationProvider>
+            </ErrorBoundary>
+          </Web3Provider>
+        </ErrorBoundary>
+      </NotificationWrapper>
+    </ErrorBoundary>
   );
 }
 
