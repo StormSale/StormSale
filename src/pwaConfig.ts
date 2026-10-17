@@ -38,12 +38,11 @@ export const pwaManifest = {
 export function cachePublicApiResponse(request: Request, response: Response): Response | null {
   const cacheControl = response.headers.get("Cache-Control")?.toLowerCase() ?? "";
   const vary = response.headers.get("Vary")?.toLowerCase() ?? "";
-  const isPubliclyCacheable = cacheControl
-    .split(",")
-    .some((directive) => directive.trim() === "public");
-  const isExplicitlyPrivate = cacheControl
-    .split(",")
-    .some((directive) => ["private", "no-store"].includes(directive.trim()));
+  const directives = cacheControl.split(",").map((directive) => directive.split("=", 1)[0].trim());
+  const isPubliclyCacheable = directives.includes("public");
+  const isExplicitlyPrivate = directives.some((directive) =>
+    ["private", "no-store"].includes(directive),
+  );
   const variesByCredentials = vary
     .split(",")
     .some((header) => ["*", "cookie", "authorization"].includes(header.trim()));
@@ -68,7 +67,7 @@ export const offlineStatusPlugin: WorkboxPlugin = {
     const directives = (response.headers.get("Cache-Control") ?? "")
       .toLowerCase()
       .split(",")
-      .map((d) => d.trim());
+      .map((directive) => directive.split("=", 1)[0].trim());
     const vary = (response.headers.get("Vary") ?? "")
       .toLowerCase()
       .split(",")
@@ -83,12 +82,14 @@ export const offlineStatusPlugin: WorkboxPlugin = {
     return cacheable ? response : null;
   },
   fetchDidSucceed: async ({ event, state, response }) => {
-    if (state) state.receivedNetworkResponse = true;
-    if ("clientId" in event && typeof event.clientId === "string") {
-      const client = await (globalThis as typeof globalThis & OfflineStatusScope).clients.get(
-        event.clientId,
-      );
-      client?.postMessage({ type: "SW_ONLINE_RESTORED" });
+    if (response.ok) {
+      if (state) state.receivedNetworkResponse = true;
+      if ("clientId" in event && typeof event.clientId === "string") {
+        const client = await (globalThis as typeof globalThis & OfflineStatusScope).clients.get(
+          event.clientId,
+        );
+        client?.postMessage({ type: "SW_ONLINE_RESTORED" });
+      }
     }
     return response;
   },

@@ -51,6 +51,7 @@ describe("PWA offline support", () => {
     Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
     Reflect.deleteProperty(navigator, "serviceWorker");
     resetOnlineStatusStore();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -237,6 +238,10 @@ describe("PWA offline support", () => {
       status: 200,
       headers: { "Cache-Control": "public, no-store" },
     });
+    const qualifiedPrivateResponse = new Response("{}", {
+      status: 200,
+      headers: { "Cache-Control": 'public, private="X-Account-Id"' },
+    });
     const personalizedResponse = new Response("{}", {
       status: 200,
       headers: { "Cache-Control": "public", Vary: "Cookie" },
@@ -248,6 +253,7 @@ describe("PWA offline support", () => {
     expect(cachePublicApiResponse(request, publicResponse)).toBe(publicResponse);
     expect(cachePublicApiResponse(request, privateResponse)).toBeNull();
     expect(cachePublicApiResponse(request, noStoreResponse)).toBeNull();
+    expect(cachePublicApiResponse(request, qualifiedPrivateResponse)).toBeNull();
     expect(cachePublicApiResponse(request, personalizedResponse)).toBeNull();
     expect(cachePublicApiResponse(authorizedRequest, publicResponse)).toBeNull();
     expect(
@@ -306,6 +312,53 @@ describe("PWA offline support", () => {
       response: publicResponse,
     } as Parameters<NonNullable<typeof offlineStatusPlugin.cacheWillUpdate>>[0]);
     expect(cached).toBe(publicResponse);
+  });
+
+  it("does not cache responses with a qualified private Cache-Control directive", async () => {
+    const cached = await offlineStatusPlugin.cacheWillUpdate?.({
+      request: new Request("https://api.example.test/api/campaigns/123"),
+      response: new Response("{}", {
+        status: 200,
+        headers: { "Cache-Control": 'public, private="X-Account-Id"' },
+      }),
+    } as Parameters<NonNullable<typeof offlineStatusPlugin.cacheWillUpdate>>[0]);
+
+    expect(cached).toBeNull();
+  });
+
+  it("keeps cached-fallback status after a 503 network response", async () => {
+    const serviceWorker = new EventTarget();
+    const postMessage = vi.fn();
+    vi.stubGlobal("clients", {
+      get: vi.fn().mockResolvedValue({ postMessage }),
+    });
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: serviceWorker,
+    });
+    setOnline(true);
+    await render(createElement(OnlineStatusProbe));
+
+    await act(async () => {
+      serviceWorker.dispatchEvent(
+        new MessageEvent("message", { data: { type: "SW_CACHED_FALLBACK" } }),
+      );
+    });
+    expect(getContainer().textContent).toBe("false");
+
+    const state = { receivedNetworkResponse: false };
+    const response = new Response("unavailable", { status: 503 });
+    const result = await offlineStatusPlugin.fetchDidSucceed?.({
+      event: { clientId: "client-1" },
+      request: new Request("https://api.example.test/api/campaigns/123"),
+      state,
+      response,
+    } as Parameters<NonNullable<typeof offlineStatusPlugin.fetchDidSucceed>>[0]);
+
+    expect(result).toBe(response);
+    expect(state.receivedNetworkResponse).toBe(false);
+    expect(postMessage).not.toHaveBeenCalled();
+    expect(getContainer().textContent).toBe("false");
   });
 
   it("shares cached-fallback state across newly mounted hook instances", async () => {
