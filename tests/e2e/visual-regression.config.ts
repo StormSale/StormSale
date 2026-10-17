@@ -1,62 +1,89 @@
 import { defineConfig, devices } from '@playwright/test';
-import type { PlaywrightTestConfig } from '@playwright/test';
 
 /**
- * Multi-resolution visual regression config.
+ * Multi-Resolution visual regression configuration.
  *
- * Two projects are defined so the same spec runs at both breakpoints:
- *   - mobile  : 375px wide (iPhone 12 viewport)
- *   - desktop : 1440px wide
- *
- * Playwright's built-in snapshot assertions (`toHaveScreenshot`) generate
- * per-pixel diff images automatically when a comparison fails. Those artifacts
- * are written to `test-results/visual-diffs/<resolution>/` by the spec.
+ * Two projects are defined so that the same spec file runs at both
+ * the 375px (Mobile) and 1440px (Desktop) viewports, producing a
+ * separate baseline + diff per resolution.
  */
 
-const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:4173';
-
-const config: PlaywrightTestConfig = {
-  testDir: '.',
-  testMatch: /.*\.spec\.ts$/,
-  fullyParallelized: true,
-  forbidOnly: process.env.CI ? true : false,
-  retries: process.env.CI ? 1 : 0,
-  timeout: 30_000,
-  expect: {
-    // Allow a small amount of anti-aliasing noise between runs/platforms.
-    toHaveScreenshot: {
-      maxDiffPixelRatio: 0.01,
-      threshold: 0.2,
-    },
-  },
-  // Artifacts (including diff images) are always preserved on failure.
-  preserveOutput: 'always',
-  outputDir: 'test-results/visual-diff',
-  snapshotPath: 'tests/e2e/__snapshots__/{projectName}',
-  updateSnapshots: 'missing',
-  use: {
-    baseURL,
-    trace: 'on-first-retry',
-    screenshot: 'only-on-failure',
-    video: 'off',
-  },
-  projects: [
-    {
-      name: 'mobile',
-      use: {
-        ...devices['iPhone 12'],
-        viewport: { width: 375, height: 812 },
-        deviceScaleFactor: 1,
-      },
-    },
-    {
-      name: 'desktop',
-      use: {
-        viewport: { width: 1440, height: 900 },
-        deviceScaleFactor: 1,
-      },
-    },
-  ],
-};
-
-export default config;
+export default defineConfig({
+	testDir: '.',
+	testMatch: /.*\.spec\.ts$/,
+	fullyParallel: true,
+	forbidOnly: true,
+	retries: process.env.CI ? 1 : 0,
+	reporter: [['list'], ['line']],
+	use: {
+		trace: 'on-first-retry',
+		screenshot: 'only-on-failure',
+		video: 'retain-on-failure',
+	},
+	expect: {
+		toHaveSnapshot: {
+			maxDiffPixelsRatio: 0.01,
+			threshold: 0.2,
+			animations: 'disabled',
+			caret: hide,
+			scale: 'css',
+		},
+	},
+	snapshotPathTemplate: '{testDir}/{snapshotDir}/{snapshotSuffix}-{projectName}-{arg}.png',
+	projects: [
+		{
+			name: 'mobile-375px',
+			use: {
+				...devices['Pixel 5'],
+				viewport: { width: 375, height: 812 },
+				deviceScaleFactor: 1,
+			},
+		},
+		{
+			name: 'desktop-1440px',
+			use: {
+				...devices['Desktop Chrome'],
+				viewport: { width: 1440, height: 900 },
+				deviceScaleFactor: 1,
+			},
+		},
+		{
+			name: 'desktop-1440px-firefox',
+			use: {
+				...devices['Desktop Firefox'],
+				viewport: { width: 1440, height: 900 },
+				deviceScaleFactor: 1,
+			},
+		},
+		{
+			name: 'mobile-375px-firefox',
+			use: {
+				...devices['Desktop Firefox'],
+				viewport: { width: 375, height: 812 },
+				deviceScaleFactor: 1,
+			},
+		},
+		{
+			name: 'desktop-1440px-webkit',
+			use: {
+				...devices['Desktop Safari'],
+				viewport: { width: 1440, height: 900 },
+				deviceScaleFactor: 1,
+			},
+		},
+		{
+			name: 'mobile-375px-webkit',
+			use: {
+				...devices['Desktop Safari'],
+				viewport: { width: 375, height: 812 },
+				deviceScaleFactor: 1,
+			},
+		},
+	],
+	webServer: {
+		command: 'npm run dev -- --host 127.0.0.1 --port 4173',
+		url: 'http://127.0.0.1:4173',
+		reuseExistingServer: !process.env.CI,
+		timeout: 120_000,
+	},
+});
