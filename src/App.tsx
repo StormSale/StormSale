@@ -10,6 +10,7 @@ import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
 
@@ -75,6 +76,14 @@ function Router() {
         isStandalone
       />
     );
+  }
+
+  // Check if current route is a custom short-link path e.g. /c/:slug
+  const isShortLinkRoute =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
+
+  if (isShortLinkRoute) {
+    return <ShortLinkRedirect />;
   }
 
   return (

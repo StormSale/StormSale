@@ -7,6 +7,7 @@ import {
   logSaleContractCall,
   claimPayoutContractCall,
 } from "../lib/stellar";
+import { createCustomShortLink, resolveShortLinkRedirect } from "../lib/customLinks";
 import { STELLAR_CONFIG } from "../config/stellar";
 
 describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
@@ -97,6 +98,23 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
 
       expect(url.searchParams.get("ref")).toBe(affiliateWallet);
       expect(url.pathname).toBe(`/c/${activeCampaignId}`);
+    });
+
+    it("generates a cloaked custom short link with cryptographic wallet identifier", async () => {
+      const customLink = await createCustomShortLink({
+        slug: "e2e-summer-drop",
+        affiliateWallet,
+        campaignId: String(activeCampaignId),
+        destinationUrl: "https://merchant.example.com/e2e-shop",
+      });
+
+      expect(customLink.slug).toBe("e2e-summer-drop");
+      expect(customLink.affiliateWallet).toBe(affiliateWallet);
+
+      const redirect = resolveShortLinkRedirect("e2e-summer-drop");
+      expect(redirect).not.toBeNull();
+      expect(redirect?.targetUrl).toContain(`ref=${affiliateWallet}`);
+      expect(redirect?.trackingHeaders["X-StormSale-Affiliate"]).toBe(affiliateWallet);
     });
 
     it("calculates exact mathematical commission from on-chain rate", () => {
