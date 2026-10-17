@@ -2,7 +2,6 @@ import React from "react";
 import { type AdvertiserBrandConfig, evaluateWcagCompliance } from "../../lib/branding";
 import { Shield, CheckCircle2, ArrowRight, Sparkles, X } from "lucide-react";
 import { Button } from "../ui/button";
-import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 
 interface BrandedCampaignViewProps {
   brandConfig: AdvertiserBrandConfig;
@@ -15,7 +14,6 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
   onClose,
   isStandalone = false,
 }) => {
-  const isOnline = useOnlineStatus();
   const contrast = evaluateWcagCompliance(brandConfig.primaryColor);
   const textColor = contrast.recommendedTextColor;
 
@@ -84,9 +82,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
       </div>
 
       {/* Brand Header */}
-      <header
-        className={`sticky ${isOnline ? "top-0" : "top-10"} z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-zinc-800`}
-      >
+      <header className="sticky top-0 z-40 bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border-b border-slate-200/80 dark:border-zinc-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <img

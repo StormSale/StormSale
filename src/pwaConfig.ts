@@ -63,8 +63,25 @@ export function createPublicCampaignRequest(request: Request): Request {
 }
 
 export const offlineStatusPlugin: WorkboxPlugin = {
-  requestWillFetch: async ({ request }) => createPublicCampaignRequest(request),
-  cacheWillUpdate: async ({ request, response }) => cachePublicApiResponse(request, response),
+  requestWillFetch: async ({ request }) => new Request(request, { credentials: "omit" }),
+  cacheWillUpdate: async ({ request, response }) => {
+    const directives = (response.headers.get("Cache-Control") ?? "")
+      .toLowerCase()
+      .split(",")
+      .map((d) => d.trim());
+    const vary = (response.headers.get("Vary") ?? "")
+      .toLowerCase()
+      .split(",")
+      .map((h) => h.trim());
+    const cacheable =
+      response.status === 200 &&
+      directives.includes("public") &&
+      !directives.includes("private") &&
+      !directives.includes("no-store") &&
+      !vary.some((h) => h === "*" || h === "cookie" || h === "authorization") &&
+      !request.headers.has("Authorization");
+    return cacheable ? response : null;
+  },
   fetchDidSucceed: async ({ event, state, response }) => {
     if (state) state.receivedNetworkResponse = true;
     if ("clientId" in event && typeof event.clientId === "string") {
@@ -101,10 +118,6 @@ export const publicCampaignCaching = {
     networkTimeoutSeconds: 3,
     cacheableResponse: { statuses: [200] },
     expiration: { maxEntries: 50, maxAgeSeconds: 86400 },
-    backgroundSync: {
-      name: "public-campaign-get-queue",
-      options: { maxRetentionTime: 1440 },
-    },
     plugins: [offlineStatusPlugin],
   },
 };

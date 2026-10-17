@@ -6,7 +6,7 @@ import { InstallPrompt } from "../components/InstallPrompt";
 import { OfflineBanner } from "../components/OfflineBanner";
 import { PwaRegistrationFeedback } from "../components/PwaRegistrationFeedback";
 import { NotificationWrapper } from "../context/NotificationContext";
-import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { resetOnlineStatusStore, useOnlineStatus } from "../hooks/useOnlineStatus";
 import { createPwaRegistrationCallbacks } from "../lib/pwaRegistration";
 import {
   cachePublicApiResponse,
@@ -50,6 +50,7 @@ describe("PWA offline support", () => {
     container?.remove();
     Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
     Reflect.deleteProperty(navigator, "serviceWorker");
+    resetOnlineStatusStore();
     vi.restoreAllMocks();
   });
 
@@ -213,6 +214,7 @@ describe("PWA offline support", () => {
       }),
     ).toBe(false);
     expect(publicCampaignCaching.options.plugins).toContain(offlineStatusPlugin);
+    expect(publicCampaignCaching.options).not.toHaveProperty("backgroundSync");
   });
 
   it("omits cookies when requesting publicly cacheable campaign metadata", () => {
@@ -286,5 +288,98 @@ describe("PWA offline support", () => {
     await act(async () => callbacks.onRegisterError(new Error("worker unavailable")));
     expect(getContainer().textContent).toContain("Offline support could not be enabled");
     expect(getContainer().textContent).toContain("worker unavailable");
+  });
+
+  it("makes offlineStatusPlugin self-contained for service worker serialization", async () => {
+    const request = new Request("https://api.example.test/api/campaigns/123");
+    const publicResponse = new Response("{}", {
+      status: 200,
+      headers: { "Cache-Control": "public, max-age=3600" },
+    });
+    const modifiedRequest = await offlineStatusPlugin.requestWillFetch?.({
+      request,
+    } as Parameters<NonNullable<typeof offlineStatusPlugin.requestWillFetch>>[0]);
+    expect(modifiedRequest?.credentials).toBe("omit");
+
+    const cached = await offlineStatusPlugin.cacheWillUpdate?.({
+      request,
+      response: publicResponse,
+    } as Parameters<NonNullable<typeof offlineStatusPlugin.cacheWillUpdate>>[0]);
+    expect(cached).toBe(publicResponse);
+  });
+
+  it("shares cached-fallback state across newly mounted hook instances", async () => {
+    const serviceWorker = new EventTarget();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: serviceWorker,
+    });
+    setOnline(true);
+    await render(createElement(OnlineStatusProbe));
+    expect(getContainer().textContent).toBe("true");
+
+    await act(async () => {
+      serviceWorker.dispatchEvent(
+        new MessageEvent("message", { data: { type: "SW_CACHED_FALLBACK" } }),
+      );
+    });
+    expect(getContainer().textContent).toBe("false");
+
+    // Mount a second consumer after SW_CACHED_FALLBACK
+    const container2 = document.createElement("div");
+    document.body.append(container2);
+    const root2 = createRoot(container2);
+    await act(async () => root2.render(createElement(OnlineStatusProbe)));
+    expect(container2.textContent).toBe("false");
+
+    await act(async () => {
+      serviceWorker.dispatchEvent(
+        new MessageEvent("message", { data: { type: "SW_ONLINE_RESTORED" } }),
+      );
+    });
+    expect(getContainer().textContent).toBe("true");
+    expect(container2.textContent).toBe("true");
+
+    await act(async () => root2.unmount());
+    container2.remove();
+  });
+
+  it("preserves cached-fallback state on browser online event and triggers revalidation", async () => {
+    const serviceWorker = new EventTarget();
+    Object.defineProperty(navigator, "serviceWorker", {
+      configurable: true,
+      value: serviceWorker,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(() => Promise.resolve(new Response()));
+    setOnline(true);
+    await render(createElement(OnlineStatusProbe));
+
+    await act(async () => {
+      serviceWorker.dispatchEvent(
+        new MessageEvent("message", { data: { type: "SW_CACHED_FALLBACK" } }),
+      );
+    });
+    expect(getContainer().textContent).toBe("false");
+
+    // Browser fires online event - should NOT clear fallback state, but SHOULD trigger revalidation
+    await act(async () => {
+      setOnline(true);
+      window.dispatchEvent(new Event("online"));
+    });
+    expect(getContainer().textContent).toBe("false");
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "/api/campaigns/",
+      expect.objectContaining({ method: "GET" }),
+    );
+
+    // Fallback state is cleared only when service worker reports recovery
+    await act(async () => {
+      serviceWorker.dispatchEvent(
+        new MessageEvent("message", { data: { type: "SW_ONLINE_RESTORED" } }),
+      );
+    });
+    expect(getContainer().textContent).toBe("true");
   });
 });

@@ -17,7 +17,6 @@
   "main": "eslint.config.js",
   "scripts": {
     "dev": "vite",
-    "prebuild": "pwa-assets-generator --config pwa-assets.config.ts",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
