@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   BarChart3,
 } from "lucide-react";
+import { SolvencyHud } from "./SolvencyHud";
 
 interface AuditorOverviewProps {
   onTabChange?: (tab: string) => void;
@@ -60,6 +61,9 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </span>
         </div>
       </div>
+
+      {/* Real-Time Protocol Solvency Proof & TVL Oracle HUD */}
+      <SolvencyHud onInspectDetails={() => onTabChange?.("solvency")} />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
