@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildClickRecord,
   buildGdprCertificate,
+  canonicalizeIp,
   countUniqueVisitors,
   deriveDailySalt,
   findRawIpFields,
@@ -22,7 +23,28 @@ describe("IP hashing", () => {
     );
   });
 
-  it("is stable within 24h so uniqueness can be verified", async () => {
+  it("changes at the UTC day boundary, not after a rolling 24h", async () => {
+    const before = await buildClickRecord("c1", "203.0.113.7", SECRET, DAY1_LATE);
+    const after = await buildClickRecord("c1", "203.0.113.7", SECRET, DAY2);
+    expect(before.ipHash).not.toBe(after.ipHash);
+  });
+
+  it("hashes equivalent IP spellings identically", async () => {
+    const a = await buildClickRecord("c1", "2001:db8::1", SECRET, DAY1);
+    const b = await buildClickRecord("c1", "2001:0DB8:0:0:0:0:0:1", SECRET, DAY1);
+    expect(a.ipHash).toBe(b.ipHash);
+    const v4 = await buildClickRecord("c1", "10.0.0.1", SECRET, DAY1);
+    const mapped = await buildClickRecord("c1", "::ffff:10.0.0.1", SECRET, DAY1);
+    expect(mapped.ipHash).toBe(v4.ipHash);
+  });
+
+  it("rejects input that is not an IP address", async () => {
+    await expect(buildClickRecord("c1", "not-an-ip", SECRET, DAY1)).rejects.toThrow(
+      "Invalid IP address",
+    );
+  });
+
+  it("is stable within a UTC day so uniqueness can be verified", async () => {
     const a = await buildClickRecord("c1", "203.0.113.7", SECRET, DAY1);
     const b = await buildClickRecord("c1", "203.0.113.7", SECRET, DAY1_LATE);
     const c = await buildClickRecord("c1", "198.51.100.2", SECRET, DAY1);
@@ -44,7 +66,41 @@ describe("IP hashing", () => {
   });
 });
 
+describe("canonicalizeIp", () => {
+  it("accepts valid IPv4 and IPv6", () => {
+    expect(canonicalizeIp(" 203.0.113.7 ")).toBe("203.0.113.7");
+    expect(canonicalizeIp("::")).toBe("0:0:0:0:0:0:0:0");
+    expect(canonicalizeIp("2001:db8::1")).toBe("2001:db8:0:0:0:0:0:1");
+    expect(canonicalizeIp("::1")).toBe("0:0:0:0:0:0:0:1");
+    expect(canonicalizeIp("1:2:3:4:5:6:1.2.3.4")).toBe("1:2:3:4:5:6:102:304");
+  });
+
+  it("rejects malformed addresses", () => {
+    for (const bad of [
+      "",
+      "not-an-ip",
+      "256.1.1.1",
+      "1.2.3",
+      "010.0.0.1",
+      "1::2::3",
+      "1:2:3:4:5:6:7",
+      "1:2:3:4:5:6:7:8:9",
+      "12345::1",
+      "1:2:3:4:5:6:7::8",
+      "fe80::1%eth0",
+    ]) {
+      expect(canonicalizeIp(bad), bad).toBeNull();
+    }
+  });
+});
+
 describe("zero-PII verification", () => {
+  it("detects raw IPs used as object keys without echoing them", () => {
+    const found = findRawIpFields({ "192.0.2.1": { seen: true } });
+    expect(found).toEqual(["$.<ip-key>"]);
+    expect(JSON.stringify(found)).not.toContain("192.0.2.1");
+  });
+
   it("passes hashed records", async () => {
     const r = await buildClickRecord("c1", "2001:db8::1", SECRET, DAY1);
     expect(verifyZeroPii([r]).compliant).toBe(true);
@@ -72,13 +128,20 @@ describe("certificate", () => {
       issuedAt: DAY1,
       verification: verifyZeroPii([]),
     });
-    expect(ok).toContain("Status:      COMPLIANT");
+    expect(ok).toContain("Status:      NOT VERIFIED");
+    expect(ok).toContain("not a legal determination");
+    const clean = buildGdprCertificate({
+      organization: "Acme",
+      issuedAt: DAY1,
+      verification: verifyZeroPii([{ ipHash: "a".repeat(64) }]),
+    });
+    expect(clean).toContain("Status:      NO RAW IPS DETECTED");
     const bad = buildGdprCertificate({
       organization: "Acme",
       issuedAt: DAY1,
       verification: verifyZeroPii([{ ip: "10.1.1.1" }]),
     });
-    expect(bad).toContain("NON-COMPLIANT");
+    expect(bad).toContain("Status:      RAW IPS DETECTED");
     expect(bad).toContain("records[0].ip");
   });
 });

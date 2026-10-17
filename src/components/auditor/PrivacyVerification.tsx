@@ -23,13 +23,27 @@ const DEMO_SECRET = "stormsale-demo-master-secret";
 export const PrivacyVerification = () => {
   const [ip, setIp] = useState("203.0.113.7");
   const [records, setRecords] = useState<ClickRecord[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
   const verification = verifyZeroPii(records);
 
   const hashSample = async () => {
-    const r = await buildClickRecord("demo", ip, DEMO_SECRET, new Date());
-    // The raw IP is discarded here; only the hashed record is kept.
-    setRecords((prev) => [...prev, r]);
+    setPending(true);
+    setError(null);
+    try {
+      const r = await buildClickRecord("demo", ip, DEMO_SECRET, new Date());
+      // The raw IP is discarded here; only the hashed record is kept.
+      setRecords((prev) => [...prev, r]);
+    } catch (e) {
+      setError(
+        e instanceof Error && e.message === "Invalid IP address"
+          ? "Enter a valid IPv4 or IPv6 address."
+          : "Hashing failed. Please try again.",
+      );
+    } finally {
+      setPending(false);
+    }
   };
 
   const downloadCertificate = () => {
@@ -57,11 +71,24 @@ export const PrivacyVerification = () => {
             Zero-PII click hashing: HMAC-SHA256(ip, daily_salt)
           </p>
         </div>
-        <Button onClick={downloadCertificate} className="h-10 rounded-xl font-semibold">
+        <Button
+          onClick={downloadCertificate}
+          disabled={records.length === 0}
+          className="h-10 rounded-xl font-semibold"
+        >
           <Download className="w-4 h-4 mr-2" />
           GDPR Certificate
         </Button>
       </div>
+
+      <p
+        role="note"
+        className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm text-amber-900 dark:text-amber-200"
+      >
+        Demo: this check only inspects the sample records created in this session with a public demo
+        secret. It does not audit the database or ledger and is not a production privacy report or a
+        formal GDPR/CCPA certification.
+      </p>
 
       <Card>
         <CardHeader>
@@ -85,15 +112,22 @@ export const PrivacyVerification = () => {
         <CardContent className="space-y-4">
           <div className="flex gap-2">
             <Input value={ip} onChange={(e) => setIp(e.target.value)} aria-label="Sample IP" />
-            <Button onClick={hashSample}>Hash</Button>
+            <Button onClick={hashSample} disabled={pending}>
+              {pending ? "Hashing..." : "Hash"}
+            </Button>
           </div>
+          {error && (
+            <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
           <pre className="text-xs overflow-x-auto rounded-lg bg-zinc-100 dark:bg-zinc-900 p-3">
             {JSON.stringify(records, null, 2)}
           </pre>
           <p className="flex items-center gap-2 text-sm font-semibold">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
             {records.length} record(s) inspected,{" "}
-            {verification.compliant ? "no raw IPs found" : "raw IP detected"}
+            {verification.compliant ? "no raw IPs found in samples" : "raw IP detected"}
           </p>
         </CardContent>
       </Card>
