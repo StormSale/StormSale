@@ -3,9 +3,10 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { ShopifyWebhookGateway } from "../components/shopify/ShopifyWebhookGateway";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, ShoppingCart } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -20,6 +21,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
+    { id: "shopify", label: "Shopify Integration", icon: ShoppingCart },
   ];
 
   const renderContent = () => {
@@ -30,6 +32,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <AuditHistory />;
       case "compliance":
         return <ComplianceReport />;
+      case "shopify":
+        return <ShopifyWebhookGateway />;
       default:
         return <AuditorOverview onTabChange={setActiveTab} />;
     }
