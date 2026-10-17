@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
   activeTab: string;
@@ -13,6 +14,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  isLoadingRole?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -22,10 +24,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  isLoadingRole = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
+
+  // Prevent layout flicker by keeping the last known role name rendered
+  // while the DB/UI role sync is in-flight.
+  const [stableRoleName, setStableRoleName] = useState(roleName);
+  useEffect(() => {
+    if (!isLoadingRole && roleName) {
+      setStableRoleName(roleName);
+    }
+  }, [roleName, isLoadingRole]);
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
@@ -58,13 +70,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
                 <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {roleName}
+                  {isLoadingRole ? stableRoleName : roleName}
                 </span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center space-x-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               size="sm"
@@ -209,7 +222,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Shield className="w-4 h-4 text-white" />
                   </div>
                   <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {roleName}
+                    {isLoadingRole ? stableRoleName : roleName}
                   </span>
                 </div>
               </motion.div>
@@ -222,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 transition={{ duration: 0.2 }}
                 className="flex justify-center"
               >
-                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md" title={isLoadingRole ? stableRoleName : roleName}>
                   <Shield className="w-5 h-5 text-white" />
                 </div>
               </motion.div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -28,6 +28,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     network,
     xlmBalance,
     connectorType,
+    userRole,
+    isRoleLoading,
   } = useWeb3();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
@@ -44,6 +46,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       setIsSigning(false);
     }
   };
+
+  // Sync persisted role from DB into UI to prevent flicker on load.
+  // If a role is already persisted, route directly without showing the selector.
+  useEffect(() => {
+    if (isRoleLoading) return;
+    if (userRole && !isSigning) {
+      onNavigate(userRole.toLowerCase());
+    }
+  }, [userRole, isRoleLoading, isSigning, onNavigate]);
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -179,6 +190,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       </div>
 
       <div className="container mx-auto px-4 pt-8 sm:pt-16">
+        {/* Role hydration guard: render nothing until DB role is resolved to avoid 0ms flicker */}
+        {isRoleLoading ? (
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="w-10 h-10 rounded-full border-4 border-indigo-500/30 border-t-indigo-500 animate-spin" />
+              <p className="text-sm font-bold text-zinc-500 dark:text-zinc-400">
+                Syncing role…
+              </p>
+            </div>
+          </div>
+        ) : userRole ? (
+          <div className="flex items-center justify-center min-h-[60vh]">
+            <p className="text-sm font-bold text-zinc-500 dark:text-zinc-400">
+              Redirecting to your dashboard…
+            </p>
+          </div>
+        ) : (
+          <>
         {/* Title */}
         <div className="mb-8 sm:mb-12">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter mb-2 sm:mb-4 text-zinc-900 dark:text-white">
@@ -304,6 +333,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             );
           })}
         </div>
+          </>
+        )}
       </div>
     </div>
   );
