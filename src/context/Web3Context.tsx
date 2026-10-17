@@ -57,6 +57,7 @@ export interface Web3ContextType {
 
   claimPayoutOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  refundEscrowOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
   batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
 
@@ -399,6 +400,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         logSaleOnChain,
         claimPayoutOnChain,
         refundCampaignEscrow,
+        refundEscrowOnChain: refundCampaignEscrow,
         batchClaimPayoutsOnChain,
         registerPasskeyAccount,
         factoryContract,

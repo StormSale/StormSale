@@ -549,3 +549,15 @@ export async function refundCampaignEscrowContractCall(
   };
 }
 
+/**
+ * Refunds unallocated escrow funds back to the advertiser treasury address after pending clearing periods conclude.
+ * Invokes contract refund_escrow method with advertiser signature.
+ */
+export async function refundEscrowContractCall(
+  advertiserAddress: string,
+  campaignId: number,
+  walletType: WalletType = "freighter",
+): Promise<{ success: boolean; txHash: string; refundedAmount?: number }> {
+  return refundCampaignEscrowContractCall(advertiserAddress, campaignId, walletType);
+}
+

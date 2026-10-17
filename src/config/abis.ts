@@ -11,6 +11,7 @@ export const STORMSALE_CONTRACT_METHODS = {
   LOG_SALE: "log_sale",
   CLAIM_COMMISSION: "claim_commission",
   GRANT_AUDIT_ACCESS: "grant_audit_access",
+  REFUND_ESCROW: "refund_escrow",
   GET_CAMPAIGN: "get_campaign",
   GET_SALE: "get_sale",
   GET_SALES_BY_CAMPAIGN: "get_sales_by_campaign",

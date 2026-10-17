@@ -22,8 +22,10 @@ import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { formatStellarAddress } from "../../lib/stellar";
+import { ConcludeRefundModal } from "./ConcludeRefundModal";
+import { canConcludeAndRefundEscrow, applyRefundConcludedState } from "../../lib/escrowRefund";
 
-export type CampaignStatus = "Active" | "Paused" | "Completed";
+export type CampaignStatus = "Active" | "Paused" | "Completed" | "CONCLUDED";
 
 export interface Campaign {
   id: string;
@@ -31,6 +33,10 @@ export interface Campaign {
   status: CampaignStatus;
   commissionRate: number;
   clearingPeriod: string;
+  clearingPeriodSecs?: number;
+  clearingExpiresAt?: number;
+  pendingClaims?: number;
+  outstandingLiabilities?: number;
   totalSales: number;
   totalRevenue: string;
   totalCommissions: string;
@@ -39,6 +45,7 @@ export interface Campaign {
   contractAddress: string;
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
+  balance?: number; // Normalized balance alias
   isRefunded?: boolean;
 }
 
@@ -49,6 +56,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 10,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() + 14 * 86400 * 1000,
+    pendingClaims: 3,
+    outstandingLiabilities: 450,
     totalSales: 124,
     totalRevenue: "$24,800",
     totalCommissions: "$2,480",
@@ -57,6 +68,7 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CA7Q...1234",
     escrowInitial: 5000,
     escrowBalance: 3250, // 65.0% - Healthy
+    balance: 3250,
   },
   {
     id: "2",
@@ -64,6 +76,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 15,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() + 7 * 86400 * 1000,
+    pendingClaims: 2,
+    outstandingLiabilities: 300,
     totalSales: 89,
     totalRevenue: "$44,500",
     totalCommissions: "$6,675",
@@ -72,6 +88,7 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CB9E...5678",
     escrowInitial: 10000,
     escrowBalance: 750, // 7.5% - LOW ESCROW ALERT (< 10%)
+    balance: 750,
   },
   {
     id: "3",
@@ -79,6 +96,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Paused",
     commissionRate: 12,
     clearingPeriod: "30 Days",
+    clearingPeriodSecs: 30 * 86400,
+    clearingExpiresAt: Date.now() + 30 * 86400 * 1000,
+    pendingClaims: 1,
+    outstandingLiabilities: 150,
     totalSales: 67,
     totalRevenue: "$33,500",
     totalCommissions: "$4,020",
@@ -87,6 +108,7 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CC2K...9012",
     escrowInitial: 8000,
     escrowBalance: 680, // 8.5% - LOW ESCROW ALERT (< 10%)
+    balance: 680,
   },
   {
     id: "4",
@@ -94,6 +116,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 8,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() - 3600000, // Expired 1 hour ago
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
     totalSales: 45,
     totalRevenue: "$22,500",
     totalCommissions: "$1,800",
@@ -102,6 +128,7 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CD4M...3456",
     escrowInitial: 3000,
     escrowBalance: 1200, // Ended campaign with 1,200 XLM unused escrow - REFUNDABLE
+    balance: 1200,
     isRefunded: false,
   },
   {
@@ -110,6 +137,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 5,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() - 86400000,
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
     totalSales: 110,
     totalRevenue: "$55,000",
     totalCommissions: "$2,750",
@@ -118,7 +149,29 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CE1P...7890",
     escrowInitial: 4000,
     escrowBalance: 0,
+    balance: 0,
     isRefunded: true, // Already refunded
+  },
+  {
+    id: "6",
+    name: "NFT Ticket Clearing Pending",
+    status: "Completed",
+    commissionRate: 10,
+    clearingPeriod: "3 Days",
+    clearingPeriodSecs: 3 * 86400,
+    clearingExpiresAt: Date.now() + 86400000, // Active clearing period (in the future)
+    pendingClaims: 2,
+    outstandingLiabilities: 200,
+    totalSales: 30,
+    totalRevenue: "$15,000",
+    totalCommissions: "$1,500",
+    affiliates: 4,
+    createdAt: "2026-03-01",
+    contractAddress: "CF5R...4321",
+    escrowInitial: 2500,
+    escrowBalance: 800,
+    balance: 800,
+    isRefunded: false,
   },
 ];
 
@@ -135,47 +188,42 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
     badge: "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400",
     dot: "bg-slate-400 dark:bg-zinc-500",
   },
+  CONCLUDED: {
+    badge: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+    dot: "bg-purple-500",
+  },
 };
+
 
 export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
+  const [concludeModalCampaign, setConcludeModalCampaign] = useState<Campaign | null>(null);
 
   const { refundCampaignEscrow, isConnected, userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
   // Low balance threshold: < 10%
   const isCampaignLowEscrow = (c: Campaign) => {
-    if (c.status === "Completed" || c.escrowInitial <= 0) return false;
+    if (c.status === "Completed" || c.status === "CONCLUDED" || c.escrowInitial <= 0) return false;
     return c.escrowBalance / c.escrowInitial < 0.10 && c.escrowBalance > 0;
   };
 
-  const handleRefund = async (campaign: Campaign) => {
+  const handleOpenConcludeModal = (campaign: Campaign) => {
+    setConcludeModalCampaign(campaign);
+  };
+
+  const handleConfirmConcludeRefund = async (campaignToRefund: { id: string }) => {
+    const campaign = campaigns.find((c) => c.id === campaignToRefund.id);
+    if (!campaign) return;
+
     if (!isConnected) {
       showNotification({
         type: "error",
         title: "Wallet Not Connected",
         message: "Please connect your Freighter wallet to execute escrow refund",
-      });
-      return;
-    }
-
-    if (campaign.status !== "Completed") {
-      showNotification({
-        type: "error",
-        title: "Campaign Still Active",
-        message: "Escrow refunds are only permitted for ended or completed campaigns",
-      });
-      return;
-    }
-
-    if (campaign.isRefunded || campaign.escrowBalance <= 0) {
-      showNotification({
-        type: "info",
-        title: "Already Refunded",
-        message: "There is no remaining escrow balance to refund",
       });
       return;
     }
@@ -190,23 +238,31 @@ export const MyCampaignsList = () => {
         message: `Withdrawing ${refundAmount.toLocaleString()} XLM unused escrow on Soroban...`,
       });
 
+      // Invoke contract refund_escrow method with advertiser signature
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
-      // Update local campaign state to refunded
+      // Update local campaign status to CONCLUDED and balance to 0.00
       setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === campaign.id
-            ? { ...c, escrowBalance: 0, isRefunded: true }
-            : c,
-        ),
+        prev.map((c) => {
+          if (c.id === campaign.id) {
+            const updated = applyRefundConcludedState(c);
+            return {
+              ...updated,
+              balance: 0,
+            };
+          }
+          return c;
+        }),
       );
+
+      setConcludeModalCampaign(null);
 
       showNotification({
         type: "success",
         title: "Escrow Refund Confirmed!",
         message: `Successfully refunded ${refundAmount.toLocaleString()} XLM to ${
-          userAddress ? formatStellarAddress(userAddress) : "your wallet"
-        }. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+          userAddress ? formatStellarAddress(userAddress) : "treasury wallet"
+        }. Status updated to CONCLUDED. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
     } catch (error: any) {
       console.error("Error refunding escrow:", error);
@@ -218,6 +274,10 @@ export const MyCampaignsList = () => {
     } finally {
       setRefundingCampaignId(null);
     }
+  };
+
+  const handleRefund = async (campaign: Campaign) => {
+    handleOpenConcludeModal(campaign);
   };
 
   const filtered = campaigns.filter((c) => {
@@ -355,7 +415,7 @@ export const MyCampaignsList = () => {
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          {(["All", "Active", "Paused", "Completed"] as const).map((s) => (
+          {(["All", "Active", "Paused", "Completed", "CONCLUDED"] as const).map((s) => (
             <Button
               key={s}
               size="sm"
@@ -557,36 +617,50 @@ export const MyCampaignsList = () => {
 
                   {/* ACTIONS: Standard Actions + "Refund" Action for Ended Campaigns */}
                   <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/50">
-                    {campaign.status === "Completed" ? (
-                      /* Ended / Completed Campaign: Refund Action Area */
+                    {campaign.status === "Completed" || campaign.status === "CONCLUDED" ? (
+                      /* Ended / Completed / Concluded Campaign: Refund & Clawback Action Area */
                       <div className="space-y-2">
-                        {campaign.isRefunded ? (
-                          <div className="w-full h-11 rounded-xl bg-slate-100 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700/60 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-400 space-x-2">
-                            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                            <span>Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM Settled)</span>
+                        {campaign.status === "CONCLUDED" || campaign.isRefunded ? (
+                          <div className="w-full h-11 rounded-xl bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/50 flex items-center justify-center text-xs font-bold text-purple-700 dark:text-purple-300 space-x-2">
+                            <CheckCircle2 className="w-4 h-4 text-purple-500" />
+                            <span>CONCLUDED · Escrow Refunded (Balance: 0.00 XLM)</span>
                           </div>
-                        ) : (
-                          <Button
-                            type="button"
-                            disabled={isRefundingThis}
-                            onClick={() => handleRefund(campaign)}
-                            className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
-                          >
-                            {isRefundingThis ? (
-                              <div className="flex items-center space-x-2">
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                <span>Refunding Unused Escrow...</span>
-                              </div>
-                            ) : (
-                              <div className="flex items-center space-x-2">
-                                <RotateCcw className="w-4 h-4" />
-                                <span>
-                                  Refund Unused Escrow ({campaign.escrowBalance.toLocaleString()} XLM)
-                                </span>
-                              </div>
-                            )}
-                          </Button>
-                        )}
+                        ) : (() => {
+                          const validation = canConcludeAndRefundEscrow(campaign);
+                          return (
+                            <div className="space-y-1.5">
+                              <Button
+                                type="button"
+                                disabled={!validation.canRefund || isRefundingThis}
+                                onClick={() => handleRefund(campaign)}
+                                className={`w-full h-11 font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 ${
+                                  validation.canRefund
+                                    ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    : "bg-slate-200 text-slate-400 dark:bg-zinc-800 dark:text-zinc-500 cursor-not-allowed shadow-none"
+                                }`}
+                              >
+                                {isRefundingThis ? (
+                                  <div className="flex items-center space-x-2">
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    <span>Processing Refund...</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center space-x-2">
+                                    <RotateCcw className="w-4 h-4" />
+                                    <span>
+                                      Conclude & Refund Escrow ({campaign.escrowBalance.toLocaleString()} XLM)
+                                    </span>
+                                  </div>
+                                )}
+                              </Button>
+                              {!validation.canRefund && validation.reason && (
+                                <p className="text-[11px] text-amber-600 dark:text-amber-400 text-center font-medium">
+                                  {validation.reason}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })()}
                         <div className="flex gap-2">
                           <Button
                             variant="outline"
@@ -646,6 +720,16 @@ export const MyCampaignsList = () => {
           })}
         </div>
       )}
+
+      {/* Conclude & Refund Escrow Modal */}
+      <ConcludeRefundModal
+        isOpen={!!concludeModalCampaign}
+        onClose={() => setConcludeModalCampaign(null)}
+        campaign={concludeModalCampaign}
+        treasuryAddress={userAddress}
+        onConfirm={handleConfirmConcludeRefund}
+        isSubmitting={!!refundingCampaignId}
+      />
     </div>
   );
 };
