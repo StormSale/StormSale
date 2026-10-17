@@ -11,6 +11,8 @@ import { OfflineBanner } from "./components/OfflineBanner";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
+import { InstallPrompt } from "./components/InstallPrompt";
+import { PwaRegistrationFeedback } from "./components/PwaRegistrationFeedback";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -189,10 +191,12 @@ function App() {
   return (
     <NotificationWrapper>
       {!isOnline && <OfflineBanner />}
+      <InstallPrompt />
       <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
+              <PwaRegistrationFeedback />
               <TooltipProvider delayDuration={300}>
                 <Router />
               </TooltipProvider>
