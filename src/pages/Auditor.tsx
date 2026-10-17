@@ -3,9 +3,10 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { SolvencyOracleView } from "../components/auditor/SolvencyOracleView";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, Scale } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -17,6 +18,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "solvency", label: "Solvency & TVL Oracle", icon: Scale },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
@@ -24,6 +26,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "solvency":
+        return <SolvencyOracleView />;
       case "verify":
         return <VerifyAccess />;
       case "history":
