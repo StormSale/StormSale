@@ -1,15 +1,31 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
-import { buildSep7TxUri, pollTransactionInclusion } from "../lib/stellar";
+import {
+  buildSep0007TxUri,
+  buildSep0007QrCodeDataUrl,
+  streamTransactionInclusion,
+  type Sep0007TxParams,
+  type TransactionInclusionStreamHandle,
+} from "../lib/stellar";
+
+
+interface Sep0007State {
+  isActive: boolean;
+  isPolling: boolean;
+  isConfirmed: boolean;
+  uri: string | null;
+  qrCodeDataUrl: string | null;
+  hash: string | null;
+  error: string | null;
+}
 
 interface WalletConnectState {
   isConnecting: boolean;
   isSwitchingNetwork: boolean;
   error: string | null;
   showNetworkModal: boolean;
-  sep7Uri: string | null;
-  isAwaitingLedgerConfirmation: boolean;
+  sep0007: Sep0007State;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -18,8 +34,19 @@ interface WalletConnectContextType extends WalletConnectState {
   ensureStellarNetwork: () => Promise<boolean>;
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
-  signWithSep7MobileWallet: (xdr: string, account: string) => Promise<void>;
+  invokeSep0007Wallet: (params: Sep0007TxParams) => Promise<void>;
+  cancelSep0007Wallet: () => void;
 }
+
+const Sep0007InitialState: Sep0007State = {
+  isActive: false,
+  isPolling: false,
+  isConfirmed: false,
+  uri: null,
+  qrCodeDataUrl: null,
+  hash: null,
+  error: null,
+};
 
 const WalletConnectContext = createContext<WalletConnectContextType | undefined>(undefined);
 
@@ -33,11 +60,12 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     isSwitchingNetwork: false,
     error: null,
     showNetworkModal: false,
-    sep7Uri: null,
-    isAwaitingLedgerConfirmation: false,
+    sep0007: Sep0007InitialState,
   });
 
-  const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
+  const streamRef = useRef<TransactionInclusionStreamHandle | null>(null);
+
+  const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork, address } =
     useWeb3();
 
   const connect = async (): Promise<void> => {
@@ -61,15 +89,22 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     }
   };
 
+  const stopStream = (): void => {
+    if (streamRef.current) {
+      streamRef.current.close();
+      streamRef.current = null;
+    }
+  };
+
   const disconnect = (): void => {
+    stopStream();
     disconnectWallet();
     setState({
       isConnecting: false,
       isSwitchingNetwork: false,
       error: null,
       showNetworkModal: false,
-      sep7Uri: null,
-      isAwaitingLedgerConfirmation: false,
+      sep0007: Sep0007InitialState,
     });
   };
 
@@ -111,23 +146,81 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, showNetworkModal: show }));
   };
 
-  const signWithSep7MobileWallet = async (xdr: string, account: string): Promise<void> => {
-    setState((prev) => ({
-      ...prev,
-      error: null,
-      sep7Uri: buildSep7TxUri(xdr),
-      isAwaitingLedgerConfirmation: true,
-    }));
+  const cancelSep0007Wallet = useCallback((): void => {
+    stopStream();
+    setState((prev) => ({ ...prev, sep0007: Sep0007InitialState }));
+  }, []);
+
+  const invokeSep0007Wallet = async (params: Sep0007TxParams): Promise<void> => {
+    stopStream();
 
     try {
-      await pollTransactionInclusion(account);
-      setState((prev) => ({ ...prev, isAwaitingLedgerConfirmation: false }));
-    } catch (error: any) {
-      console.error("SEP-0007 ledger confirmation error:", error);
+      const uri = buildSep0007TxUri(params);
+      const qrCodeDataUrl = buildSep0007QrCodeDataUrl(params);
+      const hash = params.hash ?? null;
+
       setState((prev) => ({
         ...prev,
-        isAwaitingLedgerConfirmation: false,
-        error: error.message || "Failed to confirm transaction on the Stellar ledger",
+        error: null,
+        sep0007: {
+          isActive: true,
+          isPolling: true,
+          isConfirmed: false,
+          uri,
+          qrCodeDataUrl,
+          hash,
+          error: null,
+        },
+      }));
+
+      // Deep-link into the installed mobile wallet (no-op if unsupported).
+      if (typeof window !== "undefined") {
+        window.location.href = uri;
+      }
+
+      const streamAddress = params.account ?? address;
+      if (!streamAddress) {
+        throw new Error(
+          "No Stellar account available to stream for transaction inclusion. Connect a wallet or pass an account.",
+        );
+      }
+
+      streamRef.current = streamTransactionInclusion({
+        account: streamAddress,
+        hash,
+        onIncluded: (txHash) => {
+          stopStream();
+          setState((prev) => ({
+            ...prev,
+            sep0007: {
+              ...prev.sep0007,
+              isPolling: false,
+              isConfirmed: true,
+              hash: txHash,
+            },
+          }));
+        },
+        onError: (err) => {
+          stopStream();
+          setState((prev) => ({
+            ...prev,
+            sep0007: {
+              ...prev.sep0007,
+              isPolling: false,
+              error: err.message || "Failed to confirm transaction on the Stellar ledger",
+            },
+          }));
+        },
+      });
+    } catch (error: any) {
+      console.error("SEP-0007 invocation error:", error);
+      setState((prev) => ({
+        ...prev,
+        sep0007: {
+          ...prev.sep0007,
+          isPolling: false,
+          error: error.message || "Failed to invoke SEP-0007 mobile wallet",
+        },
       }));
     }
   };
@@ -139,7 +232,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     ensureStellarNetwork,
     clearError,
     setShowNetworkModal,
-    signWithSep7MobileWallet,
+    invokeSep0007Wallet,
+    cancelSep0007Wallet,
   };
 
   return (
