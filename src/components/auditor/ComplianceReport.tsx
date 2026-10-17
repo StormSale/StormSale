@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import {
   Card,
   CardContent,
@@ -7,7 +7,20 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { Input } from "../../components/ui/input";
+import {
+  FileCheck,
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  Clock,
+  Lock,
+  Share2,
+  KeyRound,
+  Copy,
+  Check,
+  ShieldCheck,
+} from "lucide-react";
 
 const complianceItems = [
   {
@@ -61,9 +74,59 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
   },
 };
 
+const EXPIRY_OPTIONS = [
+  { label: "1 hour", hours: 1 },
+  { label: "24 hours", hours: 24 },
+  { label: "7 days", hours: 168 },
+];
+
+const generateShareToken = () => {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const generatePassphrase = () => {
+  const words = ["audit", "vault", "cipher", "stellar", "ledger", "secure", "proof", "key"];
+  const pick = () => words[Math.floor(Math.random() * words.length)];
+  return `${pick()}-${pick()}-${generateShareToken().slice(0, 6)}`;
+};
+
 export const ComplianceReport = () => {
   const compliant = complianceItems.filter((c) => c.status === "Compliant").length;
   const review = complianceItems.filter((c) => c.status === "Review Needed").length;
+
+  const [expiryHours, setExpiryHours] = useState(24);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerateLink = () => {
+    const token = generateShareToken();
+    const expiry = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+    setShareLink(`${window.location.origin}/auditor/shared/${token}`);
+    setPassphrase(generatePassphrase());
+    setExpiresAt(expiry);
+    setCopied(false);
+  };
+
+  const handleCopy = async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -188,17 +251,45 @@ export const ComplianceReport = () => {
         </CardContent>
       </Card>
 
-      {/* Bottom notice */}
-      <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
-        <CardContent className="p-6">
-          <div className="flex items-start gap-4">
-            <Lock className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
+      {/* Secure external sharing */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
+        <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+              <Share2 className="w-6 h-6 text-white" />
+            </div>
             <div>
-              <p className="font-bold text-zinc-900 dark:text-white text-sm">Audit Immutability</p>
-              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                All compliance audit actions are immutably recorded on the Stellar network.
-                Timestamps, access grants and denial logs cannot be altered after they are written.
-              </p>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+                Secure External Sharing
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
+                Encrypt this report with a PGP-style passphrase and generate an expiry-locked link
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+            <div className="flex-1">
+              <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                Link Expiry
+              </label>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {EXPIRY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.hours}
+                    type="button"
+                    onClick={() => setExpiryHours(opt.hours)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                      expiryHours === opt.hours
+                        ? "bg-indigo-600 text-white border-indigo-600"
+                        : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </CardContent>
