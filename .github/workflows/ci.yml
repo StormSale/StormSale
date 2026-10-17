@@ -3,7 +3,7 @@ name: Frontend CI & Test Audit
 on:
   push:
     branches: [ "main", "dev" ]
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
     branches: [ "main", "dev" ]
 
@@ -21,7 +21,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
-        allow-unsafe-pr-checkout: true
 
     - name: Setup Node.js
       uses: actions/setup-node@v7
@@ -35,7 +34,7 @@ jobs:
 
     - name: Run Unit Tests with Audit Export
       run: |
-        npx vitest run --reporter=default --reporter=json --outputFile=test-results.json
+        npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json
       continue-on-error: true
 
     - name: Publish Test Audit Summary
