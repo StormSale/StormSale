@@ -3,9 +3,11 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { AnomalyReport } from "../components/auditor/AnomalyReport";
+import { AnomalyDetection } from "../components/auditor/AnomalyDetection";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -20,6 +22,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
+    { id: "anomalies", label: "Anomaly Reports", icon: AlertTriangle },
+    { id: "detection", label: "Anomaly Detection", icon: AlertTriangle },
   ];
 
   const renderContent = () => {
@@ -30,6 +34,10 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <AuditHistory />;
       case "compliance":
         return <ComplianceReport />;
+      case "anomalies":
+        return <AnomalyReport />;
+      case "detection":
+        return <AnomalyDetection />;
       default:
         return <AuditorOverview onTabChange={setActiveTab} />;
     }

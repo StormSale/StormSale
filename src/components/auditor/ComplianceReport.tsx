@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -7,7 +8,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock, Flag, ShieldAlert } from "lucide-react";
 
 const complianceItems = [
   {
@@ -59,11 +60,28 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
     badge: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400",
     icon: AlertTriangle,
   },
+  "Red Flag": {
+    badge: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400",
+    icon: ShieldAlert,
+  },
 };
+
+const fallbackStatus = statusMap["Review Needed"];
 
 export const ComplianceReport = () => {
   const compliant = complianceItems.filter((c) => c.status === "Compliant").length;
   const review = complianceItems.filter((c) => c.status === "Review Needed").length;
+
+  const [reported, setReported] = useState<Record<number, boolean>>({});
+  const [flagged, setFlagged] = useState<Record<number, boolean>>({});
+
+  const handleReportAnomaly = (index: number) => {
+    setReported((prev) => ({ ...prev, [index]: true }));
+  };
+
+  const handleToggleFlag = (index: number) => {
+    setFlagged((prev) => ({ ...prev, [index]: !prev[index] }));
+  };
 
   return (
     <div className="space-y-6">
@@ -135,14 +153,18 @@ export const ComplianceReport = () => {
         <CardContent className="p-0">
           <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
             {complianceItems.map((item, i) => {
-              const cfg = statusMap[item.status];
+              const cfg = statusMap[item.status] ?? fallbackStatus;
               const StatusIcon = cfg.icon;
+              const isFlagged = flagged[i];
               return (
                 <div
                   key={i}
                   className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 px-8 py-6 hover:bg-slate-50/50 dark:hover:bg-zinc-900/30 transition-colors"
                 >
                   <div className="flex items-start gap-4">
+                    {isFlagged && (
+                      <span className="sr-only">Red Flag</span>
+                    )}
                     <div
                       className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                         item.status === "Compliant"
@@ -168,6 +190,12 @@ export const ComplianceReport = () => {
                       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed max-w-lg">
                         {item.details}
                       </p>
+                      {isFlagged && (
+                        <span className="inline-flex items-center gap-1 mt-2 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400">
+                          <ShieldAlert className="w-3 h-3" />
+                          Red Flag
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
@@ -179,6 +207,27 @@ export const ComplianceReport = () => {
                     <div className="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
                       <Clock className="w-3 h-3" />
                       {item.lastChecked}
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleToggleFlag(i)}
+                        className="h-7 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        <Flag className="w-3 h-3 mr-1" />
+                        {isFlagged ? "Unflag" : "Flag"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={reported[i]}
+                        onClick={() => handleReportAnomaly(i)}
+                        className="h-7 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                      >
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        {reported[i] ? "Reported" : "Report"}
+                      </Button>
                     </div>
                   </div>
                 </div>
