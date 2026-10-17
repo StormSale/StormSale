@@ -16,6 +16,8 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { FederatedAddressInput } from "./FederatedAddressInput";
+import { resolveRecipient } from "../../lib/stellar";
 import type { WalletType } from "../../lib/stellar";
 
 export const ConnectWalletModal: React.FC = () => {
@@ -51,13 +53,18 @@ export const ConnectWalletModal: React.FC = () => {
 
     try {
       if (type === "readonly") {
-        const trimmed = customKey.trim();
-        if (!trimmed.startsWith("G") || trimmed.length !== 56) {
+        // Accept either a raw G... key or a name*domain.com federation address.
+        const resolution = await resolveRecipient(customKey);
+        if (
+          (resolution.status !== "raw" && resolution.status !== "federated") ||
+          !resolution.address
+        ) {
           throw new Error(
-            "Invalid Stellar public key format. Keys start with 'G' and are 56 characters.",
+            resolution.error ||
+              "Invalid Stellar public key format. Keys start with 'G' and are 56 characters.",
           );
         }
-        await connectWallet("readonly", trimmed);
+        await connectWallet("readonly", resolution.address);
       } else if (type === "ledger") {
         const bipPath = getActiveBipPath();
         await connectWallet("ledger", undefined, bipPath);
@@ -371,14 +378,13 @@ export const ConnectWalletModal: React.FC = () => {
                   className="p-4 bg-slate-50 dark:bg-zinc-800/50 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5"
                 >
                   <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                    Stellar Public Key (G...)
+                    Stellar Public Key (G...) or Federation Address
                   </label>
-                  <input
-                    type="text"
+                  <FederatedAddressInput
                     value={customKey}
-                    onChange={(e) => setCustomKey(e.target.value)}
-                    placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    onChange={setCustomKey}
+                    placeholder="GXXXX... or alice*stormsale.io"
+                    inputClassName="h-auto px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs"
                   />
                   <div className="flex justify-end space-x-2">
                     <button

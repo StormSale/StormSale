@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
+import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import {
   Card,
   CardContent,
@@ -12,11 +13,14 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { wrapAESKey, getPublicKeyForAddress } from "../../lib/crypto";
+import { resolveRecipient } from "../../lib/stellar";
+import type { RecipientResolution } from "../../lib/stellar";
 import { Eye, Shield, UserCheck } from "lucide-react";
 
 export const GrantAccessForm = () => {
   const [saleId, setSaleId] = useState("");
   const [auditorAddress, setAuditorAddress] = useState("");
+  const [auditorResolution, setAuditorResolution] = useState<RecipientResolution | null>(null);
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { getCampaignContract } = useWeb3();
@@ -33,6 +37,20 @@ export const GrantAccessForm = () => {
       return;
     }
 
+    // Never grant access from an unresolved federation string: resolve on demand
+    // if the field is still mid-lookup, otherwise use the cached resolution.
+    const resolution = auditorResolution ?? (await resolveRecipient(auditorAddress));
+    if (!resolution.address || (resolution.status !== "raw" && resolution.status !== "federated")) {
+      showNotification({
+        type: "warning",
+        title: "Auditor Not Verified",
+        message:
+          resolution.error || "Resolve the auditor address or paste their raw G... public key.",
+      });
+      return;
+    }
+    const recipientAddress = resolution.address;
+
     setIsLoading(true);
     try {
       const campaignContract = getCampaignContract(campaignAddress);
@@ -43,7 +61,7 @@ export const GrantAccessForm = () => {
         message: "Setting up auditor permissions...",
       });
 
-      const auditorPublicKey = await getPublicKeyForAddress(auditorAddress);
+      const auditorPublicKey = await getPublicKeyForAddress(recipientAddress);
       const auditorWrappedKey = await wrapAESKey({} as CryptoKey, auditorPublicKey);
 
       showNotification({
@@ -52,7 +70,11 @@ export const GrantAccessForm = () => {
         message: "Granting audit access...",
       });
 
-      const tx = await campaignContract.grantAuditAccess(saleId, auditorAddress, auditorWrappedKey);
+      const tx = await campaignContract.grantAuditAccess(
+        saleId,
+        recipientAddress,
+        auditorWrappedKey,
+      );
 
       await tx.wait();
 
@@ -64,6 +86,7 @@ export const GrantAccessForm = () => {
 
       setSaleId("");
       setAuditorAddress("");
+      setAuditorResolution(null);
       setCampaignAddress("");
     } catch (error: any) {
       console.error("Error granting audit access:", error);
@@ -141,14 +164,14 @@ export const GrantAccessForm = () => {
 
                 <InputField
                   label="Auditor Address"
-                  description="The auditor's wallet address"
+                  description="Public key or federation address (e.g. auditor*stormsale.io)"
                   required
                 >
-                  <Input
+                  <FederatedAddressInput
                     value={auditorAddress}
-                    onChange={(e) => setAuditorAddress(e.target.value)}
-                    placeholder="GAUDITOR... (Stellar Public Key)"
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                    onChange={setAuditorAddress}
+                    onResolved={setAuditorResolution}
+                    placeholder="GAUDITOR... or auditor*stormsale.io"
                     required
                   />
                 </InputField>
