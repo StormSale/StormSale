@@ -6,6 +6,7 @@ import { LogSaleForm } from "../components/advertiser/LogSaleForm";
 import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
 import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
+import { StorageTTLHealthIndicator } from "../components/advertiser/StorageTTLHealthIndicator";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -141,6 +142,9 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
           </Button>
         </div>
       </div>
+
+      {/* Soroban Storage TTL Real-Time Health & Automated Extension Center */}
+      <StorageTTLHealthIndicator />
 
       {/* Bento Grid Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">

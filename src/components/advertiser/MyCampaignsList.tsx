@@ -12,8 +12,11 @@ import {
   Settings,
   Search,
   Shield,
+  Coins,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
+import { StorageTTLHealthIndicator } from "./StorageTTLHealthIndicator";
+import { EscrowTopUpModal } from "./EscrowTopUpModal";
 
 type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -104,6 +107,7 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
 export const MyCampaignsList = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All">("All");
+  const [topUpTarget, setTopUpTarget] = useState<{ id: number; name: string } | null>(null);
 
   const filtered = mockCampaigns.filter((c) => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
@@ -248,12 +252,15 @@ export const MyCampaignsList = () => {
                         </div>
                       </div>
                     </div>
-                    <span
-                      className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full shrink-0 ${cfg.badge}`}
-                    >
-                      <div className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                      {campaign.status}
-                    </span>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span
+                        className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full ${cfg.badge}`}
+                      >
+                        <div className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                        {campaign.status}
+                      </span>
+                      <StorageTTLHealthIndicator compact contractId={campaign.contractAddress} />
+                    </div>
                   </div>
                 </CardHeader>
 
@@ -296,7 +303,17 @@ export const MyCampaignsList = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-2.5">
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        setTopUpTarget({ id: parseInt(campaign.id) || 1, name: campaign.name })
+                      }
+                      className="h-10 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow-xs flex items-center gap-1.5"
+                    >
+                      <Coins className="w-4 h-4" />
+                      Top Up Escrow
+                    </Button>
                     <Button
                       variant="outline"
                       size="sm"
@@ -320,7 +337,7 @@ export const MyCampaignsList = () => {
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-semibold shadow-sm"
+                      className="flex-1 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white font-semibold shadow-sm"
                     >
                       <BarChart3 className="w-4 h-4 mr-2" />
                       Analytics
@@ -331,6 +348,16 @@ export const MyCampaignsList = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Escrow Top-Up & SAC Allowance Modal */}
+      {topUpTarget && (
+        <EscrowTopUpModal
+          isOpen={Boolean(topUpTarget)}
+          campaignId={topUpTarget.id}
+          campaignName={topUpTarget.name}
+          onClose={() => setTopUpTarget(null)}
+        />
       )}
     </div>
   );
