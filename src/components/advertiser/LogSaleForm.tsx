@@ -18,6 +18,8 @@ import {
   getPublicKeyForAddress,
 } from "../../lib/crypto";
 import { triggerConversionPostback } from "../../lib/webhookEngine";
+import { loadCampaignSettings, parseCampaignId } from "../../lib/campaignSettings";
+import { attributeConversion } from "../../lib/attribution";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -42,6 +44,39 @@ export const LogSaleForm = () => {
 
     setIsLoading(true);
     try {
+      // Real-time attribution window check (#151): if the campaign declares an
+      // attribution model/window, the affiliate click must still be inside the
+      // window (read from the encrypted localStorage/cookie vault) before this
+      // sale can be commissioned. Expired conversions are direct sales.
+      const campaignId = parseCampaignId(campaignAddress);
+      const campaignSettings = campaignId !== null ? loadCampaignSettings(campaignId) : null;
+      if (campaignSettings) {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        const attribution = await attributeConversion(
+          campaignSettings.campaignId,
+          affiliateAddress,
+          nowSeconds,
+          campaignSettings.attribution,
+          userAddress || "stormsale-advertiser-device",
+        );
+        if (!attribution.attributed) {
+          showNotification({
+            type: "warning",
+            title:
+              attribution.reason === "window_expired"
+                ? "Attribution Window Expired"
+                : "No Referral Click Tracked",
+            message:
+              attribution.reason === "window_expired"
+                ? `This conversion fell outside the ${attribution.windowDays}-day ${
+                    attribution.model === "first_click" ? "First-Click" : "Last-Click"
+                  } window and is treated as a direct uncommissioned sale.`
+                : "No tracked referral click found for this affiliate in the campaign vault, so no commission can be escrowed.",
+          });
+          return;
+        }
+      }
+
       const campaignContract = getCampaignContract(campaignAddress);
 
       showNotification({
