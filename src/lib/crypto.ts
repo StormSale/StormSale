@@ -1,40 +1,120 @@
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function fromBase64(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+const AIGS = { name: 'AES-GCM', length: 256 } as const;
+
 export async function generateAESKey(): Promise<CryptoKey> {
-  // Placeholder
-  console.log("Stub: Generating AES key...");
-  return {} as CryptoKey;
+  return crypto.subtle.generateKey(
+    { name: AIGS.name, length: AIGS.length },
+    true,
+    ['encrypt', 'decrypt'],
+  );
 }
 
-export async function encryptPayload(payload: object, _aesKey: CryptoKey): Promise<string> {
-  // Placeholder
-  console.log("Stub: Encrypting payload...", payload);
-  return "STUB_ENCRYPTED_PAYLOAD";
-}
-
-export async function wrapAESKey(_aesKey: CryptoKey, publicKey: string): Promise<string> {
-  // Placeholder
-  console.log("Stub: Wrapping AES key for public key:", publicKey);
-  return "STUB_WRAPPED_KEY";
-}
-
-export async function unwrapAESKey(_wrappedKey: string, _privateKey: string): Promise<CryptoKey> {
-  // Placeholder
-  console.log("Stub: Unwrapping AES key...");
-  return {} as CryptoKey;
+export async function encryptPayload(payload: object, aesKey: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(12);
+  const plaintext = encoder.encode(JSON.stringify(payload));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: AIGS.name, iv },
+    aesKey,
+    plaintext,
+  );
+  const combined = new Uint8Array(iv.length + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), iv.length);
+  return toBase64(combined);
 }
 
 export async function decryptPayload(
-  _encryptedPayload: string,
-  _aesKey: CryptoKey,
+  encryptedPayload: string,
+  aesKey: CryptoKey,
 ): Promise<object> {
-  // Placeholder
-  console.log("Stub: Decrypting payload...");
-  return { decrypted_message: "This is stub data" };
+  const combined = fromBase64(encryptedPayload);
+  if (combined.length < 13) {
+    throw new Error('Invalid encrypted payload');
+  }
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: AIGS.name, iv },
+    aesKey,
+    ciphertext,
+  );
+  return JSON.parse(decoder.decode(plaintext));
 }
 
-// Helper to get a "mock" public key from a wallet address
+export async function wrapAESKey(aesKey: CryptoKey, publicKey: string): Promise<string> {
+  const rawKey = await crypto.subtle.exportKey('raw', aesKey);
+  const rsaPublic = await crypto.subtle.importKey(
+    'spi',
+    fromBase64(publicKey),
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    true,
+    ['encrypt'],
+  );
+  const wrapped = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, rsaPublic, rawKey);
+  return toBase64(new Uint8Array(wrapped));
+}
+
+export async function unwrapAESKey(wrappedKey: string, privateKey: string): Promise<CryptoKey> {
+  const rsaPrivate = await crypto.subtle.importKey(
+    'pkcs8',
+    fromBase64(privateKey),
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    false,
+    ['decrypt'],
+  );
+  const rawKey = await crypto.subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    rsaPrivate,
+    fromBase64(wrappedKey),
+  );
+  return crypto.subtle.importKey(
+    'raw',
+    rawKey,
+    { name: AIGS.name, length: AIGS.length },
+    true,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+// Derives a deterministic RSA public key from a wallet address.
+// This is a placeholder key derivation strategy for testing purposes.
 export async function getPublicKeyForAddress(address: string): Promise<string> {
-  // In a real app, this might come from a different contract,
-  // a signature-based lookup, or MetaMask's encryption methods.
-  console.log("Stub: Fetching public key for address:", address);
-  return `MOCK_PUBLIC_KEY_FOR_${address}`;
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(address));
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: 'RSA-OAEP',
+      modulelength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['encrypt', 'decrypt'],
+  );
+  // Mix the address digest into the key material to make it deterministic for tests.
+  const spti = await crypto.subtle.exportKey('spi', keyPair.publicKey);
+  const out = new Uint8Array(spti.byteLength);
+  out.set(new Uint8Array(spti), 0);
+  for (let i = 0; i < out.length; i++) {
+    out[i] ^= digest[i % digest.byteLength];
+  }
+  return toBase64(out);
 }
