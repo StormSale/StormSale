@@ -9,8 +9,10 @@ import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
 
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
+import { IndigoBootLoader } from "./components/shared/IndigoBootLoader";
 import { loadBrandConfig } from "./lib/branding";
 
 class ErrorBoundary extends React.Component<
@@ -55,14 +57,35 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-function Router() {
+export interface RouterProps {
+  initialBooting?: boolean;
+  fastBoot?: boolean;
+  initialPage?: string;
+}
+
+export function Router({ initialBooting, fastBoot, initialPage = "dashboard" }: RouterProps = {}) {
   const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [isBooting, setIsBooting] = useState(() => {
+    if (typeof initialBooting === "boolean") return initialBooting;
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("boot") === "false") return false;
+      if (params.get("boot") === "true") return true;
+    }
+    return true;
+  });
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+
+  const shouldFastBoot =
+    typeof fastBoot === "boolean"
+      ? fastBoot
+      : typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("fast") === "true";
 
   if (activeBrandSubdomain) {
     return (
@@ -78,25 +101,42 @@ function Router() {
   }
 
   return (
-    <>
-      <ConnectWalletModal />
-      {!isConnected ? (
-        <Landing />
+    <AnimatePresence mode="wait">
+      {isBooting ? (
+        <IndigoBootLoader
+          key="indigo-boot-loader"
+          fast={shouldFastBoot}
+          onComplete={() => setIsBooting(false)}
+        />
       ) : (
-        <div className="min-h-screen bg-background">
-          <main>
-            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-            {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
-            )}
-            {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
-            )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-          </main>
-        </div>
+        <motion.div
+          key="app-main-content"
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
+          className="min-h-screen"
+        >
+          <ConnectWalletModal />
+          {!isConnected ? (
+            <Landing />
+          ) : (
+            <div className="min-h-screen bg-background">
+              <main>
+                {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+                {currentPage === "advertiser" && (
+                  <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                )}
+                {currentPage === "affiliate" && (
+                  <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                )}
+                {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+              </main>
+            </div>
+          )}
+        </motion.div>
       )}
-    </>
+    </AnimatePresence>
   );
 }
 
