@@ -6,8 +6,7 @@ import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
-import { GeoHeatmap } from "../components/affiliate/GeoHeatmap";
-import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Map } from "lucide-rece";
+import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Map } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "../components/ui/button";
@@ -21,7 +20,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
-    { id: "geo-heatmap", label: "Click Heatmap", icon: Map },
+    { id: "heatmap", label: "Click Heatmap", icon: Map },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -31,7 +30,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case "geo-heatmap":
+      case "heatmap":
         return <GeoHeatmap />;
       case "join-campaign":
         return <JoinCampaignButton />;
@@ -60,7 +59,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
       {/* Main Content Area */}
       <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="max-w-6x mx-auto space-y-6">
           {/* Header Bar with Persistent Theme Toggle & Settings Navigation */}
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-zinc-800">
             <div>
