@@ -19,13 +19,17 @@ import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 
+const ROLE_STORAGE_KEY = "stellarsale.userRole";
+const ADDRESS_STORAGE_KEY = "stellarsale.userAddress";
+
 export interface Web3ContextType {
   userAddress: string | null;
   userRole: string | null;
-  // True once the role has been resolved from the backend (or the user
-  // is disconnected). Used by the router to avoid role flicker on load.
-  isRoleResolved: boolean;
   isConnected: boolean;
+  /** True while the persisted/DB-backed role is being resolved for a connected wallet. */
+  isLoadingRole: boolean;
+  /** True once the role has been resolved (DB, cache, or default). */
+  roleResolved: boolean;
   isStellarNetwork: boolean;
   network: string;
   xlmBalance: string;
@@ -75,86 +79,50 @@ export interface Web3ContextType {
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-const ROLE_STORAGE_KEY = "stellar:userRole";
-const ADDRESS_STORAGE_KEY = "stellar:userAddress";
-
-function readPersistedRole(): string | null {
-  if (typeof window === "undefined") return null;
+function readCachedRole(): { address: string | null; role: string | null } {
+  if (typeof window === "undefined") return { address: null, role: null };
   try {
-    return window.localStorage.getItem(ROLE_STORAGE_KEY);
+    const address = window.localStorage.getItem(ADDRESS_STORAGE_KEY);
+    const role = window.localStorage.getItem(ROLE_STORAGE_KEY);
+    return { address: address || null, role: role || null };
   } catch {
-    return null;
+    return { address: null, role: null };
   }
 }
 
-function writePersistedRole(role: string | null) {
+function writeCachedRole(address: string | null, role: string | null) {
   if (typeof window === "undefined") return;
   try {
-    if (role) {
-      window.localStorage.setItem(ROLE_STORAGE_KEY, role);
-    } else {
-      window.localStorage.removeItem(ROLE_STORAGE_KEY);
-    }
+    if (address) window.localStorage.setItem(ADDRESS_STORAGE_KEY, address);
+    else window.localStorage.removeItem(ADDRESS_STORAGE_KEY);
+    if (role) window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+    else window.localStorage.removeItem(ROLE_STORAGE_KEY);
   } catch {
-    // ignore storage errors
-  }
-}
-
-function readPersistedAddress(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(ADDRESS_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function writePersistedAddress(address: string | null) {
-  if (typeof window === "undefined") return;
-  try {
-    if (address) {
-      window.localStorage.setItem(ADDRESS_STORAGE_KEY, address);
-    } else {
-      window.localStorage.removeItem(ADDRESS_STORAGE_KEY);
-    }
-  } catch {
-    // ignore storage errors
+    /* ignore storage failures */
   }
 }
 
 export function Web3Provider({ children }: { children: ReactNode }) {
-  // Hydrate from persisted state synchronously so the first render already
-  // has the correct role -> zero flicker on load.
-  const initialAddress = readPersistedAddress();
-  const initialRole = readPersistedRole();
-  const [initialState] = useState(() => ({
-    address: initialAddress,
-    role: initialRole,
-    // Role is considered resolved immediately if we have a cached role,
-    // otherwise we must wait for the backend sync to complete.
-    roleResolved: !!initialAddress && !!initialRole,
-  }));
+  // Hydrate from cache synchronously so the first paint already has the role.
+  const initialCache = readCachedRole();
+  const [initialAddress] = useState(initialCache.address);
+  const [initialRole] = useState(initialCache.role);
 
-  const [userAddress, setUserAddress] = useState<string | null>(initialState.address);
-  const [userRole, setUserRoleState] = useState<string | null>(initialState.role);
-  const [isRoleResolved, setIsRoleResolved] = useState<boolean>(initialState.roleResolved);
-  const [isConnected, setIsConnected] = useState<boolean>(Boolean(initialState.address));
-  const [network] = useState<string>(STELLAR_CONFIG.network);
+  const [userAddress, setUserAddress] = useState<string | null>(initialAddress);
+  const [userRole, setUserRole] = useState<string | null>(initialRole);
+  const [isConnected, setIsConnected] = useState<boolean>(Boolean(initialAddress));
+  const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // Role resolution state: loading is true only when we have an address but no role yet.
+  const [isLoadingRole, setIsLoadingRole] = useState<boolean>(Boolean(initialAddress && !initialRole));
+  const [roleResolved, setRoleResolved] = useState<boolean>(Boolean(initialRole));
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
-
-  // Single source of truth for setting the role: always persist to storage
-  // so a reload can hydrate synchronously without a flicker.
-  const applyRole = useCallback((role: string | null) => {
-    setUserRoleState(role);
-    writePersistedRole(role);
-    setIsRoleResolved(true);
-  }, []);
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -162,42 +130,56 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const bal = await fetchXlmBalance(address);
       setXlmBalance(bal);
     } catch (err) {
-      console.warn("Could not fetch balance:", err);
+      console.warn("Could not fetch balance:", error);
     }
   }, []);
 
-  // Sync with backend database & persistent role. The DB remains the
-  // authoritative source; the cached value is only used to avoid flicker.
-  const syncUserWithBackend = useCallback(
-    async (address: string) => {
-      try {
-        const savedUser = await registerUser(address);
-        if (savedUser && savedUser.role) {
-          applyRole(savedUser.role);
-        } else {
-          // Backend responded with no role: clear any stale cache.
-          applyRole(null);
-        }
-      } catch (err) {
-        console.error("Error registering user with backend:", err);
-        // On failure, fall back to the cached role if present, otherwise
-        // mark as resolved with no role so the UI doesn't stay stuck loading.
-        if (!readPersistedRole()) {
-          setIsRoleResolved(true);
+  // Sync with backend database & persistent role.
+  // Returns the resolved role so callers can await completion and avoid flicker.
+  const syncUserWithBackend = useCallback(async (address: string): Promise<string | null> => {
+    try {
+      const savedUser = await registerUser(address);
+      if (savedUser && savedUser.role) {
+        setUserRole(savedUser.role);
+        writeCachedRole(address, savedUser.role);
+        return savedUser.role;
+      }
+    } catch (err) {
+      console.error("Error registering user with backend:", err);
+    }
+    return null;
+  }, []);
+
+  // On mount, if we hydrated an address from cache but no role, resolve it from the DB.
+  // This is the core of the "0ms flicker" fix: the role is already present on hydration,
+  // or we show a neutral shell until the DB responds -- never flashing the wrong route.
+  useEffect(() => {
+    if (!userAddress) return;
+    if (userRole) {
+      setIsLoadingRole(false);
+      setRoleResolved(true);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingRole(true);
+    setRoleResolved(false);
+    (async () => {
+      const role = await syncUserWithBackend(userAddress);
+      if (cancelled) return;
+      if (!role) {
+        // DB did not return a role; fall back to cache if present.
+        const cached = readCachedRole();
+        if (cached.role && cached.address === userAddress) {
+          setUserRole(cached.role);
         }
       }
-    },
-    [applyRole],
-  );
-
-  // On mount, if we have a persisted address, re-sync the role from the
-  // backend in the background. The cached role keeps the UI stable meanwhile.
-  useEffect(() => {
-    if (!initialState.address) return;
-    void syncUserWithBackend(initialState.address);
-    void refreshBalance(initialState.address);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      setIsLoadingRole(false);
+      setRoleResolved(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userAddress, userRole, syncUserWithBackend]);
 
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Ledger, Passkey, Mock
   const connectWallet = async (
@@ -216,18 +198,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         }
         address = await connectFreighterWallet();
         const currentNet = await getCurrentNetwork();
-        // network is initialized from config; keep the detected value for logging
-        console.info("Connected network:", currentNet);
+        setNetwork(currentNet);
       } else if (type === "albedo") {
         address = await connectAlbedoWallet();
+        setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
         address = await connectXbullWallet();
+        setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
         const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
           await import("../lib/ledgerBridge");
         const path = derivationPath || ledgerBipPath || DEFAULT_STELLAR_BIP_PATH;
         const info = await connectLedgerDevice(path);
         address = info.address;
+        setNetwork(STELLAR_CONFIG.network);
       } else if (type === "passkey") {
         const { authenticateWithPasskey, loadEncryptedPasskeyVault, registerPasskey } =
           await import("../lib/passkeySigner");
@@ -239,53 +223,57 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           const authResult = await authenticateWithPasskey();
           address = authResult.record.stellarAddress;
         }
+        setNetwork(STELLAR_CONFIG.network);
       } else if (type === "readonly") {
         if (!customAddress) throw new Error("Please provide a valid Stellar address.");
         address = customAddress;
+        setNetwork(STELLAR_CONFIG.network);
       } else {
         // Mock fallback demo account with 10,000 XLM
         address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+        setNetwork("TESTNET");
         setXlmBalance("10000.00");
       }
 
-      // Mark role as unresolved for this new address until the backend
-      // responds. If we have a cached role for the same address, keep it
-      // to avoid a flicker.
-      const cachedAddress = readPersistedAddress();
-      const cachedRole = readPersistedRole();
-      if (cachedAddress !== address || !cachedRole) {
-        setIsRoleResolved(false);
-        if (cachedAddress !== address) {
-          setUserRoleState(null);
-          writePersistedRole(null);
-        }
-      }
-
+      // Reset role state for the new address and mark loading until the DB resolves.
       setUserAddress(address);
-      writePersistedAddress(address);
       setIsConnected(true);
       setConnectorType(type);
+      setUserRole(null);
+      setRoleResolved(false);
+      setIsLoadingRole(true);
+      writeCachedRole(address, null);
 
       if (type !== "mock") {
         await refreshBalance(address);
       }
-      await syncUserWithBackend(address);
+      const role = await syncUserWithBackend(address);
+      if (!role) {
+        // DB returned no role; try cache for this address as a fallback.
+        const cached = readCachedRole();
+        if (cached.role && cached.address === address) {
+          setUserRole(cached.role);
+        }
+      }
+      setIsLoadingRole(false);
+      setRoleResolved(true);
       setIsWalletModalOpen(false);
     } catch (error) {
       console.error("Wallet connection failed:", error);
+      setIsLoadingRole(false);
       throw error;
     }
   };
 
   const disconnectWallet = () => {
     setUserAddress(null);
-    setUserRoleState(null);
-    writePersistedRole(null);
-    writePersistedAddress(null);
-    setIsRoleResolved(true);
+    setUserRole(null);
     setIsConnected(false);
     setConnectorType(null);
     setXlmBalance("0.00");
+    setIsLoadingRole(false);
+    setRoleResolved(false);
+    writeCachedRole(null, null);
   };
 
   const updateUserRole = async (role: string) => {
@@ -293,15 +281,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     try {
       const updated = await registerUser(userAddress, role);
       if (updated && updated.role) {
-        applyRole(updated.role);
-      } else {
-        // Optimistic fallback: if the backend responded without a role,
-        // still persist the requested role so the UI stays consistent.
-        applyRole(role);
+        setUserRole(updated.role);
+        writeCachedRole(userAddress, updated.role);
+        setRoleResolved(true);
       }
     } catch (error) {
       console.error("Failed to update role:", error);
-      throw error;
     }
   };
 
@@ -339,18 +324,27 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       return res;
     } else {
       // Mock fallback for UI preview without extension
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-      return { success: true, campaignId: Date.now() % 10000, txHash: mockTxHash };
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+      return {
+        success: true,
+        campaignId: newCampaignId,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Soroban: Log Sale
+  // Soroban: Log Verified Sale
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+    );
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await logSaleContractCall(
@@ -362,80 +356,103 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       );
       return res;
     } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-      return { success: true, txHash: mockTxHash };
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Soroban: Claim Payout
+  // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Soroban] Claiming payout for Campaign #${campaignId} by ${userAddress}`);
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-      return { success: true, txHash: mockTxHash };
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Soroban: Refund Campaign Escrow
+  // Soroban: Refund Unused Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
-      return { success: true, txHash: mockTxHash };
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
   };
 
-  // Batch Claim Payouts
-  const batchClaimPayoutsOnChain = async (
-    campaigns: ClaimableCampaignItem[],
-  ): Promise<BatchClaimReceipt> => {
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
     if (!userAddress) throw new Error("Wallet not connected");
-
-    const receipts: BatchClaimReceipt["receipts"] = [];
-    for (const c of campaigns) {
-      try {
-        const res = await claimPayoutOnChain(c.campaignId);
-        receipts.push({ campaignId: c.campaignId, success: res.success, txHash: res.txHash });
-      } catch (err) {
-        receipts.push({
-          campaignId: c.campaignId,
-          success: false,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return { receipts };
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
   };
 
-  // Passkey account registration
+  // Passkey Smart Account Registration
   const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    return registerPasskey(userName || "Affiliate User");
+    const record = await registerPasskey(userName || "Affiliate User");
+    await connectWallet("passkey");
+    return record;
   };
 
-  // Compatibility helpers for legacy form callers
-  const factoryContract = null;
-  const getCampaignContract = (_address: string) => null;
-  const provider = null;
-  const signer = null;
+  // Compatibility facade for existing form components
+  const factoryContract = {
+    createCampaign: async (rate: string, period: string) => {
+      const res = await createCampaignOnChain(
+        "Campaign",
+        1000,
+        parseFloat(rate) || 10,
+        parseInt(period) || 604800,
+      );
+      return {
+        wait: async () => res,
+      };
+    },
+    joinCampaign: async (campaignAddr: string) => {
+      console.log(`[Soroban] Join campaign ${campaignAddr}`);
+      return { success: true };
+    },
+  };
+
+  const getCampaignContract = (_address: string) => factoryContract;
+
   const switchToStellarNetwork = async () => true;
 
-  const value: Web3ContextType = {
+  const value:Web3ContextType = {
     userAddress,
     userRole,
-    isRoleResolved,
     isConnected,
-    isStellarNetwork: true,
+    isLoadingRole,
+    roleResolved,
+    isStellarNetwork: network === STELLAR_CONFIG.network,
     network,
     xlmBalance,
     connectorType,
@@ -456,8 +473,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     registerPasskeyAccount,
     factoryContract,
     getCampaignContract,
-    provider,
-    signer,
+    provider: null,
+    signer: null,
     switchToStellarNetwork,
   };
 

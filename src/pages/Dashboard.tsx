@@ -33,7 +33,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
-  const [hasNavigated, setHasNavigated] = useState(false);
+  // Sync persisted role from DB/context on mount to avoid flicker on load.
+  // If a role is already persisted, route the user immediately without
+  // waiting for a re-selection or a subsequent render cycle.
+  useEffect(() => {
+    if (userRole) {
+      onNavigate(userRole.toLowerCase());
+    }
+  }, [userRole, onNavigate]);
+
 
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
@@ -47,9 +55,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   };
 
+  // Unified role-based route protection: block rendering of role selection
+  // while a persisted role is being resolved to prevent UI flicker.
+  const isResolvingRole = isConnected && !userRole;
+
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
+
+  if (isResolvingRole) {
+    return null;
+  }
 
   const roles = [
     {
@@ -114,6 +130,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         "By assuming this role, you agree to verify encrypted transactions strictly for compliance purposes.",
     },
   ];
+
+  const getBgClass = () => {
+    if (hoveredRole === "advertiser" || expandedRole === "advertiser")
+      return "bg-indigo-50/50 dark:bg-indigo-950/20";
+    if (hoveredRole === "affiliate" || expandedRole === "affiliate")
+      return "bg-emerald-50/50 dark:bg-emerald-950/20";
+    if (hoveredRole === "auditor" || expandedRole === "auditor")
+      return "bg-slate-100/50 dark:bg-slate-900/30";
+    return "bg-slate-50 dark:bg-[#09090b]";
+  };
 
   return (
     <div

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -30,10 +30,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
 
-  const activeTabObject = useMemo(
-    () => tabs.find((t) => t.id === activeTab) || tabs[0],
-    [tabs, activeTab],
-  );
+  // Prevent role flicker: keep last stable role name while loading
+  const [stableRoleName, setStableRoleName] = useState(roleName);
+  useEffect(() => {
+    if (!isLoadingRole && roleName) setStableRoleName(roleName);
+  }, [roleName, isLoadingRole]);
+
+  const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
 
   return (
@@ -63,8 +66,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[140px] sm:max-w-[200px]">
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
-                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 min-w-[3rem]">
-                  {roleName}
+                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  {stableRoleName}
                 </span>
               </div>
             </div>
@@ -215,8 +218,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
                     <Shield className="w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight min-w-[6rem]">
-                    {roleName}
+                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
+                    {stableRoleName}
                   </span>
                 </div>
               </motion.div>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
@@ -7,6 +7,8 @@ import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+
+import { useEffect, useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
@@ -53,35 +55,38 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-/**
- * Role -> page mapping. This is the single source of truth for role-based
- * routing. All route guards derive from this map, so adding a new role
- * only requires updating one place.
- */
-const ROLE_HOME: Record<string, string> = {
+// Unified role-based route mapping. Each role has a single canonical page.
+const ROLE_ROUTES: Record<string, string> = {
   advertiser: "advertiser",
   affiliate: "affiliate",
   auditor: "auditor",
 };
 
-const OPEN_ROLES = new Set(["advertiser", "affiliate", "auditor"]);
-
 function normalizeRole(role: string | null | undefined): string | null {
   if (!role) return null;
-  const normalized = role.toLowerCase();
-  return OPEN_ROLES.has(normalized) ? normalized : null;
+  const normalized = role.toLowerCase().trim();
+  return ROLE_ROUTES[normalized] ? normalized : null;
 }
 
 function Router() {
-  const { isConnected, userRole, isRoleResolving } = useWeb3();
-  const normalizedUserRole = normalizeRole(userRole);
-  const roleHome = normalizedUserRole ? ROLE_HOME[normalizedUserRole] : null;
+  const { isConnected, userRole, roleResolved } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+
+  // Role drives the active route. When the DB-synced role changes, the route follows.
+  // This keeps the UI in lock-step with the persisted role and avoids flicker.
+  useEffect(() => {
+    const route = normalizeRole(userRole);
+    if (route) {
+      setCurrentPage(route);
+    } else if (!isConnected) {
+      setCurrentPage("dashboard");
+    }
+  }, [isLoadingRole, userRole, isConnected]);
 
   if (activeBrandSubdomain) {
     return (
@@ -96,59 +101,38 @@ function Router() {
     );
   }
 
-  // Not connected -> landing.
-  if (!isConnected) {
-    return (
-      <>
-        <ConnectWalletModal />
-        <Landing />
-      </>
-    );
-  }
-
-  // Connected but role is still being resolved from DB. Render a neutral
-  // shell instead of a role-guarded view to prevent flicker between
-  // dashboard -> role page.
-  if (isRoleResolving) {
+  // Avoid flicker: while the connected wallet's role is being resolved from the DB,
+  // render a neutral shell instead of flashing the default Dashboard.
+  if (isConnected && !isLoadingRole) {
     return (
       <>
         <ConnectWalletModal />
         <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="text-sm text-muted-foreground">Syncing account…</div>
+          <div className="text-sm text-muted-foreground">Synchronizing account…</div>
         </div>
       </>
     );
   }
 
-  // Unified role-based route protection: the role determines the allowed
-  // page. If the user has a role, they can only access that role's page
-  // (plus the dashboard hub). Unroled users fall back to the dashboard.
-  const allowedPage =
-    currentPage === "dashboard" || currentPage === roleHome
-      ? currentPage
-      : roleHome ?? "dashboard";
-
-  const navigate = (page: string) => {
-    if (page === "dashboard" || page === roleHome) {
-      setCurrentPage(page);
-    }
-  };
-
   return (
     <>
       <ConnectWalletModal />
-      <div className="min-h-screen bg-background">
-        <main>
-          {allowedPage === "dashboard" && <Dashboard onNavigate={navigate} />}
-          {allowedPage === "advertiser" && (
-            <Advertiser onBack={() => setCurrentPage("dashboard")} />
-          )}
-          {allowedPage === "affiliate" && (
-            <Affiliate onBack={() => setCurrentPage("dashboard")} />
-          )}
-          {allowedPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-        </main>
-      </div>
+      {!isConnected ? (
+        <Landing />
+      ) : (
+        <div className="min-h-screen bg-background">
+          <main>
+            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+            {currentPage === "advertiser" && (
+              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+            )}
+            {currentPage === "affiliate" && (
+              <Affiliate onBack={() => setCurrentPage("dashboard")} />
+            )}
+            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+          </main>
+        </div>
+      )}
     </>
   );
 }
