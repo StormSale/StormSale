@@ -7,6 +7,7 @@ import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
 import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
+import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
@@ -19,6 +20,7 @@ import {
   TrendingUp,
   Megaphone,
   Radio,
+  Palette,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -33,6 +35,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
+    { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
@@ -43,6 +46,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     switch (activeTab) {
       case "create-campaign":
         return <CreateCampaignForm />;
+      case "brand-customizer":
+        return <BrandCustomizer />;
       case "log-sale":
         return <LogSaleForm />;
       case "webhooks":
