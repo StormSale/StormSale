@@ -58,6 +58,10 @@ export interface Web3ContextType {
 
   batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
 
+  mintMilestoneBadgeOnChain: (
+    milestoneTier: "1k" | "10k" | "100k",
+  ) => Promise<{ success: boolean; txHash: string; tokenId: string }>;
+
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
   // Compatibility helpers for legacy form callers
@@ -308,6 +312,24 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return record;
   };
 
+  // Gamified Milestone NFT Badge Claim on Soroban
+  const mintMilestoneBadgeOnChain = async (milestoneTier: "1k" | "10k" | "100k") => {
+    if (!userAddress) {
+      throw new Error("Wallet not connected");
+    }
+    const { claimMilestoneBadge } = await import("../lib/affiliateLeaderboard");
+    const record = await claimMilestoneBadge(
+      userAddress,
+      milestoneTier,
+      connectorType || "freighter",
+    );
+    return {
+      success: true,
+      txHash: record.txHash,
+      tokenId: record.tokenId,
+    };
+  };
+
   // Compatibility facade for existing form components
   const factoryContract = {
     createCampaign: async (rate: string, period: string) => {
@@ -378,6 +400,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         logSaleOnChain,
         claimPayoutOnChain,
         batchClaimPayoutsOnChain,
+        mintMilestoneBadgeOnChain,
         registerPasskeyAccount,
         factoryContract,
         getCampaignContract,

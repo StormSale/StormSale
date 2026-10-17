@@ -55,9 +55,20 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+import { AffiliateLeaderboard } from "./components/affiliate/AffiliateLeaderboard";
+import { ThemeToggle } from "./components/shared/ThemeToggle";
+import { Button } from "./components/ui/button";
+import { ArrowLeft, Zap } from "lucide-react";
+import logo from "./assets/logo2.png";
+
 function Router() {
-  const { isConnected } = useWeb3();
+  const { isConnected, openWalletModal } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const [isPublicLeaderboardOpen, setIsPublicLeaderboardOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("view") === "leaderboard" || params.get("tab") === "leaderboard";
+  });
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -77,11 +88,76 @@ function Router() {
     );
   }
 
+  if (isPublicLeaderboardOpen) {
+    return (
+      <>
+        <ConnectWalletModal />
+        <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans selection:bg-indigo-500/30">
+          <header className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
+            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsPublicLeaderboardOpen(false)}
+                  className="rounded-xl font-bold text-xs"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1.5" />
+                  Back to StormSale
+                </Button>
+                <div className="hidden sm:flex items-center space-x-2 border-l border-slate-200 dark:border-zinc-800 pl-3">
+                  <img src={logo} alt="StormSale Icon" className="h-7 w-auto object-contain" />
+                  <span className="font-black text-sm tracking-tight text-zinc-900 dark:text-white">
+                    StormSale
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <ThemeToggle />
+                {!isConnected ? (
+                  <Button
+                    onClick={openWalletModal}
+                    className="rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Connect Wallet
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setIsPublicLeaderboardOpen(false);
+                      setCurrentPage("affiliate");
+                    }}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    Affiliate Dashboard
+                  </Button>
+                )}
+              </div>
+            </div>
+          </header>
+          <main className="container mx-auto px-4 py-8 max-w-6xl">
+            <AffiliateLeaderboard
+              onSelectMilestones={() => {
+                if (!isConnected) {
+                  openWalletModal();
+                } else {
+                  setIsPublicLeaderboardOpen(false);
+                  setCurrentPage("affiliate");
+                }
+              }}
+            />
+          </main>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <ConnectWalletModal />
       {!isConnected ? (
-        <Landing />
+        <Landing onViewLeaderboard={() => setIsPublicLeaderboardOpen(true)} />
       ) : (
         <div className="min-h-screen bg-background">
           <main>
@@ -91,6 +167,12 @@ function Router() {
             )}
             {currentPage === "affiliate" && (
               <Affiliate onBack={() => setCurrentPage("dashboard")} />
+            )}
+            {currentPage === "leaderboard" && (
+              <Affiliate onBack={() => setCurrentPage("dashboard")} initialTab="leaderboard" />
+            )}
+            {currentPage === "milestones" && (
+              <Affiliate onBack={() => setCurrentPage("dashboard")} initialTab="milestones" />
             )}
             {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
           </main>
