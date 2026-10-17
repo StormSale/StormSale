@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
@@ -19,10 +19,14 @@ export const CreateCampaignForm = () => {
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [optimisticCampaign, setOptimisticCampaign] = useState<null | { name: string; commission: number; budget: number; clearing: number }>(null);
-  const [optimisticError, setOptimisticError] = useState<string | null>(null);
-
-  const isSubmittingRef = useRef(false);
+  const [optimisticCampaign, setOptimisticCampaign] = useState<{
+    campaignId: string;
+    name: string;
+    budget: number;
+    commissionRate: number;
+    clearingPeriod: number;
+    status: "pending" | "confirmed" | "failed";
+  } | null>(null);
 
   const { createCampaignOnChain, isConnected } = useWeb3();
   const { showNotification } = useNotification();
@@ -38,23 +42,22 @@ export const CreateCampaignForm = () => {
       return;
     }
 
-    if (isSubmittingRef.current) return;
-    isSubmittingRef.current = true;
-
-    const optimisticSnapshot = {
-      name: campaignName,
-      commission: parseFloat(commissionRate) || 10,
-      budget: parseFloat(budget) || 1000,
-      clearing: parseInt(clearingPeriod) || 604800,
-    };
-    setOptimisticCampaign(optimisticSnapshot);
-    setOptimisticError(null);
-    setCampaignName("");
-    setCommissionRate("");
-    setClearingPeriod("");
-    setBudget("");
-
     setIsLoading(true);
+
+    // Snapshot current form state for reliable revert on failure
+    const snapshot = { campaignName, budget, commissionRate, clearingPeriod };
+
+    // Optimistic UI: instantly reflect the pending campaign (<50ms)
+    const optimistic = {
+      campaignId: "pending",
+      name: campaignName,
+      budget: parseFloat(budget) || 1000,
+      commissionRate: parseFloat(commissionRate) || 10,
+      clearingPeriod: parseInt(clearingPeriod) || 604800,
+      status: "pending" as const,
+    };
+    setOptimisticCampaign(optimistic);
+
     try {
       showNotification({
         type: "info",
@@ -63,11 +66,17 @@ export const CreateCampaignForm = () => {
       });
 
       const result = await createCampaignOnChain(
-        optimisticSnapshot.name,
-        optimisticSnapshot.commission,
-        optimisticSnapshot.budget,
-        optimisticSnapshot.clearing
-      );
+        optimistic.name,
+        optimistic.budget,
+        optimistic.commissionRate,
+        optimistic.clearingPeriod,
+      ) as { campaignId: string; txHash?: string };
+
+      setOptimisticCampaign({
+        ...optimistic,
+        campaignId: result.campaignId,
+        status: "confirmed",
+      });
 
       showNotification({
         type: "success",
@@ -75,14 +84,20 @@ export const CreateCampaignForm = () => {
         message: `Campaign #${result.campaignId} deployed on Soroban. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
 
+      setCommissionRate("");
+      setClearingPeriod("");
+      setCampaignName("");
+      setBudget("");
     } catch (error: any) {
       console.error("Error creating campaign:", error);
-      setOptimisticCampaign(null);
-      setOptimisticError(error.message || "Failed to create campaign");
-      setCampaignName(optimisticSnapshot.name);
-      setCommissionRate(String(optimisticSnapshot.commission));
-      setClearingPeriod(String(optimisticSnapshot.clearing));
-      setBudget(String(optimisticSnapshot.budget));
+
+      // Revert optimistic state and restore form inputs on failure
+      setOptimisticCampaign({ ...optimistic, status: "failed" });
+      setCampaignName(snapshot.campaignName);
+      setBudget(snapshot.budget);
+      setCommissionRate(snapshot.commissionRate);
+      setClearingPeriod(snapshot.clearingPeriod);
+
       showNotification({
         type: "error",
         title: "Creation Failed",
@@ -90,7 +105,6 @@ export const CreateCampaignForm = () => {
       });
     } finally {
       setIsLoading(false);
-      isSubmittingRef.current = false;
     }
   };
 
@@ -109,21 +123,7 @@ export const CreateCampaignForm = () => {
         <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
           Set up a new affiliate campaign with commission rates and payout terms
         </p>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1 font-medium">
-          Your campaign appears instantly and will be reverted if the transaction fails.
-        </p>
       </div>
-
-      {optimisticCampaign && (
-        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 px-5 py-4 text-sm font-medium text-indigo-800 dark:text-indigo-200">
-          Optimistically created campaign "{optimisticCampaign.name}" — awaiting on-chain confirmation…
-        </div>
-      )}
-      {optimisticError && (
-        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/40 px-5 py-4 text-sm font-medium text-red-800 dark:text-red-200">
-          Transaction failed — changes reverted: {optimisticError}
-        </div>
-      )}
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">
@@ -239,6 +239,25 @@ export const CreateCampaignForm = () => {
                   </div>
                 </div>
               </InputField>
+
+              {optimisticCampaign && (
+                <div
+                  className={`p-4 rounded-2xl border text-sm font-medium ${
+                    optimisticCampaign.status === "pending"
+                      ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300"
+                      : optimisticCampaign.status === "confirmed"
+                        ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300"
+                        : "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
+                  }`}
+                >
+                  {optimisticCampaign.status === "pending" &&
+                    `Optimistically created "${optimisticCampaign.name}" — awaiting confirmation...`}
+                  {optimisticCampaign.status === "confirmed" &&
+                    `Campaign #${optimisticCampaign.campaignId} confirmed on-chain.`}
+                  {optimisticCampaign.status === "failed" &&
+                    `Transaction failed — changes reverted.`}
+                </div>
+              )}
 
               {/* Summary Card */}
               <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
