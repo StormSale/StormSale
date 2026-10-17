@@ -1,4 +1,4 @@
-import { useState, useMemo, useId } from "react";
+import { useState, useMemo, useId, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -79,9 +79,8 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
     defaultDestinationUrl || PRESET_CAMPAIGNS[0].destinationUrl,
   );
   const [customSlug, setCustomSlug] = useState("");
-  const [rawWalletInput, setRawWalletInput] = useState("");
-  const fallbackWallet = "GAFFILIATE1234567890STORMTESTNET1234567890TESTNETWALLET";
-  const affiliateWallet = rawWalletInput || userAddress || fallbackWallet;
+  const affiliateWallet = userAddress || "";
+  const [walletFingerprint, setWalletFingerprint] = useState("pending");
 
   // Real-time slug availability & collision detection derived via useMemo
   const slugStatus = useMemo<{
@@ -112,6 +111,24 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
   const [createdLink, setCreatedLink] = useState<CustomShortLink | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isCurrent = true;
+    if (!affiliateWallet) return;
+
+    void computeWalletFingerprint(affiliateWallet).then(
+      (fingerprint) => {
+        if (isCurrent) setWalletFingerprint(fingerprint);
+      },
+      () => {
+        if (isCurrent) setWalletFingerprint("unavailable");
+      },
+    );
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [affiliateWallet]);
 
   // Handle campaign selection change
   const handleCampaignChange = (campaignId: string) => {
@@ -190,10 +207,12 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
         message: "Custom referral link copied to clipboard.",
       });
       setTimeout(() => setIsCopied(false), 2500);
-    } catch {
-      // Fallback
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
+    } catch (error) {
+      showNotification({
+        type: "error",
+        title: "Unable to Copy Link",
+        message: error instanceof Error ? error.message : "Clipboard access was denied.",
+      });
     }
   };
 
@@ -202,8 +221,6 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
     setCustomSlug("");
     setIsCopied(false);
   };
-
-  const walletFingerprint = affiliateWallet ? computeWalletFingerprint(affiliateWallet) : "pending";
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -354,19 +371,20 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
                   Cryptographic Wallet Identifier
                 </span>
                 <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
-                  Fingerprint: {walletFingerprint}
+                  Fingerprint: {affiliateWallet ? walletFingerprint : "pending"}
                 </span>
               </Label>
               <Input
                 id={`${baseId}-wallet`}
                 value={affiliateWallet}
-                onChange={(e) => setRawWalletInput(e.target.value)}
-                placeholder="G..."
+                readOnly
+                placeholder="Connect wallet to continue"
                 className="h-11 rounded-xl border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900 font-mono text-xs"
               />
               <p className="text-[11px] text-zinc-400">
-                Attribution is cryptographically bound to this Stellar public key on every short
-                link redirect.
+                {affiliateWallet
+                  ? "Attribution is cryptographically bound to your connected Stellar public key."
+                  : "Connect a Stellar wallet to generate a tracked short link."}
               </p>
             </div>
 
@@ -425,10 +443,10 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
                   </div>
                   <div className="text-[11px] text-zinc-500 dark:text-zinc-400 bg-white dark:bg-zinc-950 p-2.5 rounded-lg border border-slate-100 dark:border-zinc-800">
                     <span className="font-semibold text-indigo-500">
-                      Headers Preserved on Redirect:
+                      Tracking parameters included in the redirect URL:
                     </span>{" "}
-                    <code>X-StormSale-Affiliate</code>, <code>X-StormSale-Campaign</code>,{" "}
-                    <code>X-StormSale-Slug</code>, <code>X-StormSale-Wallet-Fingerprint</code>
+                    <code>ref</code>, <code>campaign</code>, <code>storm_slug</code>,{" "}
+                    <code>storm_fp</code>
                   </div>
                 </div>
               )}
@@ -445,7 +463,7 @@ export const LinkGeneratorModal: React.FC<LinkGeneratorModalProps> = ({
               </Button>
               <Button
                 onClick={handleGenerate}
-                disabled={isSubmitting || !slugStatus.available}
+                disabled={isSubmitting || !slugStatus.available || !affiliateWallet}
                 className="flex-1 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold shadow-md transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (

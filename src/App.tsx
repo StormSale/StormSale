@@ -142,14 +142,6 @@ function Router() {
     );
   }
 
-  // Check if current route is a custom short-link path e.g. /c/:slug
-  const isShortLinkRoute =
-    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
-
-  if (isShortLinkRoute) {
-    return <ShortLinkRedirect />;
-  }
-
   return (
     <>
       <ConnectWalletModal />
@@ -201,6 +193,17 @@ function App() {
       cleanup();
     };
   }, []);
+
+  const isShortLinkRoute =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
+
+  if (isShortLinkRoute) {
+    return (
+      <ErrorBoundary>
+        <ShortLinkRedirect />
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <NotificationWrapper>

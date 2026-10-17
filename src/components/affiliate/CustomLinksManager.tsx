@@ -44,9 +44,12 @@ export const CustomLinksManager = () => {
         message: `${fullUrl} copied to clipboard.`,
       });
       setTimeout(() => setCopiedSlug(null), 2000);
-    } catch {
-      setCopiedSlug(slug);
-      setTimeout(() => setCopiedSlug(null), 2000);
+    } catch (error) {
+      showNotification({
+        type: "error",
+        title: "Unable to Copy Short Link",
+        message: error instanceof Error ? error.message : "Clipboard access was denied.",
+      });
     }
   };
 

@@ -1,5 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
-import { resolveShortLinkRedirect, dispatchTrackingBeacon } from "../../lib/customLinks";
+import { useEffect, useState, useMemo, useRef } from "react";
+import {
+  buildDestinationRedirectUrl,
+  buildTrackingHeaders,
+  dispatchTrackingBeacon,
+  getCustomLinkBySlug,
+  isHttpDestination,
+  recordShortLinkClick,
+} from "../../lib/customLinks";
 import type { ShortLinkRedirectResult } from "../../types/affiliateLink";
 import { Button } from "../ui/button";
 import {
@@ -28,47 +35,57 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
     if (typeof window !== "undefined") {
       const match = window.location.pathname.match(/\/c\/([^/?#]+)/);
       if (match && match[1]) {
-        return decodeURIComponent(match[1]);
+        try {
+          return decodeURIComponent(match[1]);
+        } catch {
+          return "";
+        }
       }
     }
     return "";
   }, [customSlug]);
 
   // Derive redirect data and notFound directly during render
+  const inboundQuery = typeof window !== "undefined" ? window.location.search : "";
   const redirectData = useMemo<ShortLinkRedirectResult | null>(() => {
     if (!slug) return null;
-    const inboundQuery = typeof window !== "undefined" ? window.location.search : "";
-    return resolveShortLinkRedirect(slug, inboundQuery);
-  }, [slug]);
+    const link = getCustomLinkBySlug(slug);
+    if (!link || !isHttpDestination(link.destinationUrl)) return null;
+
+    return {
+      slug: link.slug,
+      targetUrl: buildDestinationRedirectUrl(link, inboundQuery),
+      affiliateWallet: link.affiliateWallet,
+      walletFingerprint: link.walletFingerprint,
+      campaignId: link.campaignId,
+      trackingHeaders: buildTrackingHeaders(link),
+      trackingParams: link.trackingParams,
+      clickCount: link.clickCount,
+    };
+  }, [slug, inboundQuery]);
 
   const notFound = !slug || !redirectData;
-  const [countdown, setCountdown] = useState(1);
   const [showHeaders, setShowHeaders] = useState(false);
+  const clickTracked = useRef(false);
 
   // Side-effect: dispatch tracking beacon and execute redirect
   useEffect(() => {
-    if (redirectData && autoRedirect) {
+    if (!redirectData || !autoRedirect) return;
+
+    if (!clickTracked.current) {
+      clickTracked.current = true;
+      recordShortLinkClick(redirectData.slug);
       dispatchTrackingBeacon(redirectData);
-
-      const timer = setTimeout(() => {
-        if (typeof window !== "undefined") {
-          window.location.replace(redirectData.targetUrl);
-        }
-      }, 1200);
-
-      return () => clearTimeout(timer);
     }
+
+    const timer = setTimeout(() => {
+      if (typeof window !== "undefined") {
+        window.location.replace(redirectData.targetUrl);
+      }
+    }, 1200);
+
+    return () => clearTimeout(timer);
   }, [redirectData, autoRedirect]);
-
-  // Countdown timer effect for visual polish
-  useEffect(() => {
-    if (countdown > 0 && redirectData && autoRedirect) {
-      const interval = setInterval(() => {
-        setCountdown((c) => Math.max(0, c - 1));
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [countdown, redirectData, autoRedirect]);
 
   if (notFound) {
     return (
@@ -104,9 +121,9 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
       <div className="max-w-lg w-full bg-zinc-900/90 border border-zinc-800 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-center">
         {/* Animated Brand Pulse */}
         <div className="relative mx-auto w-20 h-20 flex items-center justify-center">
-          <div className="absolute inset-0 rounded-3xl bg-indigo-500/20 animate-ping opacity-75" />
+          <div className="absolute inset-0 rounded-3xl bg-indigo-500/20 motion-safe:animate-ping opacity-75" />
           <div className="relative w-16 h-16 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-            <Globe className="w-8 h-8 text-white animate-pulse" />
+            <Globe className="w-8 h-8 text-white motion-safe:animate-pulse" />
           </div>
         </div>
 
@@ -165,8 +182,7 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
             >
               <span className="flex items-center gap-1.5 font-mono text-[11px]">
                 <Code2 className="w-3.5 h-3.5 text-indigo-400" />
-                Preserved Tracking Headers & Params (
-                {Object.keys(redirectData.trackingHeaders).length})
+                Tracking Metadata & URL Params ({Object.keys(redirectData.trackingHeaders).length})
               </span>
               {showHeaders ? (
                 <ChevronUp className="w-3.5 h-3.5" />
@@ -191,7 +207,7 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
         {/* Action Button & Timer */}
         <div className="space-y-3 pt-2">
           {redirectData ? (
-            <a href={redirectData.targetUrl} rel="noopener noreferrer">
+            <a href={redirectData.targetUrl} target="_blank" rel="noopener">
               <Button className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
                 Continue to Destination
                 <ArrowRight className="w-4 h-4" />
@@ -199,7 +215,7 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
             </a>
           ) : (
             <div className="flex items-center justify-center gap-2 text-xs text-zinc-400 py-3">
-              <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+              <RefreshCw className="w-4 h-4 motion-safe:animate-spin text-indigo-400" />
               Resolving destination...
             </div>
           )}

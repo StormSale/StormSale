@@ -31,25 +31,14 @@ export const RESERVED_SLUGS = new Set([
   "contracts",
 ]);
 
-/**
- * Generate a synchronous deterministic SHA-256 hex digest for wallet fingerprinting
- */
-export function computeWalletFingerprint(walletAddress: string): string {
-  // Simple deterministic Fowler-Noll-Vo / CRC32 / SHA-like hash generator for testing & browser safety
-  let h1 = 0xdeadbeef ^ walletAddress.length;
-  let h2 = 0x41c6ce57 ^ walletAddress.length;
-  for (let i = 0; i < walletAddress.length; i++) {
-    const ch = walletAddress.charCodeAt(i);
-    h1 = Math.imul(h1 ^ ch, 2654435761);
-    h2 = Math.imul(h2 ^ ch, 1597334677);
-  }
-  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-  const part1 = (h1 >>> 0).toString(16).padStart(8, "0");
-  const part2 = (h2 >>> 0).toString(16).padStart(8, "0");
-  const prefix = walletAddress.slice(0, 4);
-  const suffix = walletAddress.slice(-4);
-  return `wf_${prefix}_${part1}${part2}_${suffix}`.toLowerCase();
+/** Generate a deterministic SHA-256 fingerprint for a Stellar wallet address. */
+export async function computeWalletFingerprint(walletAddress: string): Promise<string> {
+  const bytes = new TextEncoder().encode(walletAddress.trim());
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const hex = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return `wf_${hex}`;
 }
 
 /**
@@ -107,55 +96,6 @@ export function validateSlugFormat(slug: string): { valid: boolean; reason?: str
   return { valid: true };
 }
 
-/**
- * Generate default seed custom short links
- */
-export function createDefaultSeedLinks(): CustomShortLink[] {
-  const seedWallet = "GAFFILIATE1234567890STORMTESTNET1234567890TESTNETWALLET";
-  return [
-    {
-      id: "csl_tech_deals",
-      slug: "tech-deals",
-      affiliateWallet: seedWallet,
-      walletFingerprint: computeWalletFingerprint(seedWallet),
-      campaignId: "1",
-      campaignName: "Tech Gadgets Pro",
-      destinationUrl: "https://shop.techgadgets-demo.org/collections/stellar-exclusive",
-      trackingParams: {
-        ref: seedWallet,
-        campaign: "1",
-        utm_source: "stormsale",
-        utm_medium: "affiliate",
-        utm_campaign: "tech-deals",
-      },
-      createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-      clickCount: 142,
-      lastClickedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    },
-    {
-      id: "csl_web3_mastery",
-      slug: "web3-mastery",
-      affiliateWallet: seedWallet,
-      walletFingerprint: computeWalletFingerprint(seedWallet),
-      campaignId: "2",
-      campaignName: "Web3 Masterclass",
-      destinationUrl: "https://learn.stellar-web3-academy.io/enroll?plan=annual",
-      trackingParams: {
-        ref: seedWallet,
-        campaign: "2",
-        utm_source: "stormsale",
-        utm_medium: "affiliate",
-        utm_campaign: "web3-mastery",
-      },
-      createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      clickCount: 89,
-      lastClickedAt: new Date(Date.now() - 3600000 * 8).toISOString(),
-    },
-  ];
-}
-
 let inMemoryLinks: CustomShortLink[] | null = null;
 
 /**
@@ -195,15 +135,7 @@ export function getAllCustomLinks(): CustomShortLink[] {
     }
   }
 
-  const defaults = createDefaultSeedLinks();
-  inMemoryLinks = defaults;
-  if (typeof window !== "undefined" && window.localStorage) {
-    try {
-      window.localStorage.setItem(STORAGE_CUSTOM_LINKS_KEY, JSON.stringify(defaults));
-    } catch {
-      // Ignore
-    }
-  }
+  inMemoryLinks = [];
   return inMemoryLinks;
 }
 
@@ -229,6 +161,19 @@ export function getCustomLinkBySlug(slug: string): CustomShortLink | null {
   if (!normalized) return null;
   const links = getAllCustomLinks();
   return links.find((l) => l.slug.toLowerCase() === normalized) || null;
+}
+
+function parseHttpDestination(destinationUrl: string): URL | null {
+  try {
+    const url = new URL(destinationUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isHttpDestination(destinationUrl: string): boolean {
+  return parseHttpDestination(destinationUrl) !== null;
 }
 
 /**
@@ -307,13 +252,11 @@ export async function createCustomShortLink(input: CreateShortLinkInput): Promis
     formattedDestination = `https://${formattedDestination}`;
   }
 
-  try {
-    new URL(formattedDestination);
-  } catch {
+  if (!parseHttpDestination(formattedDestination)) {
     throw new Error("Invalid destination URL format.");
   }
 
-  const walletFingerprint = computeWalletFingerprint(input.affiliateWallet);
+  const walletFingerprint = await computeWalletFingerprint(input.affiliateWallet);
 
   const trackingParams: Record<string, string> = {
     ref: input.affiliateWallet,
@@ -339,6 +282,10 @@ export async function createCustomShortLink(input: CreateShortLinkInput): Promis
   };
 
   const links = getAllCustomLinks();
+  const latestAvailability = checkSlugAvailability(normalized);
+  if (!latestAvailability.isAvailable) {
+    throw new Error(latestAvailability.reason || "Slug is not available.");
+  }
   links.unshift(newLink);
   saveCustomLinks(links);
 
@@ -365,7 +312,10 @@ export function buildDestinationRedirectUrl(
   link: CustomShortLink,
   inboundQuery?: string | URLSearchParams,
 ): string {
-  const url = new URL(link.destinationUrl);
+  const url = parseHttpDestination(link.destinationUrl);
+  if (!url) {
+    throw new Error("Merchant destination must use HTTP or HTTPS.");
+  }
 
   // 1. Attach configured affiliate tracking params
   Object.entries(link.trackingParams).forEach(([key, val]) => {
@@ -387,7 +337,7 @@ export function buildDestinationRedirectUrl(
 
     inboundParams.forEach((value, key) => {
       // Don't overwrite the core protocol security tracking params
-      if (!["ref", "storm_slug", "storm_fp"].includes(key)) {
+      if (!["ref", "campaign", "storm_slug", "storm_fp"].includes(key)) {
         url.searchParams.set(key, value);
       }
     });
@@ -436,7 +386,7 @@ export function resolveShortLinkRedirect(
   inboundQuery?: string | URLSearchParams,
 ): ShortLinkRedirectResult | null {
   const link = getCustomLinkBySlug(slug);
-  if (!link) return null;
+  if (!link || !parseHttpDestination(link.destinationUrl)) return null;
 
   recordShortLinkClick(slug);
 

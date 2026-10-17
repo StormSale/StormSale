@@ -13,6 +13,7 @@ import {
   resolveShortLinkRedirect,
   getShortLinkUrl,
   resetCustomLinksStore,
+  saveCustomLinks,
 } from "../lib/customLinks";
 import { Keypair } from "@stellar/stellar-sdk";
 
@@ -37,6 +38,10 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
     it("rejects empty or whitespace-only slugs", () => {
       expect(validateSlugFormat("").valid).toBe(false);
       expect(validateSlugFormat("   ").valid).toBe(false);
+    });
+
+    it("starts with no fabricated production links when storage is empty", () => {
+      expect(getAllCustomLinks()).toEqual([]);
     });
 
     it("rejects slugs that are too short (< 3 chars) or too long (> 50 chars)", () => {
@@ -72,14 +77,27 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       expect(result.reason).toBeUndefined();
     });
 
-    it("detects collisions against seed default links", () => {
-      // "tech-deals" is present in default seed links
+    it("detects collisions against existing custom links", async () => {
+      await createCustomShortLink({
+        slug: "tech-deals",
+        affiliateWallet: validStellarWallet,
+        campaignId: "1",
+        destinationUrl: "https://merchant.example.com/tech",
+      });
+
       const result = checkSlugAvailability("tech-deals");
       expect(result.isAvailable).toBe(false);
       expect(result.reason).toContain("already registered");
     });
 
-    it("detects collisions case-insensitively", () => {
+    it("detects collisions case-insensitively", async () => {
+      await createCustomShortLink({
+        slug: "tech-deals",
+        affiliateWallet: validStellarWallet,
+        campaignId: "1",
+        destinationUrl: "https://merchant.example.com/tech",
+      });
+
       const result = checkSlugAvailability("TECH-DEALS");
       expect(result.isAvailable).toBe(false);
       expect(result.reason).toContain("already registered");
@@ -90,18 +108,18 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
   // 3. Cryptographic Wallet Identifier Binding
   // --------------------------------------------------------------------------
   describe("Cryptographic Wallet Identifier Mapping", () => {
-    it("computes a deterministic wallet fingerprint", () => {
-      const fp1 = computeWalletFingerprint(validStellarWallet);
-      const fp2 = computeWalletFingerprint(validStellarWallet);
+    it("computes a deterministic SHA-256 wallet fingerprint", async () => {
+      const fp1 = await computeWalletFingerprint(validStellarWallet);
+      const fp2 = await computeWalletFingerprint(validStellarWallet);
 
       expect(fp1).toBe(fp2);
-      expect(fp1).toMatch(/^wf_[a-z0-9]+_[a-f0-9]+_[a-z0-9]+$/);
+      expect(fp1).toMatch(/^wf_[a-f0-9]{64}$/);
     });
 
-    it("generates distinct fingerprints for different Stellar wallets", () => {
+    it("generates distinct fingerprints for different Stellar wallets", async () => {
       const wallet2 = Keypair.random().publicKey();
-      const fp1 = computeWalletFingerprint(validStellarWallet);
-      const fp2 = computeWalletFingerprint(wallet2);
+      const fp1 = await computeWalletFingerprint(validStellarWallet);
+      const fp2 = await computeWalletFingerprint(wallet2);
 
       expect(fp1).not.toBe(fp2);
     });
@@ -151,6 +169,24 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       // Verify collision detection now prevents duplicate
       const availability = checkSlugAvailability("super-sale-2026");
       expect(availability.isAvailable).toBe(false);
+    });
+
+    it("rejects concurrent attempts to claim the same slug", async () => {
+      const input = {
+        slug: "race-condition-deal",
+        affiliateWallet: validStellarWallet,
+        campaignId: "11",
+        destinationUrl: "https://merchant.example.com/race",
+      };
+
+      const results = await Promise.allSettled([
+        createCustomShortLink(input),
+        createCustomShortLink(input),
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
+      expect(getAllCustomLinks().filter((link) => link.slug === input.slug)).toHaveLength(1);
     });
 
     it("formats short URL correctly", () => {
@@ -212,7 +248,8 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
         destinationUrl: "https://merchant.example.com/store",
       });
 
-      const inboundQuery = "?subid=fb_campaign_42&ad_id=12345&utm_content=banner_red";
+      const inboundQuery =
+        "?subid=fb_campaign_42&ad_id=12345&utm_content=banner_red&ref=attacker&campaign=999&storm_slug=other&storm_fp=invalid";
       const redirectUrl = buildDestinationRedirectUrl(link, inboundQuery);
       const parsed = new URL(redirectUrl);
 
@@ -220,7 +257,24 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       expect(parsed.searchParams.get("ad_id")).toBe("12345");
       expect(parsed.searchParams.get("utm_content")).toBe("banner_red");
       expect(parsed.searchParams.get("ref")).toBe(validStellarWallet);
+      expect(parsed.searchParams.get("campaign")).toBe("8");
       expect(parsed.searchParams.get("storm_slug")).toBe("social-ad-deal");
+      expect(parsed.searchParams.get("storm_fp")).toBe(link.walletFingerprint);
+    });
+
+    it("rejects invalid persisted destination URLs before creating redirect data", async () => {
+      const link = await createCustomShortLink({
+        slug: "invalid-destination",
+        affiliateWallet: validStellarWallet,
+        campaignId: "12",
+        destinationUrl: "https://merchant.example.com/safe",
+      });
+      saveCustomLinks([{ ...link, destinationUrl: "javascript:alert(1)" }]);
+
+      expect(resolveShortLinkRedirect("invalid-destination")).toBeNull();
+      expect(() =>
+        buildDestinationRedirectUrl({ ...link, destinationUrl: "javascript:alert(1)" }),
+      ).toThrow("Merchant destination must use HTTP or HTTPS.");
     });
 
     it("generates HTTP tracking headers for merchant postback ingestion", async () => {

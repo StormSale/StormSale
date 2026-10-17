@@ -466,7 +466,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate
                 icon: Users,
               },
               {
-                id: "performance",
+                id: "my-sales",
                 label: "Track Performance",
                 description: "View analytics and insights",
                 icon: TrendingUp,
