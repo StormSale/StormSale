@@ -4,6 +4,7 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { ComplianceChecklist } from "../components/auditor/ComplianceChecklist";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
@@ -18,6 +19,7 @@ import {
   BarChart3,
   Eye,
   ClipboardList,
+  ClipboardCheck,
   FileCheck,
   GitFork,
   ShieldCheck,
@@ -37,6 +39,7 @@ const AUDITOR_TABS = [
   "overview",
   "verify",
   "history",
+  "checklist",
   "compliance",
   "network",
   "soc2",
@@ -125,6 +128,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "merkle", label: "Merkle Tree Proofs", icon: GitFork },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
+    { id: "checklist", label: "Audit Checklist", icon: ClipboardCheck },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
     { id: "network", label: "Transaction Network", icon: Network },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
@@ -165,6 +169,9 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
             onViewMerkleProof={handleViewMerkleProof}
           />
         );
+
+      case "checklist":
+        return <ComplianceChecklist />;
 
       case "compliance":
         return <ComplianceReport />;
