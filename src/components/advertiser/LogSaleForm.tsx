@@ -19,6 +19,12 @@ import {
 } from "../../lib/crypto";
 import { triggerConversionPostback } from "../../lib/webhookEngine";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
+import {
+  getCampaignGeoRestrictionForAddress,
+  getCountryName,
+  isCountryAllowed,
+  resolveClientCountryCode,
+} from "../../lib/geoTargeting";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
@@ -42,6 +48,17 @@ export const LogSaleForm = () => {
 
     setIsLoading(true);
     try {
+      const countryCode = await resolveClientCountryCode();
+      const geoRestriction = getCampaignGeoRestrictionForAddress(campaignAddress);
+      if (!isCountryAllowed(countryCode, geoRestriction)) {
+        showNotification({
+          type: "error",
+          title: "Conversion blocked by geo-targeting",
+          message: `${getCountryName(countryCode)} is not permitted for this campaign. Sale data was not encrypted or recorded.`,
+        });
+        return;
+      }
+
       const campaignContract = getCampaignContract(campaignAddress);
 
       showNotification({
@@ -147,6 +164,18 @@ export const LogSaleForm = () => {
         </h2>
         <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
           Record a new sale with military-grade encryption and commission escrow
+        </p>
+      </div>
+
+      <div
+        role="note"
+        className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
+      >
+        <Shield className="mt-0.5 h-5 w-5 shrink-0" />
+        <p>
+          Geographic restrictions are checked before sale data is encrypted. Country detection
+          requires the configured StormSale API geo endpoint; if verification is unavailable, the
+          sale is not processed.
         </p>
       </div>
 

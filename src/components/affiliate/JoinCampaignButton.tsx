@@ -55,6 +55,18 @@ export const JoinCampaignButton = () => {
         </p>
       </div>
 
+      <div
+        role="note"
+        className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200"
+      >
+        <Shield className="mt-0.5 h-5 w-5 shrink-0" />
+        <p>
+          Campaigns may restrict affiliate traffic by country. Your country is checked before
+          conversion details are encrypted, and conversions from restricted regions are rejected.
+          Review each advertiser&apos;s jurisdiction rules before promoting a campaign.
+        </p>
+      </div>
+
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl max-w-2xl">
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
           <div className="flex items-center space-x-4">

@@ -6,7 +6,6 @@ import {
   Users,
   BarChart3,
   TrendingUp,
-  Eye,
   Pause,
   Play,
   Settings,
@@ -14,6 +13,7 @@ import {
   Shield,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
+import { CampaignGeoTargetingSettings } from "./CampaignGeoTargetingSettings";
 
 type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -104,6 +104,7 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
 export const MyCampaignsList = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All">("All");
+  const [geoSettingsCampaignId, setGeoSettingsCampaignId] = useState<string | null>(null);
 
   const filtered = mockCampaigns.filter((c) => {
     const matchSearch = c.name.toLowerCase().includes(search.toLowerCase());
@@ -295,15 +296,28 @@ export const MyCampaignsList = () => {
                     <span>Since {campaign.createdAt}</span>
                   </div>
 
+                  {geoSettingsCampaignId === campaign.id && (
+                    <CampaignGeoTargetingSettings
+                      campaignId={campaign.id}
+                      campaignName={campaign.name}
+                    />
+                  )}
+
                   {/* Actions */}
                   <div className="flex gap-3">
                     <Button
                       variant="outline"
                       size="sm"
+                      aria-expanded={geoSettingsCampaignId === campaign.id}
+                      onClick={() =>
+                        setGeoSettingsCampaignId((current) =>
+                          current === campaign.id ? null : campaign.id,
+                        )
+                      }
                       className="flex-1 h-10 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-800"
                     >
-                      <Eye className="w-4 h-4 mr-2" />
-                      View
+                      <Settings className="w-4 h-4 mr-2" />
+                      Geo Settings
                     </Button>
                     <Button
                       variant="outline"
