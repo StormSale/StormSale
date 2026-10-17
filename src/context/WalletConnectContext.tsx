@@ -9,7 +9,7 @@ interface WalletConnectState {
   error: string | null;
   showNetworkModal: boolean;
   sep7Uri: string | null;
-  isAwaitingSep7Confirmation: boolean;
+  isAwaitingLedgerConfirmation: boolean;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -34,7 +34,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     error: null,
     showNetworkModal: false,
     sep7Uri: null,
-    isAwaitingSep7Confirmation: false,
+    isAwaitingLedgerConfirmation: false,
   });
 
   const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
@@ -69,7 +69,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       error: null,
       showNetworkModal: false,
       sep7Uri: null,
-      isAwaitingSep7Confirmation: false,
+      isAwaitingLedgerConfirmation: false,
     });
   };
 
@@ -116,17 +116,17 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       ...prev,
       error: null,
       sep7Uri: buildSep7TxUri(xdr),
-      isAwaitingSep7Confirmation: true,
+      isAwaitingLedgerConfirmation: true,
     }));
 
     try {
       await pollTransactionInclusion(account);
-      setState((prev) => ({ ...prev, isAwaitingSep7Confirmation: false }));
+      setState((prev) => ({ ...prev, isAwaitingLedgerConfirmation: false }));
     } catch (error: any) {
-      console.error("SEP-0007 confirmation error:", error);
+      console.error("SEP-0007 ledger confirmation error:", error);
       setState((prev) => ({
         ...prev,
-        isAwaitingSep7Confirmation: false,
+        isAwaitingLedgerConfirmation: false,
         error: error.message || "Failed to confirm transaction on the Stellar ledger",
       }));
     }

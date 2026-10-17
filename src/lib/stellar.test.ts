@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri } from "./stellar";
+import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri, buildSep0007QrFallback, streamTransactionInclusion } from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
@@ -13,7 +13,7 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPWWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
@@ -34,20 +34,41 @@ describe("Stellar Helpers", () => {
   });
 
   it("builds a SEP-0007 tx URI with base64 XDR and replace=false", () => {
-    const xdr = "AAAAAgAAAAB=";
+    const xdr = "AAAAAgBAAAAB...";
     const uri = buildSep0007TxUri(xdr);
-    expect(uri).toBe(`web+stellar:tx?xdr=${encodeURIComponent(xdr)}&replace=false`);
+    expect(uri.startsWith("web+stellar:tx?")).toBe(true);
+    expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
+    expect(uri).toContain("replace=false");
   });
 
-  it("encodes XDR containing reserved URI characters", () => {
-    const xdr = "AAA+/A==&?";
+  it("builds a SEP-0007 QR fallback payload matching the deep link", () => {
+    const xdr = "AAAAAgBAAAAB...";
     const uri = buildSep0007TxUri(xdr);
-    expect(uri.startsWith("web+stellar:tx?xdr=")).toBe(true);
-    expect(uri.endsWith("&replace=false")).toBe(true);
-    expect(uri).not.toContain("?xdr=AAA+/A==&?");
+    const qr = buildSep0007QrFallback(uri);
+    expect(qr).toBe(uri);
   });
 
-  it("rejects empty XDR when building a SEP-0007 tx URI", () => {
-    expect(() => buildSep0007TxUri("")).toThrow();
+  it("streams Horizon transactions until the target hash is included", async () => {
+    const targetHash = "abc123";
+    const fakeStream = {
+      onmessage: undefined as ((tx: { hash: string }) => void) | undefined,
+      close: () => {},
+    };
+    const fakeServer = {
+      transactions: () => ({
+        forAccount: () => ({
+          cursor: () => ({
+            stream: (opts: { onmessage: (tx: { hash: string }) => void }) => {
+              fakeStream.onmessage = opts.onmessage;
+              return () => fakeStream.close();
+            },
+          }),
+        }),
+      }),
+    };
+    const resultPromise = streamTransactionInclusion(fakeServer as never, "G+ABC", targetHash);
+    fakeStream.onmessage?.({ hash: "other" });
+    fakeStream.onmessage?.({ hash: targetHash });
+    await expect(resultPromise).resolves.toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-/**
+/*
  * Stellar & Soroban Network Configuration for StormSale
  */
 export const STELLAR_CONFIG = {
@@ -12,11 +12,17 @@ export const STELLAR_CONFIG = {
   // Deployed Soroban Contract ID on Stellar Testnet
   contractId:
     import.meta.env.VITE_STORMSALE_CONTRACT_ID ||
-    "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    "CDLZFC3SYJYDZT7K67ZV75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC",
 
   nativeAsset: "XLM",
   nativeDecimals: 7,
+
+  // SEP-0007 mobile wallet invocation settings
+  sep0007Scheme: "web+stellar",
+  sep0007PollIntervalMs: 5000,
+  sep0007TimeoutMs: 180000,
 };
+
 
 export const STELLAR_NETWORKS = {
   TESTNET: {

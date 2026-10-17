@@ -14,10 +14,11 @@ import {
   Fingerprint,
   Usb,
   ChevronDown,
+  QrCode,
+  Radio,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import type { WalletType } from "../../lib/stellar";
-import { buildSep7TxUri } from "../../lib/stellar";
 
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
@@ -26,15 +27,18 @@ export const ConnectWalletModal: React.FC = () => {
   const [customKey, setCustomKey] = useState("");
   const [showReadOnlyInput, setShowReadOnlyInput] = useState(false);
 
-  // SEP-0007 mobile wallet state
-  const [sep7Uri, setSep7Uri] = useState<string | null>(null);
-  const [sep7Awaiting, setSep7Awaiting] = useState(false);
-
   // Ledger hardware path state
   const [showLedgerSettings, setShowLedgerSettings] = useState(false);
   const [ledgerAccountIndex, setLedgerAccountIndex] = useState(0);
   const [customBipPath, setCustomBipPath] = useState("m/44'/148'/0'");
   const [useCustomPath, setUseCustomPath] = useState(false);
+
+  // SEP-0007 mobile wallet state
+  const [showSep7Panel, setShowSep7Panel] = useState(false);
+  const [sep7Xdr, setSep7Xdr] = useState("");
+  const [sep7Uri, setSep7Uri] = useState<string | null>(null);
+  const [sep7Polling, setSep7Polling] = useState(false);
+  const [sep7Status, setSep7Status] = useState<string | null>(null);
 
   if (!isWalletModalOpen) return null;
 
@@ -43,21 +47,6 @@ export const ConnectWalletModal: React.FC = () => {
       return customBipPath.trim() || "m/44'/148'/0'";
     }
     return `m/44'/148'/${ledgerAccountIndex}'`;
-  };
-
-  const handleSep7MobileWallet = () => {
-    setErrorMessage(null);
-    try {
-      const uri = buildSep7TxUri("", { replace: false });
-      setSep7Uri(uri);
-      setSep7Awaiting(true);
-      window.location.href = uri;
-    } catch (err: any) {
-      console.error("SEP-0007 error:", err);
-      setErrorMessage(
-        err.message || "Failed to build SEP-0007 mobile wallet link. Please try again.",
-      );
-    }
   };
 
   const handleSelectWallet = async (type: WalletType) => {
@@ -93,6 +82,66 @@ export const ConnectWalletModal: React.FC = () => {
       );
     } finally {
       setConnectingType(null);
+    }
+  };
+
+  const handleLaunchSep7 = async () => {
+    setErrorMessage(null);
+    setSep7Status(null);
+
+    const trimmedXdr = sep7Xdr.trim();
+    if (!trimmedXdr) {
+      setErrorMessage("Please paste the assembled transaction XDR to continue.");
+      return;
+    }
+
+    try {
+      const uri = `web+stellar:tx?xdr=${encodeURIComponent(trimmedXdr)}&replace=false`;
+      setSep7Uri(uri);
+      setSep7Polling(true);
+      setSep7Status("Waiting for mobile wallet signature & ledger inclusion...");
+
+      // Deep-link into installed mobile wallet (LOBSTR, Solar, etc.)
+      window.location.href = uri;
+
+      // Poll Horizon for ledger inclusion of the submitted transaction.
+      const { Horizon } = await import("@stellar/stellar-sdk");
+      const horizonUrl =
+        (import.meta as any).env?.VITE_HORIZON_URL || "https://horizon-testnet.stellar.org";
+      const server = new Horizon.Server(horizonUrl);
+
+      const { TransactionBuilder } = await import("@stellar/stellar-sdk");
+      const txHash = TransactionBuilder.fromXDR(trimmedXdr, (import.meta as any).env?.VITE_STELLAR_NETWORK_PASSPHRASE || "Test SDF Network ; September 2015").hash().toString("hex");
+
+      let confirmed = false;
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        try {
+          const tx = await server.transactions().transaction(txHash).call();
+          if (tx && tx.successful) {
+            confirmed = true;
+            break;
+          }
+        } catch {
+          // Not yet included; keep polling.
+        }
+        await new Promise((r) => setTimeout(r, 4000));
+      }
+
+      if (confirmed) {
+        setSep7Status("Transaction confirmed on the Stellar ledger.");
+        setSep7Polling(false);
+        closeWalletModal();
+      } else {
+        setSep7Polling(false);
+        setSep7Status("Timed out waiting for ledger confirmation. Please check your wallet.");
+      }
+    } catch (err: any) {
+      console.error("SEP-0007 flow error:", err);
+      setSep7Polling(false);
+      setErrorMessage(
+        err.message || "Failed to complete SEP-0007 mobile wallet flow. Please try again.",
+      );
     }
   };
 
@@ -155,18 +204,6 @@ export const ConnectWalletModal: React.FC = () => {
       icon: Zap,
       accent: "from-amber-500 to-orange-600",
       borderHover: "hover:border-amber-500/50 hover:bg-amber-50/50 dark:hover:bg-amber-950/20",
-    },
-    {
-      id: "sep7" as WalletType,
-      name: "Sign with SEP-0007 Mobile Wallet",
-      badge: "LOBSTR / Solar / Mobile",
-      badgeColor: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/20",
-      description:
-        "Open your installed Stellar mobile wallet via the standard web+stellar:tx URI scheme to sign without browser extensions.",
-      icon: Smartphone,
-      accent: "from-indigo-500 to-violet-600",
-      borderHover:
-        "hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
     },
     {
       id: "mock" as WalletType,
@@ -288,11 +325,7 @@ export const ConnectWalletModal: React.FC = () => {
                 <div key={wallet.id} className="space-y-2">
                   <button
                     disabled={connectingType !== null}
-                    onClick={() =>
-                      wallet.id === "sep7"
-                        ? handleSep7MobileWallet()
-                        : handleSelectWallet(wallet.id)
-                    }
+                    onClick={() => handleSelectWallet(wallet.id)}
                     className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
                       isBusy ? "opacity-70 pointer-events-none" : ""
                     }`}
@@ -430,6 +463,94 @@ export const ConnectWalletModal: React.FC = () => {
                       Connect Watch Key
                     </button>
                   </div>
+                </motion.div>
+              )}
+            </div>
+
+            {/* SEP-0007 Mobile Wallet Option */}
+            <div className="pt-2">
+              {!showSep7Panel ? (
+                <button
+                  onClick={() => setShowSep7Panel(true)}
+                  className="w-full py-2.5 px-3 rounded-xl border border-dashed border-indigo-300 dark:border-indigo-700 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 hover:border-indigo-400 dark:hover:border-indigo-500 flex items-center justify-center space-x-2 transition-colors"
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Sign with SEP-0007 Mobile Wallet</span>
+                </button>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  className="p-4 bg-indigo-50/60 dark:bg-indigo-950/20 rounded-2xl border border-indigo-200 dark:border-indigo-800/60 space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-indigo-800 dark:text-indigo-300">
+                      SEP-0007 Mobile Wallet (web+stellar:tx)
+                    </label>
+                    <button
+                      onClick={() => {
+                        setShowSep7Panel(false);
+                        setSep7Uri(null);
+                        setSep7Status(null);
+                        setSep7Polling(false);
+                      }}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-indigo-700 dark:text-indigo-400 leading-relaxed">
+                    Paste the assembled transaction XDR. We will generate a standard
+                    <span className="font-mono font-bold"> web+stellar:tx </span>
+                    deep-link that opens your installed mobile wallet (LOBSTR, Solar, etc.).
+                  </p>
+                  <textarea
+                    value={sep7Xdr}
+                    onChange={(e) => setSep7Xdr(e.target.value)}
+                    placeholder="AAAAAgAAAAA... (base64 transaction envelope XDR)"
+                    rows={3}
+                    className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-indigo-200 dark:border-indigo-800 rounded-xl text-[11px] font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                  />
+                  <button
+                    onClick={handleLaunchSep7}
+                    disabled={sep7Polling}
+                    className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white text-xs font-bold rounded-xl flex items-center justify-center space-x-2 transition-colors"
+                  >
+                    {sep7Polling ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Awaiting Ledger Confirmation...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Open Mobile Wallet</span>
+                      </>
+                    )}
+                  </button>
+                  {sep7Uri && (
+                    <div className="p-2.5 bg-white dark:bg-zinc-900 rounded-xl border border-indigo-200 dark:border-indigo-800 flex items-start space-x-2">
+                      <QrCode className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] uppercase font-bold text-zinc-500 mb-0.5">
+                          Fallback URI (copy or scan)
+                        </div>
+                        <div className="text-[10px] font-mono text-zinc-700 dark:text-zinc-300 break-all">
+                          {sep7Uri}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {sep7Status && (
+                    <div className="flex items-center space-x-2 text-[11px] text-indigo-700 dark:text-indigo-300">
+                      {sep7Polling ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                      ) : (
+                        <Radio className="w-3.5 h-3.5 text-indigo-600" />
+                      )}
+                      <span>{sep7Status}</span>
+                    </div>
+                  )}
                 </motion.div>
               )}
             </div>
