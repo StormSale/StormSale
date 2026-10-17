@@ -22,7 +22,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { decryptPayload, generateAESKey, encryptPayload } from "../../lib/crypto";
+import {
+  decryptPayload,
+  generateAESKey,
+  encryptPayload,
+  wrapAESKey,
+  unwrapAESKey,
+  getPublicKeyForAddress,
+} from "../../lib/crypto";
 import { Shield, Lock, CheckCircle2, Clock } from "lucide-react";
 
 export interface Sale {
@@ -35,6 +42,10 @@ export interface Sale {
   claimed: boolean;
   /** Base64 AES-GCM envelope produced by encryptPayload. Absent for legacy mock rows. */
   encryptedEnvelope?: string;
+  /** Wrapped per-sale AES key sealed to the affiliate identifier. Absent for legacy mock rows. */
+  wrappedKey?: string;
+  /** Affiliate identifier (wallet address/label) the wrapped key is sealed to. */
+  affiliateKeyId?: string;
 }
 
 export interface SalesListProps {
@@ -131,7 +142,6 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
   const [decryptingId, setDecryptingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [salesList] = useState<Sale[]>(() => initialSales || createInitialMockSales());
-  const [saleKeys] = useState<Map<number, CryptoKey>>(() => new Map());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -142,9 +152,11 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
 
   /**
    * Secure decrypt (#49): each sale row carries an AES-GCM envelope sealed
-   * with a per-sale key held in memory. Decrypt requires BOTH the envelope
-   * and the matching key; tampered envelopes, wrong keys, and stub payloads
-   * all fail closed with a generic error (no plaintext is ever fabricated).
+   * with a per-sale key that is itself wrapped (sealed) to the affiliate's
+   * key identifier via wrapAESKey/unwrapAESKey. Decrypt unwraps the sale key
+   * with the affiliate identifier first, then decrypts the envelope; tampered
+   * envelopes, wrong affiliate keys, and stub payloads all fail closed with a
+   * generic error (no plaintext is ever fabricated).
    */
   const handleDecrypt = async (saleId: number) => {
     const sale = salesList.find((s) => s.id === saleId);
@@ -157,12 +169,21 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
     setDecryptError(null);
     setDecryptedData(null);
     try {
+      // Affiliate key identity: prefer the connected wallet when available,
+      // otherwise fall back to the row's affiliate label (mock rows).
+      const walletAddress =
+        typeof window !== "undefined"
+          ? (window as unknown as { __STORMSALE_WALLET__?: string }).__STORMSALE_WALLET__
+          : undefined;
+      const affiliateIdentifier = await getPublicKeyForAddress(
+        walletAddress || sale.affiliateKeyId || sale.affiliate,
+      );
       let envelope = sale.encryptedEnvelope;
-      let key = saleKeys.get(saleId);
+      let wrappedKey = sale.wrappedKey;
       // Legacy mock rows have no sealed envelope yet: seal the canonical
-      // on-chain fields now so decrypt still exercises the real AES-GCM path
-      // (key never leaves memory; nothing is fabricated on failure).
-      if (!envelope || !key) {
+      // on-chain fields now AND wrap the sale key to the affiliate identifier
+      // so decrypt exercises the real affiliate-key envelope path.
+      if (!envelope || !wrappedKey) {
         const freshKey = await generateAESKey();
         const canonical = {
           saleId: sale.id,
@@ -174,11 +195,19 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
           claimed: sale.claimed,
         };
         envelope = await encryptPayload(canonical, freshKey);
+        wrappedKey = await wrapAESKey(freshKey, affiliateIdentifier);
         sale.encryptedEnvelope = envelope;
-        saleKeys.set(saleId, freshKey);
-        key = freshKey;
+        sale.wrappedKey = wrappedKey;
+        sale.affiliateKeyId = affiliateIdentifier;
       }
-      const decrypted = await decryptPayload(envelope, key);
+      // Strict binding: the stored envelope must belong to the affiliate
+      // requesting decrypt; otherwise a swapped row could leak another
+      // affiliate's sale data.
+      if (sale.affiliateKeyId && sale.affiliateKeyId !== affiliateIdentifier) {
+        throw new Error("Decryption failed: invalid payload or key.");
+      }
+      const saleKey = await unwrapAESKey(wrappedKey, affiliateIdentifier);
+      const decrypted = await decryptPayload(envelope, saleKey);
       // Bind the decrypted payload to the row the user clicked: prevents a
       // swapped envelope from displaying another sale's amounts as this one.
       const record = decrypted as Record<string, unknown>;
