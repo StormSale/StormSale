@@ -135,6 +135,37 @@ npm run dev
 
 Visit `http://localhost:5173` to launch the application.
 
+### Website Tracking Tag
+
+Add the asynchronous script to any page. The SDK stores a `?ref={wallet}` value in a 30-day,
+first-party cookie shared by the site's subdomains. When an order completes, call the global API:
+
+```html
+<script
+  async
+  id="stormsale-sdk"
+  src="https://stormsale.io/stormsale.js"
+  data-endpoint="https://your-site.example/api/conversions"
+></script>
+<script>
+  const stormSaleReady = new Promise((resolve, reject) => {
+    const sdk = document.getElementById("stormsale-sdk");
+    sdk.addEventListener("load", () => resolve(window.stormsale));
+    sdk.addEventListener("error", reject);
+  });
+
+  async function onOrderComplete(order) {
+    const stormsale = await stormSaleReady;
+    await stormsale.trackConversion({ orderId: order.id, amount: order.total });
+  }
+</script>
+```
+
+The endpoint is optional. Without it, the SDK emits a `stormsale:conversion` event on `document`
+with `{ orderId, amount, referral }` in `event.detail`, so the host site can forward the conversion
+to its own backend. Configured endpoints receive that same JSON via `POST` and must allow cross-origin
+requests when hosted on another domain.
+
 ### 4. Running with Docker
 
 ```bash
