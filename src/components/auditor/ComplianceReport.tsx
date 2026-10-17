@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Card,
   CardContent,
@@ -8,6 +9,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { runCryptoAudit, type CryptoAuditResult } from "../../lib/crypto.worker";
 
 const complianceItems = [
   {
@@ -61,9 +63,42 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
   },
 };
 
+type AuditState =
+  | { status: "idle" }
+  | { status: "running" }
+  | { status: "done"; result: CryptoAuditResult }
+  | { status: "error"; message: string };
+
+const useCryptoAudit = () => {
+  const [state, setState] = useState<AuditState>({ status: "idle" });
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const run = async () => {
+    setState({ status: "running" });
+    try {
+      const result = await runCryptoAudit();
+      if (mounted.current) setState({ status: "done", result });
+    } catch (err) {
+      if (mounted.current) {
+        setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  };
+
+  return { state, run };
+};
+
 export const ComplianceReport = () => {
   const compliant = complianceItems.filter((c) => c.status === "Compliant").length;
   const review = complianceItems.filter((c) => c.status === "Review Needed").length;
+  const { state: auditState, run: runAudit } = useCryptoAudit();
 
   return (
     <div className="space-y-6">
@@ -79,6 +114,14 @@ export const ComplianceReport = () => {
         <Button className="h-10 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white font-semibold shadow-sm">
           <Download className="w-4 h-4 mr-2" />
           Export PDF Report
+        </Button>
+        <Button
+          onClick={runAudit}
+          disabled={auditState.status === "running"}
+          className="h-10 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm"
+        >
+          <Lock className="w-4 h-4 mr-2" />
+          {auditState.status === "running" ? "Running Audit…" : "Run Crypto Audit"}
         </Button>
       </div>
 
@@ -188,6 +231,42 @@ export const ComplianceReport = () => {
         </CardContent>
       </Card>
 
+      {/* Background crypto audit result (non-blocking worker) */}
+      {auditState.status === "done" && (
+        <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-bold text-zinc-900 dark:text-white text-sm">
+                  Crypto Audit Complete
+                </p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  AES-256-GCM verified in background worker. Ciphertext:{" "}
+                  <span className="font-mono">{auditState.result.ciphertext.slice(0, 16)}…</span>{" "}
+                  · Duration: {auditState.result.durationMs}ms
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {auditState.status === "error" && (
+        <Card className="border border-amber-200 dark:border-amber-500/30 bg-white dark:bg-zinc-900/50 rounded-2xl">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-bold text-zinc-900 dark:text-white text-sm">Crypto Audit Failed</p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                  {auditState.message}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Bottom notice */}
       <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
         <CardContent className="p-6">
@@ -198,6 +277,7 @@ export const ComplianceReport = () => {
               <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
                 All compliance audit actions are immutably recorded on the Stellar network.
                 Timestamps, access grants and denial logs cannot be altered after they are written.
+                AES operations are offloaded to background Web Workers to keep the UI at 60fps.
               </p>
             </div>
           </div>
@@ -206,3 +286,4 @@ export const ComplianceReport = () => {
     </div>
   );
 };
+

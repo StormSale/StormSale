@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -32,6 +33,9 @@ import {
   ArrowRight,
 } from "lucide-react";
 
+// Background crypto worker (non-blocking AES offload)
+import CryptoWorker from "../../lib/crypto.worker?worker";
+
 interface PendingAuditItem {
   saleId: string;
   campaign: string;
@@ -47,6 +51,9 @@ export const VerifyAccess: React.FC = () => {
   const [isChecking, setIsChecking] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedData, setDecryptedData] = useState<Record<string, string> | null>(null);
+  const [workerStatus, setWorkerStatus] = useState<"idle" | "ready" | "error">("idle");
+  const workerRef = useRef<Worker | null>(null);
+  const requestIdRef = useRef(0);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
@@ -74,6 +81,43 @@ export const VerifyAccess: React.FC = () => {
       urgency: "Low",
     },
   ];
+
+  // Spin up the background crypto worker once and wire up the message bridge.
+  useEffect(() => {
+    let worker: Worker;
+    try {
+      worker = new CryptoWorker();
+    } catch (_err) {
+      setWorkerStatus("error");
+      return;
+    }
+    workerRef.current = worker;
+    setWorkerStatus("ready");
+
+    worker.onmessage = (event: MessageEvent) => {
+      const { type, requestId, payload, error } = event.data || {};
+      if (type === "decrypt-result") {
+        if (requestId !== requestIdRef.current) return;
+        if (error) {
+          setIsDecrypting(false);
+          showNotification({
+            type: "error",
+            title: "Decryption Failed",
+            message: "Failed to decrypt envelope data payload",
+          });
+          return;
+        }
+        setDecryptedData(payload as Record<string, string>);
+        setIsDialogOpen(true);
+        setIsDecrypting(false);
+      }
+    };
+
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+    };
+  }, [showNotification]);
 
   const handleQuickSelect = (item: PendingAuditItem) => {
     setSaleId(item.saleId);
@@ -124,29 +168,28 @@ export const VerifyAccess: React.FC = () => {
 
   const handleDecrypt = async () => {
     setIsDecrypting(true);
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const stubData: Record<string, string> = {
-        "Sale ID": `#${saleId}`,
-        "Campaign Contract": `${campaignAddress.slice(0, 10)}...${campaignAddress.slice(-8)}`,
-        "Customer Hash": "sha256:4b227777d4da1fc6215...",
-        "Gross Conversion": "450.00 XLM",
-        "Affiliate Commission": "45.00 XLM (10%)",
-        "Settlement Status": "Escrow Cleared & Released",
-        Timestamp: new Date().toUTCString(),
-        "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
-      };
-      setDecryptedData(stubData);
-      setIsDialogOpen(true);
-    } catch (_err) {
+    const worker = workerRef.current;
+    if (!worker) {
+      setIsDecrypting(false);
       showNotification({
         type: "error",
         title: "Decryption Failed",
-        message: "Failed to decrypt envelope data payload",
+        message: "Background crypto worker is unavailable",
       });
-    } finally {
-      setIsDecrypting(false);
+      return;
     }
+    const requestId = ++requestIdRef.current;
+    // Offload AES-GCM decryption to the worker so the UI thread stays at 60fps.
+    worker.postMessage({
+      type: "decrypt",
+      requestId,
+      payload: {
+        saleId,
+        campaignAddress,
+        auditorAddress: userAddress,
+        network,
+      },
+    });
   };
 
   const requestAccess = () => {
@@ -175,6 +218,9 @@ export const VerifyAccess: React.FC = () => {
             Inspect cryptographic permissions, decrypt authorized sale payloads, and record
             compliance logs.
           </p>
+          <span className="inline-flex items-center mt-2 text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+            Worker: {workerStatus === "ready" ? "Online (non-blocking)" : workerStatus}
+          </span>
         </div>
 
         {/* Auditor Identity Badge */}
@@ -295,7 +341,7 @@ export const VerifyAccess: React.FC = () => {
                               {isDecrypting ? (
                                 <div className="flex items-center gap-2">
                                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  <span>Decrypting...</span>
+                                  <span>Decrypting (worker)...</span>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
@@ -343,7 +389,7 @@ export const VerifyAccess: React.FC = () => {
                       </span>
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-500/30">
-                      AES-GCM Authenticated
+                      AES-GCM Authenticated · Worker
                     </span>
                   </div>
                   <div className="divide-y divide-slate-200/50 dark:divide-zinc-800/50 text-xs">
