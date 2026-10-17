@@ -82,8 +82,8 @@ export const offlineStatusPlugin: WorkboxPlugin = {
     return cacheable ? response : null;
   },
   fetchDidSucceed: async ({ event, state, response }) => {
+    if (state) state.receivedNetworkResponse = true;
     if (response.ok) {
-      if (state) state.receivedNetworkResponse = true;
       if ("clientId" in event && typeof event.clientId === "string") {
         const client = await (globalThis as typeof globalThis & OfflineStatusScope).clients.get(
           event.clientId,

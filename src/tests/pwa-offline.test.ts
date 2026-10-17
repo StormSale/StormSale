@@ -356,7 +356,15 @@ describe("PWA offline support", () => {
     } as Parameters<NonNullable<typeof offlineStatusPlugin.fetchDidSucceed>>[0]);
 
     expect(result).toBe(response);
-    expect(state.receivedNetworkResponse).toBe(false);
+    expect(state.receivedNetworkResponse).toBe(true);
+
+    await offlineStatusPlugin.handlerDidRespond?.({
+      event: { clientId: "client-1" },
+      request: new Request("https://api.example.test/api/campaigns/123"),
+      state,
+      response,
+    } as Parameters<NonNullable<typeof offlineStatusPlugin.handlerDidRespond>>[0]);
+
     expect(postMessage).not.toHaveBeenCalled();
     expect(getContainer().textContent).toBe("false");
   });
