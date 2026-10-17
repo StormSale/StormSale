@@ -12,7 +12,6 @@ export type PlatformVolumeSummary = {
   totalVolume: number;
   escrowGrowthPercent: number;
   payoutGrowthPercent: number;
-  totalGrowthPercent: number;
   trend: PlatformVolumePoint[];
 };
 
@@ -36,6 +35,7 @@ export const registerUser = async (walletAddress: string, role: string = "AFFILI
   }
 };
 
+// Fetches campaign metadata for a given campaign id.
 export const fetchCampaign = async (campaignId: string) => {
   try {
     const res = await fetch(`${API_URL}/campaigns/${campaignId}`);
@@ -46,80 +46,52 @@ export const fetchCampaign = async (campaignId: string) => {
   }
 };
 
+// Coerces unknown values (string/number/null) into a finite number, defaulting to 0.
 const toFiniteNumber = (value: unknown): number => {
   const num = typeof value === "string" ? Number.parseFloat(value) : Number(value);
   return Number.isFinite(num) ? num : 0;
 };
 
-const normalizeTrend = (rawTrend: unknown): PlatformVolumePoint[] => {
-  if (!Array.isArray(rawTrend)) return [];
+const normalizeTrendPoint = (raw: Record<unknown, unknown>): PlatformVolumePoint => ({
+  timestamp: String(raw.timestamp ?? raw.date ?? new Date().toISOString()),
+  escrowVolume: toFiniteNumber(raw.escrowVolume ?? raw.escrow ?? 0),
+  payoutVolume: toFiniteNumber(raw.payoutVolume ?? raw.payout ?? 0),
+});
 
-  return rawTrend
-    .map((point): PlatformVolumePoint | null => {
-      if (!point || typeof point !== "object") return null;
-      const entry = point as Record<string, unknown>;
-      const timestamp = entry.timestamp ?? entry.date ?? entry.label;
-      if (!timestamp) return null;
-      return {
-        timestamp: String(timestamp),
-        escrowVolume: toFiniteNumber(entry.escrowVolume ?? entry.escrow),
-        payoutVolume: toFiniteNumber(entry.payoutVolume ?? entry.payout),
-      };
-    })
-    .filter((point): point is PlatformVolumePoint => point !== null)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+// Computes percent growth between the last two trend points for the given key.
+const computeGrowthPercent = (points: PlatformVolumePoint[], key: "escrowVolume" | "payoutVolume"): number => {
+  if (points.length < 2) return 0;
+  const prev = points[points.length - 2][key];
+  const curr = points[points.length - 1][key];
+  if (prev === 0) return curr > 0 ? 100 : 0;
+  return ((curr - prev) / Math.abs(prev)) * 100;
 };
 
-const calculateGrowthPercent = (trend: PlatformVolumePoint[], key: "escrowVolume" | "payoutVolume") => {
-  if (trend.length < 2) return 0;
-  const previous = trend[trend.length - 2][key];
-  const current = trend[trend.length - 1][key];
-  if (previous === 0) return current === 0 ? 0 : 100;
-  return ((current - previous) / Math.abs(previous)) * 100;
-};
-
-const calculateTotalGrowthPercent = (trend: PlatformVolumePoint[]) => {
-  if (trend.length < 2) return 0;
-  const previous =
-    trend[trend.length - 2].escrowVolume +
-    trend[trend.length - 2].payoutVolume;
-  const current =
-    trend[trend.length - 1].escrowVolume +
-    trend[trend.length - 1].payoutVolume;
-  if (previous === 0) return current === 0 ? 0 : 100;
-  return ((current - previous) / Math.abs(previous)) * 100;
-};
-
+// Aggregates platform-wide escrow and payout volume with trend data.
 export const fetchPlatformVolume = async (): Promise<PlatformVolumeSummary> => {
-  const res = await fetch(`${API_URL}/analytics/platform-volume`, {
-    headers: { Accept: "application/json" },
-  });
+  try {
+    const res = await fetch(`${API_URL}/admin/platform-volume`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch platform volume: ${res.status}`);
+    }
 
-  if (!res.ok) {
-    throw new Error(`Failed to fetch platform volume: ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    const rawTrend: Record<unknown, unknown>[] = Array.isArray(data.trend) ? data.trend : [];
+    const trend = rawTrend.map(normalizeTrendPoint);
+
+    const totalEscrowVolume = toFiniteNumber(data.totalEscrowVolume);
+    const totalPayoutVolume = toFiniteNumber(data.totalPayoutVolume);
+
+    return {
+      totalEscrowVolume,
+      totalPayoutVolume,
+      totalVolume: totalEscrowVolume + totalPayoutVolume,
+      escrowGrowthPercent: computeGrowthPercent(trend, "escrowVolume"),
+      payoutGrowthPercent: computeGrowthPercent(trend, "payoutVolume"),
+      trend,
+    };
+  } catch (error) {
+    console.error("Failed to fetch platform volume:", error);
+    throw error;
   }
-
-  const data = await res.json();
-  const trend = normalizeTrend(data.trend ?? data.history ?? data.points);
-
-  const totalEscrowVolume = toFiniteNumber(data.totalEscrowVolume ?? data.escrowVolume);
-  const totalPayoutVolume = toFiniteNumber(data.totalPayoutVolume ?? data.payoutVolume);
-
-  return {
-    totalEscrowVolume,
-    totalPayoutVolume,
-    totalVolume: toFiniteNumber(data.totalVolume ?? (
-      totalEscrowVolume + totalPayoutVolume
-    )),
-    escrowGrowthPercent: toFiniteNumber(
-      data.escrowGrowthPercent ?? calculateGrowthPercent(trend, "escrowVolume")
-    ),
-    payoutGrowthPercent: toFiniteNumber(
-      data.payoutGrowthPercent ?? calculateGrowthPercent(trend, "payoutVolume")
-    ),
-    totalGrowthPercent: toFiniteNumber(
-      data.totalGrowthPercent ?? calculateTotalGrowthPercent(trend)
-    ),
-    trend,
-  };
 };

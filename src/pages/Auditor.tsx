@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
-import { PlatformFinancialVolume } from "../components/auditor/PlatformFinancialVolume";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { PlatformFinancialVolume } from "../components/auditor/PlatformFinancialVolume";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { BarChart3, Eye, ClipboardList, FileCheck, TrendingUp } from "lucide-react";
@@ -74,4 +74,3 @@ export const Auditor: React.FC<AuditorProps> = (props) => (
     <AuditorContent {...props} />
   </NotificationProvider>
 );
-
