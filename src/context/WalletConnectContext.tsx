@@ -1,31 +1,16 @@
-import React, { createContext, useContext, useCallback, useRef, useState } from "react";
+import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
-import {
-  buildSep0007TxUri,
-  buildSep0007QrCodeDataUrl,
-  streamTransactionInclusion,
-  type Sep0007TxParams,
-  type TransactionInclusionStreamHandle,
-} from "../lib/stellar";
-
-
-interface Sep0007State {
-  isActive: boolean;
-  isPolling: boolean;
-  isConfirmed: boolean;
-  uri: string | null;
-  qrCodeDataUrl: string | null;
-  hash: string | null;
-  error: string | null;
-}
+import { generateSep7TxUri, pollTransactionInclusion } from "../lib/stellar";
 
 interface WalletConnectState {
   isConnecting: boolean;
   isSwitchingNetwork: boolean;
   error: string | null;
   showNetworkModal: boolean;
-  sep0007: Sep0007State;
+  sep7Uri: string | null;
+  isPollingTx: boolean;
+  txHash: string | null;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -34,19 +19,9 @@ interface WalletConnectContextType extends WalletConnectState {
   ensureStellarNetwork: () => Promise<boolean>;
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
-  invokeSep0007Wallet: (params: Sep0007TxParams) => Promise<void>;
-  cancelSep0007Wallet: () => void;
+  signWithSep7Wallet: (xdr: string) => Promise<void>;
+  resetSep7: () => void;
 }
-
-const Sep0007InitialState: Sep0007State = {
-  isActive: false,
-  isPolling: false,
-  isConfirmed: false,
-  uri: null,
-  qrCodeDataUrl: null,
-  hash: null,
-  error: null,
-};
 
 const WalletConnectContext = createContext<WalletConnectContextType | undefined>(undefined);
 
@@ -60,12 +35,12 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     isSwitchingNetwork: false,
     error: null,
     showNetworkModal: false,
-    sep0007: Sep0007InitialState,
+    sep7Uri: null,
+    isPollingTx: false,
+    txHash: null,
   });
 
-  const streamRef = useRef<TransactionInclusionStreamHandle | null>(null);
-
-  const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork, address } =
+  const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
     useWeb3();
 
   const connect = async (): Promise<void> => {
@@ -89,22 +64,16 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     }
   };
 
-  const stopStream = (): void => {
-    if (streamRef.current) {
-      streamRef.current.close();
-      streamRef.current = null;
-    }
-  };
-
   const disconnect = (): void => {
-    stopStream();
     disconnectWallet();
     setState({
       isConnecting: false,
       isSwitchingNetwork: false,
       error: null,
       showNetworkModal: false,
-      sep0007: Sep0007InitialState,
+      sep7Uri: null,
+      isPollingTx: false,
+      txHash: null,
     });
   };
 
@@ -146,83 +115,35 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, showNetworkModal: show }));
   };
 
-  const cancelSep0007Wallet = useCallback((): void => {
-    stopStream();
-    setState((prev) => ({ ...prev, sep0007: Sep0007InitialState }));
-  }, []);
-
-  const invokeSep0007Wallet = async (params: Sep0007TxParams): Promise<void> => {
-    stopStream();
+  const signWithSep7Wallet = async (xdr: string): Promise<void> => {
+    setState((prev) => ({ ...prev, error: null, txHash: null, isPollingTx: false }));
 
     try {
-      const uri = buildSep0007TxUri(params);
-      const qrCodeDataUrl = buildSep0007QrCodeDataUrl(params);
-      const hash = params.hash ?? null;
+      const uri = generateSep7TxUri(xdr);
+      setState((prev) => ({ ...prev, sep7Uri: uri }));
 
-      setState((prev) => ({
-        ...prev,
-        error: null,
-        sep0007: {
-          isActive: true,
-          isPolling: true,
-          isConfirmed: false,
-          uri,
-          qrCodeDataUrl,
-          hash,
-          error: null,
-        },
-      }));
-
-      // Deep-link into the installed mobile wallet (no-op if unsupported).
+      // Deep-link into the installed mobile wallet
       if (typeof window !== "undefined") {
         window.location.href = uri;
       }
 
-      const streamAddress = params.account ?? address;
-      if (!streamAddress) {
-        throw new Error(
-          "No Stellar account available to stream for transaction inclusion. Connect a wallet or pass an account.",
-        );
-      }
+      setState((prev) => ({ ...prev, isPollingTx: true }));
 
-      streamRef.current = streamTransactionInclusion({
-        account: streamAddress,
-        hash,
-        onIncluded: (txHash) => {
-          stopStream();
-          setState((prev) => ({
-            ...prev,
-            sep0007: {
-              ...prev.sep0007,
-              isPolling: false,
-              isConfirmed: true,
-              hash: txHash,
-            },
-          }));
-        },
-        onError: (err) => {
-          stopStream();
-          setState((prev) => ({
-            ...prev,
-            sep0007: {
-              ...prev.sep0007,
-              isPolling: false,
-              error: err.message || "Failed to confirm transaction on the Stellar ledger",
-            },
-          }));
-        },
-      });
+      const hash = await pollTransactionInclusion(xdr);
+
+      setState((prev) => ({ ...prev, isPollingTx: false, txHash: hash }));
     } catch (error: any) {
-      console.error("SEP-0007 invocation error:", error);
+      console.error("SEP-0007 signing error:", error);
       setState((prev) => ({
         ...prev,
-        sep0007: {
-          ...prev.sep0007,
-          isPolling: false,
-          error: error.message || "Failed to invoke SEP-0007 mobile wallet",
-        },
+        isPollingTx: false,
+        error: error.message || "Failed to confirm SEP-0007 transaction",
       }));
     }
+  };
+
+  const resetSep7 = (): void => {
+    setState((prev) => ({ ...prev, sep7Uri: null, isPollingTx: false, txHash: null }));
   };
 
   const contextValue: WalletConnectContextType = {
@@ -232,8 +153,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     ensureStellarNetwork,
     clearError,
     setShowNetworkModal,
-    invokeSep0007Wallet,
-    cancelSep0007Wallet,
+    signWithSep7Wallet,
+    resetSep7,
   };
 
   return (

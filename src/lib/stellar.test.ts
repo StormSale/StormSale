@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri, buildSep0007QrFallback, streamTransactionInclusion } from "./stellar";
+import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri, parseSep0007TxUri } from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
@@ -13,7 +13,7 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPWWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
@@ -34,41 +34,39 @@ describe("Stellar Helpers", () => {
   });
 
   it("builds a SEP-0007 tx URI with base64 XDR and replace=false", () => {
-    const xdr = "AAAAAgBAAAAB...";
+    const xdr = "AAAAAgAAAAB...";
     const uri = buildSep0007TxUri(xdr);
     expect(uri.startsWith("web+stellar:tx?")).toBe(true);
     expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
     expect(uri).toContain("replace=false");
   });
 
-  it("builds a SEP-0007 QR fallback payload matching the deep link", () => {
-    const xdr = "AAAAAgBAAAAB...";
-    const uri = buildSep0007TxUri(xdr);
-    const qr = buildSep0007QrFallback(uri);
-    expect(qr).toBe(uri);
+  it("includes optional callback and msg params in SEP-0007 URI", () => {
+    const xdr = "AAAAAgAAAAB...";
+    const uri = buildSep0007TxUri(xdr, {
+      callback: "https://example.com/cb",
+      msg: "Sign this",
+    });
+    expect(uri).toContain("callback=" + encodeURIComponent("https://example.com/cb"));
+    expect(uri).toContain("msg=" + encodeURIComponent("Sign this"));
   });
 
-  it("streams Horizon transactions until the target hash is included", async () => {
-    const targetHash = "abc123";
-    const fakeStream = {
-      onmessage: undefined as ((tx: { hash: string }) => void) | undefined,
-      close: () => {},
-    };
-    const fakeServer = {
-      transactions: () => ({
-        forAccount: () => ({
-          cursor: () => ({
-            stream: (opts: { onmessage: (tx: { hash: string }) => void }) => {
-              fakeStream.onmessage = opts.onmessage;
-              return () => fakeStream.close();
-            },
-          }),
-        }),
-      }),
-    };
-    const resultPromise = streamTransactionInclusion(fakeServer as never, "G+ABC", targetHash);
-    fakeStream.onmessage?.({ hash: "other" });
-    fakeStream.onmessage?.({ hash: targetHash });
-    await expect(resultPromise).resolves.toBe(true);
+  it("parses a SEP-0007 tx URI back into its components", () => {
+    const xdr = "AAAAAgAAAAB...";
+    const uri = buildSep0007TxUri(xdr, { msg: "hello world" });
+    const parsed = parseSep0007TxUri(uri);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.xdr).toBe(xdr);
+    expect(parsed!.replace).toBe(false);
+    expect(parsed!.msg).toBe("hello world");
+  });
+
+  it("returns null when parsing a non-SEP-0007 URI", () => {
+    expect(parseSep0007TxUri("https://example.com")).toBeNull();
+    expect(parseSep0007TxUri("web+stellar:pay?destination=G...")).toBeNull();
+  });
+
+  it("rejects empty XDR when building SEP-0007 URI", () => {
+    expect(() => buildSep0007TxUri("")).toThrow();
   });
 });
