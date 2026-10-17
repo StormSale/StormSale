@@ -12,6 +12,8 @@ import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { OfflineBanner } from "./components/OfflineBanner";
+import { InstallPrompt } from "./components/InstallPrompt";
+import { PwaRegistrationFeedback } from "./components/PwaRegistrationFeedback";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
 
@@ -19,7 +21,7 @@ class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
 > {
-  constructor(props: any) {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -28,7 +30,7 @@ class ErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: any) {
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     // You can log error to an external service here
     console.error("Unhandled error caught by ErrorBoundary:", error, info);
   }
@@ -107,9 +109,11 @@ function App() {
   return (
     <NotificationWrapper>
       {!isOnline && <OfflineBanner />}
+      <InstallPrompt />
       <ErrorBoundary>
         <Web3Provider>
           <NotificationProvider>
+            <PwaRegistrationFeedback />
             <Router />
           </NotificationProvider>
         </Web3Provider>

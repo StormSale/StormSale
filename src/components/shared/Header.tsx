@@ -1,5 +1,6 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { ThemeToggle } from "./ThemeToggle";
 import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
 import { useState } from "react";
@@ -8,6 +9,7 @@ import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const isOnline = useOnlineStatus();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -25,7 +27,9 @@ export const Header = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
+    <header
+      className={`sticky ${isOnline ? "top-0" : "top-10"} z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm`}
+    >
       <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
         {/* Logo */}
         <div className="flex items-center">

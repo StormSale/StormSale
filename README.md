@@ -70,6 +70,13 @@ The interface is engineered with a mobile-first philosophy:
 - **Adaptive HUD:** Displays live Stellar network status, compact address pills (`G...4xyz`), active wallet connector type, and real-time XLM balances.
 - **Fluid Typography & Visuals:** Responsively scaled hero headers and an animated 3D network globe that scales smoothly from smartphones to widescreen monitors.
 
+### Install and Offline Support
+
+- Supported browsers can offer an **Install StormSale App** prompt; on iOS, use Safari's **Add to Home Screen** action.
+- The PWA precaches the static app shell and uses standalone display mode. Public campaign metadata GETs use a three-second network-first timeout and a 24-hour cache.
+- The **Offline Mode** notice appears when the browser is offline or a cached campaign response is used. API write requests are not queued for replay.
+- Affiliate performance history is not yet served by a real performance endpoint in this frontend, so the app does not claim to have cached historical performance data. That view must be connected to a real, appropriately scoped API before offline performance can be supported.
+
 ---
 
 ## 🎯 Role-Based Command Centers (RBAC)

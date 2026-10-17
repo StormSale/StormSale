@@ -130,7 +130,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       className={`min-h-screen font-sans selection:bg-indigo-500/30 pb-24 transition-colors duration-700 ${getBgClass()}`}
     >
       {/* HUD Header */}
-      <div className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
+      <div
+        className={`border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky ${
+          isOnline ? "top-0" : "top-10"
+        } z-50`}
+      >
         <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
           <div className="flex items-center space-x-2.5 sm:space-x-3">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center shrink-0">
