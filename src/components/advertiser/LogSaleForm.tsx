@@ -17,7 +17,7 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
-import { triggerConversionPostback } from "../../lib/webhookEngine";
+import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -84,38 +84,37 @@ export const LogSaleForm = () => {
       await tx.wait();
 
       // Automated Conversion Postback Dispatch
-      try {
-        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
-
-        const postbacks = await triggerConversionPostback({
-          saleId: payload.saleId,
-          campaignAddress,
-          affiliateAddress,
-          advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
-          saleAmount,
-          currency: "XLM",
-          stellarTxHash: postbackTxHash,
-          ledgerTimestamp: new Date().toISOString(),
-          customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
-          status: "CONFIRMED_ON_LEDGER",
-        });
-
-        if (postbacks.length > 0) {
-          showNotification({
-            type: "info",
-            title: "Webhooks Dispatched",
-            message: `Automated postback queued for ${postbacks.length} active endpoint(s).`,
-          });
-        }
-      } catch (webhookErr) {
-        console.warn("Conversion postback warning:", webhookErr);
-        showNotification({
-          type: "warning",
-          title: "Postback Notice",
-          message:
-            "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
-        });
-      }
+      const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
+      const createdAt = new Date().toISOString();
+      const conversionPayload = {
+        id: payload.saleId,
+        event: "conversion.created",
+        created_at: createdAt,
+        conversion_id: payload.saleId,
+        campaign_id: campaignAddress,
+        campaign_address: campaignAddress,
+        affiliate_address: affiliateAddress,
+        advertiser_address: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+        amount: Number(saleAmount),
+        currency: "XLM",
+        tx_hash: postbackTxHash,
+        status: "confirmed",
+      };
+      void dispatchWebhookEvent("conversion.created", conversionPayload);
+      void triggerConversionPostback({
+        saleId: payload.saleId,
+        campaignAddress,
+        affiliateAddress,
+        advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+        saleAmount,
+        currency: "XLM",
+        stellarTxHash: postbackTxHash,
+        ledgerTimestamp: createdAt,
+        customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
+        status: "CONFIRMED_ON_LEDGER",
+      }).catch((webhookError: unknown) => {
+        console.warn("Legacy conversion postback warning:", webhookError);
+      });
 
       showNotification({
         type: "success",

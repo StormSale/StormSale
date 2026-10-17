@@ -15,6 +15,7 @@ import {
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
+import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 
@@ -224,6 +225,22 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         budgetXlm,
         connectorType,
       );
+      if (res.success) {
+        void dispatchWebhookEvent("campaign.created", {
+          id: `campaign_${res.campaignId}`,
+          event: "campaign.created",
+          created_at: new Date().toISOString(),
+          campaign_id: res.campaignId,
+          campaign_name: name,
+          advertiser_address: userAddress,
+          budget: budgetXlm,
+          currency: "XLM",
+          commission_rate_percent: commissionRatePercent,
+          clearing_period_seconds: clearingPeriodSecs,
+          tx_hash: res.txHash,
+          status: "created",
+        });
+      }
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
@@ -276,6 +293,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await claimPayoutContractCall(userAddress, campaignId, connectorType);
+      if (res.success) {
+        void dispatchWebhookEvent("payout.created", {
+          id: `payout_${res.txHash}`,
+          event: "payout.created",
+          created_at: new Date().toISOString(),
+          payout_id: res.txHash,
+          campaign_id: campaignId,
+          affiliate_address: userAddress,
+          currency: "XLM",
+          tx_hash: res.txHash,
+          status: "claimed",
+        });
+      }
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
