@@ -8,6 +8,7 @@ import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
+import { ConversionRateEngine } from "../components/advertiser/ConversionRateEngine";
 import { NotificationProvider } from "../context/NotificationContext";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
@@ -21,6 +22,7 @@ import {
   Megaphone,
   Radio,
   Palette,
+  Coins,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -37,6 +39,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
+    { id: "price-oracles", label: "Price Oracles & FX", icon: Coins },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
     { id: "analytics", label: "Campaign Analytics", icon: BarChart3 },
@@ -50,6 +53,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <BrandCustomizer />;
       case "log-sale":
         return <LogSaleForm />;
+      case "price-oracles":
+        return <ConversionRateEngine />;
       case "webhooks":
         return <WebhookManager />;
       case "grant-access":

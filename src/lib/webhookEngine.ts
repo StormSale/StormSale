@@ -576,6 +576,7 @@ export async function triggerConversionPostback(
       ledger_timestamp: data.ledgerTimestamp,
       customer_ref: data.customerRef || "Anonymous Customer",
       status: data.status,
+      ...(data.metadata ? { metadata: data.metadata } : {}),
     },
   };
 

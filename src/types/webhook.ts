@@ -65,6 +65,7 @@ export interface ConversionPayloadData {
   ledgerTimestamp: string;
   customerRef?: string;
   status: "CONFIRMED_ON_LEDGER";
+  metadata?: Record<string, unknown>;
 }
 
 export interface WebhookSignatureVerificationResult {
