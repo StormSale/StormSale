@@ -1,9 +1,13 @@
-import { useWeb3 as useWebContext } from "../context/WebContext";
+import { useWeb3 as useWebContext } from "../context/Web3Context";
+
+export const useWeb3 = useWebContext;
 
 /**
- * Re-export the Web3 context hook so consumers get a single source of
- * truth for the connected account and role. Role state is managed inside the
- * context provider and hydrated from persisted storage before the first render,
- * which is what eliminates the role-based route flicker on load.
+ * Role is sourced from the Web3 context, which hydrates it from the DB
+ * before the first paint. Exposing a dedicated selector keeps role-based
+ * routing unified and avoids flicker from reading stale/undefined state.
  */
-export const useWeb3 = useWeb3Context;
+export const useRole = () => {
+  const { userRole, isRoleResolved } = useWebContext();
+  return { role: userRole, isRoleLoading: !isRoleResolved };
+};

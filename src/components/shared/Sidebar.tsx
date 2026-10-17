@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
-import { useWeb3 } from "../../hooks/useWeb3";
+import { useWeb3 } from "../../context/Web3Context";
 import { ThemeToggle } from "./ThemeToggle";
+import { useRole } from "../../hooks/useRole";
 
 interface SidebarProps {
   activeTab: string;
@@ -14,7 +15,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
-  isLoadingRole?: boolean;
+  allowedTabs?: string[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -24,22 +25,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
-  isLoadingRole = false,
+  allowedTabs,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
+  const { role, isRoleReady } = useRole();
 
-  // Prevent layout flicker by keeping the last known role name rendered
-  // while the DB/UI role sync is in-flight.
-  const [stableRoleName, setStableRoleName] = useState(roleName);
-  useEffect(() => {
-    if (!isLoadingRole && roleName) {
-      setStableRoleName(roleName);
-    }
-  }, [roleName, isLoadingRole]);
+  // Unified role-based route protection: filter tabs by allowed roles.
+  // While the role is still hydrating from the DB, render the tabs as-is
+  // (they will be reconciled on the next paint) to avoid a layout flicker.
+  const visibleTabs = useMemo(() => {
+    if (!isRoleReady || !allowedTabs || allowedTabs.length === 0) return tabs;
+    return tabs.filter((t) => allowedTabs.includes(t.id));
+  }, [tabs, allowedTabs, isRoleReady]);
 
-  const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
+  // Guard against an active tab that is not permitted for the current role.
+  const safeActiveTab = useMemo(() => {
+    if (visibleTabs.some((t) => t.id === activeTab)) return activeTab;
+    return visibleTabs[0]?.id ?? activeTab;
+  }, [visibleTabs, activeTab]);
+
+  const handleTabChange = useCallback(
+    (tabId: string) => {
+      if (!visibleTabs.some((t) => t.id === tabId)) return;
+      onTabChange(tabId);
+    },
+    [visibleTabs, onTabChange],
+  );
+
+  const activeTabObject = visibleTabs.find((t) => t.id === safeActiveTab) || visibleTabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
 
   return (
@@ -70,7 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
                 <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {isLoadingRole ? stableRoleName : roleName}
+                  {roleName || role || ""}
                 </span>
               </div>
             </div>
@@ -112,15 +127,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 Navigation Tabs
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {tabs.map((tab) => {
+                {visibleTabs.map((tab) => {
                   const IconComp = tab.icon;
-                  const isActive = activeTab === tab.id;
+                  const isActive = safeActiveTab === tab.id;
 
                   return (
                     <button
                       key={tab.id}
                       onClick={() => {
-                        onTabChange(tab.id);
+                        handleTabChange(tab.id);
                         setIsMobileDrawerOpen(false);
                       }}
                       className={cn(
@@ -222,7 +237,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Shield className="w-4 h-4 text-white" />
                   </div>
                   <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {isLoadingRole ? stableRoleName : roleName}
+                    {roleName || role || ""}
                   </span>
                 </div>
               </motion.div>
@@ -235,7 +250,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 transition={{ duration: 0.2 }}
                 className="flex justify-center"
               >
-                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md" title={isLoadingRole ? stableRoleName : roleName}>
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
                   <Shield className="w-5 h-5 text-white" />
                 </div>
               </motion.div>
@@ -246,9 +261,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Navigation */}
         <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
           <div className="space-y-1.5">
-            {tabs.map((tab) => {
+            {visibleTabs.map((tab) => {
               const IconComponent = tab.icon;
-              const isActive = activeTab === tab.id;
+              const isActive = safeActiveTab === tab.id;
 
               return (
                 <Button
@@ -261,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-white",
                     isCollapsed ? "justify-center px-0" : "justify-start px-4",
                   )}
-                  onClick={() => onTabChange(tab.id)}
+                  onClick={() => handleTabChange(tab.id)}
                 >
                   <IconComponent
                     className={cn(
