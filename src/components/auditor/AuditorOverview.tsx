@@ -6,6 +6,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { PlatformVolumeWidget } from "./PlatformVolumeWidget";
 import {
   Shield,
   TrendingUp,
@@ -14,6 +15,9 @@ import {
   FileSearch,
   AlertTriangle,
   BarChart3,
+  DollarSign,
+  ArrowUpRight,
+  ArrowDownRight,
 } from "lucide-react";
 
 interface AuditorOverviewProps {
@@ -92,6 +96,9 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           );
         })}
       </div>
+
+      {/* Platform Financial Volume */}
+      <PlatformVolumeWidget />
 
       {/* Two column */}
       <div className="grid lg:grid-cols-2 gap-8">

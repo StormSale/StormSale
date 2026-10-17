@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
+import { PlatformFinancialVolume } from "../components/auditor/PlatformFinancialVolume";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, TrendingUp } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -17,6 +18,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "volume", label: "Financial Volume", icon: TrendingUp },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
@@ -24,6 +26,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "volume":
+        return <PlatformFinancialVolume />;
       case "verify":
         return <VerifyAccess />;
       case "history":
@@ -70,3 +74,4 @@ export const Auditor: React.FC<AuditorProps> = (props) => (
     <AuditorContent {...props} />
   </NotificationProvider>
 );
+
