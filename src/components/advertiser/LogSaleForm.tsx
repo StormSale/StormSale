@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -17,6 +17,7 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
+import { triggerConversionPostback } from "../../lib/webhookEngine";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -25,6 +26,8 @@ export const LogSaleForm = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticSaleId, setOptimisticSaleId] = useState<string | null>(null);
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null);
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
@@ -72,15 +75,63 @@ export const LogSaleForm = () => {
         message: "Logging encrypted sale...",
       });
 
+      // Optimistic UI: reflect the sale immediately (<50ms) before mining.
+      const optimisticId = payload.saleId;
+      setOptimisticSaleId(optimisticId);
+
       const tx = await campaignContract.logEncryptedSale(
         affiliateAddress,
         saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
-        affiliateWrappedKey,
+        affiliateWrappedKey
       );
 
+      const txHash = tx?.hash || tx?.id || null;
+      setPendingTxHash(txHash);
+
+      // Optimistic success — surface instantly, revert on failure below.
+      showNotification({
+        type: "success",
+        title: "Sale Logged (Pending Confirmation)",
+        message: "Encrypted sale submitted — awaiting on-chain confirmation.",
+      });
+
       await tx.wait();
+
+      // Automated Conversion Postback Dispatch
+      try {
+        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
+
+        const postbacks = await triggerConversionPostback({
+          saleId: payload.saleId,
+          campaignAddress,
+          affiliateAddress,
+          advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+          saleAmount,
+          currency: "XLM",
+          stellarTxHash: postbackTxHash,
+          ledgerTimestamp: new Date().toISOString(),
+          customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
+          status: "CONFIRMED_ON_LEDGER",
+        });
+
+        if (postbacks.length > 0) {
+          showNotification({
+            type: "info",
+            title: "Webhooks Dispatched",
+            message: `Automated postback queued for ${postbacks.length} active endpoint(s).`,
+          });
+        }
+      } catch (webhookErr) {
+        console.warn("Conversion postback warning:", webhookErr);
+        showNotification({
+          type: "warning",
+          title: "Postback Notice",
+          message:
+            "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
+        });
+      }
 
       showNotification({
         type: "success",
@@ -88,12 +139,17 @@ export const LogSaleForm = () => {
         message: "Encrypted sale data has been recorded on-chain",
       });
 
-      setAffiliateAddress("");
-      setSaleAmount("");
-      setCampaignAddress("");
-      setCustomerData("");
+      // Confirmed: clear optimistic markers.
+      setOptimisticSaleId(null);
+      setPendingTxHash(null);
+
     } catch (error: any) {
       console.error("Error logging sale:", error);
+
+      // Revert optimistic state on failure.
+      setOptimisticSaleId(null);
+      setPendingTxHash(null);
+
       showNotification({
         type: "error",
         title: "Logging Failed",
@@ -103,6 +159,11 @@ export const LogSaleForm = () => {
       setIsLoading(false);
     }
   };
+
+  const revertOptimistic = useCallback(() => {
+    setOptimisticSaleId(null);
+    setPendingTxHash(null);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -114,6 +175,24 @@ export const LogSaleForm = () => {
           Record a new sale with military-grade encryption and commission escrow
         </p>
       </div>
+
+      {(optimisticSaleId || pendingTxHash) && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-5 py-3">
+          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+            Optimistic sale {optimisticSaleId ? `#${optimisticSaleId}` : ""} pending
+            {pendingTxHash ? ` (tx: ${pendingTxHash.slice(0, 10)}…)` : ""}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={revertOptimistic}
+            className="h-8 rounded-lg text-xs"
+          >
+            Revert
+          </Button>
+        </div>
+      )}
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">

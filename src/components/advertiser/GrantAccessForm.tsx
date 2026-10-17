@@ -19,6 +19,7 @@ export const GrantAccessForm = () => {
   const [auditorAddress, setAuditorAddress] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [optimisticGrant, setOptimisticGrant] = useState<{ saleId: string; auditorAddress: string } | null>(null);
   const { getCampaignContract } = useWeb3();
   const { showNotification } = useNotification();
 
@@ -33,6 +34,13 @@ export const GrantAccessForm = () => {
       return;
     }
 
+    const snapshot = { saleId, auditorAddress, campaignAddress };
+
+    // Optimistic update: apply instant feedback (<50ms) before awaiting on-chain confirmation.
+    setOptimisticGrant({ saleId, auditorAddress });
+    setSaleId("");
+    setAuditorAddress("");
+    setCampaignAddress("");
     setIsLoading(true);
     try {
       const campaignContract = getCampaignContract(campaignAddress);
@@ -62,17 +70,24 @@ export const GrantAccessForm = () => {
         message: "Auditor can now access the encrypted sale data",
       });
 
-      setSaleId("");
-      setAuditorAddress("");
-      setCampaignAddress("");
+      setOptimisticGrant(null);
     } catch (error: any) {
       console.error("Error granting audit access:", error);
+      // Revert optimistic state on txn failure.
+      setOptimisticGrant(null);
+      if (pendingRef.current) {
+        setSaleId(pendingRef.current.saleId);
+        setAuditorAddress(pendingRef.current.auditorAddress);
+        setCampaignAddress(pendingRef.current.campaignAddress);
+      }
       showNotification({
         type: "error",
         title: "Access Grant Failed",
         message: error.message || "Failed to grant audit access",
       });
     } finally {
+      // Defensive: ensure optimistic state is cleared if not already handled.
+      setOptimisticGrant(null);
       setIsLoading(false);
     }
   };
@@ -108,6 +123,18 @@ export const GrantAccessForm = () => {
         <CardContent className="px-8 pb-8">
           <form onSubmit={handleGrantAccess}>
             <InputGroup className="space-y-8">
+              {optimisticGrant && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="bg-emerald-50 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-500/20 flex items-center space-x-3"
+                >
+                  <div className="w-4 h-4 border-2 border-emerald-500/30 border-t-emerald-600 rounded-full animate-spin" />
+                  <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                    Granting access for sale #{optimisticGrant.saleId} to {optimisticGrant.auditorAddress.slice(0, 8)}... (pending confirmation)
+                  </p>
+                </div>
+              )}
               <InputField
                 label="Campaign Address"
                 description="The campaign containing the sale data"
@@ -119,6 +146,7 @@ export const GrantAccessForm = () => {
                   placeholder="CCAMPAIGN... (Soroban Contract Address or ID)"
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   required
+                  disabled={isLoading}
                 />
               </InputField>
 
@@ -136,6 +164,7 @@ export const GrantAccessForm = () => {
                     placeholder="e.g., 123"
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     required
+                    disabled={isLoading}
                   />
                 </InputField>
 
@@ -150,6 +179,7 @@ export const GrantAccessForm = () => {
                     placeholder="GAUDITOR... (Stellar Public Key)"
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     required
+                    disabled={isLoading}
                   />
                 </InputField>
               </div>
