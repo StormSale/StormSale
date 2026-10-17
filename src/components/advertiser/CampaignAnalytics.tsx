@@ -6,9 +6,53 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
+import {
+  BarChart3,
+  TrendingUp,
+  Users,
+  DollarSign,
+  Eye,
+  Download,
+  Calendar,
+  GitCompare,
+  Trophy,
+} from "lucide-react";
+import {
+  computeVariantPerformance,
+  determineWinningVariant,
+  type LandingVariant,
+  type VariantEvent,
+} from "../../lib/abTesting";
+
+// Demo landing variant feed for the active A/B split campaign (#155).
+// In production this is sourced from referral redirect events reported by
+// the client routing engine and the conversion postback webhook.
+const DEMO_VARIANTS: LandingVariant[] = [
+  { id: "variant_a", label: "Variant A", url: "https://store.example.com/landing-a", weight: 50 },
+  { id: "variant_b", label: "Variant B", url: "https://store.example.com/landing-b", weight: 50 },
+];
+
+const buildDemoVariantEvents = (): VariantEvent[] => {
+  const events: VariantEvent[] = [];
+  const now = Math.floor(Date.now() / 1000);
+  const push = (variantId: string, views: number, bounces: number, conversions: number[]) => {
+    for (let i = 0; i < views; i++)
+      events.push({ variantId, type: "page_view", timestamp: now - i * 300 });
+    for (let i = 0; i < bounces; i++)
+      events.push({ variantId, type: "bounce", timestamp: now - i * 500 });
+    for (const value of conversions)
+      events.push({ variantId, type: "conversion", basketValueXlm: value, timestamp: now });
+  };
+  push("variant_a", 240, 58, [42, 65, 38, 90, 55]);
+  push("variant_b", 226, 31, [75, 120, 60, 95, 110, 84, 130]);
+  return events;
+};
 
 export const CampaignAnalytics = () => {
+  const variantPerformance = computeVariantPerformance(DEMO_VARIANTS, buildDemoVariantEvents());
+  const variantWinner = determineWinningVariant(variantPerformance);
+  const winnerVariant = variantPerformance.find((p) => p.variantId === variantWinner?.winnerId);
+
   const campaignStats = [
     {
       name: "Tech Gadgets Pro",
@@ -244,6 +288,106 @@ export const CampaignAnalytics = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* A/B Landing Variant Split Comparison (#155) */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <GitCompare className="w-5 h-5 text-indigo-500" />
+                A/B Landing Variant Optimizer
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
+                Side-by-side conversion performance across your affiliate landing split
+              </CardDescription>
+            </div>
+            {winnerVariant && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
+                <Trophy className="w-3.5 h-3.5" />
+                {winnerVariant.label} leads • +{variantWinner?.cvrLiftPercent}% CVR
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            {variantPerformance.map((variant) => {
+              const isWinner = variantWinner?.winnerId === variant.variantId;
+              return (
+                <div
+                  key={variant.variantId}
+                  className={`p-5 rounded-2xl border transition-colors ${
+                    isWinner
+                      ? "border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-500/5"
+                      : "border-slate-100 dark:border-zinc-800/50 bg-slate-50 dark:bg-zinc-950/50"
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                        {variant.label}
+                      </div>
+                      <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 mt-0.5 truncate max-w-[260px]">
+                        {variant.url}
+                      </div>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-zinc-600 dark:text-zinc-300">
+                      {variant.weight}% split
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">
+                        Conversion Rate
+                      </div>
+                      <div className="font-black text-zinc-900 dark:text-white text-lg">
+                        {variant.cvrPercent}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">
+                        Bounce Rate
+                      </div>
+                      <div className="font-black text-zinc-900 dark:text-white text-lg">
+                        {variant.bounceRatePercent}%
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">
+                        Avg Basket
+                      </div>
+                      <div className="font-black text-zinc-900 dark:text-white text-lg">
+                        {variant.avgBasketValueXlm} XLM
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-400">
+                        Traffic Share
+                      </div>
+                      <div className="font-black text-zinc-900 dark:text-white text-lg">
+                        {variant.trafficSharePercent}%
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 w-full bg-slate-100 dark:bg-zinc-800 rounded-full h-2 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${isWinner ? "bg-emerald-500" : "bg-indigo-500"}`}
+                      style={{ width: `${Math.min(100, variant.trafficSharePercent * 2)}%` }}
+                    />
+                  </div>
+                  <div className="text-[10px] text-zinc-400 font-mono mt-2">
+                    {variant.views} views • {variant.conversions} conversions •{" "}
+                    {variant.totalRevenueXlm} XLM revenue
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Revenue Chart Placeholder */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">

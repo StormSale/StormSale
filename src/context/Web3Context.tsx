@@ -18,6 +18,8 @@ import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
+import type { CampaignSettingsInput } from "../lib/campaignSettings";
+import { buildCampaignSettings, saveCampaignSettings } from "../lib/campaignSettings";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -47,6 +49,7 @@ export interface Web3ContextType {
     budgetXlm: number,
     commissionRatePercent: number,
     clearingPeriodSecs: number,
+    extendedSettings?: CampaignSettingsInput,
   ) => Promise<{ success: boolean; campaignId: number; txHash?: string }>;
 
   logSaleOnChain: (
@@ -211,6 +214,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     budgetXlm: number,
     commissionRatePercent: number,
     clearingPeriodSecs: number,
+    extendedSettings?: CampaignSettingsInput,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
@@ -218,8 +222,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       `[Soroban] Creating campaign "${name}": Budget=${budgetXlm} XLM, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
 
+    let result: { success: boolean; campaignId: number; txHash?: string };
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
+      result = await createCampaignContractCall(
         userAddress,
         commissionRatePercent,
         clearingPeriodSecs,
@@ -227,17 +232,24 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         connectorType,
       );
       setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
     } else {
       // Mock fallback for UI preview without extension
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
       const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-      return {
+      result = {
         success: true,
         campaignId: newCampaignId,
         txHash: mockTxHash,
       };
     }
+
+    // Persist the extended advertiser parameters (#151 attribution model/window,
+    // #155 A/B landing split, #156 daily payout cap) anchored to the campaign id.
+    if (extendedSettings) {
+      saveCampaignSettings(buildCampaignSettings(result.campaignId, extendedSettings));
+    }
+
+    return result;
   };
 
   // Soroban: Log Verified Sale
