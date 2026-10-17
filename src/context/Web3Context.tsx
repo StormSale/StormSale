@@ -12,7 +12,6 @@ import {
   logSaleContractCall,
   claimPayoutContractCall,
   refundCampaignEscrowContractCall,
-  getSorobanServer,
 } from "../lib/stellar";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG } from "../config/stellar";
@@ -20,15 +19,15 @@ import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 
-export type SorobanConnectionStatus = "Connected" | "Polling" | "Reconnecting";
+export type EventStreamStatus = "connected" | "polling" | "reconnecting" | "idle";
 
 export interface SorobanEvent {
   id: string;
   topic: string;
-  contractId: string;
   ledger: number;
-  txHash?: string;
-  value?: unknown;
+  txHash: string;
+  contractId: string;
+  value: unknown;
   receivedAt: number;
 }
 
@@ -42,6 +41,9 @@ export interface Web3ContextType {
   connectorType: WalletType | null;
   isWalletModalOpen: boolean;
   ledgerBipPath: string;
+  eventStreamStatus: EventStreamStatus;
+  lastEvent: SorobanEvent | null;
+  recentEvents: SorobanEvent[];
   setLedgerBipPath: (path: string) => void;
   openWalletModal: () => void;
   closeWalletModal: () => void;
@@ -53,12 +55,6 @@ export interface Web3ContextType {
   disconnectWallet: () => void;
   updateUserRole: (role: string) => Promise<void>;
   requestFriendbotFunding: () => Promise<boolean>;
-
-  // Real-time Soroban event streaming
-  sorobanConnectionStatus: SorobanConnectionStatus;
-  latestSorobanEvents: SorobanEvent[];
-  sorobanEventVersion: number;
-  subscribeToSorobanEvents: (listener: (version: number) => void) => () => void;
 
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
@@ -89,13 +85,7 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
-const WEB3Context = createContext<Web3ContextType | undefined>(undefined);
-
-const SUBSCRIBED_TOPICS = ["create_campaign", "log_sale", "claim_payout"] as const;
-const BASE_POLL_MS = 5_000;
-const MAX_BACKOFF_MS = 30_000;
-const BLUR_POLL_MS = 30_000;
-const MAX_EVENTS_KEEP = 50;
+const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [userAddress, setUserAddress] = useState<string | null>(null);
@@ -104,14 +94,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-
-  // Real-time Soroban event stream state
-  const [sorobanConnectionStatus, setSorobanConnectionStatus] =
-    useState<SorobanConnectionStatus>("Polling");
-  const [latestSorobanEvents, setLatestSorobanEvents] = useState<SorobanEvent[]>([]);
-  const [sorobanEventVersion, setSorobanEventVersion] = useState(0);
+  const [eventStreamStatus, setEventStreamStatus] = useState<EventStreamStatus>("idle");
+  const [lastEvent, setLastEvent] = useState<SorobanEvent | null>(null);
+  const [recentEvents, setRecentEvents] = useState<SorobanEvent[]>([]);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -119,7 +106,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
     try {
-      const bal = await fetchXlmBalance(address);
+      const bal = await fetchXmlBalance(address);
       setXlmBalance(bal);
     } catch (err) {
       console.warn("Could not fetch balance:", err);
@@ -137,6 +124,147 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       console.error("Error registering user with backend:", err);
     }
   }, []);
+
+  // Real-time Soroban RPC event streaming with exponential backoff & tab-blur throttling
+  const eventCursorRef = useRef<string | null>(null);
+  const eventStreamActiveRef = useRef<boolean>(false);
+  const eventStreamTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventStreamBackoffRef = useRef<number>(1000);
+  const eventStreamAbortRef = useRef<AbortController | null>(null);
+
+  const EVENT_TOPICS = ["create_campaign", "log_sale", "claim_payout"] as const;
+  const MIN_POLL_INTERVAL_MS = 1000;
+  const MAX_POLL_INTERVAL_MS = 30000;
+  const BLURRED_POLL_INTERVAL_MS = 30000;
+
+  const dispatchEventNotification = useCallback((event: SorobanEvent) => {
+    if (typeof window === "undefined") return;
+    try {
+      window.dispatchEvent(
+        new CustomEvent("soroban:event", {
+          detail: event,
+        }),
+      );
+      window.dispatchEvent(
+        new CustomEvent("soroban:invalidate", {
+          detail: { topic: event.topic, eventId: event.id },
+        }),
+      );
+    } catch (err) {
+      console.warn("Failed to dispatch Soroban event:", err);
+    }
+  }, []);
+
+  const pollSorobanEvents = useCallback(async () => {
+    if (!eventStreamActiveRef.current) return;
+
+    const isBlurred =
+      typeof document !== "undefined" && document.visibilityState === "hidden";
+
+    try {
+      setEventStreamStatus((prev) => (prev === "idle" ? "polling" : prev));
+
+      const { getEvents } = await import("../lib/stellar");
+      const response = await getEvents({
+        topics: [...EVENT_TOPICS],
+        cursor: eventCursorRef.current || undefined,
+        signal: eventStreamAbortRef.current?.signal,
+      });
+
+      const events: SorobanEvent[] = Array.isArray(response?.events)
+        ? response.events.map((raw: any) => ({
+            id: String(raw.id ?? raw.pagingToken ?? `${Date.now()}-${Math.random()}`),
+            topic: String(raw.topic ?? raw.topics?.[0] ?? "unknown"),
+            ledger: Number(raw.ledger ?? 0),
+            txHash: String(raw.txHash ?? raw.tx_hash ?? ""),
+            contractId: String(raw.contractId ?? raw.contract_id ?? ""),
+            value: raw.value ?? null,
+            receivedAt: Date.now(),
+          }))
+        : [];
+
+      if (response?.cursor) {
+        eventCursorRef.current = String(response.cursor);
+      } else if (events.length > 0) {
+        eventCursorRef.current = events[events.length - 1].id;
+      }
+
+      if (events.length > 0) {
+        setRecentEvents((prev) => [...events, ...prev].slice(0, 50));
+        setLastEvent(events[events.length - 1]);
+        events.forEach(dispatchEventNotification);
+      }
+
+      eventStreamBackoffRef.current = MIN_POLL_INTERVAL_MS;
+      setEventStreamStatus("connected");
+    } catch (err) {
+      if ((err as any)?.name === "AbortError") return;
+      console.warn("Soroban event polling failed:", err);
+      setEventStreamStatus("reconnecting");
+      eventStreamBackoffRef.current = Math.min(
+        eventStreamBackoffRef.current * 2,
+        MAX_POLL_INTERVAL_MS,
+      );
+    }
+
+    if (!eventStreamActiveRef.current) return;
+
+    const nextDelay = isBlurred
+      ? Math.max(BLURRED_POLL_INTERVAL_MS, eventStreamBackoffRef.current)
+      : eventStreamBackoffRef.current;
+
+    eventStreamTimerRef.current = setTimeout(() => {
+      void pollSorobanEvents();
+    }, nextDelay);
+  }, [dispatchEventNotification]);
+
+  useEffect(() => {
+    if (!isConnected || !userAddress) {
+      eventStreamActiveRef.current = false;
+      if (eventStreamTimerRef.current) {
+        clearTimeout(eventStreamTimerRef.current);
+        eventStreamTimerRef.current = null;
+      }
+      eventStreamAbortRef.current?.abort();
+      eventStreamAbortRef.current = null;
+      eventCursorRef.current = null;
+      eventStreamBackoffRef.current = MIN_POLL_INTERVAL_MS;
+      setEventStreamStatus("idle");
+      return;
+    }
+
+    eventStreamActiveRef.current = true;
+    eventStreamBackoffRef.current = MIN_POLL_INTERVAL_MS;
+    eventStreamAbortRef.current = new AbortController();
+    setEventStreamStatus("polling");
+
+    void pollSorobanEvents();
+
+    const handleVisibility = () => {
+      if (!eventStreamActiveRef.current) return;
+      if (document.visibilityState === "visible") {
+        eventStreamBackoffRef.current = MIN_POLL_INTERVAL_MS;
+        if (eventStreamTimerRef.current) {
+          clearTimeout(eventStreamTimerRef.current);
+          eventStreamTimerRef.current = null;
+        }
+        void pollSorobanEvents();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      eventStreamActiveRef.current = false;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      if (eventStreamTimerRef.current) {
+        clearTimeout(eventStreamTimerRef.current);
+        eventStreamTimerRef.current = null;
+      }
+      eventStreamAbortRef.current?.abort();
+      eventStreamAbortRef.current = null;
+    };
+  }, [isConnected, userAddress, pollSorobanEvents]);
 
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Ledger, Passkey, Mock
   const connectWallet = async (
@@ -201,9 +329,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       }
       await syncUserWithBackend(address);
       setIsWalletModalOpen(false);
-    } catch (error) {
-      console.error("Wallet connection failed:", error);
-      throw error;
+    } catch (err) {
+      console.error("Wallet connection failed:", err);
+      throw err;
     }
   };
 
@@ -212,210 +340,56 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setUserRole(null);
     setIsConnected(false);
     setConnectorType(null);
-    setXlmBalance("0.00");
+    setXLmBalance("0.00");
   };
 
   const updateUserRole = async (role: string) => {
-    if (!userAddress) return;
-    try {
-      const updated = await registerUser(userAddress, role);
-      if (updated && updated.role) {
-        setUserRole(updated.role);
-      }
-    } catch (error) {
-      console.error("Failed to update role:", error);
-    }
+    setUserRole(role);
   };
 
   const requestFriendbotFunding = async (): Promise<boolean> => {
     if (!userAddress) return false;
-    const ok = await fundTestnetAccount(userAddress);
-    if (ok) {
-      setTimeout(() => refreshBalance(userAddress), 2000);
+    try {
+      await fundTestnetAccount(userAddress);
+      await refreshBalance(userAddress);
+      return true;
+    } catch (err) {
+      console.error("Friendbot funding failed:", err);
+      return false;
     }
-    return ok;
   };
 
-  // --------------------------------------------------------------------------
-  // Real-Time Soroban REC Event Streaming (exponential backoff polling worker)
-  // --------------------------------------------------------------------------
-  const listenersRef = useRef<Set<(version: number) => void>>(new Set());
-  const cursorRef = useRef<string | null>(null);
-  const backoffRef = useRef(BASE_POLL_MS);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const blurredRef = useRef(typeof document !== "undefined" && document.hidden);
-  const runningRef = useRef(false);
-  const stoppedRef = useRef(false);
-
-  const notifyListeners = useCallback(() => {
-    listenersRef.current.forEach((listener) => {
-      try {
-        listener(sorobanEventVersionRef.current);
-      } catch (err) {
-        console.warn("Soroban event listener failed:", err);
-      }
-    });
-  }, []);
-
-  const subscribeToSorobanEvents = useCallback((listener: (version: number) => void) => {
-    listenersRef.current.add(listener);
-    return () => {
-      listenersRef.current.delete(listener);
-    };
-  }, []);
-
-  const sorobanEventVersionRef = useRef(0);
-
-  const scheduleNextPoll = useCallback((delayMs: number) => {
-    if (stoppedRef.current) return;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      void pollSorobanEvents();
-    }, delayMs);
-  }, []);
-
-  const pollSorobanEvents = useCallback(async () => {
-    if (stoppedRef.current || runningRef.current) return;
-    runningRef.current = true;
-    try {
-      const server = getSorobanServer();
-      const contractId = STELLAR_CONFIG.contractId;
-      if (!contractId) {
-        setSorobanConnectionStatus("Polling");
-        scheduleNextPoll(BLUR_POLL_MS);
-        return;
-      }
-
-      const page = await server.getEvents({
-        filters: [
-          {
-            type: "contract",
-            contractIds: [contractId],
-            topics: [SUBSCRIBED_TOPICS as unknown as string[]],
-          },
-        ],
-        cursor: cursorRef.current ?? undefined,
-        limit: 20,
-      });
-
-      const rawEvents = (page.events || []) as Array<{
-        id?: string;
-        topic?: string[];
-        contractId?: string;
-        ledger?: number;
-        txHash?: string;
-        value?: unknown;
-      }>;
-
-      const normalized = rawEvents.map((ev, idx) => {
-        const topicRaw = Array.isArray(ev.topic) ? ev.topic[0] : ev.topic;
-        const topic = typeof topicRaw === "string" ? topicRaw : "unknown";
-        return {
-          id: ev.id || `${ev.txHash ?? "no-tx-"}-${ev.ledger ?? 0}-${idx}`,
-          topic,
-          contractId: ev.contractId || contractId,
-          ledger: ev.ledger ?? 0,
-          txHash: ev.txHash,
-          value: ev.value,
-          receivedAt: Date.now(),
-        } as SorobanEvent;
-      });
-
-      if (page.cursor) cursorRef.current = page.cursor;
-
-      if (normalized.length > 0) {
-        setLatestSorobanEvents((prev) => {
-          const merged = [...normalized, ...prev];
-          const seen = new Set<string>();
-          const deduped = merged.filter((event) => {
-            if (seen.has(event.id)) return false;
-            seen.add(event.id);
-            return true;
-          });
-          return deduped.slice(0, MAX_EVENTS_KEEP);
-        });
-        sorobanEventVersionRef.current += 1;
-        setSorobanEventVersion(sorobanEventVersionRef.current);
-        notifyListeners();
-      }
-
-      backoffRef.current = BASE_POLL_MS;
-      setSorobanConnectionStatus("Connected");
-      scheduleNextPoll(blurredRef.current ? BLUR_POLL_MS : BASE_POLL_MS);
-    } catch (err) {
-      console.warn("Soroban event poll failed:", err);
-      setSorobanConnectionStatus("Reconnecting");
-      const next = Math.min(backoffRef.current * 2, MAX_BACKOFF_MS);
-      backoffRef.current = next;
-      scheduleNextPoll(blurredRef.current ? Math.max(next, BLUR_POLL_MS) : next);
-    } finally {
-      runningRef.current = false;
-    }
-  }, [notifyListeners, scheduleNextPoll]);
-
-  useEffect(() => {
-    stoppedRef.current = false;
-    void pollSorobanEvents();
-
-    const handleVisibility = () => {
-      const isHidden = typeof document !== "undefined" && document.hidden;
-      blurredRef.current = isHidden;
-      if (isHidden) {
-        backoffRef.current = Math.max(backoffRef.current, BLUR_POLL_MS);
-        scheduleNextPoll(BLUR_POLL_MS);
-      } else {
-        backoffRef.current = BASE_POLL_MS;
-        scheduleNextPoll(0);
-      }
-    };
-
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibility);
-    }
-
-    return () => {
-      stoppedRef.current = true;
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibility);
-      }
-    };
-  }, [pollSorobanEvents, scheduleNextPoll]);
-
-  // --------------------------------------------------------------------------
-  // Soroban Smart Contract Operations
-  // --------------------------------------------------------------------------
   const createCampaignOnChain = async (
     name: string,
     budgetXml: number,
     commissionRatePercent: number,
     clearingPeriodSecs: number,
-  ): Promise<{ success: boolean; campaignId: number; txHash?: string }> => {
+  ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const result = await createCampaignContractCall(userAddress, {
+    return createCampaignContractCall(
+      userAddress,
       name,
       budgetXml,
       commissionRatePercent,
       clearingPeriodSecs,
-    });
-    return result;
+    );
   };
 
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
     amountXml: number,
-  ): Promise<{ success: boolean; txHash?: string }> => {
+  ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    return logSaleContractCall(userAddress, { campaignId, affiliateAddress, amountXml });
+    return logSaleContractCall(userAddress, campaignId, affiliateAddress, amountXml);
   };
 
-  const claimPayoutOnChain = async (campaignId: number): Promise<{ success: boolean; txHash?: string }> => {
+  const claimPayoutOnChain = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
     return claimPayoutContractCall(userAddress, campaignId);
   };
 
-  const refundCampaignEscrow = async (campaignId: number): Promise<{ success: boolean; txHash?: string }> => {
+  const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
     return refundCampaignEscrowContractCall(userAddress, campaignId);
   };
@@ -424,30 +398,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     campaigns: ClaimableCampaignItem[],
   ): Promise<BatchClaimReceipt> => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const receipts = [];
-    for (const campaign of campaigns) {
-      try {
-        const result = await claimPayoutContractCall(userAddress, campaign.campaignId);
-        receipts.push({ campaignId: campaign.campaignId, success: result.success, txHash: result.txHash });
-      } catch (err) {
-        receipts.push({ campaignId: campaign.campaignId, success: false, error: String(err) });
-      }
-    }
-    return { receipts } as BatchClaimReceipt;
+    const { batchClaimPayouts } = await import("../lib/batchClaim");
+    return batchClaimPayouts(userAddress, campaigns);
   };
 
-  const registerPasskeyAccount = async (userName?: string): Promise<PasskeyCredentialRecord> => {
+  const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
     return registerPasskey(userName || "Affiliate User");
   };
 
-  const switchToStellarNetwork = async (): Promise<boolean> => {
+  const switchToStellarNetwork = async () => {
     try {
-      const current = await getCurrentNetwork();
-      setNetwork(current);
+      const net = await getCurrentNetwork();
+      setNetwork(net);
       return true;
-    } catch (err) {
-      console.warn("Failed to switch Stellar network:", err);
+    } catch {
       return false;
     }
   };
@@ -462,6 +427,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     connectorType,
     isWalletModalOpen,
     ledgerBipPath,
+    eventStreamStatus,
+    lastEvent,
+    recentEvents,
     setLedgerBipPath,
     openWalletModal,
     closeWalletModal,
@@ -469,10 +437,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     disconnectWallet,
     updateUserRole,
     requestFriendbotFunding,
-    sorobanConnectionStatus,
-    latestSorobanEvents,
-    sorobanEventVersion,
-    subscribeToSorobanEvents,
     createCampaignOnChain,
     logSaleOnChain,
     claimPayoutOnChain,
@@ -486,11 +450,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     switchToStellarNetwork,
   };
 
-  return <WEB3Context.Provider value={value}>{children}</WEB3Context.Provider>;
+  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
-export function useWeb3(): Web3ContextType {
-  const ctx = useContext(WEB3Context);
-  if (!ctx) throw new Error("useWeb3 must be used within a Web3Provider");
+export function useWeb3Context() {
+  const ctx = useContext(Web3Context);
+  if (!ctx) throw new Error("useWeb3Context must be used within a Web3Provider");
   return ctx;
 }

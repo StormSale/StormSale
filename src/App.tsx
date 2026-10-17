@@ -1,18 +1,26 @@
-import React from "react";
+import React, { Suspense, useState } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
-import { Advertiser } from "./pages/Advertiser";
-import { Affiliate } from "./pages/Affiliate";
-import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+import { SorobanConnectionPill } from "./components/shared/SorobanConnectionPill";
+import { SorobanEventToaster } from "./components/shared/SorobanEventToaster";
 
-import { useState } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
-import { SorobanEventStreamer, useSorobanEventStatus } from "./context/SorobanEventContext";
+
+const Advertiser = React.lazy(() =>
+  import("./pages/Advertiser").then((mod) => ({ default: mod.Advertiser }))
+);
+const Affiliate = React.lazy(() =>
+  import("./pages/Affiliate").then((mod) => ({ default: mod.Affiliate }))
+);
+const Auditor = React.lazy(() =>
+  import("./pages/Auditor").then((mod) => ({ default: mod.Auditor }))
+);
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -56,34 +64,6 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-function ConnectionStatusPill() {
-  const { status, lastEventAt } = useSorobanEventStatus();
-
-  const config = {
-    connected: { label: "Connected", dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
-    polling: { label: "Polling", dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50" },
-    reconnecting: { label: "Reconnecting", dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50" },
-  } as const;
-
-  const c = config[status];
-
-  return (
-    <div
-      className={`fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm ${c.bg} ${c.text}`}
-      role="status"
-      aria-live="polite"
-      title={lastEventAt ? `Last event: ${lastEventAt.toLocaleString()}` : "Waiting for chain events"}
-    >
-      <span className={`relative flex h-2 w-2 rounded-full ${c.dot}`}>
-        {status === "connected" && (
-          <span className={`absolute inline-flex h-ifull w-full animate-ping rounded-full opacity-75-${c.dot}`} />
-        )}
-      </span>
-      {c.label}
-    </div>
-  );
-}
-
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
@@ -113,17 +93,27 @@ function Router() {
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
+          <div className="flex justify-end px-4 pt-4">
+            <SorobanConnectionPill />
+          </div>
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
             )}
             {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
             )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+            {currentPage === "auditor" && (
+              <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                <Auditor onBack={() => setCurrentPage("dashboard")} />
+              </Suspense>
+            )}
           </main>
-          <ConnectionStatusPill />
         </div>
       )}
     </>
@@ -136,9 +126,10 @@ function App() {
       <ErrorBoundary>
         <Web3Provider>
           <NotificationProvider>
-            <SorobanEventStreamer>
+            <SorobanEventsProvider>
+              <SorobanEventToaster />
               <Router />
-            </SorobanEventStreamer>
+            </SorobanEventsProvider>
           </NotificationProvider>
         </Web3Provider>
       </ErrorBoundary>

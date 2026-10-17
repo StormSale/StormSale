@@ -1,19 +1,18 @@
-import { Button } from "../../components/ui/button";
+import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useEventStream } from "../../hooks/useEventStream";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Radio } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
-import { useEventStream } from "../../hooks/useEventStream";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const { status = "polling" } = useEventStream() ?? { status: "polling" as const };
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
-  const { status } = useEventStream();
-  const streamStatus: "connected" | "polling" | "reconnecting" = (status as "connected" | "polling" | "reconnecting") ?? "reconnecting";
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -26,6 +25,29 @@ export const Header = () => {
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
   ];
+
+  const statusConfig = {
+    connected: {
+      label: "Connected",
+      dot: "bg-emerald-500",
+      text: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/30",
+    },
+    polling: {
+      label: "Polling",
+      dot: "bg-amber-500",
+      text: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-950/40 border-amber-500/30",
+    },
+    reconnecting: {
+      label: "Reconnecting",
+      dot: "bg-rose-500",
+      text: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-50 dark:bg-rose-950/40 border-rose-500/30",
+    },
+  } as const;
+
+  const currentStatus = statusConfig[status] ?? statusConfig.polling;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
@@ -56,21 +78,18 @@ export const Header = () => {
 
         {/* Desktop Actions */}
         <div className="hidden sm:flex items-center space-x-4">
-          <ThemeToggle />
-
           <div
-            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-wide ${
-              streamStatus === "connected"
-                ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
-                : streamStatus === "polling"
-                ? "bg-amber-50 dark:bg-amber-950/40 border-amber-500/30 text-amber-600 dark:text-amber-400"
-                : "bg-rose-50 dark:bg-rose-950/40 border-rose-500/30 text-rose-600 dark:text-rose-400"
-            }`}
-            aria-live="polite"
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 border rounded-xl ${currentStatus.bg}`}
+            title={`Event stream: ${currentStatus.label}`}
           >
-            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-            <span>{streamStatus === "connected" ? "Connected" : streamStatus === "polling" ? "Polling" : "Reconnecting"}</span>
+            <Radio className={`w-3 h-3 ${currentStatus.text}`} />
+            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${currentStatus.text}`}>
+              {currentStatus.label}
+            </span>
           </div>
+
+          <ThemeToggle />
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
@@ -105,6 +124,12 @@ export const Header = () => {
 
         {/* Mobile / Tablet Controls (Right) */}
         <div className="flex sm:hidden items-center space-x-2">
+          <div
+            className={`flex items-center space-x-1 px-2 py-1.5 border rounded-xl ${currentStatus.bg}`}
+            title={`Event stream: ${currentStatus.label}`}
+          >
+            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+          </div>
           <ThemeToggle />
           {!isConnected ? (
             <Button
@@ -146,6 +171,14 @@ export const Header = () => {
             {isConnected && (
               <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
+                  <div
+                    className={`flex items-center space-x-1.5 px-2 py-1 border rounded-lg ${currentStatus.bg}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+                    <span className={`text-[10px] font-bold uppercase ${currentStatus.text}`}>
+                      {currentStatus.label}
+                    </span>
+                  </div>
                   <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500">
                     <ShieldCheck className="w-4 h-4" />
                   </div>
@@ -167,6 +200,16 @@ export const Header = () => {
             )}
 
             <div className="grid grid-cols-2 gap-2">
+              <div
+                className={`col-span-2 flex items-center justify-between px-3 py-2 border rounded-xl ${currentStatus.bg}`}
+              >
+                <span className="text-[10px] font-bold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Event Stream
+                </span>
+                <span className={`text-[10px] font-bold uppercase ${currentStatus.text}`}>
+                  {currentStatus.label}
+                </span>
+              </div>
               {navLinks.map((item) => (
                 <a
                   key={item.label}
