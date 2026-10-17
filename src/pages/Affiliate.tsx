@@ -4,7 +4,16 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
-import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
+import { AffiliateNichePreferences } from "../components/affiliate/AffiliateNichePreferences";
+import {
+  Users,
+  TrendingUp,
+  DollarSign,
+  BarChart3,
+  Shield,
+  LayoutDashboard,
+  SlidersHorizontal,
+} from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -21,6 +30,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
     { id: "performance", label: "Performance Analytics", icon: BarChart3 },
+    { id: "niche-preferences", label: "Niche Preferences", icon: SlidersHorizontal },
     { id: "security", label: "Security Settings", icon: Shield },
   ];
 
@@ -33,9 +43,11 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
       case "claim-payouts":
         return <ClaimPayouts />;
       case "overview":
-        return <AffiliateOverview />;
+        return <AffiliateOverview onBrowseMarketplace={() => setActiveTab("join-campaign")} />;
+      case "niche-preferences":
+        return <AffiliateNichePreferences />;
       default:
-        return <AffiliateOverview />;
+        return <AffiliateOverview onBrowseMarketplace={() => setActiveTab("join-campaign")} />;
     }
   };
 
