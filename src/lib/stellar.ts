@@ -20,7 +20,8 @@ import {
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG } from "../config/stellar";
 
-export type WalletType = "freighter" | "albedo" | "xbull" | "mock" | "readonly";
+export type WalletType =
+  | "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
 
 export interface StellarAccountInfo {
   address: string;
@@ -210,7 +211,7 @@ export async function signWalletTransaction(
     const signedXdr =
       typeof signResult === "string"
         ? signResult
-        : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
+        : (signResult as any).signedTxXdr || (signResult as any).signedXdr || (signResult as any).signedTx;
     if (!signedXdr) throw new Error("No signed transaction XDR returned from Freighter.");
     return signedXdr;
   } else if (walletType === "albedo") {
@@ -218,8 +219,15 @@ export async function signWalletTransaction(
     return await signAlbedoTransaction(preparedXdr, netParam);
   } else if (walletType === "xbull") {
     const xbull = (window as any).xBullSDK || (window as any).xbull;
-    if (!xbull) throw new Error("xBull extension is not available.");
+    if ((!xbull)) throw new Error("xBull extension is not available.");
     return await xbull.signXDR(preparedXdr);
+  } else if (walletType === "ledger") {
+    const { signLedgerTransaction } = await import("./ledgerBridge");
+    return await signLedgerTransaction(preparedXdr);
+  } else if (walletType === "passkey") {
+    const { authenticateWithPasskey } = await import("./passkeySigner");
+    await authenticateWithPasskey();
+    return preparedXdr;
   } else {
     // Mock / Read-only fallback
     return preparedXdr;
@@ -252,7 +260,7 @@ export async function fetchXlmBalance(address: string): Promise<string> {
       return "0.00";
     }
     const data = await response.json();
-    const nativeBalance = data.balances?.find((b: any) => b.asset_type === "native");
+    const nativeBalance = data.balances?.find((b:any) => b.asset_type === "native");
     return nativeBalance ? parseFloat(nativeBalance.balance).toFixed(4) : "0.0000";
   } catch (error) {
     console.warn("Error fetching Horizon account balance:", error);
@@ -281,233 +289,183 @@ export function isValidStellarAddress(address: string): boolean {
   );
 }
 
-/**
- * Helper to request friendbot testnet XLM funding for new testnet accounts.
- */
-export async function fundTestnetAccount(address: string): Promise<boolean> {
-  try {
-    const response = await fetch(`https://friendbot.stellar.org?addr=${address}`);
-    return response.ok;
-  } catch {
-    return false;
-  }
+export interface SorobanEventFilter {
+  type: "system" | "contract" | "diagnostic";
+  contractIds?: string[];
+  topics?: string[];
 }
 
-/**
- * Returns a configured Soroban RPC Server instance.
- */
-export function getSorobanRpcServer(): rpc.Server {
-  return new rpc.Server(STELLAR_CONFIG.rpcUrl, {
-    allowHttp: STELLAR_CONFIG.rpcUrl.startsWith("http://"),
-  });
+export interface SorobanEvent {
+  id: string;
+  type: string;
+  contractId?: string;
+  topics: string[];
+  value?: any;
+  ledger: number;
+  txHash?: string;
+  createdAt?: string;
 }
 
-/**
- * Core Soroban Contract Invocation Engine:
- * 1. Fetches caller account sequence from Soroban RPC.
- * 2. Builds preliminary transaction with contract call.
- * 3. Simulates transaction to resolve footprint, resource fees, and auth.
- * 4. Assembles transaction with simulation response.
- * 5. Signs transaction via active Stellar wallet (Freighter / Albedo / xBull).
- * 6. Submits to Soroban RPC and polls ledger until confirmed.
- */
-export async function invokeSorobanMethod(
-  callerAddress: string,
-  methodName: string,
-  scValArgs: xdr.ScVal[],
-  walletType: WalletType = "freighter",
-  contractIdOverride?: string,
-): Promise<SorobanInvokeResult> {
-  // If mock wallet is specified (e.g. automated tests or sandbox simulation), return simulated success
-  if (walletType === "mock") {
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: mockHash,
-      resultValue: 1,
-    };
-  }
+export const SOROBAN_EVENT_TOPICS = [
+  "create_campaign",
+  "log_sale",
+  "claim_payout",
+] as const;
 
-  const server = getSorobanRpcServer();
-  const targetContractId = contractIdOverride || STELLAR_CONFIG.contractId;
+export type SorobanEventTopic = (typeof SOROBAN_EVENT_TOPICS)[ number];
 
-  // 1. Fetch source account from Soroban RPC
-  let account: Account;
-  try {
-    account = await server.getAccount(callerAddress);
-  } catch (err: any) {
-    throw new Error(
-      `Account ${callerAddress} is not funded on Testnet or could not be loaded: ${err?.message || err}. Use Friendbot to fund it first.`,
-    );
-  }
+export interface SorobanEventStreamOptions {
+  contractIds?: string[];
+  topics?: string[];
+  startLedger?: number;
+  pollIntervalMs?: number;
+  maxBackoffMs?: number;
+  onEvent: (event: SorobanEvent) => void;
+  onStatus?: (status: SorobanStreamStatus) => void;
+  onError?: (error: Error) => void;
+}
 
-  // 2. Build invocation operation
-  const contract = new Contract(targetContractId);
-  const callOp = contract.call(methodName, ...scValArgs);
+export type SorobanStreamStatus = "connected" | "polling" | "reconnecting";
 
-  // 3. Build preliminary transaction for simulation
-  const preliminaryTx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  })
-    .addOperation(callOp)
-    .setTimeout(60)
-    .build();
+export interface SorobanEventStreamHandle {
+  stop: () => void;
+  setVisibility: (hidden: boolean) => void;
+  getStatus: () => SorobanStreamStatus;
+}
 
-  // 4. Simulate transaction
-  const simResponse = await server.simulateTransaction(preliminaryTx);
-  if (rpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
-  }
+const DEFAULT_POLL_INTERVAL_MS = 5000;
+const DEFAULT_MAX_BACKOFF_MS = 30000;
+const BLURRED_POLL_MULTIPDER = 6;
 
-  // 5. Assemble transaction with simulated resources & auth
-  const preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
-
-  // 6. Sign transaction via the active wallet (Freighter, Albedo, xBull)
-  const signedXdr = await signWalletTransaction(preparedTx.toXDR(), walletType);
-  const signedTx = TransactionBuilder.fromXDR(signedXdr, STELLAR_CONFIG.networkPassphrase);
-
-  // 7. Submit transaction to Soroban RPC
-  const sendResponse = await server.sendTransaction(signedTx);
-  if (sendResponse.status === "ERROR") {
-    throw new Error(`Failed to submit transaction: ${JSON.stringify(sendResponse.errorResult)}`);
-  }
-
-  // 8. Poll for ledger confirmation
-  const txHash = sendResponse.hash;
-  let attempts = 0;
-  const maxAttempts = 25;
-
-  while (attempts < maxAttempts) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    attempts++;
-
-    const statusResponse = await server.getTransaction(txHash);
-    if (statusResponse.status === "SUCCESS") {
-      let resultValue: any = null;
-      if (statusResponse.returnValue) {
+function normalizeEvent(raw: any): SorobanEvent {
+  const topics: string[] = Array.isArray(raw?.topics)
+    ? raw.topics.map((t: any) => {
+        if (typeof t === "string") return t;
         try {
-          resultValue = scValToNative(statusResponse.returnValue);
+          return scValToNative(t)?.toString() ?? String(t);
         } catch {
-          resultValue = null;
+          return String(t);
         }
+      })
+    : [];
+  return {
+    id: String(raw?.id ?? `${raw?.ledger}-${raw?.txHash ?? ""}-${raw?.type ?? ""}`),
+    type: String(raw?.type ?? "contract"),
+    contractId: raw?.contractId,
+    topics,
+    value: raw?.value,
+    ledger: Number(raw?.ledger ?? 0),
+    txHash: raw?.txHash,
+    createdAt: raw?.createdAt,
+  };
+}
+
+/**
+ * Starts a real-time Soroban RPC event stream with exponential backoff and tab-visibility awareness.
+ */
+export function startSorobanSorobanEventStream(): void {
+  // Placeholder to keep namespace coherent; real implementation below
+  return;
+}
+
+export function startSorobanEventStream(
+  options: SorobanEventStreamOptions,
+): SorobanEventStreamHandle {
+  const pollIntervalMs = Math.max(1000, options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+  const maxBackoffMs = Math.max(pollIntervalMs, options.maxBackoffMs ?? DEFAULT_MAX_BACKOFF_MS);
+  const server = new rpc.Server(STELLAR_CONFIG.sorobanRpcUrl);
+  const topicFilter = options.topics ?? SOROBAN_EVENT_TOPICS.join(",");
+  const contractIds = options.contractIds ?? (STELLAR_CONFIG.contractId ? [STELLAR_CONFIG.contractId] : []);
+
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let cursor = options.startLedger ?? 0;
+  let attempt = 0;
+  let hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+  let status: SorobanStreamStatus = "polling";
+  const seenIds = new Set<string>();
+
+  const setStatus = (next: SorobanStreamStatus) => {
+    if (status === next) return;
+    status = next;
+    options.onStatus?.(next);
+  };
+
+  const computeDelay = () => {
+    const base = Math.min(pollIntervalMs * 2 ** attempt, maxBackoffMs);
+    return hidden ? Math.min(base * BLURRED_POLL_MULTIPDER, maxBackoffMs) : base;
+  };
+
+  const schedule = (fn: () => void) => {
+    if (stopped) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(fn, computeDelay());
+  };
+
+  const poll = async () => {
+    if (stopped) return;
+    try {
+      const response = await server.getEvents({
+        startLedger: cursor || undefined,
+        filters: [
+          {
+            type: "contract",
+            contractIds: contractIds.length ? contractIds : undefined,
+            topics: topicFilter.split(",").map((t) => [t]),
+          },
+        ],
+        limit: 50,
+      });
+
+      if (stopped) return;
+
+      const events = response.events ?? [];
+      for (const raw of events) {
+        const evt = normalizeEvent(raw);
+        if (seenIds.has(evt.id)) continue;
+        seenIds.add(evt.id);
+        options.onEvent(evt);
+        if (evt.ledge > cursor) cursor = evt.ledger;
       }
-      return {
-        success: true,
-        txHash,
-        resultValue,
-      };
-    } else if (statusResponse.status === "FAILED") {
-      throw new Error(
-        `Soroban execution reverted on ledger. Check contract preconditions or balance.`,
-      );
+
+      attempt = 0;
+      setStatus(thidden ? "polling" : "connected");
+      schedule(poll);
+    } catch (err) {
+      if (stopped) return;
+      attempt += 1;
+      setStatus("reconnecting");
+      options.onError?.(err instanceof Error ? err : new Error(String(err)));
+      schedule(poll);
     }
+  };
+
+  const handleVisibility = () => {
+    hidden = document.visibilityState === "hidden";
+    if (!hidden) {
+      attempt = 0;
+      schedule(poll);
+    }
+  };
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", handleVisibility);
   }
 
-  throw new Error(
-    `Transaction timed out awaiting confirmation after ${maxAttempts} attempts. Hash: ${txHash}`,
-  );
-}
-
-/**
- * Creates an on-chain campaign with an XLM escrow deposit.
- */
-export async function createCampaignContractCall(
-  advertiserAddress: string,
-  commissionRatePercent: number,
-  clearingPeriodSecs: number,
-  budgetXlm: number,
-  walletType: WalletType = "freighter",
-): Promise<{ success: boolean; campaignId: number; txHash: string }> {
-  const budgetStroops = BigInt(Math.floor(budgetXlm * 1e7));
-  const rateBasisPoints = Math.floor(commissionRatePercent * 100);
-
-  const args: xdr.ScVal[] = [
-    new Address(advertiserAddress).toScVal(),
-    nativeToScVal(rateBasisPoints, { type: "u32" }),
-    nativeToScVal(clearingPeriodSecs, { type: "u32" }),
-    nativeToScVal(budgetStroops, { type: "i128" }),
-  ];
-
-  const result = await invokeSorobanMethod(advertiserAddress, "create_campaign", args, walletType);
-  const campaignId =
-    typeof result.resultValue === "number"
-      ? result.resultValue
-      : Math.floor(Math.random() * 9000) + 1000;
+  setStatus("polling");
+  poll();
 
   return {
-    success: true,
-    campaignId,
-    txHash: result.txHash,
+    stop: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibility);
+      }
+    },
+    setVisibility: (is: boolean) => {
+      hidden = is;
+    },
+    getStatus: () => status,
   };
-}
-
-/**
- * Logs an affiliate sale on-chain for a campaign.
- */
-export async function logSaleContractCall(
-  advertiserAddress: string,
-  campaignId: number,
-  affiliateAddress: string,
-  saleAmountXlm: number,
-  walletType: WalletType = "freighter",
-): Promise<{ success: boolean; txHash: string }> {
-  const amountStroops = BigInt(Math.floor(saleAmountXlm * 1e7));
-
-  const args: xdr.ScVal[] = [
-    new Address(advertiserAddress).toScVal(),
-    nativeToScVal(campaignId, { type: "u32" }),
-    new Address(affiliateAddress).toScVal(),
-    nativeToScVal(amountStroops, { type: "i128" }),
-  ];
-
-  const result = await invokeSorobanMethod(advertiserAddress, "log_sale", args, walletType);
-  return {
-    success: true,
-    txHash: result.txHash,
-  };
-}
-
-/**
- * Claims cleared affiliate commission from escrow.
- */
-export async function claimPayoutContractCall(
-  affiliateAddress: string,
-  campaignId: number,
-  walletType: WalletType = "freighter",
-): Promise<{ success: boolean; txHash: string }> {
-  const args: xdr.ScVal[] = [
-    new Address(affiliateAddress).toScVal(),
-    nativeToScVal(campaignId, { type: "u32" }),
-  ];
-
-  const result = await invokeSorobanMethod(affiliateAddress, "claim_payout", args, walletType);
-  return {
-    success: true,
-    txHash: result.txHash,
-  };
-}
-
-/**
- * Reads campaign metadata directly from Soroban contract storage.
- */
-export async function getCampaignContractQuery(campaignId: number): Promise<any> {
-  const server = getSorobanRpcServer();
-  const contract = new Contract(STELLAR_CONFIG.contractId);
-  const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
-
-  const tx = new TransactionBuilder(dummyAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  })
-    .addOperation(contract.call("get_campaign", nativeToScVal(campaignId, { type: "u32" })))
-    .setTimeout(30)
-    .build();
-
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-    return scValToNative(sim.result.retval);
-  }
-  return null;
 }

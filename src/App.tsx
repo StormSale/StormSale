@@ -1,17 +1,16 @@
 import React from "react";
 import { Web3Provider } from "./context/Web3Context";
-import { EventStreamProvider } from "./context/EventStreamContext";
-import { NotificationWrapper, NotificationProvider } from "./context/NotificationContext";
-import { ConnectionStatusPill } from "./components/shared/ConnectionStatusPill";
-import { EventToastHost } from "./components/shared/EventToastHost";
+import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
 import { Advertiser } from "./pages/Advertiser";
 import { Affiliate } from "./pages/Affiliate";
 import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
+import { SorobanEventProvider, useSorobanEvents } from "./context/SorobanEventContext";
+import { useNotifications } from "./hooks/useNotifications";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
@@ -19,7 +18,8 @@ import { loadBrandConfig } from "./lib/branding";
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
-> {
+>
+{
   constructor(props: any) {
     super(props);
     this.state = { hasError: false };
@@ -58,6 +58,51 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+const STATUS_STYLES: Record<string, { label: string; color: string; dot: string }> = {
+  connected: { label: "Connected", color: "text-emerald-700", dot: "bg-emerald-500" },
+  polling: { label: "Polling", color: "text-amber-700", dot: "bg-amber-500" },
+  reconnecting: { label: "Reconnecting", color: "text-rose-700", dot: "bg-rose-500" },
+  idle: { label: "Idle", color: "text-slate-600", dot: "bg-slate-400" },
+};
+
+function ConnectionStatusPill() {
+  const { status, lastEventAt } = useSorobanEvents();
+  const style = STATUS_STYLES[status] ?? STATUS_STYLES.idle;
+  return (
+    <div
+      className="fixed top-3 right-3 z-50 flex items-center gap-2 rounded-full border bg-white/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur"
+      role="status"
+      aria-live="polite"
+      title={lastEventAt ? `Last event: ${new Date(lastEventAt).toLocaleTimeString()}` : "Awaiting for on-chain events"}
+    >
+      <span className={` inline-block h-2 w-2 rounded-full ${style.dot}`} />
+      <span className={style.color}>{style.label}</span>
+    </div>
+  );
+}
+
+function EventToastBridge() {
+  const { lastEvent } = useSorobanEvents();
+  const { notify } = useNotifications();
+
+  useEffect(() => {
+    if (!lastEvent) return;
+    const labels: Record<string, string> = {
+      create_campaign: "New campaign created",
+      log_sale: "Sale logged on-chain",
+      claim_payout: "Payout claimed",
+    };
+    const message = labels[lastEvent.topic] ?? "On-chain event received";
+    notify({
+      title: message,
+      message: lastEvent.contractId ? `Contract ${lastEvent.contractId}` : undefined,
+      type: "success",
+    });
+  }, [lastEvent, notify]);
+
+  return null;
+}
+
 function Router() {
   const { isConnected } = useWeb3();
   const [currentPage, setCurrentPage] = useState("dashboard");
@@ -87,9 +132,8 @@ function Router() {
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
-          <div className="flex items-center justify-end px-4 pt-3">
-            <ConnectionStatusPill />
-          </div>
+          <ConnectionStatusPill />
+          <EventToastBridge />
           <main>
             {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
             {currentPage === "advertiser" && (
@@ -102,7 +146,6 @@ function Router() {
           </main>
         </div>
       )}
-      <EventToastHost />
     </>
   );
 }
@@ -112,11 +155,11 @@ function App() {
     <NotificationWrapper>
       <ErrorBoundary>
         <Web3Provider>
-          <EventStreamProvider>
-            <NotificationProvider>
+          <NotificationProvider>
+            <SorobanEventProvider>
               <Router />
-            </NotificationProvider>
-          </EventStreamProvider>
+            </SorobanEventProvider>
+          </NotificationProvider>
         </Web3Provider>
       </ErrorBoundary>
     </NotificationWrapper>

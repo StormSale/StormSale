@@ -2,14 +2,15 @@ import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useEventStream } from "../../hooks/useEventStream";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, Wifi, WifiOff, Loader2 } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Radio } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
-  const { status } = useEventStream();
+  const eventStream = useEventStream();
+  const status: "connected" | "polling" | "reconnecting" = (eventStream?.status as "connected" | "polling" | "reconnecting") ?? "polling";
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -29,29 +30,27 @@ export const Header = () => {
   const statusConfig = {
     connected: {
       label: "Connected",
-      icon: Wifi,
-      className:
-        "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
-      dotClassName: "bg-emerald-500 animate-pulse",
+      dot: "bg-emerald-500",
+      text: "text-emerald-600 dark:text-emerald-400",
+      bg: "bg-emerald-50 dark:bg-emerald-950/40",
+      border: "border-emerald-500/30",
     },
     polling: {
       label: "Polling",
-      icon: Loader2,
-      className:
-        "bg-amber-50 dark:bg-amber-950/40 border-amber-500/30 text-amber-600 dark:text-amber-400",
-      dotClassName: "bg-amber-500 animate-pulse",
+      dot: "bg-amber-500",
+      text: "text-amber-600 dark:text-amber-400",
+      bg: "bg-amber-50 dark:bg-amber-950/40",
+      border: "border-amber-500/30",
     },
     reconnecting: {
       label: "Reconnecting",
-      icon: WifiOff,
-      className:
-        "bg-rose-50 dark:bg-rose-950/40 border-rose-500/30 text-rose-600 dark:text-rose-400",
-      dotClassName: "bg-rose-500 animate-pulse",
+      dot: "bg-rose-500",
+      text: "text-rose-600 dark:text-rose-400",
+      bg: "bg-rose-50 dark:bg-rose-950/40",
+      border: "border-rose-500/30",
     },
   } as const;
-
-  const currentStatus = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.polling;
-  const StatusIcon = currentStatus.icon;
+  const currentStatus = statusConfig[status] ?? statusConfig.polling;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
@@ -85,13 +84,12 @@ export const Header = () => {
           <ThemeToggle />
 
           <div
-            className={`flex items-center space-x-1.5 px-2.5 py-1.5 border rounded-xl ${currentStatus.className}`}
+            className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border ${currentStatus.bg} ${currentStatus.border}`}
             title={`Event stream: ${currentStatus.label}`}
-            aria-live="polite"
           >
-            <span className={`w-2 h-2 rounded-full ${currentStatus.dotClassName}`} />
-            <StatusIcon className="w-3.5 h-3.5" />
-            <span className="text-[10px] font-bold uppercase tracking-wide">
+            <Radio className={`w-3 h-3 ${currentStatus.text}`} />
+            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${currentStatus.text}`}>
               {currentStatus.label}
             </span>
           </div>
@@ -131,12 +129,11 @@ export const Header = () => {
         <div className="flex sm:hidden items-center space-x-2">
           <ThemeToggle />
           <div
-            className={`flex items-center space-x-1 px-2 py-1.5 border rounded-xl ${currentStatus.className}`}
+            className={`flex items-center space-x-1 px-2 py-1.5 rounded-xl border ${currentStatus.bg} ${currentStatus.border}`}
             title={`Event stream: ${currentStatus.label}`}
-            aria-live="polite"
           >
-            <span className={`w-2 h-2 rounded-full ${currentStatus.dotClassName}`} />
-            <StatusIcon className="w-3 h-3" />
+            <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+            <span className={`text-[10px] font-bold ${currentStatus.text}`}>{currentStatus.label}</span>
           </div>
           {!isConnected ? (
             <Button
@@ -178,12 +175,6 @@ export const Header = () => {
             {isConnected && (
               <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
-                  <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center border ${currentStatus.className}`}
-                    title={`Event stream: ${currentStatus.label}`}
-                  >
-                    <StatusIcon className="w-4 h-4" />
-                  </div>
                   <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500">
                     <ShieldCheck className="w-4 h-4" />
                   </div>
@@ -204,6 +195,17 @@ export const Header = () => {
               </div>
             )}
 
+            <div className={`p-2.5 rounded-xl border flex items-center justify-between ${currentStatus.bg} ${currentStatus.border}`}>
+              <div className="flex items-center space-x-2">
+                <Radio className={`w-3.5 h-3.5 ${currentStatus.text}`} />
+                <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400">EVENT STREAM</span>
+              </div>
+              <div className="flex items-center space-x-1.5">
+                <span className={`w-2 h-2 rounded-full ${currentStatus.dot} ${status === "connected" ? "animate-pulse" : ""}`} />
+                <span className={`text-[11px] font-bold ${currentStatus.text}`}>{currentStatus.label}</span>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               {navLinks.map((item) => (
                 <a
@@ -218,13 +220,6 @@ export const Header = () => {
             </div>
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-              <div
-                className={`mb-2 flex items-center justify-between px-3 py-2 rounded-xl border ${currentStatus.className}`}
-                aria-live="polite"
-              >
-                <span className="text-[10px] font-bold uppercase tracking-wide">Event Stream</span>
-                <span className="text-[10px] font-bold uppercase tracking-wide">{currentStatus.label}</span>
-              </div>
               {isConnected ? (
                 <Button
                   variant="outline"

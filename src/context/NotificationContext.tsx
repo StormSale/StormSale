@@ -9,7 +9,7 @@ import {
   ExternalLink,
   ArrowRight,
 } from "lucide-react";
-import { SorobanEventStream, type SorobanStreamStatus, type SorobanContractEvent } from "../lib/sorobanEventStream";
+import { SorobanEventStream, type SorobanStreamStatus } from "../services/sorobanEventStream";
 
 export type NotificationType = "success" | "error" | "warning" | "info";
 
@@ -49,7 +49,6 @@ export interface NotificationContextType {
   clearAllNotifications: () => void;
   streamStatus: SorobanStreamStatus;
   lastEventAt: number | null;
-  reconnectStream: () => void;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -77,20 +76,6 @@ export function evaluateCampaignEscrowLevel(campaign: EscrowMonitoredCampaign): 
     remainingXlm: campaign.escrowBalance,
     percentageRemaining: percentage,
   };
-}
-
-const STREAM_TOPICS = ["create_campaign", "log_sale", "claim_payout"] as const;
-
-const STREAM_EVENT_COPY: Record<string, { type: NotificationType; title: string }> = {
-  create_campaign: { type: "info", title: "New Campaign Created" },
-  log_sale: { type: "success", title: "Sale Logged On-Chain" },
-  claim_payout: { type: "success", title: "Payout Claimed" },
-};
-
-function formatStreamEventMessage(event: SorobanContractEvent): string {
-  const topic = event.topic[0] ?? "contract_event";
-  const shortTx = event.txHash ? `${event.txHash.slice(0, 8)}...${event.txHash.slice(-6)}` : "unknown tx";
-  return `Topic "${topic}" observed in ledger ${event.ledger} (${shortTx}).`;
 }
 
 /**
@@ -123,11 +108,63 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Maps a Soroban contract event topic to a user-facing toast notification.
+ * Returns null when the topic is not one we surface to the user.
+ */
+export function buildSorobanEventNotification(
+  topic: string,
+  payload: Record<string, unknown>,
+): Omit<Notification, "id"> | null {
+  const campaignName =
+    typeof payload.campaignName === "string" ? payload.campaignName : undefined;
+  const campaignId =
+    typeof payload.campaignId === "string" ? payload.campaignId : undefined;
+  const amount = typeof payload.amount === "number" ? payload.amount : undefined;
+
+  switch (topic) {
+    case "create_campaign":
+      return {
+        type: "info",
+        title: "New Campaign Created",
+        message: campaignName
+          ? `Campaign "${campaignName}" is now live on-chain.`
+          : "A new campaign was created on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    case "log_sale":
+      return {
+        type: "success",
+        title: "Sale Logged",
+        message:
+          amount !== undefined
+            ? `A sale of ${amount.toLocaleString()} XLM was recorded on-chain.`
+            : "A new sale was recorded on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    case "claim_payout":
+      return {
+        type: "success",
+        title: "Payout Claimed",
+        message:
+          amount !== undefined
+            ? `A payout of ${amount.toLocaleString()} XLM was claimed.`
+            : "A payout was claimed on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    default:
+      return null;
+  }
+}
+
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [streamStatus, setStreamStatus] = useState<SorobanStreamStatus>("connecting");
+  const [streamStatus, setStreamStatus] = useState<SorobanStreamStatus>("polling");
   const [lastEventAt, setLastEventAt] = useState<number | null>(null);
   const streamRef = useRef<SorobanEventStream | null>(null);
 
@@ -139,7 +176,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications([]);
   };
 
-  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
+  const showNotification = (notification: Omit<Notification, "id">): string => {
     const id = Math.random().toString(36).substring(2, 11);
     const isPersistent = notification.persistent === true || notification.duration === 0;
 
@@ -160,42 +197,28 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
 
     return id;
-  }, []);
+  };
 
-  const handleStreamEvent = useCallback(
-    (event: SorobanContractEvent) => {
-      setLastEventAt(Date.now());
-      const topic = event.topic[0] ?? "contract_event";
-      const copy = STREAM_EVENT_COPY[topic] ?? {
-        type: "info" as NotificationType,
-        title: "On-Chain Event Received",
-      };
-      showNotification({
-        type: copy.type,
-        title: copy.title,
-        message: formatStreamEventMessage(event),
-        duration: 6000,
-      });
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(
-          new CustomEvent("soroban:event", {
-            detail: { topic, event },
-          }),
-        );
-      }
-    },
-    [showNotification],
-  );
-
-  const reconnectStream = useCallback(() => {
-    streamRef.current?.reconnectNow();
-  }, []);
-
+  // Wire up the Soroban RPC event stream once on mount.
   useEffect(() => {
     const stream = new SorobanEventStream({
-      topics: [...STREAM_TOPICS],
-      onEvent: handleStreamEvent,
+      topics: ["create_campaign", "log_sale", "claim_payout"],
       onStatusChange: (status) => setStreamStatus(status),
+      onEvent: (event) => {
+        setLastEventAt(Date.now());
+        const payload = buildSorobanEventNotification(event.topic, event.payload);
+        if (payload) {
+          showNotification(payload);
+        }
+        // Dispatch a global event so query layers can re-validate lightweight data.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("soroban:event", {
+              detail: { topic: event.topic, payload: event.payload },
+            }),
+          );
+        }
+      },
     });
     streamRef.current = stream;
     stream.start();
@@ -203,7 +226,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       stream.stop();
       streamRef.current = null;
     };
-  }, [handleStreamEvent]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = (params: {
@@ -248,17 +272,54 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         clearAllNotifications,
         streamStatus,
         lastEventAt,
-        reconnectStream,
       }}
     >
       {children}
       <NotificationContainer />
+      <StreamStatusPill status={streamStatus} />
     </NotificationContext.Provider>
   );
 };
 
-const NotificationContainer: React.FC = () => {
-  const { notifications, dismissNotification, streamStatus, reconnectStream } = useNotification();
+const STREAM_STATUS_META: Record<
+  SorobanStreamStatus,
+  { label: string; dot: string; pill: string }
+> = {
+  connected: {
+    label: "Connected",
+    dot: "bg-emerald-500",
+    pill: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
+  },
+  polling: {
+    label: "Polling",
+    dot: "bg-indigo-500",
+    pill: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800",
+  },
+  reconnecting: {
+    label: "Reconnecting",
+    dot: "bg-amber-500 animate-pulse",
+    pill: "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800",
+  },
+};
+
+const StreamStatusPill: React.FC<{ status: SorobanStreamStatus }> = ({ status }) => {
+  const meta = STREAM_STATUS_META[status];
+  return (
+    <div className="fixed bottom-4 right-4 z-40">
+      <span
+        role="status"
+        aria-live="polite"
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold shadow-lg backdrop-blur-md ${meta.pill}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+        {meta.label}
+      </span>
+    </div>
+  );
+};
+
+const NotificationContainer: React.FC<never> = () => {
+  const { notifications, dismissNotification } = useNotification();
 
   const getIcon = (type: NotificationType) => {
     switch (type) {
@@ -290,54 +351,10 @@ const NotificationContainer: React.FC = () => {
     }
   };
 
-  const getStatusPill = () => {
-    switch (streamStatus) {
-      case "connected":
-        return {
-          label: "Connected",
-          className:
-            "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
-          dot: "bg-emerald-500",
-        };
-      case "polling":
-        return {
-          label: "Polling",
-          className:
-            "bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800",
-          dot: "bg-indigo-500",
-        };
-      case "reconnecting":
-        return {
-          label: "Reconnecting",
-          className:
-            "bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800",
-          dot: "bg-amber-500 animate-pulse",
-        };
-      default:
-        return {
-          label: "Connecting",
-          className:
-            "bg-zinc-100 dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700",
-          dot: "bg-zinc-400 animate-pulse",
-        };
-    }
-  };
-
   if (notifications.length === 0) return null;
 
   return (
     <div className="fixed top-4 right-4 z-50 space-y-3 max-w-md w-full px-4 sm:px-0">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={reconnectStream}
-          title="Click to force reconnect to Soroban RPC"
-          className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border shadow-sm transition-colors ${getStatusPill().className}`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${getStatusPill().dot}`} />
-          <span>{getStatusPill().label}</span>
-        </button>
-      </div>
       {notifications.map((notification) => {
         const actionLabel = notification.actionLabel || notification.action?.label;
         const actionUrl = notification.actionUrl || notification.action?.url;
@@ -348,75 +365,45 @@ const NotificationContainer: React.FC = () => {
             role="alert"
             className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transform transition-all duration-300 ${getBackgroundColor(
               notification.type,
-            )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
+            )}`}
           >
-            <div className="flex items-start space-x-3">
+            <div className="flex items-start gap-3">
               {getIcon(notification.type)}
               <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
-                    {notification.title}
-                  </h4>
-                  {notification.persistent && (
-                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
-                      Persistent Alert
-                    </span>
-                  )}
-                </div>
-
+                <p className="text-sm font-semibold text-zinc-900 dark:text-white">
+                  {notification.title}
+                </p>
                 {notification.message && (
-                  <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
+                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                     {notification.message}
                   </p>
                 )}
-
-                {/* Interactive Action: Link or Button to "Top Up" flow */}
                 {actionLabel && (
-                  <div className="mt-3 flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (notification.onAction) {
+                        notification.onAction();
+                      } else if (actionUrl) {
+                        window.location.assign(actionUrl);
+                      }
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    {actionLabel}
                     {actionUrl ? (
-                      <a
-                        href={actionUrl}
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                      >
-                        <span>{actionLabel}</span>
-                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                      </a>
+                      <ExternalLink className="w-3 h-3" />
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                      >
-                        <span>{actionLabel}</span>
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                      </button>
+                      <ArrowRight className="w-3 h-3" />
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => dismissNotification(notification.id)}
-                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
+                  </button>
                 )}
               </div>
-
               <button
                 type="button"
                 onClick={() => dismissNotification(notification.id)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
-                aria-label="Close notification"
+                aria-label="Dismiss notification"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -428,24 +415,10 @@ const NotificationContainer: React.FC = () => {
   );
 };
 
-export const useNotification = () => {
+export const useNotification = (): NotificationContextType => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
 };
-
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
-  return <NotificationProvider>{children}</NotificationProvider>;
-}
-
-export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
-    return (
-      <NotificationProvider>
-        <Component {...props} />
-      </NotificationProvider>
-    );
-  };
-}
