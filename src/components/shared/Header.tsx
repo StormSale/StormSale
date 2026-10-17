@@ -1,7 +1,7 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Loader2, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
