@@ -11,6 +11,7 @@ import { Input } from "../../components/ui/input";
 import { Download, ShieldCheck } from "lucide-react";
 import {
   PROOF_STEPS,
+  InvalidIpError,
   buildClickRecord,
   buildGdprCertificate,
   verifyZeroPii,
@@ -37,7 +38,7 @@ export const PrivacyVerification = () => {
       setRecords((prev) => [...prev, r]);
     } catch (e) {
       setError(
-        e instanceof Error && e.message === "Invalid IP address"
+        e instanceof InvalidIpError
           ? "Enter a valid IPv4 or IPv6 address."
           : "Hashing failed. Please try again.",
       );

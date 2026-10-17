@@ -127,6 +127,14 @@ export function findRawIpFields(record: unknown, path = "$"): string[] {
   return [];
 }
 
+/** Thrown when a value that must be an IPv4/IPv6 address is not one. */
+export class InvalidIpError extends Error {
+  constructor() {
+    super("Invalid IP address");
+    this.name = "InvalidIpError";
+  }
+}
+
 export interface ClickRecord {
   campaignId: string;
   ipHash: string;
@@ -144,7 +152,7 @@ export async function buildClickRecord(
   date: Date,
 ): Promise<ClickRecord> {
   const canonicalIp = canonicalizeIp(ip);
-  if (!canonicalIp) throw new Error("Invalid IP address");
+  if (!canonicalIp) throw new InvalidIpError();
   const salt = await deriveDailySalt(masterSecret, date);
   return { campaignId, ipHash: await hashIp(canonicalIp, salt), day: saltDay(date) };
 }
@@ -204,7 +212,7 @@ export function buildGdprCertificate({
     "formal GDPR/CCPA certification.",
     "Algorithm: HMAC-SHA256(ip, daily_salt), salt rotated every UTC day.",
     `Records inspected: ${verification.checkedRecords}`,
-    `Records containing a raw IP: ${verification.rawIpFields.length}`,
+    `Raw IP findings: ${verification.rawIpFields.length}`,
     ...verification.rawIpFields.map((p) => `  - ${p}`),
     "",
     "Proof of zero-PII architecture:",
