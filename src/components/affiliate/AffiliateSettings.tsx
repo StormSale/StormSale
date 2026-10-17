@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -23,10 +23,7 @@ import {
   Save,
   AlertCircle,
   Send,
-  Link2,
   Unlink,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
 
 export type ThemeOption = "light" | "dark" | "system";
@@ -41,8 +38,7 @@ export interface AffiliatePreferences {
   preferredAsset: "XLM" | "USDC" | "EURC";
   minClaimThreshold: string;
   telegramConnected: boolean;
-  telegramMuted: boolean;
-  telegramChatId: string | null;
+  telegramUsername: string | null;
 }
 
 export const DEFAULT_PREFERENCES: AffiliatePreferences = {
@@ -54,54 +50,10 @@ export const DEFAULT_PREFERENCES: AffiliatePreferences = {
   preferredAsset: "XLM",
   minClaimThreshold: "20.0",
   telegramConnected: false,
-  telegramMuted: false,
-  telegramChatId: null,
+  telegramUsername: null,
 };
 
 export const SETTINGS_STORAGE_KEY = "stormsale_affiliate_settings";
-
-export const TELEGRAM_BOT_USERNAME = "StormSaleBot";
-
-export function buildTelegramDeepLink(token: string): string {
-  return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${encodeURIComponent(token)}`;
-}
-
-export function generateTelegramLinkToken(): string {
-  const random = Math.random().toString(36).slice(2, 10);
-  const timestamp = Date.now().toString(36);
-  return `aff_${timestamp}_${random}`;
-}
-
-export interface ConversionAlertPayload {
-  campaignName: string;
-  saleValue: string;
-  commissionEarned: string;
-  asset?: string;
-}
-
-export function formatTelegramConversionMessage(
-  payload: ConversionAlertPayload
-): string {
-  const asset = payload.asset ?? "XLM";
-  return [
-    "🎉💰 New Sale Commission! 💰🎉",
-    "",
-    `📣 Campaign: ${payload.campaignName}`,
-    `🛒 Sale Value: ${payload.saleValue} ${asset}`,
-    `💵 Commission Earned: ${payload.commissionEarned} ${asset}`,
-    "",
-    "🚀 Keep it up, affiliate!",
-  ].join("\n");
-}
-
-export function shouldDispatchTelegramAlert(
-  prefs: AffiliatePreferences = loadAffiliatePreferences()
-): boolean {
-  if (!prefs.telegramConnected) return false;
-  if (prefs.telegramMuted) return false;
-  if (prefs.notificationFrequency === "muted") return false;
-  return prefs.notifyOnCommission;
-}
 
 export function loadAffiliatePreferences(): AffiliatePreferences {
   try {
@@ -121,14 +73,18 @@ export function loadAffiliatePreferences(): AffiliatePreferences {
     const parsed = JSON.parse(raw);
     const notificationFrequency: NotificationFrequency =
       parsed.notificationFrequency === "muted" ? "muted" : "instant";
+    const telegramConnected = Boolean(parsed.telegramConnected);
+    const telegramUsername = telegramConnected
+      ? typeof parsed.telegramUsername === "string"
+        ? parsed.telegramUsername
+        : null
+      : null;
     return {
       ...DEFAULT_PREFERENCES,
       ...parsed,
       notificationFrequency,
-      telegramConnected: Boolean(parsed.telegramConnected),
-      telegramMuted: Boolean(parsed.telegramMuted),
-      telegramChatId:
-        typeof parsed.telegramChatId === "string" ? parsed.telegramChatId : null,
+      telegramConnected,
+      telegramUsername,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -244,8 +200,8 @@ export const AffiliateSettings: React.FC = () => {
   const [preferences, setPreferences] = useState<AffiliatePreferences>(loadAffiliatePreferences);
   const [isSaved, setIsSaved] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-  const [telegramToken, setTelegramToken] = useState<string | null>(null);
   const [telegramConnecting, setTelegramConnecting] = useState(false);
+  const [telegramToken, setTelegramToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -302,97 +258,65 @@ export const AffiliateSettings: React.FC = () => {
     setPreferences(updated);
   };
 
-  const handleConnectTelegram = () => {
-    const linkToken = generateTelegramLinkToken();
-    setTelegramToken(token);
+  const handleConnectTelegram = useCallback(() => {
     setTelegramConnecting(true);
-    const deepLink = buildTelegramDeepLink(token);
     try {
+      const token =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID().replace(/-/g, "")
+          : Math.random().toString(36).slice(2) + Date.now().toString(36);
+      setTelegramToken(token);
+      const deepLink = `https://t.me/StormSaleBot?start=${token}`;
       if (typeof window !== "undefined") {
         window.open(deepLink, "_blank", "noopener,noreferrer");
       }
-    } catch {
-      // Popup blocked; user can still copy the link below
-    }
-    showNotification({
-      type: "info",
-      title: "Telegram Link Generated",
-      message: "Open the StormSale bot and press Start to finish connecting.",
-    });
-  };
-
-  const handleConfirmTelegramConnection = () => {
-    const updated = {
-      ...preferences,
-      telegramConnected: true,
-      telegramMuted: false,
-      telegramChatId: telegramToken ? `chat_${telegramToken}` : "chat_linked",
-    };
-    setPreferences(updated);
-    setTelegramConnecting(false);
-    setTelegramToken(null);
-    const success = saveAffiliatePreferences(updated);
-    if (success) {
-      window.dispatchEvent(new Event("storage"));
+      const updated: AffiliatePreferences = {
+        ...preferences,
+        telegramConnected: true,
+        telegramUsername: preferences.telegramUsername ?? "StormSaleAffiliate",
+      };
+      setPreferences(updated);
+      saveAffiliatePreferences(updated);
       showNotification({
         type: "success",
-        title: "Telegram Connected",
-        message: "You will now receive instant sale commission alerts.",
+        title: "Telegram Bot Linked",
+        message: "Open the StormSale bot in Telegram and press Start to finish connecting.",
       });
-    } else {
+    } catch {
       showNotification({
         type: "error",
-        title: "Connection Not Saved",
-        message: "Unable to persist Telegram connection. Check browser permissions.",
+        title: "Connection Failed",
+        message: "Unable to start the Telegram connection. Please try again.",
       });
+    } finally {
+      setTelegramConnecting(false);
     }
-  };
+  }, [preferences, showNotification]);
 
-  const handleDisconnectTelegram = () => {
-    const updated = {
+  const handleDisconnectTelegram = useCallback(() => {
+    const updated: AffiliatePreferences = {
       ...preferences,
       telegramConnected: false,
-      telegramMuted: false,
-      telegramChatId: null,
+      telegramUsername: null,
     };
     setPreferences(updated);
     setTelegramToken(null);
-    setTelegramConnecting(false);
-    const success = saveAffiliatePreferences(updated);
-    if (success) {
-      window.dispatchEvent(new Event("storage"));
-      showNotification({
-        type: "success",
-        title: "Telegram Disconnected",
-        message: "You will no longer receive Telegram alerts.",
-      });
-    } else {
-      showNotification({
-        type: "error",
-        title: "Disconnect Not Saved",
-        message: "Unable to persist Telegram disconnect. Check browser permissions.",
-      });
-    }
-  };
+    saveAffiliatePreferences(updated);
+    showNotification({
+      type: "success",
+      title: "Telegram Disconnected",
+      message: "You will no longer receive instant sale alerts on Telegram.",
+    });
+  }, [preferences, showNotification]);
 
-  const handleToggleTelegramMute = () => {
-    const updated = {
+  const handleToggleTelegramMute = useCallback(() => {
+    const updated: AffiliatePreferences = {
       ...preferences,
-      telegramMuted: !preferences.telegramMuted,
+      notificationFrequency:
+        preferences.notificationFrequency === "muted" ? "instant" : "muted",
     };
     setPreferences(updated);
-    const success = saveAffiliatePreferences(updated);
-    if (success) {
-      window.dispatchEvent(new Event("storage"));
-      showNotification({
-        type: "success",
-        title: updated.telegramMuted ? "Telegram Alerts Muted" : "Telegram Alerts Unmuted",
-        message: updated.telegramMuted
-          ? "Commission alerts will be paused until you unmute."
-          : "Commission alerts are now active again.",
-      });
-    }
-  };
+  }, [preferences]);
 
   const handleSave = () => {
     const success = saveAffiliatePreferences(preferences);
@@ -615,7 +539,7 @@ export const AffiliateSettings: React.FC = () => {
           </CardContent>
         </Card>
 
-        {/* Telegram Notification Bot Card */}
+        {/* Telegram Alerts Card */}
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl md:col-span-2">
           <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
             <div className="flex items-center space-x-4">
@@ -627,102 +551,85 @@ export const AffiliateSettings: React.FC = () => {
                   Connect Telegram Alerts
                 </CardTitle>
                 <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                  Receive instant sale commission alerts via the official StormSale bot
+                  Get instant sale commission alerts delivered to your Telegram account
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="p-8 space-y-6">
-            {!preferences.telegramConnected ? (
-              <div className="space-y-4">
-                <div className="p-4 rounded-2xl bg-sky-50/60 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900/60 text-sm text-sky-900 dark:text-sky-200 flex items-start gap-3">
-                  <Link2 className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
-                  <span>
-                    Connect your Telegram account in one click. You will be redirected to
-                    @{TELEGRAM_BOT_USERNAME} to authorize instant commission alerts.
-                  </span>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                    preferences.telegramConnected
+                      ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400"
+                      : "bg-slate-100 dark:bg-zinc-800 text-zinc-400"
+                  }`}
+                >
+                  <Send className="w-5 h-5" />
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+                <div>
+                  <div className="text-sm font-bold text-zinc-900 dark:text-white">
+                    {preferences.telegramConnected
+                      ? `Connected as @${preferences.telegramUsername ?? "StormSaleAffiliate"}`
+                      : "Telegram bot not connected"}
+                  </div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                    {preferences.telegramConnected
+                      ? "Instant commission alerts are enabled for this account."
+                      : "Link your Telegram account to receive real-time sale alerts."}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {preferences.telegramConnected ? (
+                  <>
+                    <Button
+                      type="button"
+                      onClick={handleToggleTelegramMute}
+                      className={`h-10 px-4 rounded-xl font-bold transition-all flex items-center gap-2 ${
+                        preferences.notificationFrequency === "muted"
+                          ? "bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-500/25"
+                          : "bg-zinc-600 hover:bg-zinc-500 text-white shadow-md shadow-zinc-500/25"
+                      }`}
+                    >
+                      <Bell className="w-4 h-4" />
+                      {preferences.notificationFrequency === "muted" ? "Unmute Alerts" : "Mute Alerts"}
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleDisconnectTelegram}
+                      className="h-10 px-4 rounded-xl font-bold transition-all flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-500/25"
+                    >
+                      <Unlink className="w-4 h-4" />
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
                   <Button
+                    type="button"
                     onClick={handleConnectTelegram}
-                    className="h-10 px-6 rounded-xl font-bold bg-sky-600 hover:bg-sky-500 text-white shadow-md hover:shadow-sky-500/25 flex items-center gap-2"
+                    disabled={telegramConnecting}
+                    className="h-10 px-6 rounded-xl font-bold transition-all flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white shadow-md shadow-sky-500/25 disabled:opacity-60"
                   >
                     <Send className="w-4 h-4" />
-                    Connect Telegram Alerts
+                    {telegramConnecting ? "Connecting..." : "Connect Telegram Alerts"}
                   </Button>
-                  {telegramConnecting && telegramToken && (
-                    <Button
-                      onClick={handleConfirmTelegramConnection}
-                      variant="outline"
-                      className="h-10 px-6 rounded-xl font-bold flex items-center gap-2"
-                    >
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                      I've Started the Bot
-                    </Button>
-                  )}
-                </div>
-                {telegramConnecting && telegramToken && (
-                  <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 break-all">
-                    <span className="font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                      Deep link:
-                    </span>
-                    {buildTelegramDeepLink(telegramToken)}
-                  </div>
                 )}
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/60">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                    <div>
-                      <div className="text-sm font-bold text-emerald-900 dark:text-emerald-200">
-                        Telegram Connected
-                      </div>
-                      <div className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
-                        Instant sale commission alerts are enabled
-                      </div>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-[11px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${
-                      preferences.telegramMuted
-                        ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
-                        : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                    }`}
-                  >
-                    {preferences.telegramMuted ? "Muted" : "Active"}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    onClick={handleToggleTelegramMute}
-                    variant="outline"
-                    className="h-10 px-6 rounded-xl font-bold flex items-center gap-2"
-                  >
-                    {preferences.telegramMuted ? (
-                      <>
-                        <Volume2 className="w-4 h-4 text-emerald-500" />
-                        Unmute Alerts
-                      </>
-                    ) : (
-                      <>
-                        <VolumeX className="w-4 h-4 text-amber-500" />
-                        Mute Alerts
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    onClick={handleDisconnectTelegram}
-                    variant="outline"
-                    className="h-10 px-6 rounded-xl font-bold flex items-center gap-2 text-rose-600 border-rose-200 hover:bg-rose-50 dark:text-rose-400 dark:border-rose-900/60 dark:hover:bg-rose-950/30"
-                  >
-                    <Unlink className="w-4 h-4" />
-                    Disconnect Bot
-                  </Button>
-                </div>
+            </div>
+            {telegramToken && !preferences.telegramConnected ? (
+              <div className="p-4 rounded-2xl bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-900 text-xs text-sky-700 dark:text-sky-300">
+                Open <span className="font-mono font-bold">t.me/StormSaleBot?start={telegramToken}</span> to complete linking.
               </div>
-            )}
+            ) : null}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 flex items-start gap-3">
+              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <span>
+                Alerts include campaign name, sale value, and commission earned. You can mute or
+                disconnect the bot at any time.
+              </span>
+            </div>
           </CardContent>
         </Card>
 

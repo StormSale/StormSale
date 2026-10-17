@@ -1,183 +1,173 @@
-import { API_URL } from "../utils/api";
+import { createHash } from "crypto";
 
-export const TELEGRAM_BOT_USERNAME = "StormSaleBot";
-export const TELEGRAM_BOT_BASE_URL = `https://t.me/${TELEGRAM_BOT_USERNAME}`;
-
-export interface TelegramLinkPayload {
+export interface TelegramConnection {
+  affiliateId: string;
+  telegramUserId?: string;
   token: string;
-  walletAddress?: string;
+  connectedAt?: Date;
 }
 
-export interface TelegramConnectionState {
+export interface TelegramNotificationPreferences {
+  enabled: boolean;
+  muted: boolean;
   connected: boolean;
-  muted?: boolean;
-  telegramUsername?: string;
-  linkedAt?: string;
 }
 
 export interface ConversionAlertPayload {
   campaignName: string;
-  saleValue: number | string;
-  commissionEarned: number | string;
+  saleValue: number;
+  commissionEarned: number;
   currency?: string;
-  customer?: string;
+  customerName?: string;
+  conversionId?: string;
 }
 
-const TELEGRAM_STORAGE_KEY = "stormsale.telegram.connection";
+export const TELEGRAM_BOT_USERNAME = "StormSaleBot";
 
-const getStorage = (): Storage | null => {
-  if (typeof window === "undefined") return null;
+const TOKEN_BYTES_MIN = 16;
+const TOKEN_BYTES_MAX = 64;
+
+export function generateConnectToken(affiliateId: string): string {
+  if (!affiliateId || affiliateId.trim().length === 0) {
+    throw new Error("affiliateId is required to generate a Telegram connect token");
+  }
+  const raw = `${affiliateId}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  return createHash("sha256").update(raw).digest("hex").slice(0, 32);
+}
+
+export function buildConnectDeepLink(token: string): string {
+  if (!token || token.trim().length === 0) {
+    throw new Error("token is required to build the Telegram deep link");
+  }
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${encodeURIComponent(token)}`;
+}
+
+export function isValidConnectToken(token: string): boolean {
+  if (typeof token !== "string") return false;
+  if (token.length < TOKEN_BYTES_MIN || token.length > TOKEN_BYTES_MAX) return false;
+  return /^[A-Za-z0-9_-]+$/.test(token);
+}
+
+export function createDefaultPreferences(): TelegramNotificationPreferences {
+  return { enabled: true, muted: false, connected: false };
+}
+
+export function connectTelegram(
+  affiliateId: string,
+  telegramUserId: string,
+  token: string,
+): TelegramConnection {
+  if (!isValidConnectToken(token)) {
+    throw new Error("Invalid Telegram connect token");
+  }
+  if (!telegramUserId || telegramUserId.trim().length === 0) {
+    throw new Error("telegramUserId is required");
+  }
+  return {
+    affiliateId,
+    telegramUserId: telegramUserId.trim(),
+    token,
+    connectedAt: new Date(),
+  };
+}
+
+export function disconnectTelegram(
+  preferences: TelegramNotificationPreferences,
+): TelegramNotificationPreferences {
+  return { ...preferences, connected: false, enabled: false, muted: false };
+}
+
+export function setMuted(
+  preferences: TelegramNotificationPreferences,
+  muted: boolean,
+): TelegramNotificationPreferences {
+  return { ...preferences, muted };
+}
+
+export function setEnabled(
+  preferences: TelegramNotificationPreferences,
+  enabled: boolean,
+): TelegramNotificationPreferences {
+  return { ...preferences, enabled };
+}
+
+function formatCommency(value: number, currency: string): string {
   try {
-    return window.localStorage;
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
   } catch {
-    return null;
+    return `${currency} ${value.toFixed(2)}`;
   }
-};
+}
 
-export const generateTelegramDeepLink = (token: string): string => {
-  const safeToken = (token || "").trim();
-  if (!safeToken) {
-    throw new Error("Telegram deep link requires a valid connection token");
-  }
-  return `${TELEGRAM_BOT_BASE_URL}?start=${encodeURIComponent(safeToken)}`;
-};
-
-export const formatConversionAlert = (payload: ConversionAlertPayload): string => {
-  const currency = payload.currency || "XLM";
-  const saleValue = Number(payload.saleValue);
-  const commission = Number(payload.commissionEarned);
-  const formattedSale = Number.isFinite(saleValue) ? saleValue.toFixed(2) : "0.00";
-  const formattedCommission = Number.isFinite(commission) ? commission.toFixed(2) : "0.00";
-
-  const lines = [
-    "🎉 Great news! You just earned a commission!",
+export function formatConversionAlert(payload: ConversionAlertPayload): string {
+  const currency = payload.currency || "USD";
+  const lines: string[] = [
+    "🎉 **New Sale!** 🎉",
     "",
-    `📈 Campaign: ${payload.campaignName}`,
-    `💰 Sale value: ${formattedSale} ${currency}`,
-    `💰 Commission earned: ${formattedCommission} ${currency}`,
+    `📞 Campaign: **${escapeMarkdown(payload.campaignName)}**`,
+    `💵 Sale value: **${formatCommency(payload.saleValue, currency)}**`,
+    `💰 Commission earned: **${formatCommency(payload.commissionEarned, currency)}**`,
   ];
-
-  if (payload.customer) {
-    lines.push(`👤 Customer: ${payload.customer}`);
+  if (payload.customerName) {
+    lines.push(`👤 Customer: ${escapeMarkdown(payload.customerName)}`);
   }
-
-  lines.push("", "🚠 Keep sharing your link to earn more!");
-
+  if (payload.conversionId) {
+    lines.push(`🗄 ${escapeMarkdown(payload.conversionId)}`);
+  }
+  lines.push("", "🚀 Your commission has been credited!");
   return lines.join("\n");
-};
+}
 
-const safeParse = (raw: string | null): TelegramConnectionState | null => {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return {
-      connected: Boolean(parsed.connected),
-      muted: Boolean(parsed.muted),
-      telegramUsername:
-        typeof parsed.telegramUsername === "string" ? parsed.telegramUsername : undefined,
-      linkedAt: typeof parsed.linkedAt === "string" ? parsed.linkedAt : undefined,
-    };
-  } catch {
-    return null;
-  }
-};
+export function escapeMarkdown(text: string): string {
+  return text.replace(/([_*[\]\(\)~#`>])/g, "$1");
+}
 
-export const loadTelegramConnection = (): TelegramConnectionState => {
-  const storage = getStorage();
-  if (!storage) return { connected: false, muted: false };
-  const parsed = safeParse(storage.getItem(TELEGRAM_STORAGE_KEY));
-  return parsed || { connected: false, muted: false };
-};
+export interface TelegramSendResult {
+  ok: boolean;
+  description?: string;
+}
 
-export const saveTelegramConnection = (state: TelegramConnectionState): boolean => {
-  const storage = getStorage();
-  if (!storage) return false;
-  try {
-    storage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(state));
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-export const disconnectTelegram = (): void => {
-  const storage = getStorage();
-  if (!storage) return;
-  try {
-    storage.removeItem(TELEGRAM_STORAGE_KEY);
-  } catch {
-    // ignore storage failures
-  }
-};
-
-export const setTelegramMuted = (muted: boolean): TelegramConnectionState => {
-  const current = loadTelegramConnection();
-  const next: TelegramConnectionState = { ...current, muted };
-  saveTelegramConnection(next);
-  return next;
-};
-
-export const requestTelegramLinkToken = async (
-  walletAddress: string): Promise<string> => {
-  const response = await fetch(`${API_URL}/telegram/link-token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ walletAddress }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to generate Telegram link token");
-  }
-
-  const data = await response.json();
-  const token = data.token || data.deepLinkToken;
-  if (!token) {
-    throw new Error("Telegram link token missing from response");
-  }
-  return String(token);
-};
-
-export const connectTelegramAlerts = async (walletAddress: string): Promise<{
-  deepLink: string;
-  token: string;
-}> => {
-  const token = await requestTelegramLinkToken(walletAddress);
-  const deepLink = generateTelegramDeepLink(token);
-  saveTelegramConnection({
-    connected: true,
-    muted: false,
-    linkedAt: new Date().toISOString(),
-  });
-  return { deepLink, token };
-};
-
-export const dispatchConversionAlert = async (
-  walletAddress: string,
-  payload: ConversionAlertPayload
-): Promise<{ delivered: boolean; message: string }> => {
-  const connection = loadTelegramConnection();
-  const message = formatConversionAlert(payload);
-
-  if (!connection.connected || connection.muted) {
-    return { delivered: false, message };
-  }
-
-  const response = await fetch(`${API_URL}/telegram/notify`, {
+export async function sendTelegramMessage(
+  botToken: string,
+  chatId: string,
+  text: string,
+): Promise<TelegramSendResult> {
+  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+  if (!chatId) throw new Error("chatId is required");
+  const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      walletAddress,
-      message,
-      payload,
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
+      disable_web_page_preview: true,
     }),
   });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to dispatch Telegram conversion alert");
+  const data = (await response.json()) as { ok?: boolean; description?: string };
+  if (!response.ok || data.ok === false) {
+    return { ok: false, description: data.description || `Telegram API responded with ${response.status}` };
   }
+  return { ok: true };
+}
 
-  return { delivered: true, message };
-};
+export async function dispatchConversionAlert(
+  botToken: string,
+  connection: TelegramConnection,
+  preferences: TelegramNotificationPreferences,
+  payload: ConversionAlertPayload,
+): Promise<TelegramSendResult> {
+  if (!preferences.connected || !preferences.enabled || preferences.muted) {
+    return { ok: false, description: "Notifications are disabled or muted" };
+  }
+  if (!connection.telegramUserId) {
+    return { ok: false, description: "Telegram account is not connected" };
+  }
+  const text = formatConversionAlert(payload);
+  return sendTelegramMessage(botToken, connection.telegramUserId, text);
+}

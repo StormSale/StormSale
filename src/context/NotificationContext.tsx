@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -8,7 +8,6 @@ import {
   X,
   ExternalLink,
   ArrowRight,
-  Send,
 } from "lucide-react";
 
 export type NotificationType = "success" | "error" | "warning" | "info";
@@ -33,20 +32,6 @@ export interface Notification {
   campaignId?: string;
 }
 
-export interface TelegramAlertPreferences {
-  connected: boolean;
-  muted: boolean;
-  botUsername: string;
-  linkedAt?: number;
-}
-
-export interface ConversionAlertParams {
-  campaignName: string;
-  saleValue: number;
-  commissionEarned: number;
-  currency?: string;
-}
-
 export interface NotificationContextType {
   notifications: Notification[];
   showNotification: (notification: Omit<Notification, "id">) => string;
@@ -61,13 +46,12 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
-  telegramPreferences: TelegramAlertPreferences;
-  generateTelegramConnectLink: (token: string) => string;
-  connectTelegram: (token: string) => void;
+  telegramConnected: boolean;
+  telegramMuted: boolean;
+  connectTelegram: () => string;
   disconnectTelegram: () => void;
   toggleTelegramMute: () => void;
-  notifyConversion: (params: ConversionAlertParams) => string | null;
-  buildConversionAlertMessage: (params: ConversionAlertParams) => string;
+  notifyAffiliateConversion: (params: AffiliateConversionParams) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -77,6 +61,15 @@ export interface EscrowMonitoredCampaign {
   escrowBalance: number;
   status?: string;
 }
+
+export interface AffiliateConversionParams {
+  campaignName: string;
+  saleValue: number;
+  commissionEarned: number;
+  currency?: string;
+}
+
+const TELEGRAM_BOT_USERNAME = "StormSaleBot";
 
 /**
  * Evaluates campaign escrow funds and determines whether a critical low-balance condition exists (< 10%).
@@ -127,56 +120,80 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
-export const TELEGRAM_BOT_USERNAME = "StormSaleBot";
-export const TELEGRAM_PREFERENCES_STORAGE_KEY = "stormsale.telegram.alert.preferences";
-
 /**
- * Builds the one-click deep link that connects an affiliate to the official StormSale Telegram bot.
+ * Builds a one-click Telegram deep link for connecting the affiliate account to the official bot.
  */
-export function buildTelegramConnectLink(token: string, botUsername: string = TELEGRAM_BOT_USERNAME): string {
-  return `https://t.me/${botUsername}?start=${encodeURIComponent(token)}`;
+export function buildTelegramDeepLink(token: string): string {
+  return `https://t.me/${TELEGRAM_BOT_USERNAME}?start=${encodeURIComponent(token)}`;
 }
 
 /**
- * Formats a celebratory conversion alert message dispatched to the affiliate's Telegram chat.
+ * Formats a celebratory conversion alert message for Telegram delivery.
  */
-export function buildConversionAlertMessage(params: ConversionAlertParams): string {
+export function formatAffiliateConversionMessage(params: AffiliateConversionParams): string {
   const currency = params.currency || "XLM";
-  const saleValue = params.saleValue.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const commission = params.commissionEarned.toLocaleString(undefined, { maximumFractionDigits: 2 });
   return [
     "🎉💰 New Sale Conversion! 💰🎉",
-    "",
     `📣 Campaign: ${params.campaignName}`,
-    `🛒 Sale Value: ${saleValue} ${currency}`,
-    `💸 Commission Earned: ${commission} ${currency}`,
-    "",
-    "🚀 Keep it up — your referral link is on fire! 🔥",
+    `🛒 Sale Value: ${params.saleValue.toLocaleString()} ${currency}`,
+    `🏆 Commission Earned: ${params.commissionEarned.toLocaleString()} ${currency}`,
+    "🚀 Keep it up!",
   ].join("\n");
-}
-
-const DEFAULT_TELEGRAM_PREFERENCES: TelegramAlertPreferences = {
-  connected: false,
-  muted: false,
-  botUsername: TELEGRAM_BOT_USERNAME,
-};
-
-function loadTelegramPreferences(): TelegramAlertPreferences {
-  try {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(TELEGRAM_PREFERENCES_STORAGE_KEY) : null;
-    if (!raw) return DEFAULT_TELEGRAM_PREFERENCES;
-    return { ...DEFAULT_TELEGRAM_PREFERENCES, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_TELEGRAM_PREFERENCES;
-  }
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [telegramPreferences, setTelegramPreferences] =
-    useState<TelegramAlertPreferences>(loadTelegramPreferences);
+  const [telegramConnected, setTelegramConnected] = useState<boolean>(false);
+  const [telegramMuted, setTelegramMuted] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const storedConnected = localStorage.getItem("telegram_connected");
+      const storedMuted = localStorage.getItem("telegram_muted");
+      if (storedConnected === "true") setTelegramConnected(true);
+      if (storedMuted === "true") setTelegramMuted(true);
+    } catch {
+      // localStorage unavailable; keep defaults
+    }
+  }, []);
+
+  const connectTelegram = (): string => {
+    const token = Math.random().toString(36).substring(2, 15);
+    setTelegramConnected(true);
+    setTelegramMuted(false);
+    try {
+      localStorage.setItem("telegram_connected", "true");
+      localStorage.setItem("telegram_muted", "false");
+    } catch {
+      // ignore storage errors
+    }
+    return buildTelegramDeepLink(token);
+  };
+
+  const disconnectTelegram = () => {
+    setTelegramConnected(false);
+    setTelegramMuted(false);
+    try {
+      localStorage.setItem("telegram_connected", "false");
+      localStorage.setItem("telegram_muted", "false");
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const toggleTelegramMute = () => {
+    setTelegramMuted((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("telegram_muted", String(next));
+      } catch {
+        // ignore storage errors
+      }
+      return next;
+    });
+  };
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -221,6 +238,20 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     return showNotification(buildLowEscrowNotification(params));
   };
 
+  // Dispatch a real-time affiliate conversion alert (respects mute preference)
+  const notifyAffiliateConversion = (params: AffiliateConversionParams): string => {
+    if (!telegramConnected || telegramMuted) {
+      return "";
+    }
+    const message = formatAffiliateConversionMessage(params);
+    return showNotification({
+      type: "success",
+      title: "🎉 New Sale Conversion!",
+      message,
+      duration: 8000,
+    });
+  };
+
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = (campaigns: EscrowMonitoredCampaign[]) => {
     campaigns.forEach((campaign) => {
@@ -241,72 +272,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     });
   };
 
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          TELEGRAM_PREFERENCES_STORAGE_KEY,
-          JSON.stringify(telegramPreferences),
-        );
-      }
-    } catch {
-      // Ignore persistence failures (private mode, quota, etc.)
-    }
-  }, [telegramPreferences]);
-
-  const generateTelegramConnectLink = useCallback(
-    (token: string) => buildTelegramConnectLink(token, telegramPreferences.botUsername),
-    [telegramPreferences.botUsername],
-  );
-
-  const connectTelegram = useCallback(() => {
-    setTelegramPreferences((prev) => ({
-      ...prev,
-      connected: true,
-      muted: false,
-      linkedAt: Date.now(),
-    }));
-    showNotification({
-      type: "success",
-      title: "Telegram Alerts Connected",
-      message: `You will now receive instant sale commission alerts from @${telegramPreferences.botUsername}.`,
-    });
-  }, [telegramPreferences.botUsername]);
-
-  const disconnectTelegram = useCallback(() => {
-    setTelegramPreferences((prev) => ({
-      ...prev,
-      connected: false,
-      muted: false,
-      linkedAt: undefined,
-    }));
-    showNotification({
-      type: "info",
-      title: "Telegram Alerts Disconnected",
-      message: "You will no longer receive sale commission alerts on Telegram.",
-    });
-  }, []);
-
-  const toggleTelegramMute = useCallback(() => {
-    setTelegramPreferences((prev) => ({ ...prev, muted: !prev.muted }));
-  }, []);
-
-  const notifyConversion = useCallback(
-    (params: ConversionAlertParams): string | null => {
-      if (!telegramPreferences.connected || telegramPreferences.muted) {
-        return null;
-      }
-      const message = buildConversionAlertMessage(params);
-      return showNotification({
-        type: "success",
-        title: "🎉 New Sale Conversion!",
-        message,
-        duration: 8000,
-      });
-    },
-    [telegramPreferences.connected, telegramPreferences.muted],
-  );
-
   return (
     <NotificationContext.Provider
       value={{
@@ -316,13 +281,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
-        telegramPreferences,
-        generateTelegramConnectLink,
+        telegramConnected,
+        telegramMuted,
         connectTelegram,
         disconnectTelegram,
         toggleTelegramMute,
-        notifyConversion,
-        buildConversionAlertMessage,
+        notifyAffiliateConversion,
       }}
     >
       {children}
@@ -331,7 +295,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   );
 };
 
-const NotificationContainer: React.FC = () => {
+function NotificationContainer(): React.ReactElement | null {
   const { notifications, dismissNotification } = useNotification();
 
   const getIcon = (type: NotificationType) => {
@@ -400,13 +364,6 @@ const NotificationContainer: React.FC = () => {
                   </p>
                 )}
 
-                {notification.type === "success" && notification.title.includes("Conversion") && (
-                  <div className="mt-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                    <Send className="w-3 h-3" />
-                    <span>Telegram Alert Dispatched</span>
-                  </div>
-                )}
-
                 {/* Interactive Action: Link or Button to "Top Up" flow */}
                 {actionLabel && (
                   <div className="mt-3 flex items-center gap-2 pt-1">
@@ -463,7 +420,7 @@ const NotificationContainer: React.FC = () => {
       })}
     </div>
   );
-};
+}
 
 export const useNotification = () => {
   const context = useContext(NotificationContext);

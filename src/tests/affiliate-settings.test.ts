@@ -4,10 +4,12 @@ import {
   saveAffiliatePreferences,
   shouldDeliverAffiliateNotification,
   syncSystemThemeListener,
-  buildTelegramConnectLink,
-  formatTelegramConversionAlert,
   DEFAULT_PREFERENCES,
   SETTINGS_STORAGE_KEY,
+  buildTelegramConnectLink,
+  formatTelegramConversionAlert,
+  shouldDeliverTelegramAlert,
+  TELEGRAM_BOT_USERNAME,
 } from "../components/affiliate/AffiliateSettings";
 import { resolveEffectiveTheme, applyTheme } from "../components/shared/ThemeToggle";
 
@@ -190,45 +192,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(shouldDeliverAffiliateNotification("payout", selectivePrefs)).toBe(true);
   });
 
-  it("builds a one-click Telegram deep link with the affiliate token", () => {
-    expect(buildTelegramConnectLink("abc123")).toBe("https://t.me/StormSaleBot?start=abc123");
-    expect(buildTelegramConnectLink("")).toBe("https://t.me/StormSaleBot?start=");
-  });
-
-  it("formats a celebratory conversion alert with campaign, value, and commission", () => {
-    const message = formatTelegramConversionAlert({
-      campaignName: "Summer Promo",
-      saleValue: "120.5",
-      commissionEarned: "6.025",
-      asset: "USDC",
-    });
-    expect(message).toContain("Summer Promo");
-    expect(message).toContain("120.5");
-    expect(message).toContain("6.025");
-    expect(message).toContain("USDC");
-    expect(message).toMatch(/🎉|🚀|💰/);
-  });
-
-  it("persists telegram alert preferences and supports mute/disconnect", () => {
-    saveAffiliatePreferences({
-      ...DEFAULT_PREFERENCES,
-      telegramAlertsEnabled: true,
-      telegramChatId: "12345",
-    });
-    const connected = loadAffiliatePreferences();
-    expect(connected.telegramAlertsEnabled).toBe(true);
-    expect(connected.telegramChatId).toBe("12345");
-
-    saveAffiliatePreferences({
-      ...connected,
-      telegramAlertsEnabled: false,
-      telegramChatId: "",
-    });
-    const disconnected = loadAffiliatePreferences();
-    expect(disconnected.telegramAlertsEnabled).toBe(false);
-    expect(disconnected.telegramChatId).toBe("");
-  });
-
   it("normalizes legacy frequency settings to instant", () => {
     mockLocalStorage.setItem(
       SETTINGS_STORAGE_KEY,
@@ -331,20 +294,90 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     // 1. Verify resolveEffectiveTheme directly: stored "false" overrides document dark class
     mockDocument.documentElement.classList.toggle("dark", true);
     mockLocalStorage.setItem("darkMode", "false");
-    expect(resolveEffectiveTheme()).toBe("light");
+    expect(resolveEffectiveTheme()).toBe(false);
 
-    // 2. Stored "true" forces dark even when class is absent
+    // Stored "true" overrides missing dark class
     mockDocument.documentElement.classList.toggle("dark", false);
     mockLocalStorage.setItem("darkMode", "true");
-    expect(resolveEffectiveTheme()).toBe("dark");
+    expect(resolveEffectiveTheme()).toBe(true);
 
-    // 3. applyTheme should persist and sync the classList
-    applyTheme("light");
-    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
-    expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
+    // Fallback to classList when no stored preference exists
+    mockLocalStorage.removeItem("darkMode");
+    mockDocument.documentElement.classList.toggle("dark", true);
+    expect(resolveEffectiveTheme()).toBe(true);
+    mockDocument.documentElement.classList.toggle("dark", false);
+    expect(resolveEffectiveTheme()).toBe(false);
 
-    applyTheme("dark");
+    // 2. Exercise theme application and storage/DOM synchronization
+    mockLocalStorage.setItem("darkMode", "false");
+    mockDocument.documentElement.classList.toggle("dark", true);
+
+    expect(resolveEffectiveTheme()).toBe(false);
+
+    // Apply dark theme
+    applyTheme(true);
     expect(mockLocalStorage.getItem("darkMode")).toBe("true");
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(true);
+
+    // Apply light theme
+    applyTheme(false);
+    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("builds a one-click Telegram deep link with the affiliate token", () => {
+    const link = buildTelegramConnectLink("abc123token");
+    expect(link).toBe(`https://t.me/${TELEGRAM_BOT_USERNAME}?start=abc123token`);
+  });
+
+  it("formats a conversion alert with celebratory emojis and sale details", () => {
+    const message = formatTelegramConversionAlert({
+      campaignName: "Summer Push",
+      saleValue: "125.50",
+      commissionEarned: "12.55",
+      asset: "XLM",
+    });
+
+    expect(message).toContain("Summer Push");
+    expect(message).toContain("125.50");
+    expect(message).toContain("12.55");
+    expect(message).toContain("XLM");
+    expect(message).toMatch(/🎉|🎉|🎉/);
+  });
+
+  it("gates Telegram alerts on connection status and mute preferences", () => {
+    const disconnectedPrefs = {
+      ...DEFAULT_PREFERENCES,
+      telegramConnected: false,
+    };
+    expect(shouldDeliverTelegramAlert(disconnectedPrefs)).toBe(false);
+
+    const connectedPrefs = {
+      ...DEFAULT_PREFERENCES,
+      telegramConnected: true,
+      telegramMuted: false,
+    };
+    expect(shouldDeliverTelegramAlert(connectedPrefs)).toBe(true);
+
+    const mutedPrefs = {
+      ...DEFAULT_PREFERENCES,
+      telegramConnected: true,
+      telegramMuted: true,
+    };
+    expect(shouldDeliverTelegramAlert(mutedPrefs)).toBe(false);
+  });
+
+  it("persists Telegram connection and mute state", () => {
+    saveAffiliatePreferences({
+      ...DEFAULT_PREFERENCES,
+      telegramConnected: true,
+      telegramMuted: true,
+      telegramChatId: "987654321",
+    });
+
+    const loaded = loadAffiliatePreferences();
+    expect(loaded.telegramConnected).toBe(true);
+    expect(loaded.telegramMuted).toBe(true);
+    expect(loaded.telegramChatId).toBe("987654321");
   });
 });

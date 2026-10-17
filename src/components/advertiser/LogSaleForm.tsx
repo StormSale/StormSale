@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -18,8 +18,8 @@ import {
   getPublicKeyForAddress,
 } from "../../lib/crypto";
 import { triggerConversionPostback } from "../../lib/webhookEngine";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
 import { dispatchTelegramConversionAlert } from "../../lib/telegramBot";
+import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
@@ -29,25 +29,6 @@ export const LogSaleForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
-  const [telegramConnected, setTelegramConnected] = useState(false);
-  const [telegramMuted, setTelegramMuted] = useState(false);
-  const [telegramToken, setTelegramToken] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      const storedToken = localStorage.getItem("stormsale_telegram_token");
-      const storedMuted = localStorage.getItem("stormsale_telegram_muted");
-      if (storedToken) {
-        setTelegramToken(storedToken);
-        setTelegramConnected(true);
-      }
-      if (storedMuted === "true") {
-        setTelegramMuted(true);
-      }
-    } catch (err) {
-      console.warn("Telegram preference load warning:", err);
-    }
-  }, []);
 
   const handleLogSale = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -138,21 +119,17 @@ export const LogSaleForm = () => {
       }
 
       // Telegram Instant Commission Alert Dispatch
-      if (telegramConnected && !telegramMuted) {
-        try {
-          await dispatchTelegramConversionAlert({
-            telegramToken: telegramToken || undefined,
-            affiliateAddress,
-            campaignAddress,
-            campaignName: `Campaign ${campaignAddress.slice(0, 8)}`,
-            saleAmount,
-            currency: "XLM",
-            commissionEarned: (parseFloat(saleAmount) * 0.1).toFixed(4),
-            saleId: payload.saleId,
-          });
-        } catch (telegramErr) {
-          console.warn("Telegram alert warning:", telegramErr);
-        }
+      try {
+        await dispatchTelegramConversionAlert({
+          affiliateAddress,
+          campaignAddress,
+          saleAmount,
+          currency: "XLM",
+          saleId: payload.saleId,
+          commissionEarned: Number((Number(saleAmount) * 0.1).toFixed(2)),
+        });
+      } catch (telegramErr) {
+        console.warn("Telegram alert warning:", telegramErr);
       }
 
       showNotification({
@@ -177,58 +154,6 @@ export const LogSaleForm = () => {
     }
   };
 
-  const handleConnectTelegram = () => {
-    try {
-      const token =
-        typeof crypto !== "undefined" && "randomUUID" in crypto
-          ? crypto.randomUUID()
-          : `TG_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const deepLink = `https://t.me/StormSaleBot?start=${token}`;
-      localStorage.setItem("stormsale_telegram_token", token);
-      setTelegramToken(token);
-      setTelegramConnected(true);
-      window.open(deepLink, "_blank", "noopener,noreferrer");
-      showNotification({
-        type: "success",
-        title: "Telegram Connect Started",
-        message: "Open the StormSale bot and press Start to finish linking.",
-      });
-    } catch (err: any) {
-      showNotification({
-        type: "error",
-        title: "Telegram Connect Failed",
-        message: err?.message || "Unable to start Telegram connection.",
-      });
-    }
-  };
-
-  const handleToggleTelegramMute = () => {
-    const next = !telegramMuted;
-    setTelegramMuted(next);
-    try {
-      localStorage.setItem("stormsale_telegram_muted", String(next));
-    } catch (err) {
-      console.warn("Telegram mute persist warning:", err);
-    }
-  };
-
-  const handleDisconnectTelegram = () => {
-    setTelegramConnected(false);
-    setTelegramMuted(false);
-    setTelegramToken(null);
-    try {
-      localStorage.removeItem("stormsale_telegram_token");
-      localStorage.removeItem("stormsale_telegram_muted");
-    } catch (err) {
-      console.warn("Telegram disconnect warning:", err);
-    }
-    showNotification({
-      type: "info",
-      title: "Telegram Disconnected",
-      message: "You will no longer receive instant commission alerts.",
-    });
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -239,60 +164,6 @@ export const LogSaleForm = () => {
           Record a new sale with military-grade encryption and commission escrow
         </p>
       </div>
-
-      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
-        <CardHeader className="pb-4 pt-6 px-8">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-                Connect Telegram Alerts
-              </CardTitle>
-              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                Get instant commission alerts whenever a sale is logged.
-              </CardDescription>
-            </div>
-            <div
-              className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                telegramConnected
-                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
-                  : "bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
-              }`}
-            >
-              {telegramConnected ? (telegramMuted ? "Muted" : "Connected") : "Not Connected"}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="px-8 pb-8">
-          {!telegramConnected ? (
-            <Button
-              type="button"
-              onClick={handleConnectTelegram}
-              className="w-full h-12 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded-xl"
-            >
-              Connect Telegram Alerts
-            </Button>
-          ) : (
-            <div className="flex flex-col sm:flex-row gap-3">
-              <Button
-                type="button"
-                onClick={handleToggleTelegramMute}
-                variant="outline"
-                className="flex-1 h-12 rounded-xl"
-              >
-                {telegramMuted ? "Unmute Alerts" : "Mute Alerts"}
-              </Button>
-              <Button
-                type="button"
-                onClick={handleDisconnectTelegram}
-                variant="outline"
-                className="flex-1 h-12 rounded-xl text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-500/30 dark:hover:bg-red-500/10"
-              >
-                Disconnect Bot
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">
@@ -331,69 +202,98 @@ export const LogSaleForm = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
-                  description="The affiliate who will receive commission"
+                  description="The affiliate who made this sale"
                   required
                 >
                   <Input
                     value={affiliateAddress}
                     onChange={(e) => setAffiliateAddress(e.target.value)}
-                    placeholder="e.g. G... affiliate address"
+                    placeholder="GAFFILIATE... (Stellar Public Key)"
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                     required
                   />
                 </InputField>
 
                 <InputField
-                  label="Sale Amount"
-                  description="The total value of the sale in XLM"
+                  label="Sale Amount (XLM)"
+                  description="Total sale amount in XLM tokens"
                   required
                 >
-                  <Input
-                    value={saleAmount}
-                    onChange={(e) => setSaleAmount(e.target.value)}
-                    placeholder="e.g. 100.00"
-                    type="number"
-                    step="0.0001"
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                    required
-                  />
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={saleAmount}
+                      onChange={(e) => setSaleAmount(e.target.value)}
+                      placeholder="e.g., 100.50"
+                      className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                      required
+                    />
+                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
+                      XLM
+                    </div>
+                  </div>
                 </InputField>
               </div>
 
               <InputField
-                label="Customer Data (Optional)"
-                description="Optional reference or customer identifier"
+                label="Customer Information"
+                description="Optional customer data (will be encrypted)"
               >
                 <Input
                   value={customerData}
                   onChange={(e) => setCustomerData(e.target.value)}
-                  placeholder="e.g. Customer email or reference"
+                  placeholder="Customer name, email, or reference ID"
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                 />
               </InputField>
 
-              <div className="flex items-center gap-3 p-4 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl">
-                <FileKey className="w-5 h-5 text-indigo-600 dark:text-indigo-400 flex-shrink-0" />
-                <p className="text-sm text-indigo-700 dark:text-indigo-300">
-                  Sale data is encrypted with AES-256 and wrapped keys for both parties.
-                </p>
+              {/* Encryption Flow Visualization */}
+              <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
+                <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs mb-6 flex items-center">
+                  <FileKey className="w-4 h-4 mr-2 text-indigo-500" />
+                  Encryption Security Flow
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-6 text-center">
+                  {[
+                    { step: "1", label: "Generate AES Key", icon: Zap },
+                    { step: "2", label: "Encrypt Data", icon: Shield },
+                    { step: "3", label: "Get Public Keys", icon: Users },
+                    { step: "4", label: "Wrap Keys", icon: FileKey },
+                    { step: "5", label: "Store On-Chain", icon: Shield },
+                  ].map((item, index) => {
+                    const IconComponent = item.icon;
+                    return (
+                      <div key={index} className="flex flex-col items-center">
+                        <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 rounded-full flex items-center justify-center text-sm font-bold mb-3 border border-indigo-200 dark:border-indigo-500/30">
+                          {item.step}
+                        </div>
+                        <IconComponent className="w-5 h-5 text-zinc-400 dark:text-zinc-500 mb-2" />
+                        <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                          {item.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-lg rounded-xl shadow-lg"
+                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
               >
                 {isLoading ? (
-                  <span className="flex items-center gap-2">
-                    <Zap className="w-5 h-5 animate-pulse" />
-                    Logging Sale...
-                  </span>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Logging Encrypted Sale...</span>
+                  </div>
                 ) : (
-                  <span className="flex items-center gap-2">
-                    <Users className="w-5 h-5" />
-                    Log Encrypted Sale
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <Shield className="w-5 h-5" />
+                    <span>Log Encrypted Sale</span>
+                  </div>
                 )}
               </Button>
             </InputGroup>
