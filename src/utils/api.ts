@@ -1,22 +1,30 @@
-export const API_URL = import.meta.env && import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL : "http://localhost:3001/api";
+export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001/api";
 
-export interface GeoClickRow {
+export type AffiliateClick = {
+  id?: string;
   countryIso: string;
-  countryName: string;
+  countryName?: string;
   clicks: number;
   conversions: number;
-  lat: number;
-  lng: number;
-}
+  conversionRate?: number;
+  lat?: number;
+  lng?: number;
+  timestamp?: string;
+};
 
-export interface GeoAnalyticsResponse {
-  rows: GeoClickRow[];
+export type ClickStreamFilters = {
+  startDate?: string;
+  endDate?: string;
+  campaignId?: string;
+  linkId?: string;
+};
+
+export type ClickStreamResponse = {
+  countries: AffiliateClick[];
   totalClicks: number;
   totalConversions: number;
-  from: string;
-  to: string;
-  campaignId?: string;
-}
+  generatedAt?: string;
+};
 
 export const registerUser = async (walletAddress: string, role: string = "AFFILIATE") => {
   try {
@@ -48,30 +56,72 @@ export const fetchCampaign = async (campaignId: string) => {
   }
 };
 
-export const fetchGeoAnalytics = async (params: {
-  from: string;
-  to: string;
-  campaignId?: string;
-}): Promise<GeoAnalyticsResponse> => {
+const buildQuery = (params: Record<string, string | undefined>) => {
   const search = new URLSearchParams();
-  search.set("from", params.from);
-  search.set("to", params.to);
-  if (params.campaignId) search.set("campaignId", params.campaignId);
-
-  const res = await fetch(`${API_URL}/affiliate/geo-analytics?${search.toString()}`);
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to fetch geo analytics");
-  }
-  return await res.json();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== "") {
+      search.append(key, value);
+    }
+  });
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
 };
 
-export const fetchAffiliateCampaigns = async (): Promise<{ id: string; name: string }[]> => {
-  const res = await fetch(`${API_URL}/affiliate/campaigns`);
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to fetch campaigns");
+export const fetchClickStreamHeatmap = async (
+  filters: ClickStreamFilters = {},
+): Promise<ClickStreamResponse> => {
+  const query = buildQuery({
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+    campaignId: filters.campaignId,
+    linkId: filters.linkId,
+  });
+
+  try {
+    const res = await fetch(`${API_URL}/affiliate/clicks/heatmap${query}`);
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || "Failed to fetch click stream heatmap");
+    }
+
+    const data = await res.json();
+    const countries: AffiliateClick[] = Array.isArray(data.countries) ? data.countries : [];
+
+    const normalized = countries.map((c): AffiliateClick => {
+      const clicks = Number.isFinite(Number(c.clicks)) ? Number(c.clicks) : 0;
+      const conversions = Number.isFinite(Number(c.conversions)) ? Number(c.conversions) : 0;
+      return {
+        ...c,
+        clicks,
+        conversions,
+        conversionRate:
+          c.conversionRate ?? (clicks > 0 ? (conversions / clicks) * 100 : 0),
+      };
+    });
+
+    return {
+      countries: normalized,
+      totalClicks:
+        data.totalClicks ?? normalized.reduce((sum, c) => sum + c.clicks, 0),
+      totalConversions:
+        data.totalConversions ?? normalized.reduce((sum, c) => sum + c.conversions, 0),
+      generatedAt: data.generatedAt,
+    };
+  } catch (error) {
+    console.error("Failed to fetch click stream heatmap:", error);
+    throw error;
   }
-  const data = await res.json();
-  return Array.isArray(data) ? data : data.campaigns ?? [];
 };
+
+export const getTopCountries = (
+  countries: AffiliateClick[],
+  limit = 5,
+): AffiliateClick[] =>
+  [...countries]
+    .sort((a, b) => b.clicks - a.clicks)
+    .slice(0, limit)
+    .map((c) => ({
+      ...c,
+      conversionRate: c.conversionRate ?? (c.clicks > 0 ? (c.conversions / c.clicks) * 100 : 0),
+    }));

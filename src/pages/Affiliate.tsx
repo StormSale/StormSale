@@ -6,21 +6,23 @@ import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
-import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Map } from "lucide-react";
+import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Globe } from "lucide-react";
+import type { FC } from "react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "../components/ui/button";
+import { ClickHeatmap } from "../components/affiliate/ClickHeatmap";
 
 interface AffiliateProps {
   onBack: () => void;
 }
 
-const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
+const AffiliateContent: FC<AffiliateProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState("overview");
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
-    { id: "heatmap", label: "Click Heatmap", icon: Map },
+    { id: "heatmap", label: "Click Heatmap", icon: Globe },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -30,8 +32,6 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case "heatmap":
-        return <GeoHeatmap />;
       case "join-campaign":
         return <JoinCampaignButton />;
       case "my-sales":
@@ -40,6 +40,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <ClaimPayouts />;
       case "settings":
         return <AffiliateSettings />;
+      case "heatmap":
+        return <ClickHeatmap />;
       case "overview":
         return <AffiliateOverview />;
       default:
@@ -59,7 +61,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
       {/* Main Content Area */}
       <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
-        <div className="max-w-6x mx-auto space-y-6">
+        <div className="max-w-6xl mx-auto space-y-6">
           {/* Header Bar with Persistent Theme Toggle & Settings Navigation */}
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-zinc-800">
             <div>
@@ -102,7 +104,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
   );
 };
 
-export const Affiliate: React.FC<AffiliateProps> = (props) => (
+export const Affiliate: FC<AffiliateProps> = (props) => (
   <NotificationProvider>
     <AffiliateContent {...props} />
   </NotificationProvider>

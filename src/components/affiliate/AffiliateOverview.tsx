@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   Card,
   CardContent,
@@ -7,7 +6,8 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2, Globe2, Calendar } from "lucide-react";
+import { useMemo, useState } from "react";
 import { ClickStreamHeatmap } from "./ClickStreamHeatmap";
 
 export const AffiliateOverview = () => {
@@ -27,8 +27,6 @@ export const AffiliateOverview = () => {
     },
     { title: "Monthly Goal", value: "85%", change: "On track", icon: Target },
   ];
-
-  const [dateRange, setDateRange] = useState<{ from: Date; to: Date } | undefined>();
 
   const recentPayouts = [
     {
@@ -51,6 +49,19 @@ export const AffiliateOverview = () => {
     },
   ];
 
+  const [dateRange, setDateRange] = useState<"d7" | "30d" | "90d">("30d");
+  const [campaignFilter, setCampaignFilter] = useState<string>("all");
+
+  const campaignOptions = useMemo(
+    () => [
+      { id: "all", label: "All Campaigns" },
+      { id: "tech-gadgets-pro", label: "Tech Gadgets Pro" },
+      { id: "webs-masterclass", label: "Web3 Masterclass" },
+      { id: "crypto-tools", label: "Crypto Tools" },
+    ],
+    []
+  );
+
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -68,12 +79,6 @@ export const AffiliateOverview = () => {
           Quick Start Guide
         </Button>
       </div>
-
-      {/* Click Stream Heatmap */}
-      <ClickStreamHeatmap
-        dateRange={dateRange}
-        onDateRangeChange={setDateRange}
-      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -106,6 +111,57 @@ export const AffiliateOverview = () => {
           );
         })}
       </div>
+
+      {/* Real-Time Click Stream Heatmap */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                <Globe2 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Click Stream Heatmap
+              </CardTitle>
+              <CardDescription className="text-zinc-500 dark:text-zinc-400">
+                Geographic distribution of clicks and conversions (aggregated by country ISO)
+              </CardDescription>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-full p-1">
+                {(["7d", "30d", "90d"] as const).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setDateRange(range)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-full transition-colors ${
+                      dateRange === range
+                        ? "bg-white dark:bg-zinc-950 text-indigo-600 dark:text-indigo-400 shadow-sm"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                    }`}
+                  >
+                    {range === "7d" ? "7 Days" : range === "30d" ? "30 Days" : "90 Days"}
+                  </button>
+                ))}
+              </div>
+              <div className="relative">
+                <Calendar className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+                <select
+                  value={campaignFilter}
+                  onChange={(e) => setCampaignFilter(e.target.value)}
+                  className="pl-9 pr-8 h-9 text-xs font-semibold rounded-full border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 appearance-none cursor-pointer"
+                >
+                  {campaignOptions.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <ClickStreamHeatmap dateRange={dateRange} campaignId={campaignFilter} />
+        </CardContent>
+      </Card>
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">
@@ -217,44 +273,26 @@ export const AffiliateOverview = () => {
             Quick Actions
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Get started quickly
+            Common affiliate tasks and shortcuts
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              {
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
+              { label: "Create Link", icon: Zap },
+              { label: "View Reports", icon: TrendingUp },
+              { label: "Manage Campaigns", icon: Target },
+              { label: "Payout History", icon: DollarSign },
             ].map((action, index) => {
-              const IconComponent = action.icon;
+              const ActionIcon = action.icon;
               return (
                 <Button
                   key={index}
                   variant="outline"
-                  className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
+                  className="h-24 flex col items-center justify-center gap-2 rounded-xl border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-900/50"
                 >
-                  <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
-                  <div className="text-center">
-                    <div className="text-sm font-bold text-zinc-700 dark:text-zinc-300">
-                      {action.label}
-                    </div>
-                    <div className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
-                      {action.description}
-                    </div>
-                  </div>
+                  <ActionIcon className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-semibold">{action.label}</span>
                 </Button>
               );
             })}
