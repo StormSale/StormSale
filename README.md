@@ -80,6 +80,7 @@ StormSale organizes platform features into dedicated personas:
 
 - **Deploy Smart Campaigns:** Deploy on-chain Soroban escrow contracts with configurable budgets, commission percentages, and clearing periods.
 - **Log Encrypted Conversions:** Seal customer sale metadata using AES-256-GCM client-side encryption before writing transaction hashes to the ledger.
+- **Geo-Targeting:** Configure campaign allowlists or blocklists by country. Sales are checked against the first-party geo-country API before encryption and fail closed if location verification is unavailable.
 - **Grant Audit Access:** Encapsulate decryption keys for compliance officers and regulatory auditors.
 - **Campaign Analytics:** Track conversion rates, gross volume, and escrow solvency in real time.
 
@@ -144,6 +145,10 @@ docker build -t stormsale-frontend .
 # Run the container
 docker run -p 5173:5173 stormsale-frontend
 ```
+
+### Geographic Restriction API
+
+The advertiser geo-targeting interface stores campaign jurisdiction tags in browser storage for this frontend prototype. To share restrictions between advertiser devices, persist that metadata in the campaign backend. Sale logging also requires the configured `VITE_API_URL` backend to implement `GET /geo/country`, returning JSON such as `{ "countryCode": "US" }`. The endpoint must resolve the request's public IP at the trusted server boundary (including correctly configured proxy headers); the browser does not send the visitor IP to an external geolocation provider. If verification fails or returns an unsupported country code, the sale is rejected before encryption.
 
 ---
 
