@@ -3,6 +3,7 @@ import {
   readStormSaleReferralCookie,
   stormsaleMiddleware,
   withStormSaleReferral,
+  type StormSaleMiddlewareHandler,
 } from "./index.js";
 
 /**
@@ -171,16 +172,40 @@ describe("@stormsale/next-middleware", () => {
     expect(response.headers.has("set-cookie")).toBe(false);
   });
 
-  it("handles 1,000 referral requests in under 5ms per request", () => {
+  it("type-checks StormSaleMiddlewareHandler with NextRequest and NextFetchEvent mocks", () => {
+    type MockNextRequest = Request & { nextUrl: URL };
+    type MockNextFetchEvent = { waitUntil: (promise: Promise<unknown>) => void };
+
+    const handler: StormSaleMiddlewareHandler<MockNextRequest, [MockNextFetchEvent]> = (
+      _request: MockNextRequest,
+      event: MockNextFetchEvent,
+    ) => {
+      event.waitUntil(Promise.resolve());
+    };
+
+    expect(typeof handler).toBe("function");
+  });
+
+  it("benchmarks withStormSaleReferral wrapper and void branch in under 5ms per request", async () => {
     const request = createRequest("https://stormsale.xyz/c/campaign-123?ref=affiliate-123");
     const iterations = 1_000;
-    const startedAt = performance.now();
 
+    // Benchmark with an awaited response-returning handler
+    const responseMiddleware = withStormSaleReferral(async () => new Response("ok"));
+    const startedAtResponse = performance.now();
     for (let index = 0; index < iterations; index += 1) {
-      stormsaleMiddleware(request, new Response(null));
+      await responseMiddleware(request);
     }
+    const responseMsPerRequest = (performance.now() - startedAtResponse) / iterations;
+    expect(responseMsPerRequest).toBeLessThan(5);
 
-    const millisecondsPerRequest = (performance.now() - startedAt) / iterations;
-    expect(millisecondsPerRequest).toBeLessThan(5);
+    // Benchmark with a void-returning handler (pass-through continue branch)
+    const voidMiddleware = withStormSaleReferral(() => {});
+    const startedAtVoid = performance.now();
+    for (let index = 0; index < iterations; index += 1) {
+      await voidMiddleware(request);
+    }
+    const voidMsPerRequest = (performance.now() - startedAtVoid) / iterations;
+    expect(voidMsPerRequest).toBeLessThan(5);
   });
 });

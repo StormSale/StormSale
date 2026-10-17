@@ -33,11 +33,13 @@ export interface StormSaleCookieStore {
 
 /**
  * Middleware handler function type compatible with Next.js middleware.
+ * Callers specify the request type and any additional arguments (such as NextFetchEvent)
+ * to maintain strict type safety under function parameter contravariance.
+ *
+ * @template RequestType - Type of incoming request object extending Web `Request`.
+ * @template Rest - Array or tuple of additional argument types passed to the handler.
  */
-export type StormSaleMiddlewareHandler<
-  RequestType extends Request = Request,
-  Rest extends unknown[] = unknown[],
-> = (
+export type StormSaleMiddlewareHandler<RequestType extends Request, Rest extends unknown[]> = (
   request: RequestType,
   ...rest: Rest
 ) => Response | void | undefined | Promise<Response | void | undefined>;
