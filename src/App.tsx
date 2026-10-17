@@ -56,13 +56,32 @@ class ErrorBoundary extends React.Component<
 }
 
 function Router() {
-  const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const { isConnected, connectWallet } = useWeb3();
+  const [currentPage, setCurrentPage] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("page") || "dashboard";
+    }
+    return "dashboard";
+  });
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+
+  const isMock =
+    typeof window !== "undefined" &&
+    Boolean(import.meta.env.DEV) &&
+    new URLSearchParams(window.location.search).get("mock") === "true";
+
+  React.useEffect(() => {
+    if (isMock && !isConnected) {
+      connectWallet("mock").catch((err) => {
+        console.error("Mock wallet connection failed:", err);
+      });
+    }
+  }, [isMock, isConnected, connectWallet]);
 
   if (activeBrandSubdomain) {
     return (
@@ -80,7 +99,7 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
-      {!isConnected ? (
+      {!isConnected && !isMock ? (
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">

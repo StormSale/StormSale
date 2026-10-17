@@ -24,6 +24,7 @@ import {
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
 import { motion, AnimatePresence } from "framer-motion";
+import { getStellarExplorerLink } from "../../utils/network";
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
@@ -66,7 +67,14 @@ export const ClaimPayouts = () => {
 
   // 1-Click Automated Batch Claim Dispatcher
   const handleBatchClaim = async () => {
-    if (selectedCampaigns.length === 0) return;
+    if (selectedCampaigns.length === 0 || totalWithdrawableXlm <= 0) {
+      showNotification({
+        type: "error",
+        title: "No Claimable Campaigns",
+        message: "Please select at least one campaign with a matured claimable balance.",
+      });
+      return;
+    }
 
     setIsBatchClaiming(true);
     showNotification({
@@ -77,6 +85,9 @@ export const ClaimPayouts = () => {
 
     try {
       const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns);
+      if (!resultReceipt.success || resultReceipt.totalClaimedXlm <= 0) {
+        throw new Error("Batch claim transaction did not return a valid payout amount.");
+      }
       setReceipt(resultReceipt);
 
       // Mark claimed campaigns
@@ -85,17 +96,29 @@ export const ClaimPayouts = () => {
       );
       setSelectedIds([]);
 
+      const txHash = resultReceipt.txHash || undefined;
+      const receiptUrl = txHash ? getStellarExplorerLink("tx", txHash) : undefined;
+
       showNotification({
         type: "success",
-        title: "Batch Commission Claim Settled!",
-        message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
+        title: "Commission Paid Out!",
+        message: `Claimed ${resultReceipt.totalClaimedXlm.toFixed(2)} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
+        confetti: true,
+        receiptUrl,
+        receipt: {
+          txHash,
+          amount: `${resultReceipt.totalClaimedXlm.toFixed(2)} XLM`,
+          campaign: `Batch Claim (${resultReceipt.itemizedClaims.length} campaigns)`,
+          date: new Date().toLocaleString(),
+          explorerUrl: receiptUrl,
+        },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Batch claim failure:", err);
       showNotification({
         type: "error",
         title: "Batch Claim Failed",
-        message: err.message || "Failed to execute batch claim transaction.",
+        message: err instanceof Error ? err.message : "Failed to execute batch claim transaction.",
       });
     } finally {
       setIsBatchClaiming(false);
@@ -104,28 +127,57 @@ export const ClaimPayouts = () => {
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
+    const targetCampaign = campaigns.find((c) => c.campaignId === campaignId);
+    if (!targetCampaign || targetCampaign.claimableXlm <= 0) {
+      showNotification({
+        type: "error",
+        title: "Claim Unavailable",
+        message: "No claimable commission found for this campaign.",
+      });
+      return;
+    }
+
     setClaimingId(campaignId);
     showNotification({
       type: "info",
       title: "Claiming Commission",
-      message: `Submitting Soroban claim_payout for Campaign #${campaignId}...`,
+      message: `Submitting Soroban claim_payout for ${targetCampaign.campaignName}...`,
     });
 
     try {
       const res = await claimPayoutOnChain(campaignId);
+      if (!res.success) {
+        throw new Error("On-chain claim invocation failed.");
+      }
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
+
+      const txHash = res.txHash || undefined;
+      const receiptUrl = txHash ? getStellarExplorerLink("tx", txHash) : undefined;
+
       showNotification({
         type: "success",
         title: "Commission Paid Out!",
-        message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+        message: txHash
+          ? `Settled on Stellar ledger. Tx: ${txHash.slice(0, 10)}...`
+          : "Settled on Stellar ledger.",
+        confetti: true,
+        receiptUrl,
+        receipt: {
+          txHash,
+          amount: `${targetCampaign.claimableXlm.toFixed(2)} XLM`,
+          saleId: campaignId,
+          campaign: targetCampaign.campaignName,
+          date: new Date().toLocaleString(),
+          explorerUrl: receiptUrl,
+        },
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       showNotification({
         type: "error",
         title: "Claim Failed",
-        message: err.message || "Failed to claim commission.",
+        message: err instanceof Error ? err.message : "Failed to claim commission.",
       });
     } finally {
       setClaimingId(null);

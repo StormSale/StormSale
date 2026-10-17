@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import {
   Card,
   CardContent,
@@ -6,24 +7,84 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Users,
+  DollarSign,
+  ArrowRight,
+  CheckCircle2,
+  BarChart3,
+} from "lucide-react";
+import {
+  fetchAffiliateConversionData,
+  type ActiveLinkAnalytics,
+  type ConversionAnalyticsSummary,
+} from "../../utils/api";
 
-export const AffiliateOverview = () => {
-  const stats = [
+interface AffiliateOverviewProps {
+  onNavigateTab?: (tab: string) => void;
+}
+
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigateTab }) => {
+  const [conversionData, setConversionData] = useState<{
+    links: ActiveLinkAnalytics[];
+    summary: ConversionAnalyticsSummary;
+  } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchAffiliateConversionData()
+      .then((data) => {
+        setConversionData(data);
+      })
+      .catch((err) => {
+        console.error("Failed to load conversion data:", err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, []);
+
+  const overallCVR = conversionData?.summary.overallCVR ?? 0;
+  const cvrTrendDelta = conversionData?.summary.cvrTrendDelta ?? 0;
+  const cvrTrendDirection = conversionData?.summary.cvrTrendDirection ?? "neutral";
+
+  const stats: Array<{
+    title: string;
+    value: string;
+    change?: string;
+    trend?: "up" | "down" | "neutral";
+    icon: any;
+  }> = [
     {
       title: "Total Earnings",
-      value: "$12,847",
-      change: "+18% this month",
+      value: isLoading
+        ? "Loading..."
+        : conversionData
+          ? `${conversionData.summary.totalEarnedXlm.toLocaleString()} XLM`
+          : "0 XLM",
       icon: DollarSign,
     },
-    { title: "Active Campaigns", value: "8", change: "+2 this week", icon: Users },
     {
-      title: "Conversion Rate",
-      value: "3.2%",
-      change: "+0.4% vs last month",
+      title: "Active Campaigns",
+      value: isLoading
+        ? "..."
+        : conversionData
+          ? `${conversionData.summary.activeLinksCount}`
+          : "0",
+      icon: Users,
+    },
+    {
+      title: "Conversion Rate (CVR)",
+      value: isLoading ? "..." : `${overallCVR.toFixed(2)}%`,
+      change: isLoading
+        ? "Loading..."
+        : `${cvrTrendDelta >= 0 ? "+" : ""}${cvrTrendDelta.toFixed(2)}% vs benchmark`,
+      trend: cvrTrendDirection,
       icon: TrendingUp,
     },
-    { title: "Monthly Goal", value: "85%", change: "On track", icon: Target },
   ];
 
   const recentPayouts = [
@@ -48,7 +109,7 @@ export const AffiliateOverview = () => {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 font-sans">
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
@@ -56,17 +117,20 @@ export const AffiliateOverview = () => {
             Affiliate Dashboard
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Track your performance and maximize your on-chain earnings.
+            Track your performance, real-time conversion rates, and maximize your on-chain earnings.
           </p>
         </div>
-        <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
-          <Zap className="w-5 h-5 mr-2" />
-          Quick Start Guide
+        <Button
+          onClick={() => onNavigateTab?.("performance")}
+          className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all gap-2"
+        >
+          <BarChart3 className="w-5 h-5" />
+          View CVR Analytics
         </Button>
       </div>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {stats.map((stat, index) => {
           const IconComponent = stat.icon;
           return (
@@ -83,9 +147,30 @@ export const AffiliateOverview = () => {
                     <p className="text-2xl font-extrabold text-zinc-900 dark:text-white mt-2 mb-1">
                       {stat.value}
                     </p>
-                    <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                      {stat.change}
-                    </p>
+                    {stat.change && (
+                      <div className="flex items-center gap-1 mt-1">
+                        {stat.trend === "up" && (
+                          <TrendingUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        )}
+                        {stat.trend === "down" && (
+                          <TrendingDown className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                        )}
+                        {stat.trend === "neutral" && (
+                          <Minus className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+                        )}
+                        <p
+                          className={`text-xs font-semibold ${
+                            stat.trend === "up"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : stat.trend === "down"
+                                ? "text-rose-600 dark:text-rose-400"
+                                : "text-indigo-600 dark:text-indigo-400"
+                          }`}
+                        >
+                          {stat.change}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="w-10 h-10 bg-slate-100 dark:bg-zinc-800 rounded-xl flex items-center justify-center border border-slate-200 dark:border-zinc-700 shrink-0">
                     <IconComponent className="w-5 h-5 text-zinc-900 dark:text-indigo-400" />
@@ -96,6 +181,86 @@ export const AffiliateOverview = () => {
           );
         })}
       </div>
+
+      {/* Real-Time Active Links CVR Snapshot */}
+      {conversionData && (
+        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
+          <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+                  Active Referral Links & Click-to-Sale Ratios (CVR)
+                </CardTitle>
+                <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
+                  Live synced with backend conversion data
+                </CardDescription>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onNavigateTab?.("performance")}
+                className="text-indigo-600 dark:text-indigo-400 text-xs font-bold gap-1 p-0 hover:bg-transparent"
+              >
+                <span>Full Analytics</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              {conversionData.links.map((link) => (
+                <div
+                  key={link.id}
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/60 space-y-2 hover:border-indigo-200 dark:hover:border-indigo-500/30 transition-all"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="font-bold text-xs text-zinc-900 dark:text-white truncate max-w-[140px]">
+                      {link.campaignName}
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
+                        link.trendDirection === "up"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                          : link.trendDirection === "down"
+                            ? "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                            : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400"
+                      }`}
+                    >
+                      {link.trendDirection === "up" && <TrendingUp className="w-2.5 h-2.5" />}
+                      {link.trendDirection === "down" && <TrendingDown className="w-2.5 h-2.5" />}
+                      {link.trendDirection === "neutral" && <Minus className="w-2.5 h-2.5" />}
+                      {link.trendDelta >= 0 ? `+${link.trendDelta}%` : `${link.trendDelta}%`}
+                    </span>
+                  </div>
+
+                  <div className="flex items-baseline justify-between pt-1">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-zinc-400">CVR</span>
+                      <p className="text-xl font-mono font-black text-indigo-600 dark:text-indigo-400">
+                        {link.conversionRate.toFixed(2)}%
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-zinc-400">Sales/Clicks</span>
+                      <p className="text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300">
+                        {link.conversions} / {link.clicks}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Progress bar */}
+                  <div className="w-full h-1.5 rounded-full bg-slate-200 dark:bg-zinc-800 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-600 dark:bg-indigo-500"
+                      style={{ width: `${Math.min(100, (link.conversionRate / 8) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">
@@ -145,9 +310,10 @@ export const AffiliateOverview = () => {
             </div>
             <Button
               variant="ghost"
+              onClick={() => onNavigateTab?.("claim-payouts")}
               className="w-full mt-6 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-900/50"
             >
-              View All Payouts
+              <span>View All Payouts</span>
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </CardContent>
@@ -167,13 +333,16 @@ export const AffiliateOverview = () => {
             <div className="space-y-4">
               {[
                 {
-                  tip: "Optimize your content for higher conversions",
+                  tip: "Optimize your content for higher conversions (target > 5% CVR)",
                   impact: "High",
                 },
-                { tip: "Join trending campaigns early", impact: "Medium" },
-                { tip: "Use multiple promotion channels", impact: "High" },
+                { tip: "Join trending campaigns early to capture early volume", impact: "Medium" },
                 {
-                  tip: "Engage with your audience regularly",
+                  tip: "Use multiple promotion channels with tailored referral links",
+                  impact: "High",
+                },
+                {
+                  tip: "Engage with your audience regularly on social media",
                   impact: "Medium",
                 },
               ].map((item, index) => (
@@ -217,16 +386,19 @@ export const AffiliateOverview = () => {
                 label: "Join New Campaign",
                 description: "Discover high-paying campaigns",
                 icon: Users,
+                tab: "join-campaign",
               },
               {
                 label: "Track Performance",
-                description: "View analytics and insights",
+                description: "View CVR analytics and insights",
                 icon: TrendingUp,
+                tab: "performance",
               },
               {
                 label: "Withdraw Earnings",
                 description: "Claim your commissions",
                 icon: DollarSign,
+                tab: "claim-payouts",
               },
             ].map((action, index) => {
               const IconComponent = action.icon;
@@ -234,6 +406,7 @@ export const AffiliateOverview = () => {
                 <Button
                   key={index}
                   variant="outline"
+                  onClick={() => onNavigateTab?.(action.tab)}
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

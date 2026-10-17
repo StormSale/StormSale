@@ -4,6 +4,7 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { PerformanceAnalytics } from "../components/affiliate/PerformanceAnalytics";
 import { Users, TrendingUp, DollarSign, BarChart3, Shield, LayoutDashboard } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,7 +14,10 @@ interface AffiliateProps {
 }
 
 const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("tab") || "overview";
+  });
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
@@ -32,10 +36,12 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "performance":
+        return <PerformanceAnalytics />;
       case "overview":
-        return <AffiliateOverview />;
+        return <AffiliateOverview onNavigateTab={setActiveTab} />;
       default:
-        return <AffiliateOverview />;
+        return <AffiliateOverview onNavigateTab={setActiveTab} />;
     }
   };
 
