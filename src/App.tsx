@@ -5,7 +5,9 @@ import { Landing } from "./pages/Landing";
 import { Dashboard } from "./pages/Dashboard";
 import { useWeb3 } from "./hooks/useWeb3";
 
+import { useState, useEffect } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { BrandedCampaignView } from "./components/shared/BrandedCampaignView";
 import { loadBrandConfig } from "./lib/branding";
 
@@ -63,7 +65,10 @@ class ErrorBoundary extends React.Component<
 
 function Router() {
   const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [currentPage, setCurrentPage] = useState(() =>
+    isTelegramMiniApp() ? "affiliate" : "dashboard",
+  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -86,7 +91,7 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
-      {!isConnected ? (
+      {!isConnected && !tmaMode ? (
         <Landing />
       ) : (
         <div className="min-h-screen bg-background">
@@ -98,14 +103,9 @@ function Router() {
               </Suspense>
             )}
             {currentPage === "affiliate" && (
-              <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
-                <Affiliate onBack={() => setCurrentPage("dashboard")} />
-              </Suspense>
-            )}
-            {currentPage === "auditor" && (
-              <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
-                <Auditor onBack={() => setCurrentPage("dashboard")} />
-              </Suspense>
+              <Affiliate
+                onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
+              />
             )}
           </main>
         </div>
@@ -115,6 +115,14 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    initTelegramWebApp();
+    const cleanup = syncTelegramTheme();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
   return (
     <NotificationWrapper>
       <ErrorBoundary>
