@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import {
   Card,
   CardContent,
@@ -14,6 +15,8 @@ import {
   FileSearch,
   AlertTriangle,
   BarChart3,
+  Flag,
+  Send,
 } from "lucide-react";
 
 interface AuditorOverviewProps {
@@ -21,6 +24,14 @@ interface AuditorOverviewProps {
 }
 
 export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
+  const [reportedAnomalies, setReportedAnomalies] = useState<string[]>([]);
+
+  const handleReportAnomaly = (saleId: string) => {
+    setReportedAnomalies((prev) =>
+      prev.includes(saleId) ? prev : [...prev, saleId]
+    );
+  };
+
   const stats = [
     { title: "Audits Completed", value: "47", change: "+5 this month", icon: CheckCircle2 },
     { title: "Active Requests", value: "3", change: "Pending review", icon: Clock },
@@ -39,6 +50,30 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     { saleId: "1100", campaign: "Summer Sale 2024", requestedBy: "GB12...34CD", urgency: "High" },
     { saleId: "1089", campaign: "NFT Drop Alpha", requestedBy: "GC78...90GH", urgency: "Medium" },
     { saleId: "1075", campaign: "DeFi Starter Pack", requestedBy: "GD34...56IJ", urgency: "Low" },
+  ];
+
+  const anomalies = [
+    {
+      saleId: "1100",
+      campaign: "Summer Sale 2024",
+      type: "Wash Trading",
+      severity: "High",
+      detail: "Circular wallet transfers detected across 6 addresses within 12 minutes.",
+    },
+    {
+      saleId: "1089",
+      campaign: "NFT Drop Alpha",
+      type: "Rapid Claims",
+      severity: "Medium",
+      detail: "14 claims from a single cluster within a 90-second window.",
+    },
+    {
+      saleId: "776",
+      campaign: "Crypto Tools Suite",
+      type: "Wash Trading",
+      severity: "High",
+      detail: "Repeated buy/sell cycles between two linked wallets.",
+    },
   ];
 
   return (
@@ -60,6 +95,87 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </span>
         </div>
       </div>
+
+      {/* Suspicious Activity & Anomaly Detection */}
+      <Card className="border border-red-200 dark:border-red-500/30 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="border-b border-red-100 dark:border-red-500/20 pb-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-red-500 dark:text-red-400" />
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+              Suspicious Activity & Anomaly Detection
+            </CardTitle>
+          </div>
+          <CardDescription className="text-zinc-500 dark:text-zinc-400">
+            Flagged wash-trading and rapid-claim patterns requiring review
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <div className="space-y-4">
+            {anomalies.map((anomaly) => {
+              const isReported = reportedAnomalies.includes(anomaly.saleId);
+              return (
+                <div
+                  key={anomaly.saleId}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-red-50/50 dark:bg-red-500/5 border border-red-100 dark:border-red-500/20 rounded-xl"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 bg-red-100 dark:bg-red-500/20 border border-red-200 dark:border-red-500/30 rounded-xl flex items-center justify-center shrink-0">
+                      <Flag className="w-5 h-5 text-red-600 dark:text-red-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm text-zinc-900 dark:text-white">
+                          {anomaly.campaign}
+                        </span>
+                        <span
+                          className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full ${
+                            anomaly.severity === "High"
+                              ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                          }`}
+                        >
+                          {anomaly.severity} Risk
+                        </span>
+                        <span className="inline-flex text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+                          {anomaly.type}
+                        </span>
+                      </div>
+                      <div className="text-xs font-mono font-medium text-zinc-400 dark:text-zinc-500 mt-1">
+                        Sale #{anomaly.saleId}
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md">
+                        {anomaly.detail}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => handleReportAnomaly(anomaly.saleId)}
+                    disabled={isReported}
+                    className={`h-8 px-3 text-xs rounded-lg font-semibold transition-colors shrink-0 ${
+                      isReported
+                        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 cursor-default"
+                        : "bg-red-600 hover:bg-red-500 text-white"
+                    }`}
+                  >
+                    {isReported ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                        Reported
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5 mr-1.5" />
+                        Report Anomaly
+                      </>
+                    )}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
