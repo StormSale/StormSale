@@ -8,6 +8,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { FileCheck, AlertTriangle, CheckCircle2, Download, Clock, Lock } from "lucide-react";
+import { Soc2EvidenceExport } from "./Soc2EvidenceExport";
 
 const complianceItems = [
   {
@@ -114,6 +115,9 @@ export const ComplianceReport = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Automated SOC 2 Type II Evidence Packager */}
+      <Soc2EvidenceExport />
 
       {/* Compliance items */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
