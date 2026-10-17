@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Sidebar } from "../components/shared/Sidebar";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
@@ -6,23 +6,21 @@ import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
-import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Globe } from "lucide-react";
-import type { FC } from "react";
+import { Users, TrendingUp, DollarSign, Shield, LayoutDashboard, Sliders, Map as MapIcon } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "../components/ui/button";
-import { ClickHeatmap } from "../components/affiliate/ClickHeatmap";
 
 interface AffiliateProps {
   onBack: () => void;
 }
 
-const AffiliateContent: FC<AffiliateProps> = ({ onBack }) => {
+const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState("overview");
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
-    { id: "heatmap", label: "Click Heatmap", icon: Globe },
+    { id: "heatmap", label: "Click Heatmap", icon: MapIcon },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -32,6 +30,8 @@ const AffiliateContent: FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "heatmap":
+        return <AffiliateOverview />;
       case "join-campaign":
         return <JoinCampaignButton />;
       case "my-sales":
@@ -40,8 +40,6 @@ const AffiliateContent: FC<AffiliateProps> = ({ onBack }) => {
         return <ClaimPayouts />;
       case "settings":
         return <AffiliateSettings />;
-      case "heatmap":
-        return <ClickHeatmap />;
       case "overview":
         return <AffiliateOverview />;
       default:
@@ -104,7 +102,7 @@ const AffiliateContent: FC<AffiliateProps> = ({ onBack }) => {
   );
 };
 
-export const Affiliate: FC<AffiliateProps> = (props) => (
+export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
     <AffiliateContent {...props} />
   </NotificationProvider>
