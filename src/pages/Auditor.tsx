@@ -3,9 +3,10 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { ComplianceChecklist } from "../components/auditor/ComplianceChecklist";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, ClipboardCheck } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -19,6 +20,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
+    { id: "checklist", label: "Audit Checklist", icon: ClipboardCheck },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
   ];
 
@@ -28,6 +30,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <VerifyAccess />;
       case "history":
         return <AuditHistory />;
+      case "checklist":
+        return <ComplianceChecklist />;
       case "compliance":
         return <ComplianceReport />;
       default:
