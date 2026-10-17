@@ -1,6 +1,12 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Content Security Policy: Blocks unauthorized scripts and restricts RPC/network connections to trusted Stellar nodes -->
+    <!-- style-src requires 'unsafe-inline' for dynamic React inline style properties (BrandCustomizer, BrandedCampaignView) and Framer Motion animation engine -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org https://friendbot.stellar.org http://localhost:3000 http://localhost:3001; img-src 'self' data: blob: https://*.githubusercontent.com https://github.com https://i.pravatar.cc https://images.unsplash.com https://stellar.expert https://albedo.link https://xbull.app; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self';"
+    />
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="./src/assets/logo2.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
