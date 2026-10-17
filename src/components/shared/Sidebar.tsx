@@ -1,12 +1,11 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
-import { useWeb3 } from "../../context/Web3Context";
+import { useWeb3 } from "../../hooks/useWeb3";
 import { ThemeToggle } from "./ThemeToggle";
-import { useRole } from "../../hooks/useRole";
 
 interface SidebarProps {
   activeTab: string;
@@ -15,7 +14,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
-  allowedTabs?: string[];
+  isLoadingRole?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -25,36 +24,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
-  allowedTabs,
+  isLoadingRole = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
-  const { role, isRoleReady } = useRole();
 
-  // Unified role-based route protection: filter tabs by allowed roles.
-  // While the role is still hydrating from the DB, render the tabs as-is
-  // (they will be reconciled on the next paint) to avoid a layout flicker.
-  const visibleTabs = useMemo(() => {
-    if (!isRoleReady || !allowedTabs || allowedTabs.length === 0) return tabs;
-    return tabs.filter((t) => allowedTabs.includes(t.id));
-  }, [tabs, allowedTabs, isRoleReady]);
-
-  // Guard against an active tab that is not permitted for the current role.
-  const safeActiveTab = useMemo(() => {
-    if (visibleTabs.some((t) => t.id === activeTab)) return activeTab;
-    return visibleTabs[0]?.id ?? activeTab;
-  }, [visibleTabs, activeTab]);
-
-  const handleTabChange = useCallback(
-    (tabId: string) => {
-      if (!visibleTabs.some((t) => t.id === tabId)) return;
-      onTabChange(tabId);
-    },
-    [visibleTabs, onTabChange],
+  const activeTabObject = useMemo(
+    () => tabs.find((t) => t.id === activeTab) || tabs[0],
+    [tabs, activeTab],
   );
-
-  const activeTabObject = visibleTabs.find((t) => t.id === safeActiveTab) || visibleTabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
 
   return (
@@ -84,8 +63,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[140px] sm:max-w-[200px]">
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
-                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {roleName || role || ""}
+                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 min-w-[3rem]">
+                  {roleName}
                 </span>
               </div>
             </div>
@@ -127,15 +106,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 Navigation Tabs
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {visibleTabs.map((tab) => {
+                {tabs.map((tab) => {
                   const IconComp = tab.icon;
-                  const isActive = safeActiveTab === tab.id;
+                  const isActive = activeTab === tab.id;
 
                   return (
                     <button
                       key={tab.id}
                       onClick={() => {
-                        handleTabChange(tab.id);
+                        onTabChange(tab.id);
                         setIsMobileDrawerOpen(false);
                       }}
                       className={cn(
@@ -236,8 +215,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
                     <Shield className="w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {roleName || role || ""}
+                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight min-w-[6rem]">
+                    {roleName}
                   </span>
                 </div>
               </motion.div>
@@ -261,9 +240,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Navigation */}
         <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
           <div className="space-y-1.5">
-            {visibleTabs.map((tab) => {
+            {tabs.map((tab) => {
               const IconComponent = tab.icon;
-              const isActive = safeActiveTab === tab.id;
+              const isActive = activeTab === tab.id;
 
               return (
                 <Button
@@ -276,7 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-900 hover:text-zinc-900 dark:hover:text-white",
                     isCollapsed ? "justify-center px-0" : "justify-start px-4",
                   )}
-                  onClick={() => handleTabChange(tab.id)}
+                  onClick={() => onTabChange(tab.id)}
                 >
                   <IconComponent
                     className={cn(

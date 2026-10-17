@@ -1,16 +1,26 @@
 import { Button } from "../../components/ui/button";
-import { useRole } from "../../hooks/useRole";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { Wallet, Menu, X, Coins, ShieldCheck, LayoutDashboard, Store, UserCog, type LucideIcon } from "lucide-react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
-  const { role, isRoleLoading } = useRole();
+  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance, role, isRoleLoading } = useWeb3();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [stableRole, setStableRole] = useState<string | null>(role ?? null);
+
+  // Persist role across renders to prevent flicker while role is re-fetched
+  useEffect(() => {
+    if (!isConnected) {
+      setStableRole(null);
+      return;
+    }
+    if (role) {
+      setStableRole(role);
+    }
+  }, [role, isRoleLoading, isConnected]);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -24,14 +34,13 @@ export const Header = () => {
     { label: "Community", href: "#community" },
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
-  ];
+  ] as const;
 
-  const roleLinks = isRoleLoading
-    ? []
-    : [
-        { label: "Dashboard", href: "/dashboard", roles: ["seller", "admin"] as string[] },
-        { label: "Admin", href: "/admin", roles: ["admin"] as string[] },
-      ].filter((item) => role && item.roles.includes(role));
+  const roleLinks = [
+    { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ["user", "seller", "admin"] },
+    { label: "Seller Hub", href: "/seller", icon: Store, roles: ["seller", "admin"] },
+    { label: "Admin", href: "/admin", icon: UserCog, roles: ["admin"] },
+  ].filter((link) => stableRole !== null && link.roles.includes(stableRole));
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
@@ -49,9 +58,6 @@ export const Header = () => {
 
         {/* Desktop Nav Links */}
         <nav className="hidden lg:flex items-center space-x-5">
-          {isRoleLoading && (
-            <span className="h-4 w-16 rounded bg-slate-200 dark:bg-zinc-800 animate-pulse" />
-          )}
           {navLinks.map((item) => (
             <a
               key={item.label}
@@ -65,8 +71,9 @@ export const Header = () => {
             <a
               key={item.label}
               href={item.href}
-              className="text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+              className="flex items-center gap-1.5 text-sm font-semibold text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
             >
+              <item.icon className="w-4 h-4" />
               {item.label}
             </a>
           ))}
@@ -86,6 +93,11 @@ export const Header = () => {
                 <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded">
                   {xlmBalance} XLM
                 </span>
+                {stableRole && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 rounded uppercase">
+                    {stableRole}
+                  </span>
+                )}
               </div>
               <Button
                 variant="outline"
@@ -184,14 +196,16 @@ export const Header = () => {
             </div>
 
             {roleLinks.length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
                 {roleLinks.map((item) => (
                   <a
                     key={item.label}
                     href={item.href}
                     onClick={() => setIsMobileMenuOpen(false)}
-                    className="px-3 py-2.5 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                    aria-label={`Navigate to ${item.label}`}
+                    className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors"
                   >
+                    <item.icon className="w-3.5 h-3.5" />
                     {item.label}
                   </a>
                 ))}
@@ -206,7 +220,7 @@ export const Header = () => {
                     disconnectWallet();
                     setIsMobileMenuOpen(false);
                   }}
-                  className="w-full rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/55 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                  className="w-full rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                 >
                   Disconnect Wallet
                 </Button>

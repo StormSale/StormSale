@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -33,30 +33,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
-
-  const hasRoutedRef = useRef(false);
-
-  // Sync persisted role from DB/context to UI on load to prevent flicker.
-  // If a role is already persisted, route immediately without waiting for the
-  // user to re-select, and without flashing the role selector.
-  useEffect(() => {
-    if (hasRoutedRef.current) return;
-    if (!isConnected || !userAddress) return;
-    if (!userRole) return;
-
-    const normalizedRole = userRole.toLowerCase();
-    const isValidRole = ["advertiser", "affiliate", "auditor"].includes(normalizedRole);
-    if (!isValidRole) return;
-
-    hasRoutedRef.current = true;
-    onNavigate(normalizedRole);
-  }, [isConnected, userAddress, userRole, onNavigate]);
+  const [hasNavigated, setHasNavigated] = useState(false);
 
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
-      hasRoutedRef.current = true;
       onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
@@ -64,14 +46,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       setIsSigning(false);
     }
   };
-
-  // Prevent flicker: while role is being resolved from DB, render a stable
-  // placeholder instead of the role selector to avoid a flash of wrong UI.
-  const isResolvingRole =
-    isConnected &&
-    !!userAddress &&
-    userRole === undefined &&
-    !hasRoutedRef.current;
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -140,31 +114,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         "By assuming this role, you agree to verify encrypted transactions strictly for compliance purposes.",
     },
   ];
-
-  const getBgClass = () => {
-    if (hoveredRole === "advertiser" || expandedRole === "advertiser")
-      return "bg-indigo-50/50 dark:bg-indigo-950/20";
-    if (hoveredRole === "affiliate" || expandedRole === "affiliate")
-      return "bg-emerald-50/50 dark:bg-emerald-950/20";
-    if (hoveredRole === "auditor" || expandedRole === "auditor")
-      return "bg-slate-100/50 dark:bg-slate-900/30";
-    return "bg-slate-50 dark:bg-[#09090b]";
-  };
-
-  if (isResolvingRole) {
-    return (
-      <div className="min-h-screen font-sans flex items-center justify-center bg-slate-50 dark:bg-[#09090b]">
-        <div className="flex flex-col items-center space-y-4">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center animate-pulse">
-            <Activity className="w-5 h-5 text-indigo-500" />
-          </div>
-          <div className="text-sm font-bold text-zinc-500 dark:text-zinc-400">
-            Restoring session...
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div
@@ -285,48 +234,62 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                   </CardHeader>
 
                   <CardContent className="relative z-10 px-8 pb-8 flex flex-col flex-1">
-                    <ul className="space-y-3 mb-8">
-                      {role.features.map((feature) => (
-                        <li key={feature} className="flex items-start space-x-3">
-                          <CheckCircle2 className={`w-4 h-4 mt-0.5 shrink-0 ${role.iconColor}`} />
-                          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                            {feature}
-                          </span>
+                    {/* Features List */}
+                    <ul className="space-y-4 mb-8 flex-1 mt-4">
+                      {role.features.map((feature, idx) => (
+                        <li
+                          key={idx}
+                          className="flex items-center text-sm font-bold text-zinc-700 dark:text-zinc-300"
+                        >
+                          <CheckCircle2 className={`w-4 h-4 ${role.iconColor} mr-3 shrink-0`} />
+                          {feature}
                         </li>
                       ))}
                     </ul>
 
-                    <div className="mt-auto pt-4">
-                      <AnimatePresence>
-                        {isExpanded && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="space-y-4">
-                              <div className="flex items-start space-x-2 p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/40 border border-slate-200 dark:border-zinc-700">
-                                <Shield className="w-4 h-4 mt-0.5 text-zinc-500 shrink-0" />
-                                <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400 font-medium">
-                                  {role.consentText}
-                                </p>
-                              </div>
+                    {/* Inline Expansion Area */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="pt-6 border-t border-slate-100 dark:border-zinc-800">
+                            <div className="flex items-start space-x-3 p-4 bg-slate-50 dark:bg-zinc-950 rounded-2xl border border-slate-200 dark:border-zinc-800 mb-6">
+                              <Shield className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                              <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                                {role.consentText}
+                              </p>
+                            </div>
+
+                            <div className="flex space-x-3">
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedRole(null);
+                                }}
+                                variant="outline"
+                                className="flex-1 h-12 rounded-xl font-bold"
+                              >
+                                Cancel
+                              </Button>
                               <Button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleConfirmRole(role.id);
                                 }}
                                 disabled={isSigning}
-                                className={`w-full h-11 rounded-xl font-bold text-white shadow-lg transition-all ${role.colorClasses.bgHover} ${role.colorClasses.shadowBtn}`}
+                                className={`flex-[2] h-12 rounded-xl font-bold text-white shadow-lg ${role.colorClasses.bgHover} ${role.colorClasses.shadowBtn}`}
                               >
-                                {isSigning ? "Signing..." : "Confirm Role"}
+                                {isSigning ? "Signing..." : "Sign & Assume Role"}
                               </Button>
                             </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </CardContent>
                 </Card>
               </motion.div>
