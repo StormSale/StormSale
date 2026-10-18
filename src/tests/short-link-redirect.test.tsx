@@ -40,12 +40,36 @@ function getTextContent(node: unknown): string {
 }
 
 describe("ShortLinkRedirect", () => {
+  const originalFetch = globalThis.fetch;
+
   beforeEach(() => {
     resetCustomLinksStore();
     dispatchTrackingBeaconMock.mockClear();
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/custom-links/register") && init?.method === "POST") {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        const link = {
+          id: `csl_${Date.now()}_test`,
+          slug: body.slug,
+          affiliateWallet: body.affiliateWallet ?? "",
+          walletFingerprint: body.walletFingerprint ?? "",
+          campaignId: body.campaignId ?? "1",
+          campaignName: body.campaignName ?? `Campaign #${body.campaignId}`,
+          destinationUrl: body.destinationUrl ?? "",
+          trackingParams: body.trackingParams ?? {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          clickCount: 0,
+        };
+        return new Response(JSON.stringify(link), { status: 201 });
+      }
+      return new Response(JSON.stringify({ error: "Not Found" }), { status: 404 });
+    }) as typeof fetch;
   });
 
   afterEach(() => {
+    globalThis.fetch = originalFetch;
     vi.useRealTimers();
     vi.unstubAllGlobals();
     resetCustomLinksStore();

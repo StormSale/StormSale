@@ -41,6 +41,8 @@ function apiBase(): string {
 
 export const CUSTOM_LINKS_API = {
   register: () => `${apiBase()}/api/custom-links/register`,
+  availability: (slug: string) =>
+    `${apiBase()}/api/custom-links/availability?slug=${encodeURIComponent(slug)}`,
   resolve: (slug: string) =>
     `${apiBase()}/api/custom-links/resolve?slug=${encodeURIComponent(slug)}`,
   list: (wallet: string) =>
@@ -250,18 +252,21 @@ export async function checkSlugAvailabilityRemote(
   }
 
   try {
-    // A HEAD-like probe: try to resolve the slug. 404 ⇒ available, 200 ⇒ taken.
-    const res = await fetch(CUSTOM_LINKS_API.resolve(normalizedSlug));
-    if (res.status === 404) {
-      return { slug: rawSlug, normalizedSlug, isAvailable: true };
-    }
+    const res = await fetch(CUSTOM_LINKS_API.availability(normalizedSlug));
     if (res.ok) {
-      return {
-        slug: rawSlug,
-        normalizedSlug,
-        isAvailable: false,
-        reason: `Slug '${normalizedSlug}' is already registered by another affiliate.`,
-      };
+      const data = await res.json().catch(() => ({}));
+      if (typeof data.available === "boolean") {
+        if (data.available) {
+          return { slug: rawSlug, normalizedSlug, isAvailable: true };
+        } else {
+          return {
+            slug: rawSlug,
+            normalizedSlug,
+            isAvailable: false,
+            reason: `Slug '${normalizedSlug}' is already registered by another affiliate.`,
+          };
+        }
+      }
     }
     throw new Error(`Unexpected status ${res.status}`);
   } catch {
@@ -405,35 +410,8 @@ export async function createCustomShortLink(input: CreateShortLinkInput): Promis
 
     return newLink;
   } catch (err: unknown) {
-    if (
-      err instanceof Error &&
-      (err.message.includes("already registered") || err.message.includes("Registration failed"))
-    ) {
-      throw err;
-    }
-    // If running in an unmocked Node test environment (relative URL) or offline without live API,
-    // fallback to in-memory session link creation.
-    const fallbackLink: CustomShortLink = {
-      id: `csl_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      slug: normalized,
-      affiliateWallet: input.affiliateWallet,
-      walletFingerprint,
-      campaignId: input.campaignId,
-      campaignName: input.campaignName ?? `Campaign #${input.campaignId}`,
-      destinationUrl: formattedDestination,
-      trackingParams,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      clickCount: 0,
-    };
-
-    if (inMemoryLinks === null) {
-      inMemoryLinks = [fallbackLink];
-    } else {
-      inMemoryLinks.unshift(fallbackLink);
-    }
-
-    return fallbackLink;
+    if (err instanceof Error) throw err;
+    throw new Error("Could not reach the short-link service. Please try again.", { cause: err });
   }
 }
 
@@ -453,38 +431,28 @@ export async function deleteCustomShortLink(
   }
   const wallet = affiliateWallet || cached?.affiliateWallet;
 
-  try {
-    if (wallet) {
-      const res = await fetch(CUSTOM_LINKS_API.delete(slug, wallet), {
-        method: "DELETE",
-      });
-
-      if (res.status === 404) return false;
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? `Deletion failed: ${res.status} ${res.statusText}`);
-      }
-    }
-
-    // Update session cache
-    if (inMemoryLinks) {
-      const prevLen = inMemoryLinks.length;
-      inMemoryLinks = inMemoryLinks.filter((l) => l.slug !== slug && l.id !== slugOrId);
-      return inMemoryLinks.length < prevLen;
-    }
-
-    return true;
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("Deletion failed")) {
-      throw err;
-    }
-    if (inMemoryLinks) {
-      const prevLen = inMemoryLinks.length;
-      inMemoryLinks = inMemoryLinks.filter((l) => l.slug !== slug && l.id !== slugOrId);
-      return inMemoryLinks.length < prevLen;
-    }
-    return false;
+  if (!wallet) {
+    throw new Error("Connect the owning wallet to delete this link.");
   }
+
+  const res = await fetch(CUSTOM_LINKS_API.delete(slug, wallet), {
+    method: "DELETE",
+  });
+
+  if (res.status === 404) return false;
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error ?? `Deletion failed: ${res.status} ${res.statusText}`);
+  }
+
+  // Update session cache only on successful 2xx response
+  if (inMemoryLinks) {
+    const prevLen = inMemoryLinks.length;
+    inMemoryLinks = inMemoryLinks.filter((l) => l.slug !== slug && l.id !== slugOrId);
+    return inMemoryLinks.length < prevLen;
+  }
+
+  return true;
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { Input } from "../ui/input";
 import { Card, CardContent } from "../ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table";
 import { useNotification } from "../../context/NotificationContext";
+import { useWeb3 } from "../../hooks/useWeb3";
 import { getAllCustomLinks, deleteCustomShortLink, getShortLinkUrl } from "../../lib/customLinks";
 import type { CustomShortLink } from "../../types/affiliateLink";
 import { LinkGeneratorModal } from "./LinkGeneratorModal";
@@ -27,6 +28,7 @@ export const CustomLinksManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
   const { showNotification } = useNotification();
+  const { userAddress } = useWeb3();
 
   // Reload links whenever modal adds one
   const handleLinkCreated = (newLink: CustomShortLink) => {
@@ -54,13 +56,21 @@ export const CustomLinksManager = () => {
   };
 
   const handleDelete = async (id: string, slug: string) => {
-    const deleted = await deleteCustomShortLink(id);
-    if (deleted) {
-      setLinks((prev) => prev.filter((l) => l.id !== id));
+    try {
+      const deleted = await deleteCustomShortLink(id, userAddress ?? undefined);
+      if (deleted) {
+        setLinks((prev) => prev.filter((l) => l.id !== id));
+        showNotification({
+          type: "info",
+          title: "Short Link Removed",
+          message: `Custom slug '/c/${slug}' was deleted.`,
+        });
+      }
+    } catch (err: unknown) {
       showNotification({
-        type: "info",
-        title: "Short Link Removed",
-        message: `Custom slug '/c/${slug}' was deleted.`,
+        type: "error",
+        title: "Failed to Remove Short Link",
+        message: err instanceof Error ? err.message : "Deletion failed due to a server error.",
       });
     }
   };

@@ -16,6 +16,7 @@ import {
   validateSlugFormat,
   computeWalletFingerprint,
   checkSlugAvailability,
+  checkSlugAvailabilityRemote,
   createCustomShortLink,
   getCustomLinkBySlug,
   getAllCustomLinks,
@@ -107,6 +108,13 @@ function makeListHandler(store: Map<string, CustomShortLink>) {
   };
 }
 
+function makeAvailabilityHandler(store: Map<string, CustomShortLink>) {
+  return async (slug: string): Promise<Response> => {
+    const exists = store.has(slug.toLowerCase());
+    return new Response(JSON.stringify({ slug, available: !exists }), { status: 200 });
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Setup: mock global fetch to route to mock handlers
 // ---------------------------------------------------------------------------
@@ -118,6 +126,7 @@ beforeEach(() => {
   resetCustomLinksStore();
 
   const registerHandler = makeRegisterHandler(mockStore);
+  const availabilityHandler = makeAvailabilityHandler(mockStore);
   const resolveHandler = makeResolveHandler(mockStore);
   const deleteHandler = makeDeleteHandler(mockStore);
   const listHandler = makeListHandler(mockStore);
@@ -129,6 +138,10 @@ beforeEach(() => {
     if (urlObj.pathname === "/api/custom-links/register" && (init?.method ?? "GET") === "POST") {
       const body = JSON.parse((init?.body as string) ?? "{}");
       return registerHandler(body);
+    }
+    if (urlObj.pathname === "/api/custom-links/availability") {
+      const slug = urlObj.searchParams.get("slug") ?? "";
+      return availabilityHandler(slug);
     }
     if (urlObj.pathname === "/api/custom-links/resolve") {
       const slug = urlObj.searchParams.get("slug") ?? "";
@@ -572,6 +585,114 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
 
       // Non-protected params pass through
       expect(parsed.searchParams.get("subid")).toBe("sub123");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 7. Data Integrity & CodeRabbit Review Feedback Regression Tests
+  // --------------------------------------------------------------------------
+  describe("Data Integrity & Review Regression Tests", () => {
+    it("checkSlugAvailabilityRemote queries availability without recording click activity", async () => {
+      const link = await createCustomShortLink({
+        slug: "no-click-check",
+        affiliateWallet: validStellarWallet,
+        campaignId: "99",
+        destinationUrl: "https://merchant.example.com/item",
+      });
+
+      expect(link.clickCount).toBe(0);
+
+      // Probe availability for an already-taken slug
+      const result = await checkSlugAvailabilityRemote("no-click-check");
+      expect(result.isAvailable).toBe(false);
+      expect(result.reason).toContain("already registered");
+
+      // Verify that the click count in the store was NOT incremented
+      const stored = mockStore.get("no-click-check");
+      expect(stored?.clickCount).toBe(0);
+
+      // Probe availability for an available slug
+      const availResult = await checkSlugAvailabilityRemote("completely-free-slug");
+      expect(availResult.isAvailable).toBe(true);
+    });
+
+    it("createCustomShortLink propagates registration failure without falling back to session link", async () => {
+      // Mock fetch to simulate a 400 bad request or network error
+      const mockFetchOriginal = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/custom-links/register")) {
+          return new Response(JSON.stringify({ error: "Invalid destinationUrl protocol" }), {
+            status: 400,
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      try {
+        await expect(
+          createCustomShortLink({
+            slug: "fail-slug",
+            affiliateWallet: validStellarWallet,
+            campaignId: "1",
+            destinationUrl: "ftp://unsafe.example.com",
+          }),
+        ).rejects.toThrow("Invalid destinationUrl protocol");
+
+        // Confirm link was NOT added to session cache
+        expect(getCustomLinkBySlug("fail-slug")).toBeNull();
+      } finally {
+        globalThis.fetch = mockFetchOriginal;
+      }
+    });
+
+    it("deleteCustomShortLink throws when wallet is missing and preserves cache on server error", async () => {
+      // Create a link in mockStore
+      await createCustomShortLink({
+        slug: "delete-test-slug",
+        affiliateWallet: validStellarWallet,
+        campaignId: "1",
+        destinationUrl: "https://merchant.example.com/target",
+      });
+
+      // Clear cache so it has no cached wallet
+      resetCustomLinksStore();
+
+      // Missing wallet should throw
+      await expect(deleteCustomShortLink("delete-test-slug")).rejects.toThrow(
+        "Connect the owning wallet to delete this link.",
+      );
+
+      // Re-populate session cache with the link
+      const resolved = await fetchCustomLinkBySlug("delete-test-slug");
+      expect(resolved).not.toBeNull();
+      expect(getCustomLinkBySlug("delete-test-slug")).not.toBeNull();
+
+      // Simulate a server deletion refusal (e.g. 403 Forbidden or 500)
+      const mockFetchOriginal = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/custom-links/delete")) {
+          return new Response(
+            JSON.stringify({ error: "Unauthorized: you do not own this slug." }),
+            {
+              status: 403,
+            },
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      });
+
+      try {
+        await expect(deleteCustomShortLink("delete-test-slug", validStellarWallet)).rejects.toThrow(
+          "Unauthorized: you do not own this slug.",
+        );
+
+        // Entry MUST NOT be deleted from session cache on failure
+        expect(getCustomLinkBySlug("delete-test-slug")).not.toBeNull();
+      } finally {
+        globalThis.fetch = mockFetchOriginal;
+      }
     });
   });
 });
