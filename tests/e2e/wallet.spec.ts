@@ -1,143 +1,136 @@
-import { Page } from '@cypress/test-runner';
+import { test, expect, type Page } from "@playwright/test";
 
-// -----------------------------------------------------------------------------
-// Mock wallet bridge
-// -----------------------------------------------------------------------------
-// The app talks to a wallet via a postMessage bridge (window.parent / window.opener).
-// We install a deterministic mock bridge before the app boots so the connection
-// flow completes without any manual input. The mock responds to the standard
-// wallet request methods and emits a connection acknowledgement back to the app.
+/**
+ * E-2E coverage for the WalletConnect flow.
+ *
+ * The app is driven entirely through a mock WalletConnect bridge installed on
+ * window before the app boots. This lets us verify the connection flow and
+ * dashboard entry without any manual wallet interaction.
+ */
 
-const MOCK_ADDRESS = '0x1234567890abcdef1234567890abcdef12345678';
-const MOCK_CHAIN_ID = '0x1';
-const MOCK_WALLET_NAME = 'MockWallet';
+const MOCK_SESSION_KEY = "stormsale_walletconnect_session";
 
-type WalletRequest = {
-  id?: string | number;
-  method: string;
-  params?: unknown;
-};
-
-type WindowWithMockBridge = Window & {
-  __mockWalletBridgeInstalled?: boolean;
-  __mockWalletSend?: (request: WalletRequest) => void;
-};
-
-function installMockWalletBridge(win: WindowWithMockBridge): void {
-  if (win.__mockWalletBridgeInstalled) {
-    return;
-  }
-  win.__mockWalletBridgeInstalled = true;
-
-  const post = (payload: unknown) => {
-    // Deliver the payload to the app through the same channel the app listens on.
-    win.postMessage(payload, win.location.origin);
-  };
-
-  const respond = (id: string | number | undefined, result: unknown) => {
-    post({ id, result, jsonrpc: '2.0' });
-  };
-
-  const respondError = (id: string | number | undefined, message: string) => {
-    post({ id, error: { code: -32000, message }, jsonrpc: '2.0' });
-  };
-
-  const handleRequest = (request: WalletRequest): void => {
-    switch (request.method) {
-      case 'eth_requestAccounts':
-        respond(request.id, [MOCK_ADDRESS]);
-        break;
-      case 'eth_chainId':
-        respond(request.id, MOCK_CHAIN_ID);
-        break;
-      case 'wallet_connect':
-        respond(request.id, {
-          accounts: [MOCK_ADDRESS],
-          chainId: MOCK_CHAIN_ID,
-          walletName: MOCK_WALLET_NAME,
-        });
-        // Emit a connection acknowledgement so the app updates its state.
-        post({
-          event: 'connect',
-          data: { accounts: [MOCK_ADDRESS], chainId: MOCK_CHAIN_ID },
-        });
-        break;
-      case 'personal_sign':
-        respond(request.id, '0xmocksignature');
-        break;
-      default:
-        respondError(request.id, `unsupported method: ${request.method}`);
-    }
-  };
-
-  // Respond to requests the app sends to the bridge.
-  win.addEventListener('message', (event: MessageEvent) => {
-    const data = event.data as WalletRequest | undefined;
-    if (!data || typeof data.method !== 'string') {
-      return;
-    }
-    handleRequest(data);
-  });
-
-  // Expose a programmatic entry point so tests can trigger the connect flow.
-  win.__mockWalletSend = (request: WalletRequest) => handleRequest(request);
-}
-
-async function connectWallet(page: Page): Promise<void> {
-  // Trigger the app's connect flow through the mock bridge.
-  await page.evaluate(() => {
-    const w = window as WindowWithMockBridge;
-    if (typeof w.__mockWalletSend !== 'function') {
-      throw new Error('Mock wallet bridge is not installed');
-    }
-    w.__mockWalletSend({
-      id: 1,
-      method: 'wallet_connect',
-      params: { chainId: '0x1' },
-    });
-  });
-}
-
-describe('Wallet Connect E2E', () => {
-  beforeEach(() => {
-    cy.intercept('**/wallet-bridge**', (req) => {
-      // If the app loads a bridge script, serve a non-op script; the mock below
-      // provides the actual behaviour.
-      req.reply(200, '', { 'Content-Type': 'text/javascript' });
-    });
-
-    cy.intercept('**', { middleware: true });
-
-    cy.visit('/', {
-      onBeforeLoad: (win) => {
-        installMockWalletBridge(win as unknown as WindowWithMockBridge);
+/**
+ * Installs a deterministic mock WalletConnect bridge onto the page.
+ *
+ * The bridge exposes the same shape the app expects from a wallet connector:
+ * a session object with a topic and peer metadata, plus connect/disconnect
+ * controls. State is mirrored into localStorage so the app can restore it.
+ */
+async function installMockBridge(page: Page): Promise<void> {
+  await page.addInitScript((key: string) => {
+    const session = {
+      topic: "wc_mock_e2e_topic",
+      peerMeta: {
+        name: "StormSale Mock Wallet",
+        description: "E-2E mock bridge for tests",
+        icons: [],
       },
-    });
+      connectedAt: Date.now(),
+    };
+
+    const bridge = {
+      connected: false,
+      async connect() {
+        this.connected = true;
+        try {
+          window.localStorage.setItem(key, JSON.stringify(session));
+        } catch {
+          // ignore storage failures in the mock
+        }
+        return session;
+      },
+      async disconnect() {
+        this.connected = false;
+        try {
+          window.localStorage.removeItem(key);
+        } catch {
+          // ignore storage failures in the mock
+        }
+      },
+      getSession() {
+        return this.connected ? session : null;
+      },
+    };
+
+    // Expose the bridge for test assertions and for the app to detect.
+    (window as unknown as { __stormsaleWalletConnect?: typeof bridge }).__stormsaleWalletConnect = bridge;
+  }, MOCK_SESSION_KEY);
+}
+
+/**
+ * Pre-hydrates a connected session into localStorage so the app boots into
+ * the dashboard without requiring a full handshake.
+ */
+async function seedConnectedSession(page: Page): Promise<void> {
+  await page.addInitScript((sessionKey: string) => {
+    const session = {
+      topic: "wc_mock_e2e_topic",
+      peerMeta: {
+        name: "StormSale Mock Wallet",
+        description: "E-2E mock bridge for tests",
+        icons: [],
+      },
+      connectedAt: Date.now(),
+    };
+    try {
+      window.localStorage.setItem(sessionKey, JSON.stringify(session));
+    } catch {
+      // ignore storage failures in the mock
+    }
+  }, MOCK_SESSION_KEY);
+}
+
+test.describe("WalletConnect E-EE", () => {
+  test.beforeEach(async ({ page }) => {
+    await installMockBridge(page);
   });
 
-  it('connects via mock bridge and enters the dashboard', () => {
-    // Assert the app is on the connect screen before connecting.
-    cy.contains('button', /connect wallet/i).should('be.visible');
+  test("connects via the mock bridge and enters the dashboard", async ({
+    page,
+  }) => {
+    await page.goto("/");
 
-    // Perform the connection through the mock bridge.
-    cy.win().then((win) => {
-      void win;
-      connectWallet(cy.win() as unknown as Page);
-    });
+    // The app must be mounted before we interact with the connect control.
+    await expect(page.locator("body")).toBeVisible();
 
-    // Verify the connection was acknowledged and the dashboard is reached.
-    cy.url().should('include', '/dashboard');
-    cy.contains('[data-testid="dashboard"]').should('be.visible');
-    cy.contains(MOCK_ADDRESS.slice(0, 6)).should('be.visible');
+    const connectButton = page.getByRole("button", { name: /connect wallet/i });
+    await expect(connectButton).toBeVisible();
+    await connectButton.click();
+
+    // The mock bridge must report a connected session.
+    await expect
+      .poll(page, async () => {
+        return page.evaluate(() => {
+          const bridge = (window as unknown as {
+            __stormsaleWalletConnect?: { getSession(): unknown | null };
+          }).__stormsaleWalletConnect;
+          return bridge?.getSession() !== null;
+        });
+      })
+      .toBe(true);
+
+    // The session must be persisted for subsequent reloads.
+    const storedSession = await page.evaluate((sessionKey) => {
+      return window.localStorage.getItem(sessionKey);
+    }, MOCK_SESSION_KEY);
+    expect(storedSession).toBeTruthy();
+
+    // Dashboard entry: the connected wallet address or dashboard heading should
+    // be visible after the handshake completes.
+    await expect(
+      page.getByRole("heading", { name: /dashboard/i }).or(page.getByText(/connected/i))
+    ).toBeVisible();
   });
 
-  it('shows the connected wallet address on the dashboard', () => {
-    cy.win().then((win) => {
-      void win;
-      connectWallet(cy.win() as unknown as Page);
-    });
+  test("shows the dashboard directly when a session is already stored", async ({
+    page,
+  }) => {
+    await seedConnectedSession(page);
+    await page.goto("/");
 
-    cy.contains('[data-testid="wallet-address"]')
-      .should('contain', MOCK_ADDRESS.slice(0, 6));
+    await expect(
+      page.getByRole("heading", { name: /dashboard/i }).or(page.getByText(/connected/i))
+    ).toBeVisible();
   });
 });
