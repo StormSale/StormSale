@@ -117,21 +117,28 @@ export function useIdleDisconnect({
     setRemainingSeconds(Math.round(warningMs / 1000));
   }, [timeoutMs, warningMs, updateStoredActivity]);
 
+  // Mirror isWarningActive into a ref so the activity listeners can read it
+  // without re-subscribing (and re-running the connect reset) when it changes.
+  const isWarningActiveRef = useRef(isWarningActive);
+  useEffect(() => {
+    isWarningActiveRef.current = isWarningActive;
+  }, [isWarningActive]);
+
+  // Reset the idle timer only on the connect transition, never when the
+  // warning opens, so the warning cannot reset its own countdown.
+  useEffect(() => {
+    hasDisconnectedRef.current = false;
+    if (!isConnected) return;
+    updateStoredActivity(Date.now());
+  }, [isConnected, updateStoredActivity]);
+
   // Track user activity across DOM events with 1s throttling
   useEffect(() => {
-    if (!isConnected) {
-      hasDisconnectedRef.current = false;
-      return;
-    }
-
-    // Reset timestamp when wallet becomes connected
-    const now = Date.now();
-    hasDisconnectedRef.current = false;
-    updateStoredActivity(now);
+    if (!isConnected) return;
 
     const handleUserActivity = () => {
       // If warning modal is open, require explicit "Stay Connected" or button click
-      if (isWarningActive) return;
+      if (isWarningActiveRef.current) return;
 
       const currentTime = Date.now();
       // Throttle activity updates to once every 1000ms
@@ -155,11 +162,12 @@ export function useIdleDisconnect({
       window.addEventListener(event, handleUserActivity, { passive: true });
     });
 
-    // Cross-tab synchronization via storage event
+    // Cross-tab synchronization via storage event. Only move the timer
+    // forward, so a stale value from another tab cannot rewind it.
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === storageKey && e.newValue) {
         const updatedTime = parseInt(e.newValue, 10);
-        if (!isNaN(updatedTime)) {
+        if (!isNaN(updatedTime) && updatedTime > lastActivityRef.current) {
           lastActivityRef.current = updatedTime;
           const state = calculateIdleSessionState(updatedTime, Date.now(), timeoutMs, warningMs);
           if (!state.isWarningActive) {
@@ -177,7 +185,7 @@ export function useIdleDisconnect({
       });
       window.removeEventListener("storage", handleStorageChange);
     };
-  }, [isConnected, isWarningActive, storageKey, timeoutMs, warningMs, updateStoredActivity]);
+  }, [isConnected, storageKey, timeoutMs, warningMs, updateStoredActivity]);
 
   // Polling interval to check idle expiration & update countdown
   useEffect(() => {
@@ -212,15 +220,13 @@ export function useIdleDisconnect({
     return () => clearInterval(checkInterval);
   }, [isConnected, timeoutMs, warningMs, getStoredActivity]);
 
-  // Expose test helper on window for browser demo / testing
+  // Expose test helper on window for local development only. In a production
+  // build any script on the page could call it to force a disconnect.
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.__triggerIdleWarningTest = triggerWarningForTesting;
-    }
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+    window.__triggerIdleWarningTest = triggerWarningForTesting;
     return () => {
-      if (typeof window !== "undefined") {
-        delete window.__triggerIdleWarningTest;
-      }
+      delete window.__triggerIdleWarningTest;
     };
   }, [triggerWarningForTesting]);
 

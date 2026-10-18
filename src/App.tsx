@@ -1,24 +1,15 @@
 import React, { Suspense, useState, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
+import { WalletConnectProvider } from "./context/WalletConnectContext";
 import {
   NotificationProvider,
   NotificationWrapper,
   useNotification,
 } from "./context/NotificationContext";
-import { Landing } from "./pages/Landing";
-import { Dashboard } from "./pages/Dashboard";
-import { Advertiser } from "./pages/Advertiser";
-import { Affiliate } from "./pages/Affiliate";
-import { Auditor } from "./pages/Auditor";
 import { useWeb3 } from "./hooks/useWeb3";
 import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
-import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
-
-import { useState } from "react";
-import { WalletConnectProvider } from "./context/WalletConnectContext";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
-import { useWeb3 } from "./hooks/useWeb3";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 import { loadBrandConfig } from "./lib/branding";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -141,76 +132,60 @@ function Router() {
       },
     });
 
-  const isPreviewQuery =
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("timeout_preview") === "1";
-
-  if (activeBrandSubdomain) {
-    return (
-      <>
-        <SessionTimeoutModal
-          isOpen={isWarningOpen || isPreviewQuery}
-          remainingSeconds={isWarningOpen ? remainingSeconds : 115}
-          onExtend={extendSession}
-          onDisconnect={handleManualDisconnect}
-        />
-      <Suspense fallback={<PageLoader />}>
-        <BrandedCampaignView
-          brandConfig={loadBrandConfig(activeBrandSubdomain)}
-          onClose={() => {
-            setActiveBrandSubdomain(null);
-            window.history.pushState({}, "", window.location.pathname);
-          }}
-          isStandalone
-        />
-      </>
-      </Suspense>
-    );
-  }
+  // ?timeout_preview=1 opens the warning without a real idle session, for
+  // local development only. Its buttons just close the preview, so it never
+  // extends or disconnects a real wallet.
+  const [isPreviewOpen, setIsPreviewOpen] = useState(
+    () =>
+      import.meta.env.DEV &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("timeout_preview") === "1",
+  );
 
   return (
     <>
-      <ConnectWalletModal />
       <SessionTimeoutModal
-        isOpen={isWarningOpen || isPreviewQuery}
-        remainingSeconds={isWarningOpen ? remainingSeconds : 115}
-        onExtend={extendSession}
-        onDisconnect={handleManualDisconnect}
+        isOpen={isWarningOpen || isPreviewOpen}
+        remainingSeconds={remainingSeconds}
+        onExtend={isWarningOpen ? extendSession : () => setIsPreviewOpen(false)}
+        onDisconnect={isWarningOpen ? handleManualDisconnect : () => setIsPreviewOpen(false)}
       />
-      {!isConnected ? (
-        <Landing />
+      {activeBrandSubdomain ? (
+        <Suspense fallback={<PageLoader />}>
+          <BrandedCampaignView
+            brandConfig={loadBrandConfig(activeBrandSubdomain)}
+            onClose={() => {
+              setActiveBrandSubdomain(null);
+              window.history.pushState({}, "", window.location.pathname);
+            }}
+            isStandalone
+          />
+        </Suspense>
       ) : (
-        <div className="min-h-screen bg-background">
-          <main>
-            {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-            {currentPage === "advertiser" && (
-              <Advertiser onBack={() => setCurrentPage("dashboard")} />
+        <>
+          <ConnectWalletModal />
+          <Suspense fallback={<PageLoader />}>
+            {!isConnected ? (
+              <Landing />
+            ) : (
+              <div className="min-h-screen bg-background">
+                <main>
+                  {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+                  {currentPage === "advertiser" && (
+                    <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                  {currentPage === "affiliate" && (
+                    <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                  {currentPage === "auditor" && (
+                    <Auditor onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                </main>
+              </div>
             )}
-            {currentPage === "affiliate" && (
-              <Affiliate onBack={() => setCurrentPage("dashboard")} />
-            )}
-            {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-          </main>
-        </div>
+          </Suspense>
+        </>
       )}
-      <Suspense fallback={<PageLoader />}>
-        {!isConnected ? (
-          <Landing />
-        ) : (
-          <div className="min-h-screen bg-background">
-            <main>
-              {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-              {currentPage === "advertiser" && (
-                <Advertiser onBack={() => setCurrentPage("dashboard")} />
-              )}
-              {currentPage === "affiliate" && (
-                <Affiliate onBack={() => setCurrentPage("dashboard")} />
-              )}
-              {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-            </main>
-          </div>
-        )}
-      </Suspense>
     </>
   );
 }
