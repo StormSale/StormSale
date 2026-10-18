@@ -6,12 +6,12 @@ list, so any change to a variant's appearance shows up as a diff.
 
 ## Coverage
 
-| Component | Cases |
-| :-- | :-- |
-| Button | 6 variants x 4 sizes, 6 disabled states, default props, custom `className`, `asChild` |
-| Dialog (modal) | title only, header + description + body + footer, custom `className`, closed |
-| Input | `default` / `success` / `error` / `warning`, disabled |
-| Card, Label, InputField, Table | composed and customised states |
+| Component                      | Cases                                                                                 |
+| :----------------------------- | :------------------------------------------------------------------------------------ |
+| Button                         | 6 variants x 4 sizes, 6 disabled states, default props, custom `className`, `asChild` |
+| Dialog (modal)                 | title only, header + description + body + footer, custom `className`, closed          |
+| Input                          | `default` / `success` / `error` / `warning`, disabled                                 |
+| Card, Label, InputField, Table | composed and customised states                                                        |
 
 ## How CI uses them
 
@@ -36,3 +36,10 @@ fails the build instead of being silently accepted.
   `__snapshots__` diff before committing.
 
 Generated ids (`«r1»`, `radix-...`) are normalised in `snapshot-utils.ts` so snapshots stay stable.
+
+## Visual proof
+
+Rendered primitives (Button variants x sizes, Input variants) and the modal, captured from the real components:
+
+![UI primitives](__proof__/ui-primitives-baseline.png)
+![Modal](__proof__/ui-modal-baseline.png)
