@@ -20,12 +20,16 @@ export const STORMSALE_CONTRACT_METHODS = {
   IS_PAUSED: "is_paused",
 } as const;
 
+export const STORMSALE_ADMIN_METHODS = {
+  PAUSE: STORMSALE_CONTRACT_METHODS.PAUSE,
+  UNPAUSE: STORMSALE_CONTRACT_METHODS.UNPAUSE,
+  IS_PAUSED: STORMSALE_CONTRACT_METHODS.IS_PAUSED,
+} as const;
+
+export type SorobanAdminMethod =
+  (typeof STORMSALE_ADMIN_METHODS)[keyof typeof STORMSALE_ADMIN_METHODS];
+
 export type SorobanContractMethod =
   (typeof STORMSALE_CONTRACT_METHODS)[keyof typeof STORMSALE_CONTRACT_METHODS];
 
 export type UserRole = "ADMIN" | "ADVERTISER" | "AFFILIATE" | "AUDITOR" | "NONE";
-
-export const isAdminRole = (role: UserRole | null | undefined): boolean =>
-  role === "ADMIN";
-
-export type PauseState = { paused: boolean; updatedAt?: number };

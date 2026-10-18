@@ -3,7 +3,7 @@ import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers, PauseCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -15,6 +15,7 @@ interface SidebarProps {
   onBack?: () => void;
   roleName: string;
   isAdmin?: boolean;
+  onEmergencyPause?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -25,6 +26,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onBack,
   roleName,
   isAdmin = false,
+  onEmergencyPause,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -32,7 +34,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
-  const isAdminRole = isAdmin || roleName.toLowerCase().includes("admin");
+
+  const handleEmergencyPause = () => {
+    if (onEmergencyPause) {
+      onEmergencyPause();
+    }
+    onTabChange("emergency-pause");
+  };
 
   return (
     <>
@@ -134,28 +142,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 })}
               </div>
 
-              {isAdminRole && (
-                <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800">
-                  <div className="text-[10px] font-bold text-rose-500 uppercase tracking-wider mb-2 px-1">
-                    Admin Controls
-                  </div>
+              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+                {isAdmin === true && (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    type="button"
                     onClick={() => {
-                      onTabChange("emergency-pause");
+                      handleEmergencyPause();
                       setIsMobileDrawerOpen(false);
                     }}
-                    className="w-full justify-start text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
+                    className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                   >
-                    <PauseCircle className="w-3.5 h-3.5 mr-2" />
+                    <Shield className="w-3.5 h-3.5 mr-1" />
                     Emergency Pause
                   </Button>
-                </div>
-              )}
-
-              <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+                )}
                 {onBack && (
                   <Button
                     variant="ghost"
@@ -304,26 +305,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {isAdminRole && (
-          <div className="px-4 pb-2">
+        {/* Footer */}
+        <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
+          {isAdmin === true && (
             <Button
-              variant="outline"
-              type="button"
-              onClick={() => onTabChange("emergency-pause")}
+              variant="ghost"
+              onClick={handleEmergencyPause}
               className={cn(
-                "w-full h-12 rounded-xl transition-all duration-200 border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 font-bold",
+                "w-full h-12 rounded-xl transition-all duration-200 group flex items-center border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/40",
                 isCollapsed ? "justify-center px-0" : "justify-start px-4",
               )}
               title="Emergency Pause"
             >
-              <PauseCircle className={cn("w-5 h-5 shrink-0", !isCollapsed && "mr-3")} />
-              {!isCollapsed && <span className="truncate">Emergency Pause</span>}
+              <Shield
+                className={cn(
+                  "w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110",
+                  !isCollapsed && "mr-3",
+                )}
+              />
+              {!isCollapsed && (
+                <motion.span
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="font-bold truncate"
+                >
+                  Emergency Pause
+                </motion.span>
+              )}
             </Button>
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
+          )}
           <Button
             variant="ghost"
             onClick={disconnectWallet}
@@ -367,11 +377,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="text-[10px] font-semibold text-zinc-500 dark:text-zinc-500 uppercase tracking-widest">
                   NIST Compliant
                 </div>
-                {isAdminRole && (
-                  <div className="mt-2 text-[10px] font-bold text-rose-500 uppercase tracking-widest">
-                    Admin Access
-                  </div>
-                )}
               </>
             ) : (
               <div className="flex justify-center">

@@ -14,7 +14,7 @@ export const Dashboard = lazy(() =>
 export const Advertiser = lazy(() =>
   import("./pages/Advertiser").then((m) => ({ default: m.Advertiser })),
 );
-export const Affiliate = lazy(() =>
+export const Affiliate = lazy(
   import("./pages/Affiliate").then((m) => ({ default: m.Affiliate })),
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));

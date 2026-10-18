@@ -65,12 +65,6 @@ export interface Web3ContextType {
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
-  // Admin Emergency Kill-Switch
-  isAdmin: boolean;
-  isPaused: boolean;
-  pauseContracts: () => Promise<{ success: boolean; txHash?: string }>;
-  resumeContracts: () => Promise<{ success: boolean; txHash?: string }>;
-
   // Token Allowance & Escrow Operations
   tokenAllowance: number;
   refreshTokenAllowance: (spender?: string) => Promise<number>;
@@ -78,6 +72,12 @@ export interface Web3ContextType {
     amount: number,
     spender?: string,
   ) => Promise<{ success: boolean; txHash?: string }>;
+
+  // Admin Emergency Kill-Switch
+  isPaused: boolean;
+  isPausing: boolean;
+  pauseContracts: () => Promise<{ success: boolean; txHash?: string }>;
+  resumeContracts: () => Promise<{ success: boolean; txHash?: string }>;
 
   // Compatibility helpers for legacy form callers
   factoryContract: any;
@@ -88,8 +88,6 @@ export interface Web3ContextType {
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
-
-const ADMIN_ROLES = ["admin", "platform_admin", "super_admin"];
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [userAddress, setUserAddress] = useState<string | null>(null);
@@ -102,6 +100,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isPausing, setIsPausing] = useState(false);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -180,25 +179,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
         address = await connectXBullWallet();
-        setNetwork(STELLAR_CONFIG.network);
-      } else if (type === "ledger") {
-        const { connectLedgerDevice, DEFAULT_STALLAR_BIP_PATH } =
-          await import("../lib/ledgerBridge");
-        const path = derivationPath || ledgerBipPath || DEFAULT_STALLAR_BIP_PATH;
-        const info = await connectLedgerDevice(path);
-        address = info.address;
-        setNetwork(STELLAR_CONFIG.network);
-      } else if (type === "passkey") {
-        const { authenticateWithPasskey, loadEncryptedPasskeyVault, registerPasskey } =
-          await import("../lib/passkeySigner");
-        const vault = await loadEncryptedPasskeyVault();
-        if (vault.length === 0) {
-          const newRecord = await registerPasskey(customAddress || "Affiliate User");
-          address = newRecord.stellarAddress;
-        } else {
-          const authResult = await authenticateWithPasskey();
-          address = authResult.record.stellarAddress;
-        }
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
         const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
@@ -372,11 +352,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Soroban: Refund Unused Campaign Escrow
+  // Soroban: Refund Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+    console.log(`[Soroban] Refunding campaign #${campaignId} escrow to ${userAddress}`);
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
@@ -391,58 +371,75 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // Soroban: Batch Claim Payouts
   const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
-    const res = await executeBatchCommissionClaim(
-      userAddress,
-      campaigns,
-      connectorType || "freighter",
-    );
-    setTimeout(() => refreshBalance(userAddress), 1000);
-    return res;
+    const receipts: BatchClaimReceipt = {
+      successCount: 0,
+      failureCount: 0,
+      totalAmountXLm: 0,
+      results: [],
+    };
+    for (const campaign of campaigns) {
+      try {
+        const res = await claimPayoutOnChain(campaign.campaignId);
+        if (res.success) {
+          receipts.successCount += 1;
+          receipts.totalAmountXlm += campaign.amountXLm;
+          receipts.results.push({ campaignId: campaign.campaignId, success: true, txHash: res.txHash });
+        } else {
+          receipts.failureCount += 1;
+          receipts.results.push({ campaignId: campaign.campaignId, success: false });
+        }
+      } catch (err) {
+        receipts.failureCount += 1;
+        receipts.results.push({ campaignId: campaign.campaignId, success: false, error: String(err) });
+      }
+    }
+    return receipts;
   };
 
-  // Passkey Smart Account Registration
+  // Passkey: Register account
   const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    const record = await registerPasskey(userName || "Affiliate User");
-    await connectWallet("passkey");
-    return record;
+    return registerPasskey(userName || "Affiliate User");
   };
 
-  // Admin Emergency Kill-Switch: only admin roles may pause/resume contracts
-  const isAdmin = !!userRole && ADMIN_ROLES.includes(userRole.toLowerCase());
-
-  const pauseContracts = async (): Promise<{ success: boolean; txHash?: string }> => {
-    if (!isAdmin) throw new Error("Unauthorized: admin role required");
+  // Admin Emergency Kill-Switch: Pause contracts
+  const pauseContracts = async () => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const { pauseContracts : pauseOnChain } = await import("../lib/stellar");
-    const res = await pauseOnChain(userAddress, connectorType || "freighter");
-    if (res.success) setIsPaused(true);
-    return res;
-  };
-
-  const resumeContracts = async (): Promise<{ success: boolean; txHash?: string }> => {
-    if (!isAdmin) throw new Error("Unauthorized: admin role required");
-    if (!userAddress) throw new Error("Wallet not connected");
-    const { resumeContracts : resumeOnChain } = await import("../lib/stellar");
-    const res = await resumeOnChain(userAddress, connectorType || "freighter");
-    if (res.success) setIsPaused(false);
-    return res;
-  };
-
-  // Compatibility facade for existing form components
-  const factoryContract = {
-    createCampaign: async (rate: string, period: string) => {
-      const res = await createCampaignOnChain(
-        "Campaign",
-        1000,
-        parseFloat(rate) || 10,
-        parseInt(period) || 604800,
-      );
+    if (userRole !== "admin") throw new Error("Admin role required");
+    setIsPausing(true);
+    try {
+      const res = await pauseContractsCall(userAddress, connectorType || "freighter");
+      setIsPaused(true);
       return res;
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  // Admin Emergency Kill-Switch: Resume contracts
+  const resumeContracts = async () => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    if (userRole !== "admin") throw new Error("Admin role required");
+    setIsPausing(true);
+    try {
+      const res = await resumeContractsCall(userAddress, connectorType || "freighter");
+      setIsPaused(false);
+      return res;
+    } finally {
+      setIsPausing(false);
+    }
+  };
+
+  const switchToStellarNetwork = async () => {
+    try {
+      const currentNet = await getCurrentNetwork();
+      setNetwork(currentNet);
+      return currentNet === STELLAR_CONFIG.network;
+    } catch {
+      return false;
     }
   };
 
@@ -450,7 +447,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork: network === "TESTNET" || network === "PUBLIC",
+    isStellarNetwork: network === STELLAR_CONFIG.network,
     network,
     xlmBalance,
     connectorType,
@@ -469,27 +466,27 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     refundCampaignEscrow,
     batchClaimPayoutsOnChain,
     registerPasskeyAccount,
-    isAdmin,
-    isPaused,
-    pauseContracts,
-    resumeContracts,
     tokenAllowance,
     refreshTokenAllowance,
     approveTokenAllowance,
-    factoryContract,
+    isPaused,
+    isPausing,
+    pauseContracts,
+    resumeContracts,
+    factoryContract: null,
     getCampaignContract: () => null,
     provider: null,
     signer: null,
-    switchToStellarNetwork: async () => true,
+    switchToStellarNetwork: switchToStellarNetwork,
   };
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
 export function useWeb3(): Web3ContextType {
-  const ctx = useContext(Web3Context);
-  if (!ctx) {
+  const context = useContext(Web3Context);
+  if (context === undefined) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }
-  return ctx;
+  return context;
 }
