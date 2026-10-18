@@ -365,45 +365,75 @@ const NotificationContainer: React.FC<never> = () => {
             role="alert"
             className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transform transition-all duration-300 ${getBackgroundColor(
               notification.type,
-            )}`}
+            )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
           >
-            <div className="flex items-start gap-3">
+            <div className="flex items-start space-x-3">
               {getIcon(notification.type)}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-zinc-900 dark:text-white">
-                  {notification.title}
-                </p>
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
+                    {notification.title}
+                  </h4>
+                  {notification.persistent && (
+                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+                      Persistent Alert
+                    </span>
+                  )}
+                </div>
+
                 {notification.message && (
-                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
+                  <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
                     {notification.message}
                   </p>
                 )}
+
+                {/* Interactive Action: Link or Button to "Top Up" flow */}
                 {actionLabel && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (notification.onAction) {
-                        notification.onAction();
-                      } else if (actionUrl) {
-                        window.location.assign(actionUrl);
-                      }
-                    }}
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                  >
-                    {actionLabel}
+                  <div className="mt-3 flex items-center gap-2 pt-1">
                     {actionUrl ? (
-                      <ExternalLink className="w-3 h-3" />
+                      <a
+                        href={actionUrl}
+                        onClick={() => {
+                          if (notification.onAction) notification.onAction();
+                          if (notification.action?.onClick) notification.action.onClick();
+                          dismissNotification(notification.id);
+                        }}
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                      >
+                        <span>{actionLabel}</span>
+                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                      </a>
                     ) : (
-                      <ArrowRight className="w-3 h-3" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (notification.onAction) notification.onAction();
+                          if (notification.action?.onClick) notification.action.onClick();
+                          dismissNotification(notification.id);
+                        }}
+                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                      >
+                        <span>{actionLabel}</span>
+                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                      </button>
                     )}
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={() => dismissNotification(notification.id)}
+                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
                 )}
               </div>
+
               <button
                 type="button"
                 onClick={() => dismissNotification(notification.id)}
-                aria-label="Dismiss notification"
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
+                aria-label="Close notification"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -422,3 +452,17 @@ export const useNotification = (): NotificationContextType => {
   }
   return context;
 };
+
+export function NotificationWrapper({ children }: { children: React.ReactNode }) {
+  return <NotificationProvider>{children}</NotificationProvider>;
+}
+
+export function withNotification<P extends object>(Component: React.ComponentType<P>) {
+  return function WrappedWithNotification(props: P) {
+    return (
+      <NotificationProvider>
+        <Component {...props} />
+      </NotificationProvider>
+    );
+  };
+}
