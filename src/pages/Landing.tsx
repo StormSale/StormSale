@@ -17,12 +17,13 @@ import {
   X,
   ExternalLink,
   Send,
+  Fingerprint,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../assets/logo2.png";
 
 export const Landing = () => {
-  const { openWalletModal } = useWeb3();
+  const { openWalletModal, connectWallet } = useWeb3();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const stats = [
@@ -217,22 +218,23 @@ export const Landing = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.5 }}
-              className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto"
+              className="flex flex-col sm:flex-row gap-3.5 w-full sm:w-auto"
             >
+              <Button
+                onClick={() => connectWallet("passkey")}
+                size="lg"
+                className="w-full sm:w-auto rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-500 hover:from-blue-500 hover:to-indigo-400 text-white shadow-xl shadow-blue-500/25 transition-all transform hover:-translate-y-1 h-14 px-6 text-base md:text-lg font-bold border-0 flex items-center justify-center space-x-2"
+              >
+                <Fingerprint className="w-5 h-5 mr-1" />
+                <span>Continue with Passkey (FaceID / Fingerprint)</span>
+              </Button>
               <Button
                 onClick={openWalletModal}
                 size="lg"
-                className="w-full sm:w-auto rounded-2xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white shadow-2xl shadow-indigo-500/25 transition-all transform hover:-translate-y-1 h-14 px-8 text-lg font-bold border-0"
+                className="w-full sm:w-auto rounded-2xl bg-slate-900 dark:bg-white text-white dark:text-zinc-900 hover:bg-zinc-800 dark:hover:bg-zinc-100 shadow-lg transition-all transform hover:-translate-y-1 h-14 px-6 text-base md:text-lg font-bold border-0"
               >
-                Launch Protocol
+                <span>Connect Wallet</span>
                 <ArrowRight className="w-5 h-5 ml-2" />
-              </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full sm:w-auto rounded-2xl border-slate-200 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-md hover:bg-white dark:hover:bg-zinc-800 text-zinc-900 dark:text-white transition-all h-14 px-8 text-lg font-bold"
-              >
-                Read Whitepaper
               </Button>
             </motion.div>
           </div>
