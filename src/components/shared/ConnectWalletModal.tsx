@@ -18,10 +18,12 @@ import {
   Radio,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useWalletConnect } from "../../context/WalletConnectContext";
 import type { WalletType } from "../../lib/stellar";
 
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
+  const { connect: connectWalletConnect } = useWalletConnect();
   const [connectingType, setConnectingType] = useState<WalletType | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState("");
@@ -74,6 +76,8 @@ export const ConnectWalletModal: React.FC = () => {
       } else if (type === "ledger") {
         const bipPath = getActiveBipPath();
         await connectWallet("ledger", undefined, bipPath);
+      } else if ((type as string) === "walletconnect") {
+        await connectWalletConnect();
       } else {
         await connectWallet(type);
       }
@@ -189,6 +193,17 @@ export const ConnectWalletModal: React.FC = () => {
       icon: Smartphone,
       accent: "from-rose-500 to-pink-600",
       borderHover: "hover:border-rose-500/50 hover:bg-rose-50/50 dark:hover:bg-rose-950/20",
+    },
+    {
+      id: "walletconnect" as any,
+      name: "WalletConnect",
+      badge: "Mobile & QR",
+      badgeColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
+      description:
+        "Connect via WalletConnect protocol with mobile wallets or desktop apps.",
+      icon: Smartphone,
+      accent: "from-blue-600 to-cyan-600",
+      borderHover: "hover:border-blue-500/50 hover:bg-blue-50/50 dark:hover:bg-blue-950/20",
     },
   ];
 

@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
   activeTab: string;
@@ -65,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               size="sm"
