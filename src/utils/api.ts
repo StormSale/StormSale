@@ -45,3 +45,20 @@ export const fetchCampaigns = async () => {
   }
   return await res.json();
 };
+
+export const fetchConversions = async (campaignId?: string) => {
+  try {
+    const url = campaignId
+      ? `${API_URL}/conversions?campaignId=${campaignId}`
+      : `${API_URL}/conversions`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      return [];
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error("Failed to fetch conversions from API:", error);
+    return [];
+  }
+};
