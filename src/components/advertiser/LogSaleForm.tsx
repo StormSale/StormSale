@@ -17,6 +17,7 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
+import { triggerConversionPostback } from "../../lib/webhookEngine";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -81,6 +82,40 @@ export const LogSaleForm = () => {
       );
 
       await tx.wait();
+
+      // Automated Conversion Postback Dispatch
+      try {
+        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
+
+        const postbacks = await triggerConversionPostback({
+          saleId: payload.saleId,
+          campaignAddress,
+          affiliateAddress,
+          advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+          saleAmount,
+          currency: "XLM",
+          stellarTxHash: postbackTxHash,
+          ledgerTimestamp: new Date().toISOString(),
+          customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
+          status: "CONFIRMED_ON_LEDGER",
+        });
+
+        if (postbacks.length > 0) {
+          showNotification({
+            type: "info",
+            title: "Webhooks Dispatched",
+            message: `Automated postback queued for ${postbacks.length} active endpoint(s).`,
+          });
+        }
+      } catch (webhookErr) {
+        console.warn("Conversion postback warning:", webhookErr);
+        showNotification({
+          type: "warning",
+          title: "Postback Notice",
+          message:
+            "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
+        });
+      }
 
       showNotification({
         type: "success",
