@@ -22,105 +22,16 @@ import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { formatStellarAddress } from "../../lib/stellar";
+import {
+  useCampaigns,
+  type Campaign,
+  type CampaignStatus,
+  INITIAL_CAMPAIGNS as initialMockCampaigns,
+  setStoredCampaigns,
+} from "../../hooks/useCampaigns";
 
-export type CampaignStatus = "Active" | "Paused" | "Completed";
-
-export interface Campaign {
-  id: string;
-  name: string;
-  status: CampaignStatus;
-  commissionRate: number;
-  clearingPeriod: string;
-  totalSales: number;
-  totalRevenue: string;
-  totalCommissions: string;
-  affiliates: number;
-  createdAt: string;
-  contractAddress: string;
-  escrowInitial: number; // Initial escrow budget (XLM)
-  escrowBalance: number; // Current remaining escrow balance (XLM)
-  isRefunded?: boolean;
-}
-
-export const initialMockCampaigns: Campaign[] = [
-  {
-    id: "1",
-    name: "Tech Gadgets Pro",
-    status: "Active",
-    commissionRate: 10,
-    clearingPeriod: "14 Days",
-    totalSales: 124,
-    totalRevenue: "$24,800",
-    totalCommissions: "$2,480",
-    affiliates: 12,
-    createdAt: "2026-04-01",
-    contractAddress: "CA7Q...1234",
-    escrowInitial: 5000,
-    escrowBalance: 3250, // 65.0% - Healthy
-  },
-  {
-    id: "2",
-    name: "Web3 Masterclass",
-    status: "Active",
-    commissionRate: 15,
-    clearingPeriod: "7 Days",
-    totalSales: 89,
-    totalRevenue: "$44,500",
-    totalCommissions: "$6,675",
-    affiliates: 8,
-    createdAt: "2026-04-15",
-    contractAddress: "CB9E...5678",
-    escrowInitial: 10000,
-    escrowBalance: 750, // 7.5% - LOW ESCROW ALERT (< 10%)
-  },
-  {
-    id: "3",
-    name: "Crypto Tools Suite",
-    status: "Paused",
-    commissionRate: 12,
-    clearingPeriod: "30 Days",
-    totalSales: 67,
-    totalRevenue: "$33,500",
-    totalCommissions: "$4,020",
-    affiliates: 6,
-    createdAt: "2026-03-20",
-    contractAddress: "CC2K...9012",
-    escrowInitial: 8000,
-    escrowBalance: 680, // 8.5% - LOW ESCROW ALERT (< 10%)
-  },
-  {
-    id: "4",
-    name: "DeFi Starter Pack",
-    status: "Completed",
-    commissionRate: 8,
-    clearingPeriod: "14 Days",
-    totalSales: 45,
-    totalRevenue: "$22,500",
-    totalCommissions: "$1,800",
-    affiliates: 5,
-    createdAt: "2026-02-10",
-    contractAddress: "CD4M...3456",
-    escrowInitial: 3000,
-    escrowBalance: 1200, // Ended campaign with 1,200 XLM unused escrow - REFUNDABLE
-    isRefunded: false,
-  },
-  {
-    id: "5",
-    name: "Stellar MicroPay Launch",
-    status: "Completed",
-    commissionRate: 5,
-    clearingPeriod: "7 Days",
-    totalSales: 110,
-    totalRevenue: "$55,000",
-    totalCommissions: "$2,750",
-    affiliates: 15,
-    createdAt: "2026-01-05",
-    contractAddress: "CE1P...7890",
-    escrowInitial: 4000,
-    escrowBalance: 0,
-    isRefunded: true, // Already refunded
-  },
-];
+export type { Campaign, CampaignStatus };
+export { initialMockCampaigns };
 
 const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
   Active: {
@@ -138,7 +49,9 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
 };
 
 export const MyCampaignsList = () => {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
+  const { campaigns: hookCampaigns } = useCampaigns({ role: "advertiser" });
+  const [localCampaigns, setLocalCampaigns] = useState<Campaign[] | null>(null);
+  const campaigns = localCampaigns ?? (hookCampaigns.length > 0 ? hookCampaigns : initialMockCampaigns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
@@ -192,14 +105,14 @@ export const MyCampaignsList = () => {
 
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
-      // Update local campaign state to refunded
-      setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === campaign.id
-            ? { ...c, escrowBalance: 0, isRefunded: true }
-            : c,
-        ),
+      // Update local campaign state to refunded and sync cache
+      const updated = campaigns.map((c) =>
+        c.id === campaign.id
+          ? { ...c, escrowBalance: 0, isRefunded: true }
+          : c,
       );
+      setLocalCampaigns(updated);
+      setStoredCampaigns(updated);
 
       showNotification({
         type: "success",

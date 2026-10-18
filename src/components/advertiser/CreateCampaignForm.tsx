@@ -13,6 +13,7 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { CONTRACT_ADDRESSES } from "../../config/contracts";
 import { formatStellarAddress } from "../../lib/stellar";
+import { setStoredCampaigns, getStoredCampaigns, type Campaign } from "../../hooks/useCampaigns";
 import {
   Zap,
   Target,
@@ -226,6 +227,26 @@ export const CreateCampaignForm = () => {
         campaignId: result.campaignId,
         txHash: result.txHash,
       });
+
+      // Sync new campaign with centralized campaign store
+      const newCamp: Campaign = {
+        id: String(result.campaignId),
+        name: campaignName,
+        status: "Active",
+        commissionRate: commissionRateNum,
+        clearingPeriod: `${Math.round(clearingPeriodNum / 86400)} Days`,
+        clearingPeriodSecs: clearingPeriodNum,
+        totalSales: 0,
+        totalRevenue: "$0",
+        totalCommissions: "$0",
+        affiliates: 0,
+        createdAt: new Date().toISOString().slice(0, 10),
+        contractAddress: CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
+        escrowInitial: budgetNum,
+        escrowBalance: budgetNum,
+        advertiserAddress: userAddress || undefined,
+      };
+      setStoredCampaigns([newCamp, ...getStoredCampaigns()]);
 
       setFlowStep("success");
       setCommissionRate("");

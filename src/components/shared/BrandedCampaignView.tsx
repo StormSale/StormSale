@@ -2,6 +2,7 @@ import React from "react";
 import { type AdvertiserBrandConfig, evaluateWcagCompliance } from "../../lib/branding";
 import { Shield, CheckCircle2, ArrowRight, Sparkles, X } from "lucide-react";
 import { Button } from "../ui/button";
+import { useCampaigns } from "../../hooks/useCampaigns";
 
 interface BrandedCampaignViewProps {
   brandConfig: AdvertiserBrandConfig;
@@ -16,36 +17,48 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
 }) => {
   const contrast = evaluateWcagCompliance(brandConfig.primaryColor);
   const textColor = contrast.recommendedTextColor;
+  const { campaigns: fetchedCampaigns } = useCampaigns({ role: "advertiser" });
 
-  const mockCampaigns = [
-    {
-      id: 101,
-      name: "Apex Ultra Pro SaaS Launch",
-      commission: "25%",
-      avgPayout: "120 XLM",
-      escrowLocked: "5,000 XLM",
-      clearingDays: 7,
-      category: "Software & Cloud",
-    },
-    {
-      id: 102,
-      name: "Quantum Enterprise AI Bridge",
-      commission: "18%",
-      avgPayout: "240 XLM",
-      escrowLocked: "12,500 XLM",
-      clearingDays: 14,
-      category: "Enterprise AI",
-    },
-    {
-      id: 103,
-      name: "Stellar Cross-Border Remittance App",
-      commission: "30%",
-      avgPayout: "75 XLM",
-      escrowLocked: "8,200 XLM",
-      clearingDays: 3,
-      category: "Fintech",
-    },
-  ];
+  const mockCampaigns =
+    fetchedCampaigns.length > 0
+      ? fetchedCampaigns.map((c) => ({
+          id: parseInt(c.id, 10) || 101,
+          name: c.name,
+          commission: `${c.commissionRate}%`,
+          avgPayout: `${Math.round(c.escrowInitial / 40)} XLM`,
+          escrowLocked: `${c.escrowBalance.toLocaleString()} XLM`,
+          clearingDays: c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7,
+          category: c.category || "Technology",
+        }))
+      : [
+          {
+            id: 101,
+            name: "Apex Ultra Pro SaaS Launch",
+            commission: "25%",
+            avgPayout: "120 XLM",
+            escrowLocked: "5,000 XLM",
+            clearingDays: 7,
+            category: "Software & Cloud",
+          },
+          {
+            id: 102,
+            name: "Quantum Enterprise AI Bridge",
+            commission: "18%",
+            avgPayout: "240 XLM",
+            escrowLocked: "12,500 XLM",
+            clearingDays: 14,
+            category: "Enterprise AI",
+          },
+          {
+            id: 103,
+            name: "Stellar Cross-Border Remittance App",
+            commission: "30%",
+            avgPayout: "75 XLM",
+            escrowLocked: "8,200 XLM",
+            clearingDays: 3,
+            category: "Fintech",
+          },
+        ];
 
   return (
     <div
