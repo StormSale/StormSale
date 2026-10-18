@@ -13,4 +13,21 @@ export default defineConfig(({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {
+            return "vendor-stellar-sdk";
+          }
+          if (id.includes("framer-motion")) {
+            return "vendor-framer-motion";
+          }
+          if (id.includes("@radix-ui/")) {
+            return "vendor-radix-ui";
+          }
+        },
+      },
+    },
+  },
 }));

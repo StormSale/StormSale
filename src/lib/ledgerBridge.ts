@@ -1,5 +1,5 @@
-import StrApp from "@ledger/hw-app-str";
-import TransportWebHID from "@ledger/hw-transport-webhid";
+import StrApp from "@ledgerhq/hw-app-str";
+import TransportWebHID from "@ledgerhq/hw-transport-webhid";
 import { Keypair, TransactionBuilder, StrKey } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG } from "../config/stellar";
 
@@ -248,7 +248,7 @@ export function extractLedgerVerificationDetails(
  * Signs a prepared Stellar / Soroban transaction using a Ledger Hardware Wallet.
  */
 export async function signLedgerTransaction(
-  preparedSder: string,
+  preparedXdr: string,
   bipPath: string = DEFAULT_STELLAR_BIP_PATH,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): Promise<string> {
@@ -257,7 +257,7 @@ export async function signLedgerTransaction(
 
   // Test / sandbox fallback
   if (!hidSupported || (typeof window !== "undefined" && (window as any).__MOCK_LEDGER__)) {
-    const tx = TransactionBuilder.fromXDR(preparedSder, networkPassphrase);
+    const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const mockSigner = Keypair.random();
     tx.sign(mockSigner);
     return tx.toXDR();
@@ -268,7 +268,7 @@ export async function signLedgerTransaction(
     transport = await TransportWebHID.create();
     const app = new StrApp(transport);
 
-    const tx = TransactionBuilder.fromXDR(preparedSder, networkPassphrase);
+    const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const signatureBuffer = await app.signTransaction(normalizedPath, tx.signatureBase());
 
     const pubKeyResult = await app.getPublicKey(normalizedPath, false);

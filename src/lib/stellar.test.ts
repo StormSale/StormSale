@@ -32,4 +32,42 @@ describe("Stellar Helpers", () => {
     const server = getSorobanRpcServer();
     expect(server).toBeDefined();
   });
+
+  it("handles token allowance query and approval flow with mock storage", async () => {
+    const mockStorage: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem: (key: string) => mockStorage[key] || null,
+      setItem: (key: string, val: string) => {
+        mockStorage[key] = val;
+      },
+      removeItem: (key: string) => {
+        delete mockStorage[key];
+      },
+      clear: () => {
+        for (const k in mockStorage) delete mockStorage[k];
+      },
+      length: 0,
+      key: () => null,
+    };
+    (globalThis as any).window = { localStorage: mockLocalStorage };
+    (globalThis as any).localStorage = mockLocalStorage;
+
+    const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
+    const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+
+    // Initially allowance should be 0
+    const initialAllowance = await getTokenAllowanceQuery(testOwner);
+    expect(initialAllowance).toBe(0);
+
+    // Approve 1500 XLM
+    const approveResult = await approveTokenContractCall(testOwner, 1500, undefined, "mock");
+    expect(approveResult.success).toBe(true);
+    expect(approveResult.allowance).toBe(1500);
+    expect(approveResult.txHash).toBeDefined();
+
+    // Query allowance again in real-time
+    const updatedAllowance = await getTokenAllowanceQuery(testOwner);
+    expect(updatedAllowance).toBe(1500);
+  });
 });
+
