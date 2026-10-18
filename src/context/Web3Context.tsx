@@ -13,6 +13,8 @@ import {
   claimPayoutContractCall,
   refundCampaignEscrowContractCall,
   simulateContractCall,
+  getTokenAllowanceQuery,
+  approveTokenContractCall,
   type SorobanResourceProfile,
 } from "../lib/stellar";
 import type { WalletType } from "../lib/stellar";
@@ -20,6 +22,7 @@ import { STELLAR_CONFIG } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
+import { purgeOnLogout } from "../lib/storage";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -75,6 +78,14 @@ export interface Web3ContextType {
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
+  // Token Allowance & Escrow Operations
+  tokenAllowance: number;
+  refreshTokenAllowance: (spender?: string) => Promise<number>;
+  approveTokenAllowance: (
+    amount: number,
+    spender?: string,
+  ) => Promise<{ success: boolean; txHash?: string }>;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -93,8 +104,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
+  const [tokenAllowance, setTokenAllowance] = useState<number>(0);
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [devMode, setDevModeState] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -132,6 +144,35 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       console.warn("Could not fetch balance:", err);
     }
   }, []);
+
+  // Refresh token allowance on-chain
+  const refreshTokenAllowance = useCallback(async (spender?: string) => {
+    if (!userAddress) {
+      setTokenAllowance(0);
+      return 0;
+    }
+    try {
+      const allowance = await getTokenAllowanceQuery(userAddress, spender);
+      setTokenAllowance(allowance);
+      return allowance;
+    } catch (err) {
+      console.warn("Could not fetch token allowance:", err);
+      return 0;
+    }
+  }, [userAddress]);
+
+  // Approve token allowance on-chain
+  const approveTokenAllowance = useCallback(async (amount: number, spender?: string) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const res = await approveTokenContractCall(
+      userAddress,
+      amount,
+      spender,
+      connectorType || "freighter",
+    );
+    setTokenAllowance(res.allowance);
+    return res;
+  }, [userAddress, connectorType]);
 
   // Sync with backend database & persistent role
   const syncUserWithBackend = useCallback(async (address: string) => {
@@ -206,6 +247,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       if (type !== "mock") {
         await refreshBalance(address);
       }
+      await refreshTokenAllowance();
       await syncUserWithBackend(address);
       setIsWalletModalOpen(false);
     } catch (error) {
@@ -219,7 +261,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setUserRole(null);
     setIsConnected(false);
     setConnectorType(null);
-    setXpmBalance("0.00");
+    setXlmBalance("0.00");
+    setTokenAllowance(0);
+    void purgeOnLogout();
   };
 
   const updateUserRole = async (role: string) => {
@@ -282,12 +326,23 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         connectorType,
       );
       if (res.resourceProfile) setLastResourceProfile(res.resourceProfile);
-      setTimeout(() => refreshBalance(userAddress), 1000);
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance();
+      }, 1000);
       return res;
     } else {
       // Mock fallback for UI preview without extension
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
       const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+      setTokenAllowance((prev) => Math.max(0, prev - budgetXlm));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`);
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - budgetXlm);
+          window.localStorage.setItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`, updated.toString());
+        }
+      }
       return {
         success: true,
         campaignId: newCampaignId,
@@ -423,7 +478,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork: true,
+    isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
     network,
     xlmBalance,
     connectorType,
@@ -447,6 +502,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     refundCampaignEscrow,
     batchClaimPayoutsOnChain,
     registerPasskeyAccount,
+    tokenAllowance,
+    refreshTokenAllowance,
+    approveTokenAllowance,
     factoryContract,
     getCampaignContract,
     provider: null,
