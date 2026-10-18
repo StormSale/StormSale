@@ -25,10 +25,12 @@ import {
 } from "../../lib/batchClaim";
 import { motion, AnimatePresence } from "framer-motion";
 import { shouldDeliverAffiliateNotification } from "./AffiliateSettings";
+import { useCampaigns } from "../../hooks/useCampaigns";
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
   const { showNotification } = useNotification();
+  const { campaigns: affiliateCampaigns } = useCampaigns({ role: "affiliate" });
 
   const [campaigns, setCampaigns] = useState<ClaimableCampaignItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -45,7 +47,7 @@ export const ClaimPayouts = () => {
       setSelectedIds(matured);
     }
     loadClaims();
-  }, [userAddress]);
+  }, [userAddress, affiliateCampaigns]);
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);

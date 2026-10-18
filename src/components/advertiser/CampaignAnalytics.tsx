@@ -8,38 +8,50 @@ import {
 import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
+import { useCampaigns } from "../../hooks/useCampaigns";
 
 export const CampaignAnalytics = () => {
-  const campaignStats = [
-    {
-      name: "Tech Gadgets Pro",
-      sales: 124,
-      revenue: 24800,
-      commissions: 2480,
-      affiliates: 12,
-    },
-    {
-      name: "Web3 Masterclass",
-      sales: 89,
-      revenue: 44500,
-      commissions: 4450,
-      affiliates: 8,
-    },
-    {
-      name: "Crypto Tools Suite",
-      sales: 67,
-      revenue: 33500,
-      commissions: 3350,
-      affiliates: 6,
-    },
-    {
-      name: "DeFi Starter Pack",
-      sales: 45,
-      revenue: 22500,
-      commissions: 2250,
-      affiliates: 5,
-    },
-  ];
+  const { campaigns } = useCampaigns({ role: "advertiser" });
+
+  const campaignStats =
+    campaigns.length > 0
+      ? campaigns.map((c) => ({
+          name: c.name,
+          sales: c.totalSales,
+          revenue: parseInt(c.totalRevenue.replace(/[^0-9]/g, "")) || 0,
+          commissions: parseInt(c.totalCommissions.replace(/[^0-9]/g, "")) || 0,
+          affiliates: c.affiliates,
+        }))
+      : [
+          {
+            name: "Tech Gadgets Pro",
+            sales: 124,
+            revenue: 24800,
+            commissions: 2480,
+            affiliates: 12,
+          },
+          {
+            name: "Web3 Masterclass",
+            sales: 89,
+            revenue: 44500,
+            commissions: 4450,
+            affiliates: 8,
+          },
+          {
+            name: "Crypto Tools Suite",
+            sales: 67,
+            revenue: 33500,
+            commissions: 3350,
+            affiliates: 6,
+          },
+          {
+            name: "DeFi Starter Pack",
+            sales: 45,
+            revenue: 22500,
+            commissions: 2250,
+            affiliates: 5,
+          },
+        ];
 
   const performanceMetrics = [
     {

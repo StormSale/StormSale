@@ -23,9 +23,18 @@ export const registerUser = async (walletAddress: string, role: string = "AFFILI
 export const fetchCampaign = async (campaignId: string) => {
   try {
     const res = await fetch(`${API_URL}/campaigns/${campaignId}`);
-    return await res.json();
+    if (res.ok) {
+      return await res.json();
+    }
   } catch (error) {
-    console.error("Failed to fetch campaign metadata:", error);
+    console.warn("Failed to fetch campaign metadata from API, fallback to cache:", error);
+  }
+  // Fallback to centralized campaign store
+  try {
+    const { getStoredCampaigns } = await import("../hooks/useCampaigns");
+    const campaigns = getStoredCampaigns();
+    return campaigns.find((c) => c.id === campaignId) || null;
+  } catch {
     return null;
   }
 };
