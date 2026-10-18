@@ -53,8 +53,9 @@ export const CustomLinksManager = () => {
     }
   };
 
-  const handleDelete = (id: string, slug: string) => {
-    if (deleteCustomShortLink(id)) {
+  const handleDelete = async (id: string, slug: string) => {
+    const deleted = await deleteCustomShortLink(id);
+    if (deleted) {
       setLinks((prev) => prev.filter((l) => l.id !== id));
       showNotification({
         type: "info",

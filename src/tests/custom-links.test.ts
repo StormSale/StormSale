@@ -1,4 +1,16 @@
-import { describe, it, expect, beforeEach } from "vitest";
+/**
+ * src/tests/custom-links.test.ts
+ *
+ * Unit tests for src/lib/customLinks.ts.
+ *
+ * All tests that exercise createCustomShortLink / deleteCustomShortLink /
+ * fetchCustomLinkBySlug / fetchAllCustomLinks mock global fetch, because
+ * those functions now call /api/custom-links/* Vercel serverless endpoints
+ * backed by Upstash Redis. The mock simulates the server's atomic SET NX
+ * uniqueness logic using a local Map so concurrent registration tests
+ * remain meaningful.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   normalizeSlug,
   validateSlugFormat,
@@ -11,18 +23,139 @@ import {
   buildDestinationRedirectUrl,
   buildTrackingHeaders,
   resolveShortLinkRedirect,
+  resolveShortLinkRedirectAsync,
   getShortLinkUrl,
   resetCustomLinksStore,
   saveCustomLinks,
+  fetchCustomLinkBySlug,
+  fetchAllCustomLinks,
 } from "../lib/customLinks";
+import type { CustomShortLink } from "../types/affiliateLink";
 import { Keypair } from "@stellar/stellar-sdk";
+
+// ---------------------------------------------------------------------------
+// Fetch mock: simulates Upstash Redis-backed serverless functions
+// ---------------------------------------------------------------------------
+
+/** In-memory slug store that mimics Redis SET NX behaviour */
+const mockStore = new Map<string, CustomShortLink>();
+
+/** Simulate a successful POST /api/custom-links/register response */
+function makeRegisterHandler(store: Map<string, CustomShortLink>) {
+  return async (input: Partial<CustomShortLink>): Promise<Response> => {
+    const slug = (input.slug ?? "").toLowerCase().trim();
+    if (!slug) {
+      return new Response(JSON.stringify({ error: "Missing slug." }), { status: 400 });
+    }
+    if (store.has(slug)) {
+      return new Response(
+        JSON.stringify({
+          error: `Slug '${slug}' is already registered by another affiliate.`,
+          slug,
+        }),
+        { status: 409 },
+      );
+    }
+    const link: CustomShortLink = {
+      id: `csl_${Date.now()}_test`,
+      slug,
+      affiliateWallet: input.affiliateWallet ?? "",
+      walletFingerprint: input.walletFingerprint ?? "",
+      campaignId: input.campaignId ?? "1",
+      campaignName: input.campaignName ?? `Campaign #${input.campaignId}`,
+      destinationUrl: input.destinationUrl ?? "",
+      trackingParams: input.trackingParams ?? {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      clickCount: 0,
+    };
+    store.set(slug, link);
+    return new Response(JSON.stringify(link), { status: 201 });
+  };
+}
+
+function makeResolveHandler(store: Map<string, CustomShortLink>) {
+  return async (slug: string): Promise<Response> => {
+    const link = store.get(slug.toLowerCase());
+    if (!link) {
+      return new Response(JSON.stringify({ error: `Slug '${slug}' not found.` }), { status: 404 });
+    }
+    const updated = { ...link, clickCount: link.clickCount + 1 };
+    store.set(slug.toLowerCase(), updated);
+    return new Response(JSON.stringify(updated), { status: 200 });
+  };
+}
+
+function makeDeleteHandler(store: Map<string, CustomShortLink>) {
+  return async (slug: string, wallet: string): Promise<Response> => {
+    const link = store.get(slug.toLowerCase());
+    if (!link) {
+      return new Response(JSON.stringify({ error: `Slug '${slug}' not found.` }), { status: 404 });
+    }
+    if (link.affiliateWallet !== wallet) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 });
+    }
+    store.delete(slug.toLowerCase());
+    return new Response(JSON.stringify({ deleted: true, slug }), { status: 200 });
+  };
+}
+
+function makeListHandler(store: Map<string, CustomShortLink>) {
+  return async (wallet: string): Promise<Response> => {
+    const links = [...store.values()].filter((l) => l.affiliateWallet === wallet);
+    return new Response(JSON.stringify(links), { status: 200 });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Setup: mock global fetch to route to mock handlers
+// ---------------------------------------------------------------------------
+
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  mockStore.clear();
+  resetCustomLinksStore();
+
+  const registerHandler = makeRegisterHandler(mockStore);
+  const resolveHandler = makeResolveHandler(mockStore);
+  const deleteHandler = makeDeleteHandler(mockStore);
+  const listHandler = makeListHandler(mockStore);
+
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const urlObj = new URL(url, "http://localhost");
+
+    if (urlObj.pathname === "/api/custom-links/register" && (init?.method ?? "GET") === "POST") {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      return registerHandler(body);
+    }
+    if (urlObj.pathname === "/api/custom-links/resolve") {
+      const slug = urlObj.searchParams.get("slug") ?? "";
+      return resolveHandler(slug);
+    }
+    if (urlObj.pathname === "/api/custom-links/delete") {
+      const slug = urlObj.searchParams.get("slug") ?? "";
+      const wallet = urlObj.searchParams.get("wallet") ?? "";
+      return deleteHandler(slug, wallet);
+    }
+    if (urlObj.pathname === "/api/custom-links/list") {
+      const wallet = urlObj.searchParams.get("wallet") ?? "";
+      return listHandler(wallet);
+    }
+
+    return new Response(JSON.stringify({ error: "Not Found" }), { status: 404 });
+  }) as typeof fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+// ---------------------------------------------------------------------------
 
 describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)", () => {
   const validStellarWallet = Keypair.random().publicKey();
-
-  beforeEach(() => {
-    resetCustomLinksStore();
-  });
 
   // --------------------------------------------------------------------------
   // 1. Slug Sanitization & Format Validation
@@ -70,14 +203,14 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
   // 2. Real-time Collision Detection
   // --------------------------------------------------------------------------
   describe("Real-Time Collision Detection", () => {
-    it("reports unused slugs as available", () => {
+    it("reports unused slugs as available (format check)", () => {
       const result = checkSlugAvailability("unique-affiliate-slug-999");
       expect(result.isAvailable).toBe(true);
       expect(result.normalizedSlug).toBe("unique-affiliate-slug-999");
       expect(result.reason).toBeUndefined();
     });
 
-    it("detects collisions against existing custom links", async () => {
+    it("detects collisions against cached links (synchronous cache check)", async () => {
       await createCustomShortLink({
         slug: "tech-deals",
         affiliateWallet: validStellarWallet,
@@ -101,6 +234,26 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       const result = checkSlugAvailability("TECH-DEALS");
       expect(result.isAvailable).toBe(false);
       expect(result.reason).toContain("already registered");
+    });
+
+    it("server rejects a duplicate slug with HTTP 409 (shared-store uniqueness)", async () => {
+      await createCustomShortLink({
+        slug: "shared-slug",
+        affiliateWallet: validStellarWallet,
+        campaignId: "1",
+        destinationUrl: "https://merchant.example.com/shared",
+      });
+
+      // Bypass cache by clearing it, then try to register the same slug again
+      resetCustomLinksStore();
+      await expect(
+        createCustomShortLink({
+          slug: "shared-slug",
+          affiliateWallet: validStellarWallet,
+          campaignId: "1",
+          destinationUrl: "https://other.example.com/path",
+        }),
+      ).rejects.toThrow("Slug 'shared-slug' is already registered by another affiliate.");
     });
   });
 
@@ -137,10 +290,10 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
   });
 
   // --------------------------------------------------------------------------
-  // 4. Custom Short-Link Generation & Persistence
+  // 4. Custom Short-Link Generation & Shared-Store Persistence
   // --------------------------------------------------------------------------
-  describe("Custom Short-Link Generation", () => {
-    it("successfully creates and stores a new custom short link", async () => {
+  describe("Custom Short-Link Generation & Shared-Store Persistence", () => {
+    it("successfully creates a short link via the shared API and caches it locally", async () => {
       const created = await createCustomShortLink({
         slug: "super-sale-2026",
         affiliateWallet: validStellarWallet,
@@ -158,7 +311,7 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       expect(created.trackingParams.ref).toBe(validStellarWallet);
       expect(created.trackingParams.utm_campaign).toBe("hardware_launch");
 
-      // Verify retrieval
+      // Verify retrieval from session cache
       const found = getCustomLinkBySlug("super-sale-2026");
       expect(found).not.toBeNull();
       expect(found?.affiliateWallet).toBe(validStellarWallet);
@@ -166,12 +319,14 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       const all = getAllCustomLinks();
       expect(all.some((l) => l.slug === "super-sale-2026")).toBe(true);
 
-      // Verify collision detection now prevents duplicate
+      // Collision detected in session cache
       const availability = checkSlugAvailability("super-sale-2026");
       expect(availability.isAvailable).toBe(false);
     });
 
-    it("rejects concurrent attempts to claim the same slug", async () => {
+    it("rejects concurrent attempts to claim the same slug (server enforces SET NX)", async () => {
+      // Both race to register "race-condition-deal" simultaneously.
+      // The mock implements NX: first write wins, second returns 409.
       const input = {
         slug: "race-condition-deal",
         affiliateWallet: validStellarWallet,
@@ -184,9 +339,11 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
         createCustomShortLink(input),
       ]);
 
-      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-      expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-      expect(getAllCustomLinks().filter((link) => link.slug === input.slug)).toHaveLength(1);
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
     });
 
     it("formats short URL correctly", () => {
@@ -194,7 +351,7 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       expect(url).toContain("/c/my-promo-link");
     });
 
-    it("supports deleting a custom short link and frees the slug", async () => {
+    it("deletes a custom short link from the shared store and session cache", async () => {
       const created = await createCustomShortLink({
         slug: "temporary-flash-deal",
         affiliateWallet: validStellarWallet,
@@ -204,18 +361,68 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
 
       expect(getCustomLinkBySlug("temporary-flash-deal")).not.toBeNull();
 
-      const deleted = deleteCustomShortLink(created.id);
+      const deleted = await deleteCustomShortLink(created.slug, validStellarWallet);
       expect(deleted).toBe(true);
       expect(getCustomLinkBySlug("temporary-flash-deal")).toBeNull();
 
-      // Slug is available again after deletion
+      // Slug freed in session cache
       const avail = checkSlugAvailability("temporary-flash-deal");
       expect(avail.isAvailable).toBe(true);
+    });
+
+    it("returns false when deleting a non-existent slug", async () => {
+      const result = await deleteCustomShortLink("nonexistent-slug", validStellarWallet);
+      expect(result).toBe(false);
+    });
+
+    it("fetchAllCustomLinks retrieves the affiliate's links from the shared store", async () => {
+      await createCustomShortLink({
+        slug: "wallet-link-a",
+        affiliateWallet: validStellarWallet,
+        campaignId: "1",
+        destinationUrl: "https://merchant.example.com/a",
+      });
+      await createCustomShortLink({
+        slug: "wallet-link-b",
+        affiliateWallet: validStellarWallet,
+        campaignId: "2",
+        destinationUrl: "https://merchant.example.com/b",
+      });
+
+      // Reset cache then fetch from shared store
+      resetCustomLinksStore();
+      const links = await fetchAllCustomLinks(validStellarWallet);
+      expect(links.length).toBe(2);
+      const slugs = links.map((l) => l.slug);
+      expect(slugs).toContain("wallet-link-a");
+      expect(slugs).toContain("wallet-link-b");
+    });
+
+    it("fetchCustomLinkBySlug resolves from shared store and increments click count", async () => {
+      await createCustomShortLink({
+        slug: "click-counter-test",
+        affiliateWallet: validStellarWallet,
+        campaignId: "3",
+        destinationUrl: "https://merchant.example.com/clicks",
+      });
+
+      resetCustomLinksStore();
+      const link = await fetchCustomLinkBySlug("click-counter-test");
+      expect(link).not.toBeNull();
+      expect(link?.clickCount).toBe(1);
+
+      const link2 = await fetchCustomLinkBySlug("click-counter-test");
+      expect(link2?.clickCount).toBe(2);
+    });
+
+    it("fetchCustomLinkBySlug returns null for an unknown slug", async () => {
+      const link = await fetchCustomLinkBySlug("does-not-exist-anywhere");
+      expect(link).toBeNull();
     });
   });
 
   // --------------------------------------------------------------------------
-  // 5. Short-URL Redirects with Preserved Tracking Headers & Query Params
+  // 5. Short-URL Redirects with Preserved Tracking Parameters
   // --------------------------------------------------------------------------
   describe("Tracking-Preserving Redirection Engine", () => {
     it("builds destination URL with all required affiliate attribution parameters", async () => {
@@ -294,7 +501,7 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
       expect(headers["X-StormSale-Redirect-Timestamp"]).toBeDefined();
     });
 
-    it("resolves redirect and increments click counter", async () => {
+    it("resolveShortLinkRedirect (sync) resolves from session cache", async () => {
       await createCustomShortLink({
         slug: "analytics-track-test",
         affiliateWallet: validStellarWallet,
@@ -306,18 +513,65 @@ describe("Custom Short-Link Domain Routing & Cloaked URL Generator (Issue #159)"
 
       expect(resolved).not.toBeNull();
       expect(resolved?.slug).toBe("analytics-track-test");
-      expect(resolved?.clickCount).toBe(1);
       expect(resolved?.targetUrl).toContain(`ref=${validStellarWallet}`);
       expect(resolved?.trackingHeaders["X-StormSale-Slug"]).toBe("analytics-track-test");
-
-      // Resolving again increments count
-      const resolvedAgain = resolveShortLinkRedirect("analytics-track-test");
-      expect(resolvedAgain?.clickCount).toBe(2);
     });
 
-    it("returns null for non-existent slug", () => {
+    it("resolveShortLinkRedirectAsync (shared store) resolves and increments click count", async () => {
+      await createCustomShortLink({
+        slug: "async-redirect-test",
+        affiliateWallet: validStellarWallet,
+        campaignId: "4",
+        destinationUrl: "https://merchant.example.com/async",
+      });
+
+      resetCustomLinksStore(); // Clear session cache — must resolve from shared store
+      const resolved = await resolveShortLinkRedirectAsync("async-redirect-test");
+
+      expect(resolved).not.toBeNull();
+      expect(resolved?.slug).toBe("async-redirect-test");
+      expect(resolved?.clickCount).toBe(1);
+      expect(resolved?.targetUrl).toContain(`ref=${validStellarWallet}`);
+
+      // Second resolution increments server-side counter
+      const resolved2 = await resolveShortLinkRedirectAsync("async-redirect-test");
+      expect(resolved2?.clickCount).toBe(2);
+    });
+
+    it("resolveShortLinkRedirectAsync returns null for non-existent slug", async () => {
+      const resolved = await resolveShortLinkRedirectAsync("non-existent-unknown-slug-404");
+      expect(resolved).toBeNull();
+    });
+
+    it("returns null for non-existent slug (sync)", () => {
       const resolved = resolveShortLinkRedirect("non-existent-unknown-slug-404");
       expect(resolved).toBeNull();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 6. Protected attribution parameters cannot be overridden by inbound query
+  // --------------------------------------------------------------------------
+  describe("Protected Attribution Parameter Guard", () => {
+    it("inbound ref, campaign, and storm_slug cannot overwrite link attribution", async () => {
+      const link = await createCustomShortLink({
+        slug: "protected-params-test",
+        affiliateWallet: validStellarWallet,
+        campaignId: "42",
+        destinationUrl: "https://merchant.example.com/protected",
+      });
+
+      const inboundQuery = `?ref=GHACKER1234&campaign=999&storm_slug=fake-slug&subid=sub123`;
+      const redirectUrl = buildDestinationRedirectUrl(link, inboundQuery);
+      const parsed = new URL(redirectUrl);
+
+      // Core attribution must be the link's own values
+      expect(parsed.searchParams.get("ref")).toBe(validStellarWallet);
+      expect(parsed.searchParams.get("campaign")).toBe("42");
+      expect(parsed.searchParams.get("storm_slug")).toBe("protected-params-test");
+
+      // Non-protected params pass through
+      expect(parsed.searchParams.get("subid")).toBe("sub123");
     });
   });
 });

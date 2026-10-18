@@ -6,6 +6,7 @@ import {
   getCustomLinkBySlug,
   isHttpDestination,
   recordShortLinkClick,
+  resolveShortLinkRedirectAsync,
 } from "../../lib/customLinks";
 import type { ShortLinkRedirectResult } from "../../types/affiliateLink";
 import { Button } from "../ui/button";
@@ -45,9 +46,10 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
     return "";
   }, [customSlug]);
 
-  // Derive redirect data and notFound directly during render
   const inboundQuery = typeof window !== "undefined" ? window.location.search : "";
-  const redirectData = useMemo<ShortLinkRedirectResult | null>(() => {
+
+  // Check synchronous session cache first
+  const syncRedirectData = useMemo<ShortLinkRedirectResult | null>(() => {
     if (!slug) return null;
     const link = getCustomLinkBySlug(slug);
     if (!link || !isHttpDestination(link.destinationUrl)) return null;
@@ -64,11 +66,24 @@ export const ShortLinkRedirect: React.FC<ShortLinkRedirectProps> = ({
     };
   }, [slug, inboundQuery]);
 
-  const notFound = !slug || !redirectData;
+  const [asyncData, setAsyncData] = useState<ShortLinkRedirectResult | null>(null);
   const [showHeaders, setShowHeaders] = useState(false);
   const clickTracked = useRef(false);
 
-  // Side-effect: dispatch tracking beacon and execute redirect
+  // If not found in session cache, resolve asynchronously from shared store
+  useEffect(() => {
+    if (!slug || syncRedirectData) return;
+    resolveShortLinkRedirectAsync(slug, inboundQuery)
+      .then((result) => {
+        if (result) setAsyncData(result);
+      })
+      .catch(() => {});
+  }, [slug, inboundQuery, syncRedirectData]);
+
+  const redirectData = syncRedirectData || asyncData;
+  const notFound = !slug || !redirectData;
+
+  // Side-effect: dispatch tracking beacon and execute redirect once data arrives
   useEffect(() => {
     if (!redirectData || !autoRedirect) return;
 
