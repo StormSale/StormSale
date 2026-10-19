@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useMemo, useCallback, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -43,6 +43,10 @@ export function PageLoader() {
   );
 }
 
+type UserRole = "dashboard" | "advertiser" | "affiliate" | "auditor";
+
+const ROLE_STORAGE_KEY = "app:userRole";
+
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
@@ -85,53 +89,53 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-type UserRole = "dashboard" | "advertiser" | "affiliate" | "auditor";
-
-const ROLE_ROUTES: Record<UserRole, UserRole> = {
-  dashboard: "dashboard",
-  advertiser: "advertiser",
-  affiliate: "affiliate",
-  auditor: "auditor",
-};
-
-const ROLE_STORAGE_KEY = "userRole";
-
-function resolveInitialPage(isConnected: boolean, tmaMode: boolean): UserRole {
-  if (tmaMode) return "affiliate";
-  if (!isConnected) return "dashboard";
-  if (typeof window === "undefined") return "dashboard";
-  const stored = window.localStorage.getItem(ROLE_STORAGE_KEY) as UserRole | null;
-  if (stored && ROLE_ROUTES[stored]) return ROLE_ROUTES[stored];
-  return "dashboard";
+function readPersistedRole(): UserRole | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(ROLE_STORAGE_KEY);
+    if (
+      stored === "dashboard" ||
+      stored === "advertiser" ||
+      stored === "affiliate" ||
+      stored === "auditor"
+    ) {
+      return stored;
+    }
+  } catch {
+    // ignore storage access errors
+  }
+  return null;
 }
 
 function Router() {
   const { isConnected } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
-  const [currentPage, setCurrentPage] = useState(() =>
-    resolveInitialPage(isConnected, isTelegramMiniApp()),
-  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+  // Initialize role synchronously from persisted storage to avoid a flicker
+  // between the default route and the user's actual role on first paint.
+  const [currentPage, setCurrentPage] = useState<UserRole>(() => {
+    const persisted = readPersistedRole();
+    if (persisted) return persisted;
+    return isTelegramMiniApp() ? "affiliate" : "dashboard";
+  });
+  const [roleReady, setRoleReady] = useState(false);
 
+  // Persist role changes so subsequent loads hydrate without flicker.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (isConnected) {
+    try {
       window.localStorage.setItem(ROLE_STORAGE_KEY, currentPage);
+    } catch {
+      // ignore storage access errors
     }
-  }, [isConnected, currentPage]);
+  }, [currentPage]);
 
-  const allowedPage = useMemo<UserRole>(() => {
-    if (tmaMode) return "affiliate";
-    if (!isConnected) return "dashboard";
-    return ROLE_ROUTES[currentPage] ?? "dashboard";
-  }, [tmaMode, isConnected, currentPage]);
-
-  const navigate = useCallback((page: UserRole) => {
-    setCurrentPage(ROLE_ROUTES[page] ?? "dashboard");
+  // Mark role as ready after first commit so route protection is unified.
+  useEffect(() => {
+    setRoleReady(true);
   }, []);
 
   if (activeBrandSubdomain) {
@@ -153,27 +157,33 @@ function Router() {
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!isConnected && !tmaMode ? (
+        {!roleReady ? (
+          <PageLoader />
+        ) : !isConnected && !tmaMode ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {allowedPage === "dashboard" && <Dashboard onNavigate={navigate} />}
-              {allowedPage === "advertiser" && (
+              {currentPage === "dashboard" && (
+                <Dashboard onNavigate={(page) => setCurrentPage(page as UserRole)} />
+              )}
+              {currentPage === "advertiser" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
-                  <Advertiser onBack={() => navigate("dashboard")} />
+                  <Advertiser onBack={() => setCurrentPage("dashboard")} />
                 </Suspense>
               )}
-              {allowedPage === "affiliate" && (
+              {currentPage === "affiliate" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
                   <Affiliate
-                    onBack={() => (isConnected ? navigate("dashboard") : setTmaMode(false))}
+                    onBack={() =>
+                      isConnected ? setCurrentPage("dashboard") : setTmaMode(false)
+                    }
                   />
                 </Suspense>
               )}
-              {allowedPage === "auditor" && (
+              {currentPage === "auditor" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
-                  <Auditor onBack={() => navigate("dashboard")} />
+                  <Auditor onBack={() => setCurrentPage("dashboard")} />
                 </Suspense>
               )}
             </main>
@@ -183,6 +193,9 @@ function Router() {
     </>
   );
 }
+
+// Guard: ensure role-based routing is only rendered once role is hydrated.
+// This prevents the brief flash of the default route before persistence loads.
 
 function App() {
   useEffect(() => {

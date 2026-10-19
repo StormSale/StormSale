@@ -3,18 +3,20 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
 import { useUserRole } from "../../hooks/useUserRole";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, Send, LayoutDashboard } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Send, LayoutDashboard, Store, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Link } from "react-router-dom";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
-  const { role, isRoleLoading } = useUserRole();
+  const { role, isLoading: isRoleLoading } = useUserRole();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
+  const isRoleResolved = !isConnected || (!isRoleLoading && role !== null);
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -28,19 +30,15 @@ export const Header = () => {
     { label: "Contact", href: "#community" },
   ];
 
-  const dashboardHref =
+  const roleLink =
     role === "admin"
-      ? "/admin"
+      ? { label: "Admin", href: "/admin", icon: ShieldCheck }
       : role === "seller"
-        ? "/seller/dashboard"
-        : role === "buyer"
-          ? "/buyer/dashboard"
-          : null;
-
-  // Reserve layout space while role resolves to prevent 0ms flicker on load.
-  // Render a same-sized placeholder instead of removing the dashboard link.
-  const showDashboardPlaceholder = isConnected && isRoleLoading;
-  const showDashboardLink = isConnected && !isRoleLoading && !!dashboardHref;
+      ? { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }
+      : role === "buyer"
+      ? { label: "Marketplace", href: "/marketplace", icon: Store }
+      : null;
+  const resolvedRoleLink = isRoleResolved ? roleLink : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
@@ -83,28 +81,24 @@ export const Header = () => {
         <div className="hidden sm:flex items-center space-x-4">
           <ThemeToggle />
 
-          {showDashboardPlaceholder && (
-            <span
-              aria-hidden="true"
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-transparent text-transparent text-xs font-bold select-none"
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              Dashboard
-            </span>
-          )}
-
-          {showDashboardLink && dashboardHref && (
-            <a
-              href={dashboardHref}
-              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-900 text-xs font-bold transition-all"
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              Dashboard
-            </a>
-          )}
-
-          {isConnected ? (
+          {isConnected && !isRoleResolved ? (
+            <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+              <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                Syncing role...
+              </span>
+            </div>
+          ) : isConnected ? (
             <div className="flex items-center space-x-2.5">
+              {resolvedRoleLink && (
+                <Link
+                  to={resolvedRoleLink.href}
+                  className="flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/50 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+                >
+                  <resolvedRoleLink.icon className="w-3.5 h-3.5" />
+                  <span>{resolvedRoleLink.label}</span>
+                </Link>
+              )}
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-xs font-mono font-semibold text-zinc-900 dark:text-white">
@@ -137,7 +131,12 @@ export const Header = () => {
         {/* Mobile / Tablet Controls (Right) */}
         <div className="flex sm:hidden items-center space-x-2">
           <ThemeToggle />
-          {!isConnected ? (
+          {isConnected && !isRoleResolved ? (
+            <div className="px-2.5 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl flex items-center space-x-1.5 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+              <Loader2 className="w-3 h-3 animate-spin text-indigo-500" />
+              <span>Syncing</span>
+            </div>
+          ) : !isConnected ? (
             <Button
               size="sm"
               onClick={openWalletModal}
@@ -197,25 +196,22 @@ export const Header = () => {
               </div>
             )}
 
-            {showDashboardPlaceholder && (
-              <span
-                aria-hidden="true"
-                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-transparent text-transparent text-xs font-bold border border-transparent select-none"
-              >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                Go to Dashboard
-              </span>
-            )}
-
-            {showDashboardLink && dashboardHref && (
-              <a
-                href={dashboardHref}
+            {isConnected && resolvedRoleLink && (
+              <Link
+                to={resolvedRoleLink.href}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold border border-indigo-200 dark:border-indigo-800/50"
+                className="flex items-center space-x-2 p-3 bg-indigo-50 dark:bg-indigo-950/40 rounded-2xl border border-indigo-200 dark:border-indigo-800/50 mb-2"
               >
-                <LayoutDashboard className="w-3.5 h-3.5" />
-                Go to Dashboard
-              </a>
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500">
+                  <resolvedRoleLink.icon className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-zinc-400">YOUR ROLE</div>
+                  <div className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                    {resolvedRoleLink.label}
+                  </div>
+                </div>
+              </Link>
             )}
 
             <div className="grid grid-cols-2 gap-2">
@@ -232,7 +228,7 @@ export const Header = () => {
             </div>
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-              {isConnected ? (
+              {isConnected && isRoleResolved ? (
                 <Button
                   variant="outline"
                   onClick={() => {
@@ -243,7 +239,7 @@ export const Header = () => {
                 >
                   Disconnect Wallet
                 </Button>
-              ) : (
+              ) : !isConnected ? (
                 <Button
                   onClick={() => {
                     openWalletModal();
@@ -254,6 +250,8 @@ export const Header = () => {
                   <Wallet className="w-3.5 h-3.5 mr-2" />
                   Select Stellar Wallet
                 </Button>
+              ) : (
+                <div className="w-full h-10 rounded-xl bg-slate-100 dark:bg-zinc-900 animate-pulse" />
               )}
             </div>
           </motion.div>
