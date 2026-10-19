@@ -1,4 +1,4 @@
-export const API_URL = import.meta.env-VITE_API_URL || "http://localhost:3001/api";
+export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
 export const registerUser = async (walletAddress: string, role: string = "AFFILIATE") => {
   try {
@@ -28,22 +28,6 @@ export const fetchCampaign = async (campaignId: string) => {
     console.error("Failed to fetch campaign metadata:", error);
     return null;
   }
-};
-
-export const fetchUser = async (walletAddress: string) => {
-  const res = await fetch(`${API_URL}/users/${walletAddress}`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch user: ${res.status}`);
-  }
-  return await res.json();
-};
-
-export const fetchCampaigns = async () => {
-  const res = await fetch(`${API_URL}/campaigns`);
-  if (!res.ok) {
-    throw new Error(`Failed to fetch campaigns: ${res.status}`);
-  }
-  return await res.json();
 };
 
 export const fetchConversions = async (campaignId?: string) => {
