@@ -32,15 +32,21 @@ export interface Notification {
   campaignId?: string;
 }
 
-export interface OptimisticNotificationParams {
-  type?: NotificationType;
-  title: string;
-  message?: string;
-  duration?: number;
-  actionLabel?: string;
-  actionUrl?: string;
-  onAction?: () => void;
-  campaignId?: string;
+export interface OptimisticNotificationOptions {
+  /** Called immediately (synchronously) so callers can apply optimistic state within <50ms. */
+  onOptimistic?: () => void;
+  /** Called if the underlying transaction fails; must restore the pre-optimistic state. */
+  onRevert?: () => void;
+  /** Called when the transaction is confirmed on-chain. */
+  onConfirm?: () => void;
+  /** Optional promise representing the on-chain transaction. */
+  transaction?: Promise<unknown>;
+  /** Message shown while the transaction is pending. Defaults to "Transaction pending...". */
+  pendingMessage?: string;
+  /** Message shown on success. Defaults to the original notification message. */
+  successMessage?: string;
+  /** Message shown on failure. Defaults to the original notification message. */
+  failureMessage?: string;
 }
 
 export interface NotificationContextType {
@@ -57,9 +63,10 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
-  showOptimisticNotification: (params: OptimisticNotificationParams) => string;
-  confirmOptimisticNotification: (id: string, overrides?: Partial<Omit<Notification, "id">>) => void;
-  revertOptimisticNotification: (id: string, overrides?: Partial<Omit<Notification, "id">>) => void;
+  showOptimisticNotification: (
+    notification: Omit<Notification, "id">,
+    options?: OptimisticNotificationOptions,
+  ) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -123,21 +130,18 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  // Tracks pending auto-dismiss timers so optimistic notifications can be
-  // confirmed/reverted without leaking stale timeouts.
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const notificationsRef = useRef<Notification[]>([]);
+  notificationsRef.current = notifications;
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
   };
 
   const clearAllNotifications = () => {
-    timersRef.current.forEach((timer) => clearTimeout(timer));
-    timersRef.current.clear();
     setNotifications([]);
   };
 
-  const showNotification = (notification: Omit<Notification, "id">): string => {
+  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
     const id = Math.random().toString(36).substring(2, 11);
     const isPersistent = notification.persistent === true || notification.duration === 0;
 
@@ -152,15 +156,13 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     // Only set auto-dismiss timeout if notification is NOT persistent
     if (!isPersistent && newNotification.duration && newNotification.duration > 0) {
-      const timer = setTimeout(() => {
-        timersRef.current.delete(id);
+      setTimeout(() => {
         dismissNotification(id);
       }, newNotification.duration);
-      timersRef.current.set(id, timer);
     }
 
     return id;
-  };
+  }, []);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = (params: {
@@ -173,6 +175,89 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }): string => {
     return showNotification(buildLowEscrowNotification(params));
   };
+
+  /**
+   * Optimistic UI helper: applies the caller's optimistic state synchronously
+   * (well under 50ms), shows a pending notification, then either confirms or
+   * reverts based on the transaction outcome.
+   */
+  const showOptimisticNotification = useCallback(
+    (
+      notification: Omit<Notification, "id">,
+      options: OptimisticNotificationOptions = {},
+    ): string => {
+      const {
+        onOptimistic,
+        onRevert,
+        onConfirm,
+        transaction,
+        pendingMessage = "Transaction pending...",
+        successMessage,
+        failureMessage,
+      } = options;
+
+      // 1. Apply optimistic state immediately (synchronous, <50ms).
+      if (onOptimistic) {
+        try {
+          onOptimistic();
+        } catch (err) {
+          // If optimistic application itself throws, do not proceed.
+          // eslint-disable-next-line no-console
+          console.error("[optimistic] onOptimistic threw:", err);
+          throw err;
+        }
+      }
+
+      // 2. Show a pending notification right away.
+      const pendingId = showNotification({
+        ...notification,
+        type: "info",
+        message: pendingMessage,
+        persistent: true,
+        duration: 0,
+      });
+
+      // 3. If a transaction promise was provided, wire up confirm/revert.
+      if (transaction) {
+        transaction
+          .then(() => {
+            if (onConfirm) onConfirm();
+            dismissNotification(pendingId);
+            showNotification({
+              ...notification,
+              type: "success",
+              message: successMessage ?? notification.message,
+              persistent: false,
+              duration: notification.duration ?? 5000,
+            });
+          })
+          .catch((err: unknown) => {
+            // Reliable revert on failure.
+            if (onRevert) {
+              try {
+                onRevert();
+              } catch (revertErr) {
+                // eslint-disable-next-line no-console
+                console.error("[optimistic] onRevert threw:", revertErr);
+              }
+            }
+            dismissNotification(pendingId);
+            showNotification({
+              ...notification,
+              type: "error",
+              message: failureMessage ?? notification.message,
+              persistent: false,
+              duration: notification.duration ?? 7000,
+            });
+            // eslint-disable-next-line no-console
+            console.error("[optimistic] transaction failed:", err);
+          });
+      }
+
+      return pendingId;
+    },
+    [showNotification],
+  );
 
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = (campaigns: EscrowMonitoredCampaign[]) => {
@@ -194,83 +279,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     });
   };
 
-  /**
-   * Immediately surfaces a pending notification (<50ms) for an on-chain action.
-   * The returned id must be passed to confirmOptimisticNotification on success
-   * or revertOptimisticNotification on failure.
-   */
-  const showOptimisticNotification = useCallback(
-    (params: OptimisticNotificationParams): string => {
-      return showNotification({
-        type: params.type ?? "info",
-        title: params.title,
-        message: params.message,
-        duration: params.duration ?? 0,
-        persistent: true,
-        actionLabel: params.actionLabel,
-        actionUrl: params.actionUrl,
-        onAction: params.onAction,
-        campaignId: params.campaignId,
-      });
-    },
-    [],
-  );
-
-  const resolveOptimisticNotification = useCallback(
-    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
-      const existingTimer = timersRef.current.get(id);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-        timersRef.current.delete(id);
-      }
-
-      setNotifications((prev) =>
-        prev.map((n) => {
-          if (n.id !== id) return n;
-          const merged: Notification = { ...n, ...overrides, id: n.id };
-          const isPersistent = merged.persistent === true || merged.duration === 0;
-          merged.persistent = isPersistent;
-          merged.duration = isPersistent ? 0 : merged.duration ?? 5000;
-          return merged;
-        }),
-      );
-
-      const resolved = overrides?.duration;
-      if (resolved && resolved > 0) {
-        const timer = setTimeout(() => {
-          timersRef.current.delete(id);
-          dismissNotification(id);
-        }, resolved);
-        timersRef.current.set(id, timer);
-      }
-    },
-    [],
-  );
-
-  const confirmOptimisticNotification = useCallback(
-    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
-      resolveOptimisticNotification(id, {
-        type: "success",
-        persistent: false,
-        duration: 5000,
-        ...overrides,
-      });
-    },
-    [resolveOptimisticNotification],
-  );
-
-  const revertOptimisticNotification = useCallback(
-    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
-      resolveOptimisticNotification(id, {
-        type: "error",
-        persistent: false,
-        duration: 7000,
-        ...overrides,
-      });
-    },
-    [resolveOptimisticNotification],
-  );
-
   return (
     <NotificationContext.Provider
       value={{
@@ -281,8 +289,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         checkEscrowBalances,
         clearAllNotifications,
         showOptimisticNotification,
-        confirmOptimisticNotification,
-        revertOptimisticNotification,
       }}
     >
       {children}
@@ -291,7 +297,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   );
 };
 
-function NotificationContainer(): React.ReactElement | null {
+const NotificationContainer: React.FC = () => {
   const { notifications, dismissNotification } = useNotification();
 
   const getIcon = (type: NotificationType) => {
@@ -348,43 +354,33 @@ function NotificationContainer(): React.ReactElement | null {
                     {notification.title}
                   </h4>
                   {notification.persistent && (
-                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
-                      Persistent Alert
+                    <span className="text-[10px] font-extrabold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                      Persistent
                     </span>
                   )}
                 </div>
-
                 {notification.message && (
                   <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
                     {notification.message}
                   </p>
                 )}
-
                 {actionLabel && (
-                  <div className="mt-3">
-                    {actionUrl ? (
-                      <a
-                        href={actionUrl}
-                        onClick={notification.onAction || notification.action?.onClick}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                      >
-                        {actionLabel}
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={notification.onAction || notification.action?.onClick}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
-                      >
-                        {actionLabel}
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (notification.onAction) {
+                        notification.onAction();
+                      } else if (actionUrl) {
+                        window.location.href = actionUrl;
+                      }
+                    }}
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  >
+                    {actionLabel}
+                    {actionUrl ? <ExternalLink className="w-3.5 h-3.5" /> : <ArrowRight className="w-3.5 h-3.5" />}
+                  </button>
                 )}
               </div>
-
               <button
                 type="button"
                 onClick={() => dismissNotification(notification.id)}
@@ -399,12 +395,12 @@ function NotificationContainer(): React.ReactElement | null {
       })}
     </div>
   );
-}
+};
 
-export function useNotification(): NotificationContextType {
-  const context = useContext(NotificationContext);
-  if (!context) {
+export const useNotification = (): NotificationContextType => {
+  const ctx = useContext(NotificationContext);
+  if (!ctx) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
-  return context;
-}
+  return ctx;
+};

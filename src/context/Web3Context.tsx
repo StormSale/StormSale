@@ -98,11 +98,11 @@ export interface Web3ContextType {
     amount: number,
     spender?: string,
     assetCode?: SupportedEscrowAssetCode,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string; allowance?: number }>;
 
   // Optimistic UI state
-  pendingTxs: Record<string, boolean>;
-  isPending: (key?: string) => boolean;
+  pendingTxs: Record<string, PendingTxState>;
+  isPending: (key: string) => boolean;
 
   // Compatibility helpers for legacy form callers
   factoryContract: any;
@@ -110,6 +110,16 @@ export interface Web3ContextType {
   provider: any;
   signer: any;
   switchToStellarNetwork: () => Promise<boolean>;
+}
+
+export type PendingTxStatus = "pending" | "confirmed" | "reverted";
+
+export interface PendingTxState {
+  key: string;
+  status: PendingTxStatus;
+  startedAt: number;
+  txHash?: string;
+  error?: string;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -127,33 +137,45 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   });
   const [tokenAllowance, setTokenAllowance] = useState<number>(0);
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-
-  // Optimistic UI: track in-flight txs by operation key.
-  const [pendingTxs, setPendingTxs] = useState<Record<string, boolean>>({});
-  // Snapshot of state before optimistic mutations, keyed by operation key, so revert is reliable.
-  const revertSnapshots = useRef<Record<string, { tokenAllowance?: number; xlmBalance?: string; assetBalances?: Record<SupportedEscrowAssetCode, string> }>>({});
+  const [pendingTxs, setPendingTxs] = useState<Record<string, PendingTxState>>({});
+  const pendingTxsRef = useRef<Record<string, PendingTxState>>({});
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
 
-  const isPending = useCallback((key?: string) => {
-    if (key) return Boolean(pendingTxs[key]);
-    return Object.values(pendingTxs).some(Boolean);
-  }, [pendingTxs]);
+  const upsertPendingTx = useCallback((key: string, patch: Partial<PendingTxState>) => {
+    const prev = pendingTxsRef.current[key] || {
+      key,
+      status: "pending" as PendingTxStatus,
+      startedAt: Date.now(),
+    };
+    const next = { ...prev, ...patch, key };
+    pendingTxsRef.current = { ...pendingTxsRef.current, [key]: next };
+    setPendingTxs((current) => ({ ...current, [key]: next }));
+  }, []);
 
-  const markPending = (key: string) => {
-    setPendingTxs((prev) => ({ ...prev, [key]: true }));
-  };
+  const clearPendingTx = useCallback((key: string, delayMs = 0) => {
+    const run = () => {
+      const { [key]: _removed, ...rest } = pendingTxsRef.current;
+      pendingTxsRef.current = rest;
+      setPendingTxs((current) => {
+        const { [key]: _drop, ...remaining } = current;
+        return remaining;
+      });
+    };
+    if (delayMs > 0) {
+      setTimeout(run, delayMs);
+    } else {
+      run();
+    }
+  }, []);
 
-  const clearPending = (key: string) => {
-    setPendingTxs((prev) => {
-      const next = { ...prev };
-      delete next[key];
-      return next;
-    });
-  };
+  const isPending = useCallback(
+    (key: string) => pendingTxs[key]?.status === "pending",
+    [pendingTxs],
+  );
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -216,25 +238,26 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const approveTokenAllowance = useCallback(
     async (amount: number, spender?: string, assetCode: SupportedEscrowAssetCode = "XLM") => {
       if (!userAddress) throw new Error("Wallet not connected");
+      const key = `allowance:${assetCode}:${spender ?? "default"}`;
+      const previousAllowance = tokenAllowance;
       const isSupportedConnector =
         connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
       if (!isSupportedConnector) {
         if (connectorType !== "mock") {
           throw new Error(`Allowance approval is not supported for ${connectorType} wallets.`);
         }
+        // Optimistic update for mock connector
+        upsertPendingTx(key, { status: "pending" });
         setTokenAllowance(amount);
-        return { success: true, tyHash: "sim_allowance", allowance: amount };
+        upsertPendingTx(key, { status: "confirmed", txHash: "sim_allowance" });
+        clearPendingTx(key, 1500);
+        return { success: true, txHash: "sim_allowance", allowance: amount };
       }
-
-      // Optimistic UI: apply allowance immediately, revert on failure.
-      const opKey = `approve:${assetCode}:${spender ?? "default"}`;
-      const previousAllowance = tokenAllowance;
-      revertSnapshots.current[opKey] = { tokenAllowance: previousAllowance };
-      markPending(opKey);
+      const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
+      // Optimistic: apply new allowance immediately (<50ms)
+      upsertPendingTx(key, { status: "pending" });
       setTokenAllowance(amount);
-
       try {
-        const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
         const res = await approveTokenContractCall(
           userAddress,
           amount,
@@ -243,19 +266,22 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           assetConfig.contractAddress,
           assetConfig.decimals,
         );
-        // Reconcile with authoritative on-chain value.
         setTokenAllowance(res.allowance);
+        upsertPendingTx(key, { status: "confirmed", txHash: res.txHash });
+        clearPendingTx(key, 1500);
         return res;
-      } catch (error) {
-        // Reliable revert to pre-interaction snapshot.
+      } catch (err) {
+        // Reliable revert on failure
         setTokenAllowance(previousAllowance);
-        throw error;
-      } finally {
-        delete revertSnapshots.current[opKey];
-        clearPending(opKey);
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
       }
     },
-    [userAddress, connectorType, tokenAllowance],
+    [userAddress, connectorType, tokenAllowance, upsertPendingTx, clearPendingTx],
   );
 
   // Sync with backend database & persistent role
@@ -313,30 +339,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           address = authResult.record.stellarAddress;
         }
         setNetwork(STELLAR_CONFIG.network);
-      } else if (type === "readonly") {
-        if (!customAddress) throw new Error("Please provide a valid Stellar address.");
-        address = customAddress;
+      } else if (type === "mock") {
+        address = customAddress || "GDEMOACCOUNTFORDEVMODEXAMPLE000000000000000";
         setNetwork(STELLAR_CONFIG.network);
       } else {
-        // Mock fallback demo account with 10,000 XLM
-        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
-        setNetwork("TESTNET");
-        setXlmBalance("10000.00");
+        throw new Error(`Unsupported wallet type: ${type}`);
       }
 
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
-
-      if (type !== "mock") {
-        await refreshBalance(address);
-      }
-      await refreshTokenAllowance();
+      await refreshBalance(address);
       await syncUserWithBackend(address);
-      setIsWalletModalOpen(false);
-    } catch (error) {
-      console.error("Wallet connection failed:", error);
-      throw error;
+    } catch (err) {
+      console.error("Wallet connection failed:", err);
+      throw err;
     }
   };
 
@@ -349,7 +366,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setAssetBalances({ XLM: "0.00", USDC: "0.00", EURC: "0.00" });
     setTokenAllowance(0);
     setPendingTxs({});
-    revertSnapshots.current = {};
+    pendingTxsRef.current = {};
     purgeOnLogout();
   };
 
@@ -364,118 +381,165 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       await refreshBalance(userAddress);
       return true;
     } catch (err) {
-      console.warn("Friendbot funding failed:", err);
+      console.error("Friendbot funding failed:", err);
       return false;
     }
   };
 
-  const createCampaignOnChain = async (
-    name: string,
-    budgetAmount: number,
-    commissionRatePercent: number,
-    clearingPeriodSecs: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
-  ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const opKey = `create-campaign:${name}`;
-    markPending(opKey);
-    try {
-      const res = await createCampaignContractCall(
-        userAddress,
-        name,
-        budgetAmount,
-        commissionRatePercent,
-        clearingPeriodSecs,
-        connectorType || "freighter",
-        assetCode,
-      );
-      return res;
-    } finally {
-      clearPending(opKey);
-    }
-  };
+  const createCampaignOnChain = useCallback(
+    async (
+      name: string,
+      budgetAmount: number,
+      commissionRatePercent: number,
+      clearingPeriodSecs: number,
+      assetCode: SupportedEscrowAssetCode = "XLM",
+    ) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const key = `createCampaign:${name}`;
+      upsertPendingTx(key, { status: "pending" });
+      try {
+        const res = await createCampaignContractCall(
+          userAddress,
+          name,
+          budgetAmount,
+          commissionRatePercent,
+          clearingPeriodSecs,
+          connectorType || "freighter",
+          assetCode,
+        );
+        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
+        clearPendingTx(key, 1500);
+        return { success: true, campaignId: res.campaignId, txHash: res.tyHash, asset: assetCode };
+      } catch (err) {
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
+      }
+    },
+    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
+  );
 
-  const logSaleOnChain = async (
-    campaignId: number,
-    affiliateAddress: string,
-    amountXlm: number,
-  ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const opKey = `log-sale:${campaignId}`;
-    markPending(opKey);
-    try {
-      return await logSaleContractCall(
-        userAddress,
-        campaignId,
-        affiliateAddress,
-        amountXlm,
-        connectorType || "freighter",
-      );
-    } finally {
-      clearPending(opKey);
-    }
-  };
+  const logSaleOnChain = useCallback(
+    async (campaignId: number, affiliateAddress: string, amountXlm: number) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const key = `logSale:${campaignId}:${affiliateAddress}`;
+      upsertPendingTx(key, { status: "pending" });
+      try {
+        const res = await logSaleContractCall(
+          userAddress,
+          campaignId,
+          affiliateAddress,
+          amountXlm,
+          connectorType || "freighter",
+        );
+        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
+        clearPendingTx(key, 1500);
+        return { success: true, tyHash: res.tyHash };
+      } catch (err) {
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
+      }
+    },
+    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
+  );
 
-  const claimPayoutOnChain = async (
-    campaignId: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
-  ) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const opKey = `claim-payout:${campaignId}`;
-    markPending(opKey);
-    try {
-      return await claimPayoutContractCall(
-        userAddress,
-        campaignId,
-        connectorType || "freighter",
-        assetCode,
-      );
-    } finally {
-      clearPending(opKey);
-    }
-  };
+  const claimPayoutOnChain = useCallback(
+    async (campaignId: number, assetCode: SupportedEscrowAssetCode = "XLM") => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const key = `claimPayout:${campaignId}`;
+      upsertPendingTx(key, { status: "pending" });
+      try {
+        const res = await claimPayoutContractCall(
+          userAddress,
+          campaignId,
+          connectorType || "freighter",
+          assetCode,
+        );
+        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
+        clearPendingTx(key, 1500);
+        return { success: true, txHash: res.tyHash, asset: assetCode };
+      } catch (err) {
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
+      }
+    },
+    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
+  );
 
-  const refundCampaignEscrow = async (campaignId: number) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const opKey = `refund:${campaignId}`;
-    markPending(opKey);
-    try {
-      return await refundCampaignEscrowContractCall(
-        userAddress,
-        campaignId,
-        connectorType || "freighter",
-      );
-    } finally {
-      clearPending(opKey);
-    }
-  };
+  const refundCampaignEscrow = useCallback(
+    async (campaignId: number) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const key = `refund:${campaignId}`;
+      upsertPendingTx(key, { status: "pending" });
+      try {
+        const res = await refundCampaignEscrowContractCall(
+          userAddress,
+          campaignId,
+          connectorType || "freighter",
+        );
+        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
+        clearPendingTx(key, 1500);
+        return { success: true, tyHash: res.tyHash };
+      } catch (err) {
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
+      }
+    },
+    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
+  );
 
-  const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    const { batchClaimPayouts } = await import("../lib/batchClaim");
-    const opKey = "batch-claim";
-    markPending(opKey);
-    try {
-      return await batchClaimPayouts(userAddress, campaigns, connectorType || "freighter");
-    } finally {
-      clearPending(opKey);
-    }
-  };
+  const batchClaimPayoutsOnChain = useCallback(
+    async (campaigns: ClaimableCampaignItem[]) => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const key = "batchClaim";
+      upsertPendingTx(key, { status: "pending" });
+      try {
+        const { batchClaimPayouts } = await import("../lib/batchClaim");
+        const receipt = await batchClaimPayouts(
+          userAddress,
+          campaigns,
+          connectorType || "freighter",
+        );
+        upsertPendingTx(key, { status: "confirmed" });
+        clearPendingTx(key, 1500);
+        return receipt;
+      } catch (err) {
+        upsertPendingTx(key, {
+          status: "reverted",
+          error: err instanceof Error ? err.message : String(err),
+        });
+        clearPendingTx(key, 3000);
+        throw err;
+      }
+    },
+    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
+  );
 
-  const registerPasskeyAccount = async (userName?: string) => {
+  const registerPasskeyAccount = useCallback(async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    const record = await registerPasskey(userName || "Abfiliate User");
-    setUserAddress(record.stellarAddress);
-    setIsConnected(true);
-    setConnectorType("passkey");
-    return record;
-  };
+    return registerPasskey(userName);
+  }, []);
 
   const switchToStellarNetwork = async () => {
     try {
-      const current = await getCurrentNetwork();
-      setNetwork(current);
-      return current === STELLAR_CONFIG.network;
+      const currentNet = await getCurrentNetwork();
+      setNetwork(currentNet);
+      return currentNet === STELLAR_CONFIG.network;
     } catch {
       return false;
     }
@@ -522,8 +586,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
-export function useWeb3() {
+export function useWeb3(): Web3ContextType {
   const ctx = useContext(Web3Context);
-  if (!ctx) throw new Error("useWeb3 must be used within a Web3Provider");
+  if (!ctx) {
+    throw new Error("useWeb3 must be used within a Web3Provider");
+  }
   return ctx;
 }
