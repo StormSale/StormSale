@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
   activeTab: string;
@@ -35,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* =========================================================================
           1. MOBILE & TABLET TOP BAR & DRAWER (Visible on screens < lg / 1024px)
          ========================================================================= */}
-      <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm">
+      <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm tma-safe-top">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             {onBack && (
@@ -65,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               size="sm"
