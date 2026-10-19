@@ -35,46 +35,32 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
-  const [isLoadingClaims, setIsLoadingClaims] = useState(true);
-  const [claimsError, setClaimsError] = useState<string | null>(null);
-  const [walletBalanceBefore, setWalletBalanceBefore] = useState<number | null>(null);
-  const [walletBalanceAfter, setWalletBalanceAfter] = useState<number | null>(null);
-  const [lowGasError, setLowGasError] = useState<string | null>(null);
-  const [lastClaimedXlm, setLastClaimedXlm] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadClaims() {
-      const data = await fetchAffiliateMaturedClaims(userAddress || "");
-      setCampaigns(data);
-      // Select all matured campaigns by default
-      const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
-      setSelectedIds(matured);
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const data = await fetchAffiliateMaturedClaims(userAddress || "");
+        setCampaigns(data);
+        // Select all matured campaigns by default
+        const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
+        setSelectedIds(matured);
+      } catch (err: any) {
+        console.error("Failed to load matured claims:", err);
+        setLoadError(err.message || "Failed to load matured claims.");
+      } finally {
+        setIsLoading(false);
+      }
     }
     loadClaims();
-  }, [userAddress]);
-
-  const refreshClaims = useCallback(async () => {
-    setIsLoadingClaims(true);
-    setClaimsError(null);
-    try {
-      const data = await fetchAffiliateMaturedClaims(userAddress || "");
-      setCampaigns(data);
-      const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
-      setSelectedIds(matured);
-    } catch (err: any) {
-      setClaimsError(err?.message || "Failed to load claimable campaigns.");
-    } finally {
-      setIsLoadingClaims(false);
-    }
   }, [userAddress]);
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
-  const balanceDelta =
-    walletBalanceBefore !== null && walletBalanceAfter !== null
-      ? walletBalanceAfter - walletBalanceBefore
-      : null;
 
   const toggleSelectAll = () => {
     if (selectedIds.length === maturedCount) {
@@ -95,8 +81,6 @@ export const ClaimPayouts = () => {
     if (selectedCampaigns.length === 0) return;
 
     setIsBatchClaiming(true);
-    setLowGasError(null);
-    setWalletBalanceBefore((prev) => (prev !== null ? prev : totalWithdrawableXlm));
     showNotification({
       type: "info",
       title: "Assembling Batch Claim",
@@ -106,8 +90,6 @@ export const ClaimPayouts = () => {
     try {
       const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns);
       setReceipt(resultReceipt);
-      setLastClaimedXlm(resultReceipt.totalClaimedXlm);
-      setWalletBalanceAfter((prev) => (prev ?? 0) + resultReceipt.totalClaimedXlm);
 
       // Mark claimed campaigns
       setCampaigns((prev) =>
@@ -124,12 +106,6 @@ export const ClaimPayouts = () => {
       }
     } catch (err: any) {
       console.error("Batch claim failure:", err);
-      const message: string = err?.message || "Failed to execute batch claim transaction.";
-      if (/insufficient|low.?gas|fee|balance/i.test(message)) {
-        setLowGasError(
-          "Insufficient XLM balance to cover network fees. Fund your wallet with XLM and retry.",
-        );
-      }
       showNotification({
         type: "error",
         title: "Batch Claim Failed",
@@ -150,9 +126,8 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const res = await claimPayoutOnChain(campaignId);
-      setLastClaimedXlm(res.claimedXlm ?? null);
-      setWalletBalanceAfter((prev) => (prev ?? 0) + (res.claimedXlm ?? 0));
+      const target = campaigns.find((c) => c.campaignId === campaignId);
+      const res = await claimPayoutOnChain(campaignId, target?.assetCode);
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
@@ -164,12 +139,6 @@ export const ClaimPayouts = () => {
         });
       }
     } catch (err: any) {
-      const message: string = err?.message || "Failed to claim commission.";
-      if (/insufficient|low.?gas|fee|balance/i.test(message)) {
-        setLowGasError(
-          "Insufficient XLM balance to cover network fees. Fund your wallet with XLM and retry.",
-        );
-      }
       showNotification({
         type: "error",
         title: "Claim Failed",
@@ -179,78 +148,8 @@ export const ClaimPayouts = () => {
       setClaimingId(null);
     }
   };
-
   return (
     <div className="space-y-8">
-      {/* Wallet Balance Verification Banner */}
-      <div
-        data-testid="wallet-balance-banner"
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 px-5 py-4"
-      >
-        <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-          Wallet Balance Verification
-        </div>
-        <div className="flex items-center gap-4 text-sm font-mono">
-          <span data-testid="wallet-balance-before" className="text-zinc-600 dark:text-zinc-300">
-            Before: {walletBalanceBefore !== null ? `${walletBalanceBefore.toFixed(2)} XLM` : "—"}
-          </span>
-          <span data-testid="wallet-balance-after" className="text-zinc-600 dark:text-zinc-300">
-            After: {walletBalanceAfter !== null ? `${walletBalanceAfter.toFixed(2)} XLM` : "—"}
-          </span>
-          <span
-            data-testid="wallet-balance-delta"
-            className={`font-black ${
-              balanceDelta !== null && balanceDelta > 0
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-zinc-500"
-            }`}
-          >
-            {balanceDelta !== null ? `${balanceDelta >= 0 ? "+" : ""}${balanceDelta.toFixed(2)} XLM` : "—"}
-          </span>
-        </div>
-      </div>
-
-      {/* Low Gas Error Path */}
-      {lowGasError && (
-        <div
-          data-testid="low-gas-error"
-          role="alert"
-          className="flex items-start gap-3 rounded-2xl border border-amber-300 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-950/30 px-5 py-4 text-sm text-amber-800 dark:text-amber-300"
-        >
-          <Zap className="w-4 h-4 mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <div className="font-bold">Low Gas / Insufficient Fee Balance</div>
-            <div className="text-xs mt-0.5">{lowGasError}</div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLowGasError(null)}
-            className="p-1 rounded-md hover:bg-amber-100 dark:hover:bg-amber-900/40"
-            aria-label="Dismiss low gas error"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Claims Load Error Path */}
-      {claimsError && (
-        <div
-          data-testid="claims-load-error"
-          role="alert"
-          className="flex items-center justify-between gap-3 rounded-2xl border border-rose-300 dark:border-rose-700/50 bg-rose-50 dark:bg-rose-950/30 px-5 py-4 text-sm text-rose-800 dark:text-rose-300"
-        >
-          <span>{claimsError}</span>
-          <Button
-            size="sm"
-            onClick={refreshClaims}
-            className="rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold h-8 px-3"
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-
       {/* Page Title */}
       <div>
         <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
@@ -322,7 +221,6 @@ export const ClaimPayouts = () => {
               size="lg"
               onClick={handleBatchClaim}
               disabled={isBatchClaiming || selectedCampaigns.length === 0}
-              data-testid="batch-claim-button"
               className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 text-white font-extrabold text-sm shadow-xl shadow-indigo-500/30 h-13 px-6 transition-transform hover:scale-[1.02] border-0"
             >
               {isBatchClaiming ? (
@@ -406,21 +304,6 @@ export const ClaimPayouts = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoadingClaims && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-sm text-zinc-500">
-                      <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
-                      Loading claimable campaigns...
-                    </TableCell>
-                  </TableRow>
-                )}
-                {!isLoadingClaims && campaigns.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-sm text-zinc-500">
-                      No matured commissions available to claim.
-                    </TableCell>
-                  </TableRow>
-                )}
                 {campaigns.map((camp) => {
                   const isMatured = camp.status === "matured";
                   const isClaimed = camp.status === "claimed";
@@ -501,7 +384,6 @@ export const ClaimPayouts = () => {
                           size="sm"
                           disabled={!isMatured || claimingId === camp.campaignId || isBatchClaiming}
                           onClick={() => handleSingleClaim(camp.campaignId)}
-                          data-testid={`claim-single-${camp.campaignId}`}
                           className={`rounded-xl text-xs font-semibold h-8 px-3 transition-colors ${
                             isMatured
                               ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white"
@@ -576,14 +458,6 @@ export const ClaimPayouts = () => {
                 <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
                   Transaction: {receipt.txHash.slice(0, 12)}...{receipt.txHash.slice(-8)}
                 </div>
-                {lastClaimedXlm !== null && (
-                  <div
-                    data-testid="receipt-claimed-xlm"
-                    className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300"
-                  >
-                    Verified credited amount: {lastClaimedXlm.toFixed(2)} XLM
-                  </div>
-                )}
               </div>
 
               {/* Itemized Breakdown Table */}
