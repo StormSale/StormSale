@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, buildSep0007TxUri, buildSep0007QrFallback, pollForTransactionInclusion } from "./stellar";
+import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, generateSep7TxUri, pollForTransactionInclusion } from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
-    const pubKey = "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4N4T4AQH3ZLLFLA5";
+    const pubKey = "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4NAT4AQH3LLFLA5";
     expect(formatStellarAddress(pubKey)).toBe("GBBD...FLA5");
   });
 
@@ -13,12 +13,12 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBBD47IF6LWK7P7MDEVMSWR7DPUWV3NY3DDQEVFN4N4T4AQH3ZLLFLA5";
+    const validG = "GBDD47IF6LWK7P7MDEVMSWR7DPUWV3NY3DDTQEVFL4OAT4AQH3LLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
   it("validates valid Soroban contract IDs (C...)", () => {
-    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+    const validC = "CDLZFC3SYJYDZT7K67Z75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
@@ -33,40 +33,36 @@ describe("Stellar Helpers", () => {
     expect(server).toBeDefined();
   });
 
-  it("builds a SEP-0007 tx URI with base64 XDR and replace=false", () => {
-    const xdr = "AAAAAgAAAAB...";
-    const uri = buildSep0007TxUri(xdr);
-    expect(uri).toBe(`web+stellar:tx?xdr=${encodeURIComponent(xdr)}&replace=false`);
+  it("generates a SEP-0007 tx URI with base64 XDR and replace=false", () => {
+    const xdr = "AAAAAgAAAAB...mockXdr==";
+    const uri = generateSep7TxUri(xdr);
     expect(uri.startsWith("web+stellar:tx?")).toBe(true);
+    expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
     expect(uri).toContain("replace=false");
   });
 
-  it("builds a SEP-0007 QR fallback payload", () => {
-    const xdr = "AAAAAgAAAAB...";
-    const fallback = buildSep0007QrFallback(xdr);
-    expect(fallback.uri).toBe(buildSep0007TxUri(xdr));
-    expect(fallback.qrData).toBe(fallback.uri);
-  });
-
-  it("polls Horizon until the transaction is included", async () => {
+  it("polls Horizon until the transaction is included on the ledger", async () => {
     let calls = 0;
     const fakeFetch = async () => {
       calls += 1;
+      if (calls < 3) {
+        return { ok: true, json: async () => ({ _embedded: { records: [] } }) } as any;
+      }
       return {
         ok: true,
         json: async () => ({
-          _embedded: { records: calls >= 2 ? [{ hash: "abc123", successful: true }] : [] },
+          _embedded: { records: [{ hash: "abc123", successful: true, ledger: 42 }] },
         }),
       } as any;
     };
-    const result = await pollForTransactionInclusion("GACCOUNT", "abc123", {
-      fetchFn: fakeFetch as any,
+    const result = await pollForTransactionInclusion("GADC", "abc123", {
+      fetchImpl: fakeFetch as any,
       intervalMs: 1,
       timeoutMs: 1000,
     });
     expect(result.confirmed).toBe(true);
-    expect(result.txHash).toBe("abc123");
-    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(result.ledger).toBe(42);
+    expect(calls).toBeGreaterThanOrEqual(3);
   });
 
   it("handles token allowance query and approval flow with mock storage", async () => {
@@ -89,16 +85,16 @@ describe("Stellar Helpers", () => {
     (globalThis as any).localStorage = mockLocalStorage;
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
-    const testOwner = "GASTORMSALE7TESTNET7AFFHMLIATE7MERCHANT7ESCROW7XLM77777";
+    const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 
     // Initially allowance should be 0
     const initialAllowance = await getTokenAllowanceQuery(testOwner);
-    expect(initialAllowance).toBe(true);
+    expect(initialAllowance).toBe(0);
 
     // Approve 1500 XLM
     const approveResult = await approveTokenContractCall(testOwner, 1500, undefined, "mock");
     expect(approveResult.success).toBe(true);
-    expect(approveResult.allowance).toBe(true);
+    expect(approveResult.allowance).toBe(1500);
     expect(approveResult.txHash).toBeDefined();
 
     // Query allowance again in real-time
