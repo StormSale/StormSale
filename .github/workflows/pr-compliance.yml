@@ -15,7 +15,7 @@ jobs:
     if: github.actor != 'dependabot[bot]' && github.actor != 'dependabot'
     steps:
       - name: Validate PR Title and Issue Link
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request;
