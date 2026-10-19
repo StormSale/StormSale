@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -32,6 +32,17 @@ export interface Notification {
   campaignId?: string;
 }
 
+export interface OptimisticNotificationParams {
+  type?: NotificationType;
+  title: string;
+  message?: string;
+  duration?: number;
+  actionLabel?: string;
+  actionUrl?: string;
+  onAction?: () => void;
+  campaignId?: string;
+}
+
 export interface NotificationContextType {
   notifications: Notification[];
   showNotification: (notification: Omit<Notification, "id">) => string;
@@ -46,6 +57,9 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  showOptimisticNotification: (params: OptimisticNotificationParams) => string;
+  confirmOptimisticNotification: (id: string, overrides?: Partial<Omit<Notification, "id">>) => void;
+  revertOptimisticNotification: (id: string, overrides?: Partial<Omit<Notification, "id">>) => void;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -109,12 +123,17 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  // Tracks pending auto-dismiss timers so optimistic notifications can be
+  // confirmed/reverted without leaking stale timeouts.
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
   };
 
   const clearAllNotifications = () => {
+    timersRef.current.forEach((timer) => clearTimeout(timer));
+    timersRef.current.clear();
     setNotifications([]);
   };
 
@@ -133,9 +152,11 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
     // Only set auto-dismiss timeout if notification is NOT persistent
     if (!isPersistent && newNotification.duration && newNotification.duration > 0) {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        timersRef.current.delete(id);
         dismissNotification(id);
       }, newNotification.duration);
+      timersRef.current.set(id, timer);
     }
 
     return id;
@@ -173,6 +194,83 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     });
   };
 
+  /**
+   * Immediately surfaces a pending notification (<50ms) for an on-chain action.
+   * The returned id must be passed to confirmOptimisticNotification on success
+   * or revertOptimisticNotification on failure.
+   */
+  const showOptimisticNotification = useCallback(
+    (params: OptimisticNotificationParams): string => {
+      return showNotification({
+        type: params.type ?? "info",
+        title: params.title,
+        message: params.message,
+        duration: params.duration ?? 0,
+        persistent: true,
+        actionLabel: params.actionLabel,
+        actionUrl: params.actionUrl,
+        onAction: params.onAction,
+        campaignId: params.campaignId,
+      });
+    },
+    [],
+  );
+
+  const resolveOptimisticNotification = useCallback(
+    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
+      const existingTimer = timersRef.current.get(id);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+        timersRef.current.delete(id);
+      }
+
+      setNotifications((prev) =>
+        prev.map((n) => {
+          if (n.id !== id) return n;
+          const merged: Notification = { ...n, ...overrides, id: n.id };
+          const isPersistent = merged.persistent === true || merged.duration === 0;
+          merged.persistent = isPersistent;
+          merged.duration = isPersistent ? 0 : merged.duration ?? 5000;
+          return merged;
+        }),
+      );
+
+      const resolved = overrides?.duration;
+      if (resolved && resolved > 0) {
+        const timer = setTimeout(() => {
+          timersRef.current.delete(id);
+          dismissNotification(id);
+        }, resolved);
+        timersRef.current.set(id, timer);
+      }
+    },
+    [],
+  );
+
+  const confirmOptimisticNotification = useCallback(
+    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
+      resolveOptimisticNotification(id, {
+        type: "success",
+        persistent: false,
+        duration: 5000,
+        ...overrides,
+      });
+    },
+    [resolveOptimisticNotification],
+  );
+
+  const revertOptimisticNotification = useCallback(
+    (id: string, overrides?: Partial<Omit<Notification, "id">>) => {
+      resolveOptimisticNotification(id, {
+        type: "error",
+        persistent: false,
+        duration: 7000,
+        ...overrides,
+      });
+    },
+    [resolveOptimisticNotification],
+  );
+
   return (
     <NotificationContext.Provider
       value={{
@@ -182,6 +280,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
+        showOptimisticNotification,
+        confirmOptimisticNotification,
+        revertOptimisticNotification,
       }}
     >
       {children}
@@ -190,7 +291,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   );
 };
 
-const NotificationContainer: React.FC = () => {
+function NotificationContainer(): React.ReactElement | null {
   const { notifications, dismissNotification } = useNotification();
 
   const getIcon = (type: NotificationType) => {
@@ -254,49 +355,32 @@ const NotificationContainer: React.FC = () => {
                 </div>
 
                 {notification.message && (
-                  <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
+                  <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
                     {notification.message}
                   </p>
                 )}
 
-                {/* Interactive Action: Link or Button to "Top Up" flow */}
                 {actionLabel && (
-                  <div className="mt-3 flex items-center gap-2 pt-1">
+                  <div className="mt-3">
                     {actionUrl ? (
                       <a
                         href={actionUrl}
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                        onClick={notification.onAction || notification.action?.onClick}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                       >
-                        <span>{actionLabel}</span>
-                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                        {actionLabel}
+                        <ExternalLink className="w-3 h-3" />
                       </a>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                        onClick={notification.onAction || notification.action?.onClick}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
                       >
-                        <span>{actionLabel}</span>
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                        {actionLabel}
+                        <ArrowRight className="w-3 h-3" />
                       </button>
                     )}
-
-                    <button
-                      type="button"
-                      onClick={() => dismissNotification(notification.id)}
-                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
-                    >
-                      Dismiss
-                    </button>
                   </div>
                 )}
               </div>
@@ -304,8 +388,8 @@ const NotificationContainer: React.FC = () => {
               <button
                 type="button"
                 onClick={() => dismissNotification(notification.id)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
-                aria-label="Close notification"
+                aria-label="Dismiss notification"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -315,26 +399,12 @@ const NotificationContainer: React.FC = () => {
       })}
     </div>
   );
-};
+}
 
-export const useNotification = () => {
+export function useNotification(): NotificationContextType {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
-};
-
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
-  return <NotificationProvider>{children}</NotificationProvider>;
-}
-
-export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
-    return (
-      <NotificationProvider>
-        <Component {...props} />
-      </NotificationProvider>
-    );
-  };
 }
