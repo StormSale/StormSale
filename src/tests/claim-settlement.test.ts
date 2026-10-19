@@ -75,13 +75,13 @@ describe("Secure Claim Settlement Validation (#49)", () => {
     });
 
     it("increases the affiliate wallet balance by the total claimed amount", async () => {
-      const items = [maturedItem(), maturedItem({ campaignId: 102, claimableXLm: 12.25 })];
-      const receipt = await executeBatchCommissionClaim(MOCK_AFFFILIATE, items, "mock");
+      const items = [maturedItem(), maturedItem({ campaignId: 102, claimableXlm: 12.25 })];
+      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock");
       const expectedTotal = calculateTotalClaimableXlm(items);
       const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
 
       expect(receipt.success).toBe(true);
-      expect(receipt.totalClaimedXlm).toBle(expectedTotal);
+      expect(receipt.totalClaimedXlm).toBe(expectedTotal);
       expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 1e-9);
       expect(balanceAfter).toBe(1057.75);
     });
