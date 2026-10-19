@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import {
+import * as AppModule from "../App";
+
+const {
   Landing,
   Dashboard,
   Advertiser,
@@ -7,7 +9,15 @@ import {
   Auditor,
   BrandedCampaignView,
   PageLoader,
-} from "../App";
+} = AppModule as {
+  Landing: unknown;
+  Dashboard: unknown;
+  Advertiser: unknown;
+  Affiliate: unknown;
+  Auditor: unknown;
+  BrandedCampaignView: unknown;
+  PageLoader: () => { props: Record<string, unknown> };
+};
 
 describe("Route Splitting & Chunk Optimization (#99)", () => {
   it("should export lazy-loaded components as valid React lazy components", () => {

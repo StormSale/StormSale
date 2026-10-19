@@ -1,3 +1,3 @@
-import { useWeb3 as useWebContext } from "../context/WebContext";
+import { useWeb3 as useWebContext } from "../context/Web3Context";
 
 export const useWeb3 = useWebContext;

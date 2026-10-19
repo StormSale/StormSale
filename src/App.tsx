@@ -1,7 +1,7 @@
 import React, { Suspense, useState, useEffect, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
@@ -157,17 +157,15 @@ function App() {
   }, []);
 
   return (
-    <NotificationWrapper>
-      <ErrorBoundary>
-        <Web3Provider>
-          <WalletConnectProvider>
-            <NotificationProvider>
-              <Router />
-            </NotificationProvider>
-          </WalletConnectProvider>
-        </Web3Provider>
-      </ErrorBoundary>
-    </NotificationWrapper>
+    <ErrorBoundary>
+      <Web3Provider>
+        <WalletConnectProvider>
+          <NotificationProvider>
+            <Router />
+          </NotificationProvider>
+        </WalletConnectProvider>
+      </Web3Provider>
+    </ErrorBoundary>
   );
 }
 
