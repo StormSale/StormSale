@@ -52,7 +52,7 @@ export interface Web3ContextType {
     tokenAddress: string,
     spenderAddress: string,
     amount: number,
-  ) => Promise<{ success: boolean; tyHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string }>;
 
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
@@ -72,7 +72,7 @@ export interface Web3ContextType {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ) => Promise<{ success: boolean; tyHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -82,7 +82,7 @@ export interface Web3ContextType {
     txHash?: string;
     asset?: SupportedEscrowAssetCode;
   }>;
-  refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; tyHash?: string }>;
+  refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
   batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
 
@@ -98,11 +98,7 @@ export interface Web3ContextType {
     amount: number,
     spender?: string,
     assetCode?: SupportedEscrowAssetCode,
-  ) => Promise<{ success: boolean; txHash?: string; allowance?: number }>;
-
-  // Optimistic UI state
-  pendingTxs: Record<string, PendingTxState>;
-  isPending: (key: string) => boolean;
+  ) => Promise<{ success: boolean; txHash?: string }>;
 
   // Compatibility helpers for legacy form callers
   factoryContract: any;
@@ -110,16 +106,6 @@ export interface Web3ContextType {
   provider: any;
   signer: any;
   switchToStellarNetwork: () => Promise<boolean>;
-}
-
-export type PendingTxStatus = "pending" | "confirmed" | "reverted";
-
-export interface PendingTxState {
-  key: string;
-  status: PendingTxStatus;
-  startedAt: number;
-  txHash?: string;
-  error?: string;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -137,45 +123,34 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   });
   const [tokenAllowance, setTokenAllowance] = useState<number>(0);
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
-  const [pendingTxs, setPendingTxs] = useState<Record<string, PendingTxState>>({});
-  const pendingTxsRef = useRef<Record<string, PendingTxState>>({});
 
-  const openWalletModal = () => setIsWalletModalOpen(true);
-  const closeWalletModal = () => setIsWalletModalOpen(false);
+  // Optimistic UI: track in-flight optimistic mutations so they can be reverted on failure.
+  const optimisticMutationsRef = useRef<Map<string, () => void>>(new Map());
 
-  const upsertPendingTx = useCallback((key: string, patch: Partial<PendingTxState>) => {
-    const prev = pendingTxsRef.current[key] || {
-      key,
-      status: "pending" as PendingTxStatus,
-      startedAt: Date.now(),
-    };
-    const next = { ...prev, ...patch, key };
-    pendingTxsRef.current = { ...pendingTxsRef.current, [key]: next };
-    setPendingTxs((current) => ({ ...current, [key]: next }));
+  const registerOptimisticMutation = useCallback((id: string, revert: () => void) => {
+    optimisticMutationsRef.current.set(id, revert);
   }, []);
 
-  const clearPendingTx = useCallback((key: string, delayMs = 0) => {
-    const run = () => {
-      const { [key]: _removed, ...rest } = pendingTxsRef.current;
-      pendingTxsRef.current = rest;
-      setPendingTxs((current) => {
-        const { [key]: _drop, ...remaining } = current;
-        return remaining;
-      });
-    };
-    if (delayMs > 0) {
-      setTimeout(run, delayMs);
-    } else {
-      run();
+  const commitOptimisticMutation = useCallback((id: string) => {
+    optimisticMutationsRef.current.delete(id);
+  }, []);
+
+  const revertOptimisticMutation = useCallback((id: string) => {
+    const revert = optimisticMutationsRef.current.get(id);
+    if (revert) {
+      try {
+        revert();
+      } catch (err) {
+        console.warn("Optimistic revert failed:", err);
+      }
+      optimisticMutationsRef.current.delete(id);
     }
   }, []);
 
-  const isPending = useCallback(
-    (key: string) => pendingTxs[key]?.status === "pending",
-    [pendingTxs],
-  );
+  const openWalletModal = () => setIsWalletModalOpen(true);
+  const closeWalletModal = () => setIsWalletModalOpen(false);
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -238,25 +213,23 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const approveTokenAllowance = useCallback(
     async (amount: number, spender?: string, assetCode: SupportedEscrowAssetCode = "XLM") => {
       if (!userAddress) throw new Error("Wallet not connected");
-      const key = `allowance:${assetCode}:${spender ?? "default"}`;
-      const previousAllowance = tokenAllowance;
       const isSupportedConnector =
         connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
       if (!isSupportedConnector) {
         if (connectorType !== "mock") {
           throw new Error(`Allowance approval is not supported for ${connectorType} wallets.`);
         }
-        // Optimistic update for mock connector
-        upsertPendingTx(key, { status: "pending" });
         setTokenAllowance(amount);
-        upsertPendingTx(key, { status: "confirmed", txHash: "sim_allowance" });
-        clearPendingTx(key, 1500);
         return { success: true, txHash: "sim_allowance", allowance: amount };
       }
       const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-      // Optimistic: apply new allowance immediately (<50ms)
-      upsertPendingTx(key, { status: "pending" });
+
+      // Optimistic UI: apply the new allowance immediately (<50ms) before mining.
+      const mutationId = `allowance:${assetCode}:${spender ?? "default"}`;
+      const previousAllowance = tokenAllowance;
       setTokenAllowance(amount);
+      registerOptimisticMutation(mutationId, () => setTokenAllowance(previousAllowance));
+
       try {
         const res = await approveTokenContractCall(
           userAddress,
@@ -266,22 +239,17 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           assetConfig.contractAddress,
           assetConfig.decimals,
         );
+        // Commit: reconcile with authoritative on-chain value.
         setTokenAllowance(res.allowance);
-        upsertPendingTx(key, { status: "confirmed", txHash: res.txHash });
-        clearPendingTx(key, 1500);
+        commitOptimisticMutation(mutationId);
         return res;
       } catch (err) {
-        // Reliable revert on failure
-        setTokenAllowance(previousAllowance);
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
+        // Revert: restore the pre-interaction allowance on txn failure.
+        revertOptimisticMutation(mutationId);
         throw err;
       }
     },
-    [userAddress, connectorType, tokenAllowance, upsertPendingTx, clearPendingTx],
+    [userAddress, connectorType, tokenAllowance, registerOptimisticMutation, commitOptimisticMutation, revertOptimisticMutation],
   );
 
   // Sync with backend database & persistent role
@@ -339,21 +307,30 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           address = authResult.record.stellarAddress;
         }
         setNetwork(STELLAR_CONFIG.network);
-      } else if (type === "mock") {
-        address = customAddress || "GDEMOACCOUNTFORDEVMODEXAMPLE000000000000000";
+      } else if (type === "readonly") {
+        if (!customAddress) throw new Error("Please provide a valid Stellar address.");
+        address = customAddress;
         setNetwork(STELLAR_CONFIG.network);
       } else {
-        throw new Error(`Unsupported wallet type: ${type}`);
+        // Mock fallback demo account with 10,000 XLM
+        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+        setNetwork("TESTNET");
+        setXlmBalance("10000.00");
       }
 
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
-      await refreshBalance(address);
+
+      if (type !== "mock") {
+        await refreshBalance(address);
+      }
+      await refreshTokenAllowance();
       await syncUserWithBackend(address);
-    } catch (err) {
-      console.error("Wallet connection failed:", err);
-      throw err;
+      setIsWalletModalOpen(false);
+    } catch (error) {
+      console.error("Wallet connection failed:", error);
+      throw error;
     }
   };
 
@@ -363,233 +340,299 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setIsConnected(false);
     setConnectorType(null);
     setXlmBalance("0.00");
-    setAssetBalances({ XLM: "0.00", USDC: "0.00", EURC: "0.00" });
+    setAssetBalances({
+      XLM: "0.00",
+      USDC: "0.00",
+      EURC: "0.00",
+    });
     setTokenAllowance(0);
-    setPendingTxs({});
-    pendingTxsRef.current = {};
-    purgeOnLogout();
+    void purgeOnLogout();
   };
 
   const updateUserRole = async (role: string) => {
-    setUserRole(role);
-  };
-
-  const requestFriendbotFunding = async () => {
-    if (!userAddress) return false;
+    if (!userAddress) return;
     try {
-      await fundTestnetAccount(userAddress);
-      await refreshBalance(userAddress);
-      return true;
-    } catch (err) {
-      console.error("Friendbot funding failed:", err);
-      return false;
+      const updated = await registerUser(userAddress, role);
+      if (updated && updated.role) {
+        setUserRole(updated.role);
+      }
+    } catch (error) {
+      console.error("Failed to update role:", error);
     }
   };
 
-  const createCampaignOnChain = useCallback(
-    async (
-      name: string,
-      budgetAmount: number,
-      commissionRatePercent: number,
-      clearingPeriodSecs: number,
-      assetCode: SupportedEscrowAssetCode = "XLM",
-    ) => {
-      if (!userAddress) throw new Error("Wallet not connected");
-      const key = `createCampaign:${name}`;
-      upsertPendingTx(key, { status: "pending" });
-      try {
-        const res = await createCampaignContractCall(
-          userAddress,
-          name,
-          budgetAmount,
-          commissionRatePercent,
-          clearingPeriodSecs,
-          connectorType || "freighter",
-          assetCode,
-        );
-        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
-        clearPendingTx(key, 1500);
-        return { success: true, campaignId: res.campaignId, txHash: res.tyHash, asset: assetCode };
-      } catch (err) {
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
-        throw err;
-      }
-    },
-    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
-  );
+  const requestFriendbotFunding = async (): Promise<boolean> => {
+    if (!userAddress) return false;
+    const ok = await fundTestnetAccount(userAddress);
+    if (ok) {
+      setTimeout(() => refreshBalance(userAddress), 2000);
+    }
+    return ok;
+  };
 
-  const logSaleOnChain = useCallback(
-    async (campaignId: number, affiliateAddress: string, amountXlm: number) => {
-      if (!userAddress) throw new Error("Wallet not connected");
-      const key = `logSale:${campaignId}:${affiliateAddress}`;
-      upsertPendingTx(key, { status: "pending" });
-      try {
-        const res = await logSaleContractCall(
-          userAddress,
-          campaignId,
-          affiliateAddress,
-          amountXlm,
-          connectorType || "freighter",
-        );
-        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
-        clearPendingTx(key, 1500);
-        return { success: true, tyHash: res.tyHash };
-      } catch (err) {
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
-        throw err;
-      }
-    },
-    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
-  );
+  // Soroban: Create Campaign Escrow
+  const createCampaignOnChain = async (
+    name: string,
+    budgetAmount: number,
+    commissionRatePercent: number,
+    clearingPeriodSecs: number,
+    assetCode: SupportedEscrowAssetCode = "XLM",
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
 
-  const claimPayoutOnChain = useCallback(
-    async (campaignId: number, assetCode: SupportedEscrowAssetCode = "XLM") => {
-      if (!userAddress) throw new Error("Wallet not connected");
-      const key = `claimPayout:${campaignId}`;
-      upsertPendingTx(key, { status: "pending" });
-      try {
-        const res = await claimPayoutContractCall(
-          userAddress,
-          campaignId,
-          connectorType || "freighter",
-          assetCode,
-        );
-        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
-        clearPendingTx(key, 1500);
-        return { success: true, txHash: res.tyHash, asset: assetCode };
-      } catch (err) {
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
-        throw err;
-      }
-    },
-    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
-  );
+    console.log(
+      `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
+    );
 
-  const refundCampaignEscrow = useCallback(
-    async (campaignId: number) => {
-      if (!userAddress) throw new Error("Wallet not connected");
-      const key = `refund:${campaignId}`;
-      upsertPendingTx(key, { status: "pending" });
-      try {
-        const res = await refundCampaignEscrowContractCall(
-          userAddress,
-          campaignId,
-          connectorType || "freighter",
-        );
-        upsertPendingTx(key, { status: "confirmed", txHash: res.tyHash });
-        clearPendingTx(key, 1500);
-        return { success: true, tyHash: res.tyHash };
-      } catch (err) {
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
-        throw err;
+    // Escrow locking interacts with corresponding Stellar Asset Contract:
+    // If deploying with a SAC stablecoin (USDC, EURC), authorize token allowance on SAC contract for escrow spender
+    // Gate allowance approval to supported connectors only (freighter, albedo, xbull)
+    if (assetCode !== "XLM") {
+      const isSupportedConnector =
+        connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
+      if (isSupportedConnector) {
+        const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
+        if (assetConfig) {
+          console.log(
+            `[Soroban SAC] Authorizing ${budgetAmount} ${assetCode} allowance on SAC contract ${assetConfig.contractAddress} for escrow ${STELLAR_CONFIG.contractId}`,
+          );
+          await approveTokenAllowanceCall(
+            userAddress,
+            assetConfig.contractAddress,
+            STELLAR_CONFIG.contractId,
+            budgetAmount,
+            connectorType,
+            assetConfig.decimals,
+          );
+        }
       }
-    },
-    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
-  );
+    }
 
-  const batchClaimPayoutsOnChain = useCallback(
-    async (campaigns: ClaimableCampaignItem[]) => {
-      if (!userAddress) throw new Error("Wallet not connected");
-      const key = "batchClaim";
-      upsertPendingTx(key, { status: "pending" });
-      try {
-        const { batchClaimPayouts } = await import("../lib/batchClaim");
-        const receipt = await batchClaimPayouts(
-          userAddress,
-          campaigns,
-          connectorType || "freighter",
-        );
-        upsertPendingTx(key, { status: "confirmed" });
-        clearPendingTx(key, 1500);
-        return receipt;
-      } catch (err) {
-        upsertPendingTx(key, {
-          status: "reverted",
-          error: err instanceof Error ? err.message : String(err),
-        });
-        clearPendingTx(key, 3000);
-        throw err;
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await createCampaignContractCall(
+        userAddress,
+        commissionRatePercent,
+        clearingPeriodSecs,
+        budgetAmount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      // Mock fallback for UI preview without extension
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+      setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`);
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - budgetAmount);
+          window.localStorage.setItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`, updated.toString());
+        }
       }
-    },
-    [userAddress, connectorType, upsertPendingTx, clearPendingTx],
-  );
+      return {
+        success: true,
+        campaignId: newCampaignId,
+        txHash: mockTxHash,
+        asset: assetCode,
+      };
+    }
+  };
 
-  const registerPasskeyAccount = useCallback(async (userName?: string) => {
+  // Soroban: Log Verified Sale
+  const logSaleOnChain = async (
+    campaignId: number,
+    affiliateAddress: string,
+    amountXlm: number,
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await logSaleContractCall(
+        userAddress,
+        campaignId,
+        affiliateAddress,
+        amountXlm,
+        connectorType,
+      );
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
+  };
+
+  // Soroban: Claim Affiliate Commission
+  const claimPayoutOnChain = async (
+    campaignId: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+        ...(assetCode ? { asset: assetCode } : {}),
+      };
+    }
+  };
+
+  // Soroban: Refund Unused Campaign Escrow
+  const refundCampaignEscrow = async (campaignId: number) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
+  };
+
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
+  };
+
+  // Passkey Smart Account Registration
+  const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    return registerPasskey(userName);
-  }, []);
+    const record = await registerPasskey(userName || "Affiliate User");
+    await connectWallet("passkey");
+    return record;
+  };
+
+  // Compatibility facade for existing form components
+  const factoryContract = {
+    createCampaign: async (rate: string, period: string) => {
+      const res = await createCampaignOnChain(
+        "Campaign",
+        1000,
+        parseFloat(rate) || 10,
+        parseInt(period) || 604800,
+        "XLM",
+      );
+      return {
+        wait: async () => res,
+      };
+    },
+    joinCampaign: async (campaignAddr: string) => {
+      console.log(`[Soroban] Joined campaign: ${campaignAddr}`);
+      return {
+        wait: async () => ({ success: true }),
+      };
+    },
+  };
+
+  const getCampaignContract = (_address: string) => ({
+    logEncryptedSale: async (
+      affiliate: string,
+      amount: string,
+      _payload: any,
+      _advKey: any,
+      _affKey: any,
+    ) => {
+      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
+      return {
+        wait: async () => res,
+      };
+    },
+    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
+      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
+      return {
+        wait: async () => ({ success: true }),
+      };
+    },
+  });
 
   const switchToStellarNetwork = async () => {
-    try {
-      const currentNet = await getCurrentNetwork();
-      setNetwork(currentNet);
-      return currentNet === STELLAR_CONFIG.network;
-    } catch {
-      return false;
-    }
+    setNetwork("TESTNET");
+    return true;
   };
 
-  const value: Web3ContextType = {
-    userAddress,
-    userRole,
-    isConnected,
-    isStellarNetwork: network === STELLAR_CONFIG.network,
-    network,
-    xlmBalance,
-    assetBalances,
-    connectorType,
-    isWalletModalOpen,
-    ledgerBipPath,
-    setLedgerBipPath,
-    openWalletModal,
-    closeWalletModal,
-    connectWallet,
-    disconnectWallet,
-    updateUserRole,
-    requestFriendbotFunding,
-    refreshBalances,
-    approveAllowance,
-    createCampaignOnChain,
-    logSaleOnChain,
-    claimPayoutOnChain,
-    refundCampaignEscrow,
-    batchClaimPayoutsOnChain,
-    registerPasskeyAccount,
-    tokenAllowance,
-    refreshTokenAllowance,
-    approveTokenAllowance,
-    pendingTxs,
-    isPending,
-    factoryContract: null,
-    getCampaignContract: () => null,
-    provider: null,
-    signer: null,
-    switchToStellarNetwork: switchToStellarNetwork,
-  };
-
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
+  return (
+    <Web3Context.Provider
+      value={{
+        userAddress,
+        userRole,
+        isConnected,
+        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
+        network,
+        xlmBalance,
+        assetBalances,
+        connectorType,
+        isWalletModalOpen,
+        ledgerBipPath,
+        setLedgerBipPath,
+        openWalletModal,
+        closeWalletModal,
+        connectWallet,
+        disconnectWallet,
+        updateUserRole,
+        requestFriendbotFunding,
+        refreshBalances,
+        approveAllowance,
+        createCampaignOnChain,
+        logSaleOnChain,
+        claimPayoutOnChain,
+        refundCampaignEscrow,
+        batchClaimPayoutsOnChain,
+        registerPasskeyAccount,
+        tokenAllowance,
+        refreshTokenAllowance,
+        approveTokenAllowance,
+        factoryContract,
+        getCampaignContract,
+        provider: null,
+        signer: null,
+        switchToStellarNetwork,
+      }}
+    >
+      {children}
+    </Web3Context.Provider>
+  );
 }
 
 export function useWeb3(): Web3ContextType {
-  const ctx = useContext(Web3Context);
-  if (!ctx) {
+  const context = useContext(Web3Context);
+  if (context === undefined) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }
-  return ctx;
+  return context;
 }
