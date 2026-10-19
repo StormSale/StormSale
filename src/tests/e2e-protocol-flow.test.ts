@@ -67,7 +67,6 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
         commissionRatePercent,
         clearingPeriodSeconds,
         initialBudgetXlm,
-        "mock",
       );
 
       expect(result.success).toBe(true);
@@ -110,7 +109,6 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
         activeCampaignId,
         affiliateWallet,
         saleAmountXlm,
-        "mock",
       );
 
       expect(result.success).toBe(true);
@@ -138,7 +136,7 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
     });
 
     it("executes on-chain commission payout claim for affiliate", async () => {
-      const claimResult = await claimPayoutContractCall(affiliateWallet, activeCampaignId, "mock");
+      const claimResult = await claimPayoutContractCall(affiliateWallet, activeCampaignId);
       expect(claimResult.success).toBe(true);
       expect(claimResult.txHash).toBeDefined();
     });

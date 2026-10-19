@@ -31,7 +31,7 @@ export function PageLoader() {
     <div
       role="status"
       aria-label="Loading page"
-      className="min-h-screen flex flex-col items-center justify-center p-6 bg-background text-foreground"
+      className="min-h-screen flex flex-col flex-center justify-center p-6 bg-background text-foreground"
     >
       <div className="relative flex items-center justify-center">
         <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin" />

@@ -245,8 +245,9 @@ export function buildSorobanResourceReport(
       return {
         metric,
         label,
-        value,
+        value: undefined,
         limit,
+        ratio: undefined,
         severity: "ok" as const,
         message: `${label}: not reported by simulation`,
       };

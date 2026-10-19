@@ -1,4 +1,4 @@
-import { useWeb3 as useWebContext } from "../context/WebContext";
+import { useWeb3 as useWebContext } from "../context/Web3Context";
 
 export type SorobanResourceConsumption = {
   cpuInstructions: number;
