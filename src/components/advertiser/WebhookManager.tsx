@@ -1241,7 +1241,10 @@ function verifyStormSale(req, secret) {
                   onChange={(e) => setSimulationMode(e.target.value as SimulationMode)}
                   className="w-full h-11 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-xs font-semibold px-3 text-zinc-900 dark:text-zinc-100"
                 >
-                  <option value="live">Live HTTP Request (Real network dispatch)</option>
+                  <option value="live">
+                    Live HTTP Request (Server Relay; direct fallback only works for origins allowed
+                    by connect-src)
+                  </option>
                   <option value="mock_200">Simulate 200 OK (Instant verified CRM receipt)</option>
                   <option value="mock_flaky">
                     Simulate 503 Flaky (Fails twice with 503, then recovers on retry)
