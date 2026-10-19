@@ -1,7 +1,7 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
-import { useUserRole } from "../../hooks/useUserRole";
+import { useRole } from "../../hooks/useRole";
 import { ThemeToggle } from "./ThemeToggle";
 import { Wallet, Menu, X, Coins, ShieldCheck, Send, LayoutDashboard, Store, Loader2 } from "lucide-react";
 import { useState } from "react";
@@ -12,11 +12,10 @@ import logo from "../../assets/logo2.png";
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
-  const { role, isLoading: isRoleLoading } = useUserRole();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const { role, isRoleResolved } = useRole();
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
-  const isRoleResolved = !isConnected || (!isRoleLoading && role !== null);
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -30,15 +29,20 @@ export const Header = () => {
     { label: "Contact", href: "#community" },
   ];
 
-  const roleLink =
-    role === "admin"
-      ? { label: "Admin", href: "/admin", icon: ShieldCheck }
-      : role === "seller"
-      ? { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }
-      : role === "buyer"
-      ? { label: "Marketplace", href: "/marketplace", icon: Store }
-      : null;
-  const resolvedRoleLink = isRoleResolved ? roleLink : null;
+  const getRoleLink = (role: string | null) => {
+    switch (role) {
+      case "admin":
+        return { href: "/admin", label: "Admin Dashboard", icon: ShieldCheck };
+      case "merchant":
+        return { href: "/merchant", label: "Merchant Dashboard", icon: Store };
+      case "affiliate":
+        return { href: "/affiliate", label: "Affiliate Dashboard", icon: LayoutDashboard };
+      default:
+        return null;
+    }
+  };
+
+  const resolvedRoleLink = isRoleResolved ? getRoleLink(role) : null;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">

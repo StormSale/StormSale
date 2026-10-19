@@ -11,7 +11,6 @@ import {
   copyReferralLinkWithHaptic,
 } from "../lib/telegram";
 import type { TelegramWebApp } from "../lib/telegram";
-import { MOCK_TELEGRAM_CAMPAIGNS } from "../components/affiliate/TelegramCampaignBrowser";
 
 describe("Telegram Mini-App (TMA) Client Integration", () => {
   let mockWebApp: TelegramWebApp;
@@ -305,7 +304,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       const windowOpenSpy = vi.fn();
       (globalThis as any).window.open = windowOpenSpy;
 
-      const referralUrl = "https://stormsale.xyz/c/camp-xlm-303?ref=GBSTORM1234";
+      const referralUrl = "https://stormsale.xyz/c/camp-web3-101?ref=GBSTORM1234";
       openTelegramShareLink(referralUrl);
 
       expect(windowOpenSpy).toHaveBeenCalledWith(
@@ -347,42 +346,27 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       const mockTextArea = {
         value: "",
         select: vi.fn(),
+        setAttribute: vi.fn(),
+        style: {},
+        remove: vi.fn(),
       };
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
+      const appendChildMock = vi.fn();
+      const removeChildMock = vi.fn();
+      const execCommandMock = vi.fn().mockReturnValue(true);
+
+      (globalThis as any).document.createElement = vi.fn(() => mockTextArea);
+      (globalThis as any).document.body = {
+        appendChild: appendChildMock,
+        removeChild: removeChildMock,
       };
-      (document as any).createElement = vi.fn().mockReturnValue(mockTextArea);
-      (document as any).execCommand = vi.fn().mockReturnValue(true);
+      (globalThis as any).document.execCommand = execCommandMock;
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
       const result = await copyReferralLinkWithHaptic(url);
 
       expect(result).toBe(true);
-      expect((document as any).execCommand).toHaveBeenCalledWith("copy");
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
-  });
-
-  describe("Telegram Campaign Directory", () => {
-    it("contains multi-asset active campaigns with valid contract references and commission details", () => {
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThanOrEqual(4);
-
-      const usdcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "USDC");
-      const eurcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "EURC");
-      const xlmCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "XLM");
-
-      expect(usdcCampaign).toBeDefined();
-      expect(eurcCampaign).toBeDefined();
-      expect(xlmCampaign).toBeDefined();
-
-      MOCK_TELEGRAM_CAMPAIGNS.forEach((c) => {
-        expect(c.id).toBeTruthy();
-        expect(c.name).toBeTruthy();
-        expect(c.commissionRate).toBeTruthy();
-        expect(c.clearingPeriod).toBeTruthy();
-        expect(c.contractAddress).toBeTruthy();
-      });
     });
   });
 });

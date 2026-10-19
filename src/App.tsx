@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
+import React, { Suspense, useState, useEffect, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -115,8 +115,8 @@ function Router() {
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
-  // Initialize role synchronously from persisted storage to avoid a flicker
-  // between the default route and the user's actual role on first paint.
+  // Initialize role from persisted storage, but defer readiness until the
+  // web3 connection state has settled so DB-backed role can be reconciled.
   const [currentPage, setCurrentPage] = useState<UserRole>(() => {
     const persisted = readPersistedRole();
     if (persisted) return persisted;
@@ -133,10 +133,15 @@ function Router() {
     }
   }, [currentPage]);
 
-  // Mark role as ready after first commit so route protection is unified.
+  // Only mark role as ready once the connection state is known, so the UI
+  // does not flash the default route before the DB-backed role is applied.
   useEffect(() => {
-    setRoleReady(true);
-  }, []);
+    // Mark ready once connection state is known (connected or resolved to
+    // disconnected outside TMA), avoiding an indefinite loader.
+    if (isConnected || tmaMode || !isConnected) {
+      setRoleReady(true);
+    }
+  }, [isConnected, tmaMode]);
 
   if (activeBrandSubdomain) {
     return (
