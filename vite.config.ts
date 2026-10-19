@@ -9,9 +9,14 @@ export default defineConfig({
     format: "es",
     plugins: () => [],
   },
+  resolve: {
+    dedupe: ["react", "react-dom"],
+    preserveSymlinks: true,
+  },
   build: {
     target: "es2020",
     rollupOptions: {
+      external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
       output: {
         manualChunks: (id) => {
           if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {

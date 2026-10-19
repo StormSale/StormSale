@@ -97,7 +97,7 @@ export async function generateAESKeyInline(): Promise<CryptoKey> {
 }
 
 export async function encryptPayloadInline(payload: object, aesKey: CryptoKey): Promise<string> {
-  assertAESGcmKey(aesKey);
+  assertAesGcmKey(aesKey);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Encryption failed: payload must be a JSON object.");
   }
@@ -122,7 +122,7 @@ export async function encryptPayloadInline(payload: object, aesKey: CryptoKey): 
 }
 
 export async function wrapAESKeyInline(aesKey: CryptoKey, publicKey: string): Promise<string> {
-  assertAESGcmKey(aesKey);
+  assertAesGcmKey(aesKey);
   let raw: ArrayBuffer;
   try {
     raw = await getSubtle().exportKey("raw", aesKey);

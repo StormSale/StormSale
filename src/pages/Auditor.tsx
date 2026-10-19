@@ -3,9 +3,11 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
+import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck } from "lucide-react";
+import { BarChart3, Eye, ClipboardList, FileCheck, ShieldCheck, Network } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -20,6 +22,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
+    { id: "network", label: "Transaction Network", icon: Network },
+    { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
   ];
 
   const renderContent = () => {
@@ -30,6 +34,10 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         return <AuditHistory />;
       case "compliance":
         return <ComplianceReport />;
+      case "network":
+        return <NetworkRiskVisualizer />;
+      case "soc2":
+        return <Soc2EvidenceExport />;
       default:
         return <AuditorOverview onTabChange={setActiveTab} />;
     }
