@@ -459,3 +459,13 @@ export async function decryptShareLink(token: string): Promise<ShareLinkDecryptR
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw FAIL;
   return { payload: parsed as object, expiresAt: p.expiresAt };
 }
+
+// Helper to get a "mock" public key from a wallet address
+export async function getPublicKeyForAddress(address: string): Promise<string> {
+  if (!address || typeof address !== "string" || address.trim().length === 0) {
+    throw new Error("Unknown address: identifier is required.");
+  }
+  const t = address.trim();
+  if (/^[GC][A-Z0-9]{55}$/.test(t)) return t;
+  return `STORMSALE-PUBKEY:${t}`;
+}
