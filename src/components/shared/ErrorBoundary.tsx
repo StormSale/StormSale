@@ -1,106 +1,115 @@
-import React from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
-export interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  onReport?: (error: Error, errorInfo: React.ErrorInfo) => void;
-  fallback?: (
-    error: Error,
-    reset: () => void,
-    report: () => void,
-  ) => React.ReactNode;
+interface ErrorBoundaryProps {
+  children: ReactNode;
+  fallback?: ReactNode | ((error: Error, reset: () => void) => ReactNode);
+  onReport?: (error: Error, errorInfo: ErrorInfo) => void;
 }
 
 interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
-  errorInfo: React.ErrorInfo | null;
-  reported: boolean;
+  errorInfo: ErrorInfo | null;
+  reportStatus: "idle" | "sent";
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = {
     hasError: false,
     error: null,
     errorInfo: null,
-    reported: false,
+    reportStatus: "idle",
   };
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
     return { hasError: true, error: error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    // Escalate to any external logging service via the optional callback.
-    console.error("Unhandled error caught by ErrorBoundary:", error, errorInfo);
+    // Escalate to any outer boundary / observer while still showing the fallback UI.
+    console.error("Uncaught render error:", error);
   }
 
-  reset = () => {
+  handleReset = () => {
     this.setState({
       hasError: false,
       error: null,
       errorInfo: null,
-      reported: false,
+      reportStatus: "idle",
     });
   };
 
-  report = () => {
+  handleReport = () => {
     const { error, errorInfo } = this.state;
     if (!error) return;
 
     try {
-      this.props.onReport?.(error, errorInfo as React.ErrorInfo);
+      this.props.onReport?.(error, errorInfo as ErrorInfo);
     } catch (reportError) {
-      console.error("ErrorBoundary report handler failed:", reportError);
+      console.error("Failed to report error:", reportError);
     }
 
-    this.setState({ reported: true });
+    this.setState({ reportStatus: "sent" });
   };
 
   render() {
-    const { hasError, error, reported } = this.state;
+    const { hasError, error, reportStatus } = this.state;
+    const { children, fallback } = this.props;
 
-    if (hasError && error) {
-      if (this.props.fallback) {
-        return this.props.fallback(error, this.reset, this.report);
-      }
-
-      return (
-        <div
-          role="alert"
-          className="min-h-screen flex items-center justify-center p-4"
-        >
-          <div className="max-w-lg text-center space-y-4">
-            <h2 className="text-2-xl font-bold">Something went wrong</h2>
-            <p className="text-sm text-muted-foreground">
-              An unexpected error occurred. You can report this issue or try again.
-            </p>
-            <pre className="text-left text-xs bg-muted p-3 rounded overflow-auto max-h-40">
-              {error.message}
-            </pre>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={this.report}
-                disabled={reported}
-                className="px-4 py-2 bg-indigo-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {reported ? "Reported" : "Report"}
-              </button>
-              <button
-                type="button"
-                onClick={this.reset}
-                className="px-4 py-2 bg-gray-200 text-gray-900 rounded"
-              >
-                Try again
-              </button>
-            </div>
-          </div>
-        </div>
-      );
+    if (!hasError) {
+      return children;
     }
 
-    return this.props.children;
+    if (typeof fallback === "function") {
+      return fallback(error as Error, this.handleReset);
+    }
+
+    if (fallback !== undefined) {
+      return fallback;
+    }
+
+    return (
+      <div
+        role="alert"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: "16px",
+          minHeight: "100vh",
+          padding: "24px",
+          textAlign: "center",
+          boxSizing: "border-box",
+        }}
+      >
+        <h1>Something went wrong</h1>
+        <p>OUR APP ENCOUNTERED UNEXPECTED ERROR.</p>
+        {error?.message ? (
+          <pre
+            style={{
+              maxWidth: "600px",
+              overflow: "auto",
+              padding: "12px",
+              background: "#f5f5f5",
+              borderRadius: "6px",
+              fontSize: "12px",
+            }}
+          >
+            {error.message}
+          </pre>
+        ) : null}
+        <div style={{ display: "flex", gap: "12px" }}>
+          <button type="button" onClick={this.handleReport} disabled={reportStatus === "sent"}>
+            {reportStatus === "sent" ? "Reported" : "Report"}
+          </button>
+          <button type="button" onClick={this.handleReset}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
   }
 }
 
