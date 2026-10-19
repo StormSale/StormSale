@@ -1,9 +1,10 @@
-import React, { Suspense, useState, lazy } from "react";
+import React, { Suspense, useState, useEffect, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { loadBrandConfig } from "./lib/branding";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -14,11 +15,13 @@ export const Dashboard = lazy(() =>
 export const Advertiser = lazy(() =>
   import("./pages/Advertiser").then((m) => ({ default: m.Advertiser })),
 );
-export const Affiliate = lazy(
+export const Affiliate = lazy(() =>
   import("./pages/Affiliate").then((m) => ({ default: m.Affiliate })),
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
-export const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
+export const Admin = lazy(() =>
+  import("./pages/Admin").then((m) => ({ default: m.Admin })),
+);
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
     default: m.BrandedCampaignView,
@@ -87,12 +90,25 @@ class ErrorBoundary extends React.Component<
 
 function Router() {
   const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentPage, setCurrentPage] = useState(() =>
+    isTelegramMiniApp() ? "affiliate" : "dashboard",
+  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("admin") === "1") {
+      setIsAdmin(true);
+      setCurrentPage("admin");
+    }
+  }, []);
 
   if (activeBrandSubdomain) {
     return (
@@ -113,20 +129,34 @@ function Router() {
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!isConnected ? (
+        {!isConnected && !tmaMode ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
             <main>
               {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
               {currentPage === "advertiser" && (
-                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                  <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                </Suspense>
               )}
               {currentPage === "affiliate" && (
-                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                  <Affiliate
+                    onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
+                  />
+                </Suspense>
               )}
-              {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
-              {currentPage === "admin" && <Admin onBack={() => setCurrentPage("dashboard")} />}
+              {currentPage === "auditor" && (
+                <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                  <Auditor onBack={() => setCurrentPage("dashboard")} />
+                </Suspense>
+              )}
+              {currentPage === "admin" && isAdmin && (
+                <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
+                  <Admin onBack={() => setCurrentPage("dashboard")} />
+                </Suspense>
+              )}
             </main>
           </div>
         )}
@@ -136,6 +166,14 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    initTelegramWebApp();
+    const cleanup = syncTelegramTheme();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
   return (
     <NotificationWrapper>
       <ErrorBoundary>
