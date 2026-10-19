@@ -87,58 +87,29 @@ class ErrorBoundary extends React.Component<
 
 type UserRole = "dashboard" | "advertiser" | "affiliate" | "auditor";
 
-const ROLE_STORAGE_KEY = "app:userRole";
-
-const VALID_ROLES: UserRole[] = ["dashboard", "advertiser", "affiliate", "auditor"];
-
-function readPersistedRole(): UserRole | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(ROLE_STORAGE_KEY);
-    if (raw && (VALID_ROLES as string[]).includes(raw)) {
-      return raw as UserRole;
-    }
-  } catch {
-    // ignore storage access errors
-  }
-  return null;
-}
-
-function persistRole(role: UserRole) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(ROLE_STORAGE_KEY, role);
-  } catch {
-    // ignore storage access errors
-  }
-}
-
-function resolveInitialRole(): UserRole {
-  if (isTelegramMiniApp()) return "affiliate";
-  return readPersistedRole() ?? "dashboard";
-}
-
-const ROLE_ACCESS: Record<UserRole, (ctx: { isConnected: boolean; tmaMode: boolean }) => boolean> = {
-  dashboard: ({ isConnected, tmaMode }) => isConnected || tmaMode,
-  advertiser: ({ isConnected, tmaMode }) => isConnected || tmaMode,
-  affiliate: ({ isConnected, tmaMode }) => isConnected || tmaMode,
-  auditor: ({ isConnected, tmaMode }) => isConnected || tmaMode,
+const ROLE_ROUTES: Record<UserRole, UserRole> = {
+  dashboard: "dashboard",
+  advertiser: "advertiser",
+  affiliate: "affiliate",
+  auditor: "auditor",
 };
 
-function isUserRole(value: string | null): value is UserRole {
-  return value !== null && (VALID_ROLES as string[]).includes(value);
-}
+const ROLE_STORAGE_KEY = "userRole";
 
-function isRoleAccessible(role: UserRole, ctx: { isConnected: boolean; tmaMode: boolean }): boolean {
-  const guard = ROLE_ACCESS[role];
-  return guard ? guard(ctx) : false;
+function resolveInitialPage(isConnected: boolean, tmaMode: boolean): UserRole {
+  if (tmaMode) return "affiliate";
+  if (!isConnected) return "dashboard";
+  if (typeof window === "undefined") return "dashboard";
+  const stored = window.localStorage.getItem(ROLE_STORAGE_KEY) as UserRole | null;
+  if (stored && ROLE_ROUTES[stored]) return ROLE_ROUTES[stored];
+  return "dashboard";
 }
 
 function Router() {
   const { isConnected } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
   const [currentPage, setCurrentPage] = useState(() =>
-    resolveInitialRole(),
+    resolveInitialPage(isConnected, isTelegramMiniApp()),
   );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -146,28 +117,22 @@ function Router() {
     return params.get("brand") || params.get("c") || null;
   });
 
-  const navigate = useCallback((next: UserRole) => {
-    setCurrentPage((prev) => {
-      if (prev === next) return prev;
-      persistRole(next);
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
-    persistRole(currentPage);
-  }, [currentPage]);
-
-  useEffect(() => {
-    if (!isUserRole(currentPage)) {
-      setCurrentPage("dashboard");
+    if (typeof window === "undefined") return;
+    if (isConnected) {
+      window.localStorage.setItem(ROLE_STORAGE_KEY, currentPage);
     }
-  }, [currentPage]);
+  }, [isConnected, currentPage]);
 
-  const canAccessCurrentPage = useMemo(() => {
-    if (!isUserRole(currentPage)) return false;
-    return isRoleAccessible(currentPage, { isConnected, tmaMode });
-  }, [currentPage, isConnected, tmaMode]);
+  const allowedPage = useMemo<UserRole>(() => {
+    if (tmaMode) return "affiliate";
+    if (!isConnected) return "dashboard";
+    return ROLE_ROUTES[currentPage] ?? "dashboard";
+  }, [tmaMode, isConnected, currentPage]);
+
+  const navigate = useCallback((page: UserRole) => {
+    setCurrentPage(ROLE_ROUTES[page] ?? "dashboard");
+  }, []);
 
   if (activeBrandSubdomain) {
     return (
@@ -188,25 +153,25 @@ function Router() {
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!canAccessCurrentPage ? (
+        {!isConnected && !tmaMode ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
-              {currentPage === "advertiser" && (
+              {allowedPage === "dashboard" && <Dashboard onNavigate={navigate} />}
+              {allowedPage === "advertiser" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
                   <Advertiser onBack={() => navigate("dashboard")} />
                 </Suspense>
               )}
-              {currentPage === "affiliate" && (
+              {allowedPage === "affiliate" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
                   <Affiliate
                     onBack={() => (isConnected ? navigate("dashboard") : setTmaMode(false))}
                   />
                 </Suspense>
               )}
-              {currentPage === "auditor" && (
+              {allowedPage === "auditor" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
                   <Auditor onBack={() => navigate("dashboard")} />
                 </Suspense>

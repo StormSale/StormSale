@@ -23,7 +23,6 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
-    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
@@ -35,59 +34,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
-  const [roleHydrated, setRoleHydrated] = useState(false);
   const hasNavigatedRef = useRef(false);
-
-  // Reconcile cached metrics with live network data (background sync, zero layout shift)
-  useEffect(() => {
-    if (!hydrated) return;
-    const liveMetrics = {
-      userRole: userRole ?? null,
-      xlmBalance,
-      network,
-      isConnected,
-      connectorType,
-    };
-    persistMetrics(liveMetrics);
-  }, [hydrated, isConnected, network, xlmBalance, connectorType, userRole, persistMetrics]);
-
-  // Invalidate cache on wallet disconnect
-  useEffect(() => {
-    if (!isConnected) {
-      invalidateCache();
-    }
-  }, [isConnected, invalidateCache]);
-
-  // Sync role from cache/DB to avoid flicker on load. Only redirect once we
-  // have a confirmed role so the UI never flashes the role selector.
-  useEffect(() => {
-    if (!hydrated || roleHydrated) return;
-    const cachedRole = metrics.userRole ?? userRole ?? null;
-    setRoleHydrated(true);
-    if (cachedRole && !hasNavigatedRef.current) {
-      hasNavigatedRef.current = true;
-      onNavigate(cachedRole.toLowerCase());
-    }
-  }, [hydrated, roleHydrated, metrics.userRole, userRole, onNavigate]);
-
-  const handleConfirmRole = async (roleId: string) => {
-    setIsSigning(true);
-    try {
-      await updateUserRole(roleId.toUpperCase());
-      await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
-      setRoleHydrated(true);
-      hasNavigatedRef.current = true;
-      onNavigate(roleId);
-    } catch (error) {
-      console.error("Failed to assume role:", error);
-    } finally {
-      setIsSigning(false);
-    }
-  };
-
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  };
 
   const roles = [
     {
@@ -153,6 +100,60 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     },
   ];
 
+  // Reconcile cached metrics with live network data (background sync, zero layout shift)
+  useEffect(() => {
+    if (!hydrated) return;
+    const liveMetrics = {
+      // Preserve any persisted role from cache instead of clobbering it with null,
+      // which previously caused a role flicker on load.
+      userRole: metrics.userRole ?? null,
+      xlmBalance,
+      network,
+      isConnected,
+      connectorType,
+    };
+    persistMetrics(liveMetrics);
+  }, [hydrated, isConnected, network, xlmBalance, connectorType, persistMetrics, metrics.userRole]);
+
+  // Invalidate cache on wallet disconnect
+  useEffect(() => {
+    if (!isConnected) {
+      invalidateCache();
+    }
+  }, [isConnected, invalidateCache]);
+
+  // Unified role-based route protection: if a role is already persisted for the
+  // connected wallet, redirect immediately on hydration to avoid a 0ms flicker
+  // of the role-selection screen before the protected page mounts.
+  useEffect(() => {
+    if (!hydrated || !isConnected || hasNavigatedRef.current) return;
+    const persistedRole = metrics.userRole;
+    if (persistedRole && roles.some((r) => r.id === persistedRole.toLowerCase())) {
+      hasNavigatedRef.current = true;
+      onNavigate(persistedRole.toLowerCase());
+    }
+  }, [hydrated, isConnected, metrics.userRole, onNavigate]);
+
+  const handleConfirmRole = async (roleId: string) => {
+    setIsSigning(true);
+    try {
+      await updateUserRole(roleId.toUpperCase());
+      await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
+      hasNavigatedRef.current = true;
+      onNavigate(roleId);
+    } catch (error) {
+      console.error("Failed to assume role:", error);
+    } finally {
+      setIsSigning(false);
+    }
+  };
+
+  // Note: `roles` is referenced by the redirect effect above and must be
+  // declared before it in module evaluation order for stable identity.
+  const formatAddress = (address: string) => {
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
   const getBgClass = () => {
     if (hoveredRole === "advertiser" || expandedRole === "advertiser")
       return "bg-indigo-50/50 dark:bg-indigo-950/20";
@@ -163,14 +164,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     return "bg-slate-50 dark:bg-[#09090b]";
   };
 
-  // Gate render until role state is reconciled to guarantee 0ms flicker.
-  if (!hydrated || !roleHydrated) {
-    return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-      </div>
-    );
-  }
+  // Suppress the role-selection UI while a persisted role is being routed to,
+  // preventing a visible flash of the dashboard before navigation completes.
+  const isResolvingPersistedRole =
+    hydrated &&
+    isConnected &&
+    !!metrics.userRole &&
+    roles.some((r) => r.id === metrics.userRole!.toLowerCase()) &&
+    !hasNavigatedRef.current;
 
   return (
     <div
@@ -240,6 +241,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
         </div>
 
         {/* Role Cards Grid */}
+        {!isResolvingPersistedRole && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl">
           {roles.map((role, index) => {
             const IconComponent = role.icon;
@@ -353,6 +355,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

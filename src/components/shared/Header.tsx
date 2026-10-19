@@ -4,20 +4,15 @@ import { useTelegram } from "../../hooks/useTelegram";
 import { useUserRole } from "../../hooks/useUserRole";
 import { ThemeToggle } from "./ThemeToggle";
 import { Wallet, Menu, X, Coins, ShieldCheck, Send, LayoutDashboard } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
-  const { role, isReady } = useUserRole();
+  const { role, isRoleLoading } = useUserRole();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [hasMounted, setHasMounted] = useState(false);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -32,8 +27,20 @@ export const Header = () => {
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
   ];
-  const resolvedRole = isReady ? role : null;
-  const dashboardHref = resolvedRole === "admin" ? "/admin" : resolvedRole === "seller" ? "/dashboard" : "/marketplace";
+
+  const dashboardHref =
+    role === "admin"
+      ? "/admin"
+      : role === "seller"
+        ? "/seller/dashboard"
+        : role === "buyer"
+          ? "/buyer/dashboard"
+          : null;
+
+  // Reserve layout space while role resolves to prevent 0ms flicker on load.
+  // Render a same-sized placeholder instead of removing the dashboard link.
+  const showDashboardPlaceholder = isConnected && isRoleLoading;
+  const showDashboardLink = isConnected && !isRoleLoading && !!dashboardHref;
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
@@ -70,20 +77,31 @@ export const Header = () => {
               {item.label}
             </a>
           ))}
-          {hasMounted && isReady && isConnected && (
-            <a
-              href={dashboardHref}
-              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
-            >
-              <LayoutDashboard className="w-4 h-4" />
-              Dashboard
-            </a>
-          )}
         </nav>
 
         {/* Desktop Actions */}
         <div className="hidden sm:flex items-center space-x-4">
           <ThemeToggle />
+
+          {showDashboardPlaceholder && (
+            <span
+              aria-hidden="true"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-transparent text-transparent text-xs font-bold select-none"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              Dashboard
+            </span>
+          )}
+
+          {showDashboardLink && dashboardHref && (
+            <a
+              href={dashboardHref}
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-900 text-xs font-bold transition-all"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5" />
+              Dashboard
+            </a>
+          )}
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
@@ -179,6 +197,27 @@ export const Header = () => {
               </div>
             )}
 
+            {showDashboardPlaceholder && (
+              <span
+                aria-hidden="true"
+                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-transparent text-transparent text-xs font-bold border border-transparent select-none"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                Go to Dashboard
+              </span>
+            )}
+
+            {showDashboardLink && dashboardHref && (
+              <a
+                href={dashboardHref}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold border border-indigo-200 dark:border-indigo-800/50"
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                Go to Dashboard
+              </a>
+            )}
+
             <div className="grid grid-cols-2 gap-2">
               {navLinks.map((item) => (
                 <a
@@ -190,16 +229,6 @@ export const Header = () => {
                   {item.label}
                 </a>
               ))}
-              {hasMounted && isReady && isConnected && (
-                <a
-                  href={dashboardHref}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className="col-span-2 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 transition-colors"
-                >
-                  <LayoutDashboard className="w-3.5 h-3.5" />
-                  Dashboard
-                </a>
-              )}
             </div>
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
