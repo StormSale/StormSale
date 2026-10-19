@@ -1,13 +1,16 @@
 import { Button } from "../../components/ui/button";
+import React from "react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, Loader2, AlertTriangle } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Send, Loader2, AlertCircle } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance, txQueueStatus } = useWeb3() as ReturnType<typeof useWeb3> & { txQueueStatus?: { pending: number; lastError?: string | null } };
+  const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -25,10 +28,10 @@ export const Header = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
+    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
       <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
-        {/* Logo */}
-        <div className="flex items-center">
+        {/* Logo & TMA Badge */}
+        <div className="flex items-center gap-3">
           <a href="/" className="block group">
             <img
               src={logo}
@@ -36,7 +39,34 @@ export const Header = () => {
               className="h-10 sm:h-12 md:h-14 w-auto object-contain group-hover:scale-105 transition-transform duration-300"
             />
           </a>
+          {isTelegram && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50">
+              <Send className="w-3 h-3 text-sky-500" />
+              {user
+                ? user.username
+                  ? `@${user.username}`
+                  : user.first_name
+                : `TMA (${platform})`}
+            </span>
+          )}
         </div>
+
+        {/* Transaction Queue Status */}
+        {txQueueStatus && (txQueueStatus.pending > 0 || txQueueStatus.lastError) && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-xs font-semibold text-amber-700 dark:text-amber-400">
+            {txQueueStatus.lastError ? (
+              <React.Fragment>
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>Resyncing sequence…</span>
+              </React.Fragment>
+            ) : (
+              <React.Fragment>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>{txQueueStatus.pending} tx queued</span>
+              </React.Fragment>
+            )}
+          </div>
+        )}
 
         {/* Desktop Nav Links */}
         <nav className="hidden lg:flex items-center space-x-5">

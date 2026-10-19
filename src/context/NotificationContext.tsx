@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -11,6 +11,29 @@ import {
 } from "lucide-react";
 
 export type NotificationType = "success" | "error" | "warning" | "info";
+
+export type TxQueueStatus = "idle" | "queued" | "submitting" | "resyncing" | "retrying" | "failed";
+
+export interface TxQueueState {
+  status: TxQueueStatus;
+  pendingCount: number;
+  activeSequence?: string;
+  lastError?: string;
+  lastUpdated: number;
+}
+
+export interface TxQueueStatusNotificationParams {
+  status: TxQueueStatus;
+  pendingCount: number;
+  activeSequence?: string;
+  lastError?: string;
+}
+
+export interface SequenceResyncParams {
+  previousSequence?: string;
+  newSequence?: string;
+  reason?: string;
+}
 
 export interface NotificationAction {
   label: string;
@@ -46,6 +69,9 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  notifyTxQueueStatus: (params: TxQueueStatusNotificationParams) => string;
+  notifySequenceResync: (params: SequenceResyncParams) => string;
+  notifySequenceRetry: (attempt: number, maxAttempts: number) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -105,10 +131,108 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Builds a structured notification payload describing the current in-flight
+ * transaction queue status so merchants can see pending submissions at a glance.
+ */
+export function buildTxQueueStatusNotification(
+  params: TxQueueStatusNotificationParams,
+): Omit<Notification, "id"> {
+  const { status, pendingCount, activeSequence, lastError } = params;
+  const sequenceSuffix = activeSequence ? ` (seq ${activeSequence})` : "";
+
+  switch (status) {
+    case "queued":
+      return {
+        type: "info",
+        title: "Transaction Queued",
+        message: `${pendingCount} transaction${pendingCount === 1 ? "" : "s"} waiting in the in-flight queue${sequenceSuffix}.`,
+        duration: 3000,
+      };
+    case "submitting":
+      return {
+        type: "info",
+        title: "Submitting Transaction",
+        message: `Broadcasting transaction${sequenceSuffix}. ${pendingCount} remaining in queue.`,
+        duration: 2500,
+      };
+    case "resyncing":
+      return {
+        type: "warning",
+        title: "Resyncing Sequence",
+        message: `Sequence mismatch detected${lastError ? `: ${lastError}` : ""}. Fetching latest sequence from Horizon.`,
+        duration: 4000,
+      };
+    case "retrying":
+      return {
+        type: "warning",
+        title: "Retrying Transaction",
+        message: `Retrying with updated sequence${sequenceSuffix}. ${pendingCount} remaining in queue.`,
+        duration: 3500,
+      };
+    case "failed":
+      return {
+        type: "error",
+        title: "Transaction Failed",
+        message: lastError
+          ? `Transaction failed after retry: ${lastError}`
+          : "Transaction failed after retry with resynced sequence.",
+        persistent: true,
+        duration: 0,
+      };
+    case "idle":
+    default:
+      return {
+        type: "success",
+        title: "Queue Cleared",
+        message: "All in-flight transactions have been processed.",
+        duration: 3000,
+      };
+  }
+}
+
+/**
+ * Builds a notification payload for a sequence resync event triggered by a
+ * `txBAD_SEQb error returned from Horizon.
+ */
+export function buildSequenceResyncNotification(
+  params: SequenceResyncParams,
+): Omit<Notification, "id"> {
+  const { previousSequence, newSequence, reason } = params;
+  const detail =
+    previousSequence && newSequence
+      ? `Local sequence ${previousSequence} was stale; resynced to ${newSequence}.`
+      : "Local sequence was stale; resynced from Horizon.";
+
+  return {
+    type: "warning",
+    title: "Sequence Resynchronized",
+    message: reason ? `${detail} Reason: ${reason}` : detail,
+    duration: 4000,
+  };
+}
+
+/**
+ * Builds a notification payload for a single automatic retry of a failed
+ * sequence transaction.
+ */
+export function buildSequenceRetryNotification(
+  attempt: number,
+  maxAttempts: number,
+): Omit<Notification, "id"> {
+  return {
+    type: "info",
+    title: "Retrying Transaction",
+    message: `Automatic retry ${attempt} of ${maxAttempts} with updated sequence number.`,
+    duration: 3000,
+  };
+}
+
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const notificationsRef = useRef<Notification[]>([]);
 
   const dismissNotification = (id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -116,6 +240,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const clearAllNotifications = () => {
     setNotifications([]);
+    notificationsRef.current = [];
   };
 
   const showNotification = (notification: Omit<Notification, "id">): string => {
@@ -130,6 +255,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
 
     setNotifications((prev) => [...prev, newNotification]);
+    notificationsRef.current = [...notificationsRef.current, newNotification];
 
     // Only set auto-dismiss timeout if notification is NOT persistent
     if (!isPersistent && newNotification.duration && newNotification.duration > 0) {
@@ -152,6 +278,24 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }): string => {
     return showNotification(buildLowEscrowNotification(params));
   };
+
+  // Dedicated helper to surface in-flight transaction queue status to the user
+  const notifyTxQueueStatus = useCallback(
+    (params: TxQueueStatusNotificationParams): string => {
+      return showNotification(buildTxQueueStatusNotification(params));
+    },
+    [showNotification],
+  );
+
+  // Dedicated helper to surface a sequence resync event (triggered by txBAD_SEQ)
+  const notifySequenceResync = useCallback((params: SequenceResyncParams): string => {
+    return showNotification(buildSequenceResyncNotification(params));
+  }, [showNotification]);
+
+  // Dedicated helper to surface an automatic retry of a sequence transaction
+  const notifySequenceRetry = useCallback((attempt: number, maxAttempts: number): string => {
+    return showNotification(buildSequenceRetryNotification(attempt, maxAttempts));
+  }, [showNotification]);
 
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = (campaigns: EscrowMonitoredCampaign[]) => {
@@ -182,6 +326,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
+        notifyTxQueueStatus,
+        notifySequenceResync,
+        notifySequenceRetry,
       }}
     >
       {children}
@@ -226,115 +373,64 @@ const NotificationContainer: React.FC = () => {
   if (notifications.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-3 max-w-md w-full px-4 sm:px-0">
-      {notifications.map((notification) => {
-        const actionLabel = notification.actionLabel || notification.action?.label;
-        const actionUrl = notification.actionUrl || notification.action?.url;
-
-        return (
-          <div
-            key={notification.id}
-            role="alert"
-            className={`p-4 rounded-2xl border shadow-xl backdrop-blur-md transform transition-all duration-300 ${getBackgroundColor(
-              notification.type,
-            )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
-          >
-            <div className="flex items-start space-x-3">
-              {getIcon(notification.type)}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
-                    {notification.title}
-                  </h4>
-                  {notification.persistent && (
-                    <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
-                      Persistent Alert
-                    </span>
-                  )}
-                </div>
-
-                {notification.message && (
-                  <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
-                    {notification.message}
-                  </p>
-                )}
-
-                {/* Interactive Action: Link or Button to "Top Up" flow */}
-                {actionLabel && (
-                  <div className="mt-3 flex items-center gap-2 pt-1">
-                    {actionUrl ? (
-                      <a
-                        href={actionUrl}
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                      >
-                        <span>{actionLabel}</span>
-                        <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (notification.onAction) notification.onAction();
-                          if (notification.action?.onClick) notification.action.onClick();
-                          dismissNotification(notification.id);
-                        }}
-                        className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                      >
-                        <span>{actionLabel}</span>
-                        <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => dismissNotification(notification.id)}
-                      className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
-                    >
-                      Dismiss
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => dismissNotification(notification.id)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1 -mr-1 -mt-1"
-                aria-label="Close notification"
-              >
-                <X className="w-4 h-4" />
-              </button>
+    <div
+      className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-3 pointer-events-none"
+      aria-live="polite"
+      role="status"
+    >
+      {notifications.map((notification) => (
+        <div
+          key={notification.id}
+          className={`relative pointer-events-auto rounded-lg border p-4 shadow-lg transition-all ${getBackgroundColor(notification.type)}`}
+        >
+          <div className="flex items-start gap-3">
+            {getIcon(notification.type)}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                {notification.title}
+              </p>
+              {notification.message && (
+                <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+                  {notification.message}
+                </p>
+              )}
+              {(notification.actionLabel || notification.action) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    notification.onAction?.();
+                    notification.action?.onClick?.();
+                    const url = notification.actionUrl || notification.action?.url;
+                    if (url) {
+                      window.location.href = url;
+                    }
+                  }}
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
+                >
+                  {notification.actionLabel || notification.action?.label}
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={() => dismissNotification(notification.id)}
+              className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-zinc-800"
+              aria-label="Dismiss notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 };
 
-export const useNotification = () => {
+export const useNotification = (): NotificationContextType => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
 };
-
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
-  return <NotificationProvider>{children}</NotificationProvider>;
-}
-
-export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
-    return (
-      <NotificationProvider>
-        <Component {...props} />
-      </NotificationProvider>
-    );
-  };
-}
