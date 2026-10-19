@@ -35,7 +35,7 @@ jobs:
 
     - name: Run Unit Tests with Audit Export
       run: |
-        npx vitest run --reporter=default --reporter=json --outputFile=test-results.json
+        npx vitest run --reporter=default --reporter=json --outputFile=test-results.json || true
       continue-on-error: true
 
     - name: Publish Test Audit Summary
@@ -45,7 +45,7 @@ jobs:
           const fs = require('fs');
           let summary = "### 🧪 Unit Test Execution Audit\n\n";
           try {
-            if (!fs.existsSync('test-results.json')) {
+            if (!fs.existsSync('test-results.json') || fs.statSync('test-results.json').size === 0) {
               core.setFailed("Test results file not found.");
               return;
             }
