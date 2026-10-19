@@ -3,8 +3,29 @@ import {
   queryIndexer,
   withRpcFallback,
   fetchAllPages,
+  fetchAffiliateClaimsFromIndexer,
+  summarizeClaimable,
   IndexerUnavailableError,
+  type AffiliateClaimRow,
+  type AffiliateSaleRow,
 } from "../lib/graphqlClient";
+
+const sale = (
+  campaignId: number,
+  commission: string,
+  matured = true,
+  loggedAt = "2026-10-01T00:00:00.000Z",
+): AffiliateSaleRow => ({
+  commissionStroops: commission,
+  loggedAt,
+  matured,
+  campaign: { campaignId, advertiser: { address: "GADV" }, clearingPeriodSecs: 604800 },
+});
+
+const claim = (campaignId: number, amount: string): AffiliateClaimRow => ({
+  amountStroops: amount,
+  campaign: { campaignId },
+});
 
 describe("GraphQL indexer client", () => {
   it("returns data from the indexer", async () => {
@@ -62,5 +83,106 @@ describe("GraphQL indexer client", () => {
         async () => "x",
       ),
     ).rejects.toThrow("bug");
+  });
+});
+
+describe("summarizeClaimable", () => {
+  it("sums matured commissions per campaign and ignores immature sales", () => {
+    const out = summarizeClaimable(
+      [sale(1, "100"), sale(1, "50"), sale(1, "999", false), sale(2, "70")],
+      [],
+    );
+    expect(out).toHaveLength(2);
+    expect(out[0]).toMatchObject({
+      campaignId: 1,
+      maturedCommissionStroops: "150",
+      claimedStroops: "0",
+      claimableStroops: "150",
+      maturedSalesCount: 2,
+    });
+    expect(out[1]).toMatchObject({ campaignId: 2, claimableStroops: "70" });
+  });
+
+  it("subtracts payouts already claimed", () => {
+    const [row] = summarizeClaimable([sale(1, "100"), sale(1, "50")], [claim(1, "60")]);
+    expect(row.maturedCommissionStroops).toBe("150");
+    expect(row.claimedStroops).toBe("60");
+    expect(row.claimableStroops).toBe("90");
+  });
+
+  it("adds up several payouts for the same campaign", () => {
+    const [row] = summarizeClaimable([sale(1, "100")], [claim(1, "30"), claim(1, "20")]);
+    expect(row.claimedStroops).toBe("50");
+    expect(row.claimableStroops).toBe("50");
+  });
+
+  it("leaves out a campaign that has been fully claimed", () => {
+    const out = summarizeClaimable([sale(1, "100"), sale(2, "70")], [claim(1, "100")]);
+    expect(out.map((r) => r.campaignId)).toEqual([2]);
+  });
+
+  it("leaves out a campaign when payouts exceed matured commission", () => {
+    expect(summarizeClaimable([sale(1, "100")], [claim(1, "150")])).toEqual([]);
+  });
+
+  it("does not let payouts from one campaign reduce another", () => {
+    const out = summarizeClaimable([sale(1, "100"), sale(2, "100")], [claim(2, "100")]);
+    expect(out.map((r) => [r.campaignId, r.claimableStroops])).toEqual([[1, "100"]]);
+  });
+
+  it("keeps the most recent matured sale date", () => {
+    const [row] = summarizeClaimable(
+      [
+        sale(1, "10", true, "2026-10-05T00:00:00.000Z"),
+        sale(1, "10", true, "2026-10-09T00:00:00.000Z"),
+        sale(1, "10", true, "2026-10-02T00:00:00.000Z"),
+      ],
+      [],
+    );
+    expect(row.lastSaleDate).toBe("2026-10-09T00:00:00.000Z");
+  });
+
+  it("handles amounts beyond the safe integer range", () => {
+    const [row] = summarizeClaimable(
+      [sale(1, "90000000000000000000")],
+      [claim(1, "10000000000000000000")],
+    );
+    expect(row.claimableStroops).toBe("80000000000000000000");
+  });
+});
+
+describe("fetchAffiliateClaimsFromIndexer", () => {
+  it("requests sales and claims and returns the net claimable amounts", async () => {
+    const f = vi.fn(async (_url: unknown, init: any) => {
+      const { query } = JSON.parse(init.body);
+      const data = query.includes("AffiliateClaims")
+        ? { claims: [claim(1, "40")] }
+        : { sales: [sale(1, "100"), sale(2, "25")] };
+      return { ok: true, json: async () => ({ data }) };
+    });
+
+    const out = await fetchAffiliateClaimsFromIndexer(
+      "GAFF",
+      "http://x/graphql",
+      f as unknown as typeof fetch,
+    );
+
+    expect(out.map((r) => [r.campaignId, r.claimableStroops])).toEqual([
+      [1, "60"],
+      [2, "25"],
+    ]);
+    expect(f).toHaveBeenCalledTimes(2); // one page of sales + one page of claims
+  });
+
+  it("throws IndexerUnavailableError when the claims request fails", async () => {
+    const f = vi.fn(async (_url: unknown, init: any) => {
+      const { query } = JSON.parse(init.body);
+      if (query.includes("AffiliateClaims")) throw new Error("ECONNRESET");
+      return { ok: true, json: async () => ({ data: { sales: [sale(1, "100")] } }) };
+    });
+
+    await expect(
+      fetchAffiliateClaimsFromIndexer("GAFF", "http://x/graphql", f as unknown as typeof fetch),
+    ).rejects.toBeInstanceOf(IndexerUnavailableError);
   });
 });

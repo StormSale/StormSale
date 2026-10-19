@@ -158,7 +158,13 @@ export interface AffiliateClaimSummary {
   campaignId: number;
   advertiser: string;
   clearingPeriodSecs: number;
+  /** Total commission on matured sales, before any payouts. */
   maturedCommissionStroops: string;
+  /** Payouts the affiliate has already claimed for this campaign. */
+  claimedStroops: string;
+  /** Matured commission minus completed payouts. Always greater than zero in results. */
+  claimableStroops: string;
+  /** Number of matured sales in the campaign (including ones already paid out). */
   maturedSalesCount: number;
   lastSaleDate: string;
 }
@@ -180,33 +186,115 @@ const AFFILIATE_QUERY = /* GraphQL */ `
   }
 `;
 
-/** Affiliate's matured commissions grouped per campaign, from the indexer. Throws if unavailable. */
+const AFFILIATE_CLAIMS_QUERY = /* GraphQL */ `
+  query AffiliateClaims($address: String!, $limit: Int!, $offset: Int!) {
+    claims(affiliate: $address, limit: $limit, offset: $offset) {
+      amountStroops
+      campaign {
+        campaignId
+      }
+    }
+  }
+`;
+
+export interface AffiliateSaleRow {
+  commissionStroops: string;
+  loggedAt: string;
+  matured: boolean;
+  campaign: {
+    campaignId: number;
+    advertiser: { address: string };
+    clearingPeriodSecs: number;
+  };
+}
+
+export interface AffiliateClaimRow {
+  amountStroops: string;
+  campaign: { campaignId: number };
+}
+
+/**
+ * Groups matured commissions per campaign and subtracts payouts already claimed,
+ * so a commission that was paid out is not offered as claimable again.
+ * Campaigns with nothing left to claim are left out.
+ */
+export function summarizeClaimable(
+  sales: AffiliateSaleRow[],
+  claims: AffiliateClaimRow[],
+): AffiliateClaimSummary[] {
+  const claimedByCampaign = new Map<number, bigint>();
+  for (const c of claims) {
+    const id = c.campaign.campaignId;
+    claimedByCampaign.set(id, (claimedByCampaign.get(id) ?? 0n) + BigInt(c.amountStroops));
+  }
+
+  const matured = new Map<number, { row: AffiliateClaimSummary; total: bigint }>();
+  for (const s of sales) {
+    if (!s.matured) continue;
+    const id = s.campaign.campaignId;
+    const cur = matured.get(id) ?? {
+      row: {
+        campaignId: id,
+        advertiser: s.campaign.advertiser.address,
+        clearingPeriodSecs: s.campaign.clearingPeriodSecs,
+        maturedCommissionStroops: "0",
+        claimedStroops: "0",
+        claimableStroops: "0",
+        maturedSalesCount: 0,
+        lastSaleDate: s.loggedAt,
+      },
+      total: 0n,
+    };
+    cur.total += BigInt(s.commissionStroops);
+    cur.row.maturedSalesCount++;
+    if (s.loggedAt > cur.row.lastSaleDate) cur.row.lastSaleDate = s.loggedAt;
+    matured.set(id, cur);
+  }
+
+  const out: AffiliateClaimSummary[] = [];
+  for (const [id, { row, total }] of matured) {
+    const claimed = claimedByCampaign.get(id) ?? 0n;
+    const remaining = total - claimed;
+    if (remaining <= 0n) continue; // fully paid out (or over-claimed): nothing to offer
+    out.push({
+      ...row,
+      maturedCommissionStroops: total.toString(),
+      claimedStroops: claimed.toString(),
+      claimableStroops: remaining.toString(),
+    });
+  }
+  return out;
+}
+
+/**
+ * Affiliate's claimable commissions grouped per campaign, from the indexer:
+ * matured sales minus payouts already claimed. Throws if the indexer is unavailable.
+ */
 export async function fetchAffiliateClaimsFromIndexer(
   address: string,
+  url?: string,
+  fetchImpl?: typeof fetch,
 ): Promise<AffiliateClaimSummary[]> {
-  // Page through every sale so totals are never understated for large affiliates.
-  const allSales = await fetchAllPages(async (offset, limit) => {
-    const data = await queryIndexer<{ sales: any[] }>(AFFILIATE_QUERY, { address, limit, offset });
-    return data.sales;
-  });
-  const byCampaign = new Map<number, AffiliateClaimSummary>();
-  for (const s of allSales) {
-    if (!s.matured) continue;
-    const id = s.campaign.campaignId as number;
-    const cur = byCampaign.get(id) ?? {
-      campaignId: id,
-      advertiser: s.campaign.advertiser.address,
-      clearingPeriodSecs: s.campaign.clearingPeriodSecs,
-      maturedCommissionStroops: "0",
-      maturedSalesCount: 0,
-      lastSaleDate: s.loggedAt,
-    };
-    cur.maturedCommissionStroops = (
-      BigInt(cur.maturedCommissionStroops) + BigInt(s.commissionStroops)
-    ).toString();
-    cur.maturedSalesCount++;
-    if (s.loggedAt > cur.lastSaleDate) cur.lastSaleDate = s.loggedAt;
-    byCampaign.set(id, cur);
-  }
-  return [...byCampaign.values()];
+  // Page through every sale and claim so totals are never understated or overstated.
+  const [sales, claims] = await Promise.all([
+    fetchAllPages(async (offset, limit) => {
+      const data = await queryIndexer<{ sales: AffiliateSaleRow[] }>(
+        AFFILIATE_QUERY,
+        { address, limit, offset },
+        url,
+        fetchImpl,
+      );
+      return data.sales;
+    }),
+    fetchAllPages(async (offset, limit) => {
+      const data = await queryIndexer<{ claims: AffiliateClaimRow[] }>(
+        AFFILIATE_CLAIMS_QUERY,
+        { address, limit, offset },
+        url,
+        fetchImpl,
+      );
+      return data.claims;
+    }),
+  ]);
+  return summarizeClaimable(sales, claims);
 }

@@ -99,7 +99,8 @@ export async function fetchAffiliateMaturedClaims(
         campaignName: `Campaign #${r.campaignId}`,
         advertiserAddress: r.advertiser,
         maturedSalesCount: r.maturedSalesCount,
-        claimableXlm: Number(r.maturedCommissionStroops) / 1e7,
+        // Net of payouts already claimed, so a paid commission is not offered again.
+        claimableXlm: Number(r.claimableStroops) / 1e7,
         clearingPeriodDays: Math.round(r.clearingPeriodSecs / 86400),
         lastSaleDate: r.lastSaleDate.slice(0, 10),
         status: "matured" as const,
