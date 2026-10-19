@@ -1,12 +1,12 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
   connectAlbedoWallet,
-  connectXBullWallet,
+  connectXbullWallet,
   checkFreighterInstalled,
   getCurrentNetwork,
-  fetchXlmBalance,
+  fetchXmlBalance,
   fetchAssetBalances,
   approveTokenAllowance as approveTokenAllowanceCall,
   fundTestnetAccount,
@@ -16,19 +16,89 @@ import {
   getTokenAllowanceQuery,
   approveTokenContractCall,
   refundCampaignEscrowContractCall,
+  getTransactionStatus,
 } from "../lib/stellar";
-import type { WalletType } from "../lib/stellar";
+import type { WalletType, TransactionPollStatus } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
-import {
-  pollTransactionStatus,
-  TransactionPollingTimeoutError,
-} from "../lib/transactionPolling";
-import type { PollingResult } from "../lib/transactionPolling";
+
+// ----------------------------------------------------------------------------
+// Adaptive Transaction Polling System
+// ----------------------------------------------------------------------------
+//
+// Polling strategy:
+//   attempt 1  ->  wait  500ms
+//   attempt 2  ->  wait 1000ms  (500 * 2)
+//   attempt 3  ->  wait 2000ms  (1000 * 2)
+//   attempt 4  ->  wait 4000ms  (4000 * 2)
+//   ... capped at 8sleep, total deadline 30s.
+//
+// On timeout the poller rejects with a retryable error and exposes a
+// `retryTransactionPoll` helper so UI can prompt the user to retry.
+// ----------------------------------------------------------------------------
+
+export const POLL_BASE_DELAY_MS = 500;
+export const POLL_MAX_DELAY_MS = 8000;
+export const POLL_TIMEOUT_MS = 30000;
+export const POLL_MAX_ATTEMPTS = 10;
+
+export class TransactionPollTimeoutError extends Error {
+  readonly txHash: string;
+  readonly attempts: number;
+  readonly retryable = true as const;
+
+  constructor(txHash: string, attempts: number) {
+    super(
+      `Transaction ${txHash} did not confirm within ${POLL_TIMEOUT_MS / 1000}s. You can retry polling.`,
+    );
+    this.name = "TransactionPollTimeoutError";
+    this.txHash = txHash;
+    this.attempts = attempts;
+  }
+}
+
+export function computeBackoffDelay(attempt: number): number {
+  const raw = POLL_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempt - 1));
+  return Math.min(raw, POLL_MAX_DELAY_MS);
+}
+
+export interface PollTransactionOptions {
+  timeoutMs?: number;
+  maxAttempts?: number;
+  onAttempt?: (attempt: number, delayMs: number) => void;
+}
+
+export async function pollTransactionConfirmation(
+  txHash: string,
+  options: PollTransactionOptions = {},
+): Promise<TransactionPollStatus> {
+  const timeoutMs = options.timeoutMs ?? POLL_TIMEOUT_MS;
+  const maxAttempts = options.maxAttempts ?? POLL_MAX_ATTEMPTS;
+  const deadline = Date.now() + timeoutMs;
+  let attempt = 0;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    const status = await getTransactionStatus(txHash);
+    if (status.status === "success" || status.status === "failed") {
+      return status;
+    }
+
+    const delayMs = computeBackoffDelay(attempt);
+    options.onAttempt?.(attempt, delayMs);
+
+    if (Date.now() + delayMs >= deadline) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new TransactionPollTimeoutError(txHash, attempt);
+}
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -107,11 +177,16 @@ export interface Web3ContextType {
 
   // Adaptive transaction polling
   pollTransaction: (
-    hash: string,
-    options?: { timeoutMs?: number; maxAttempts?: number },
-  ) => Promise<PollingResult>;
-  lastPollingError: string | null;
-  retryLastPoll: () => Promise<PollingResult | null>;
+    txHash: string,
+    options?: PollTransactionOptions,
+  ) => Promise<TransactionPollStatus>;
+  retryTransactionPoll: (
+    txHash: string,
+    options?: PollTransactionOptions,
+  ) => Promise<TransactionPollStatus>;
+  pollingStatus: TransactionPollStatus | null;
+  pollingTxHash: string | null;
+  pollingError: string | null;
   clearPollingError: () => void;
 
   // Compatibility helpers for legacy form callers
@@ -141,11 +216,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
   // Adaptive polling state
-  const [lastPollingError, setLastPollingError] = useState<string | null>(null);
-  const [lastPollingRequest, setLastPollingRequest] = useState<{
-    hash: string;
-    options?: { timeoutMs?: number; maxAttempts?: number };
-  } | null>(null);
+  const [pollingStatus, setPollingStatus] = useState<TransactionPollStatus | null>(null);
+  const [pollingTxHash, setPollingTxHash] = useState<string | null>(null);
+  const [pollingError, setPollingError] = useState<string | null>(null);
+  const pollAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
+
+  const clearPollingError = useCallback(() => setPollingError(null), []);
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -156,7 +232,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const bal = await fetchXlmBalance(address);
       setXlmBalance(bal);
       const multi = await fetchAssetBalances(address);
-      setAssetBalances(mult);
+      setAssetBalances(multi);
     } catch (err) {
       console.warn("Could not fetch balance:", err);
     }
@@ -235,26 +311,31 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     [userAddress, connectorType],
   );
 
-  // Adaptive transaction polling with exponential backoff and timeout retry prompts
-  const pollTransaction = useCallback(
-    async (
-      hash: string,
-      options?: { timeoutMs?: number; maxAttempts?: number },
-    ): Promise<PollingResult> => {
-      setLastPollingRequest({ hash, options });
+  // Adaptive transaction polling with exponential backoff + timeout retry support
+  const runPoll = useCallback(
+    async (txHash: string, options?: PollTransactionOptions) => {
+      pollAbortRef.current = { aborted: false };
+      setPollingTxHash(txHash);
+      setPollingError(null);
+      setPollingStatus({ status: "pending", txHash });
       try {
-        const result = await pollTransactionStatus(hash, STELLAR_CONFIG.networkPassphrase, {
-          timeoutMs: options?.timeoutMs,
-          maxAttempts: options?.maxAttempts,
+        const result = await pollTransactionConfirmation(txHash, {
+          ...options,
+          onAttempt: (attempt, delayMs) => {
+            if (pollAbortRef.current.aborted) return;
+            setPollingStatus({ status: "pending", txHash, attempt, nextDelayMs: delayMs });
+            options.onAttempt?.(attempt, delayMs);
+          },
         });
-        setLastPollingError(null);
+        if (!pollAbortRef.current.aborted) {
+          setPollingStatus(result);
+        }
         return result;
       } catch (err) {
-        if (err instanceof TransactionPollingTimeoutError) {
-          setLastPollingError(err.message);
-        } else {
-          const message = err instanceof Error ? err.message : String(err);
-          setLastPollingError(message);
+        const message = err instanceof Error ? err.message : "Transaction polling failed";
+        if (!pollAbortRef.current.aborted) {
+          setPollingError(message);
+          setPollingStatus({ status: "timeout", txHash });
         }
         throw err;
       }
@@ -262,12 +343,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     [],
   );
 
-  const retryLastPoll = useCallback(async (): Promise<PollingResult | null> => {
-    if (!lastPollingRequest) return null;
-    return pollTransaction(lastPollingRequest.hash, lastPollingRequest.options);
-  }, [lastPollingRequest, pollTransaction]);
+  const pollTransaction = useCallback(
+    (txHash: string, options?: PollTransactionOptions) => runPoll(txHash, options),
+    [runPoll],
+  );
 
-  const clearPollingError = useCallback(() => setLastPollingError(null), []);
+  const retryTransactionPoll = useCallback(
+    (txHash: string, options?: PollTransactionOptions) => runPoll(txHash, options),
+    [runPoll],
+  );
+
+  useEffect(() => {
+    return () => {
+      pollAbortRef.current.aborted = true;
+    };
+  }, []);
 
   // Sync with backend database & persistent role
   const syncUserWithBackend = useCallback(async (address: string) => {
@@ -303,7 +393,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = await connectAlbedoWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
-        address = await connectXBullWallet();
+        address = await connectXbullWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
         const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
@@ -363,8 +453,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       EURC: "0.00",
     });
     setTokenAllowance(0);
-    setLastPollingError(null);
-    setLastPollingRequest(null);
+    setPollingStatus(null);
+    setPollingTxHash(null);
+    setPollingError(null);
     void purgeOnLogout();
   };
 
@@ -405,17 +496,17 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
     // Escrow locking interacts with corresponding Stellar Asset Contract:
     // If deploying with a SAC stablecoin (USDC, EURC), authorize token allowance on SAC contract for escrow spender
-    // Gate allowance approval to supported connectors only
-    const result = await createCampaignContractCall(
+    // Gate allowance approval to supported connectors
+    const res = await createCampaignContractCall(
       userAddress,
       name,
       budgetAmount,
       commissionRatePercent,
       clearingPeriodSecs,
-      connectorType || "freighter",
       assetCode,
+      connectorType || "freighter",
     );
-    return result;
+    return res;
   };
 
   // Soroban: Log Sale
@@ -443,8 +534,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return claimPayoutContractCall(
       userAddress,
       campaignId,
-      connectorType || "freighter",
       assetCode,
+      connectorType || "freighter",
     );
   };
 
@@ -482,9 +573,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const signer = null;
   const switchToStellarNetwork = async () => {
     try {
-      const currentNet = await getCurrentNetwork();
-      setNetwork(currentNet);
-      return currentNet.toUpperCase().includes("TESTNET");
+      const current = await getCurrentNetwork();
+      setNetwork(current);
+      return current.toUpperCase() === STELLAR_CONFIG.network.toUpperCase();
     } catch {
       return false;
     }
@@ -494,14 +585,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork: network.toUpperCase().includes("TESTNET") || network.toUpperCase().includes("PUBLIC"),
+    isStellarNetwork: network.toUpperCase() === STELLAR_CONFIG.network.toUpperCase(),
     network,
     xlmBalance,
     assetBalances,
     connectorType,
     isWalletModalOpen,
     ledgerBipPath,
-    setLedgerBipPath,
+    setLedgerBisPath,
     openWalletModal,
     closeWalletModal,
     connectWallet,
@@ -520,8 +611,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     refreshTokenAllowance,
     approveTokenAllowance,
     pollTransaction,
-    lastPollingError,
-    retryLastPoll,
+    retryTransactionPoll,
+    pollingStatus,
+    pollingTxHash,
+    pollingError,
     clearPollingError,
     factoryContract,
     getCampaignContract,
@@ -533,7 +626,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
-export function useWeb3(): Web3ContextType {
+export function useWeb3() {
   const ctx = useContext(Web3Context);
   if (!ctx) throw new Error("useWeb3 must be used within a Web3Provider");
   return ctx;
