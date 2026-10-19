@@ -7,7 +7,17 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { CheckCircle2, AlertTriangle, Clock, FileText, Download, Filter } from "lucide-react";
+import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
+import { recordsScopedToOrg } from "../../lib/auditorTenancy";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  FileText,
+  Download,
+  Filter,
+  Eye,
+} from "lucide-react";
 import { getExportAuditHistory } from "../../lib/auditor/exportService";
 
 type AuditStatus = "Verified" | "Denied" | "Pending";
@@ -21,7 +31,7 @@ interface AuditRecord {
   notes: string;
 }
 
-const auditRecords: AuditRecord[] = [
+const ALL_AUDIT_RECORDS: AuditRecord[] = [
   {
     saleId: "1042",
     campaign: "Tech Gadgets Pro",
@@ -94,6 +104,9 @@ const statusConfig: Record<
 };
 
 export const AuditHistory = () => {
+  const { org } = useAuditorTenancy();
+  // Tenant boundary: the trail only ever shows this organization's sales.
+  const auditRecords = recordsScopedToOrg(org.id, ALL_AUDIT_RECORDS);
   const dynamicRecords: AuditRecord[] = [
     ...getExportAuditHistory().map((evt) => ({
       saleId: `SOC2-${evt.id.slice(0, 6)}`,
@@ -118,10 +131,17 @@ export const AuditHistory = () => {
             Audit History
           </h2>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Full log of your on-chain audit activities
+            Read-only trail for{" "}
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+              {org.name}
+            </span>
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+            <Eye className="w-3.5 h-3.5" />
+            Scoped: {auditRecords.length} of {ALL_AUDIT_RECORDS.length} records
+          </span>
           <Button
             variant="outline"
             className="h-10 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold"
@@ -163,11 +183,17 @@ export const AuditHistory = () => {
             All Audit Records
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            {dynamicRecords.length} total entries logged on-chain
+            {dynamicRecords.length} total entries logged on-chain for this
+            organization
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+            {auditRecords.length === 0 && (
+              <p className="px-8 py-10 text-sm font-medium text-zinc-400 dark:text-zinc-500 text-center">
+                No audit records exist within the {org.shortName} scope.
+              </p>
+            )}
             {dynamicRecords.map((record, i) => {
               const cfg = statusConfig[record.status];
               const StatusIcon = cfg.icon;
