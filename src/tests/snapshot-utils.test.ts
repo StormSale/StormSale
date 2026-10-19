@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { normalizeGeneratedIds } from "./snapshot-utils";
+import { normalizeGeneratedIds } from "../../tests/components/snapshot-utils";
 
 const fromHtml = (html: string) => {
   const root = document.createElement("div");
