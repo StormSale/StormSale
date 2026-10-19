@@ -53,21 +53,64 @@ const makeRunner = (store: Store) => {
 };
 
 describe("indexer GraphQL", () => {
-  it("returns complete campaign history in < 100ms", async () => {
+  it("returns complete campaign history (all 5,000 sales, paged), each request < 100ms", async () => {
     const run = makeRunner(seeded());
-    const query = `{ campaign(campaignId: 1) { saleCount grossVolumeStroops claimedStroops
-           sales(limit: 1000) { id amountStroops matured } claims { id } } }`;
-    await run(query); // warm-up: server start and query parsing are not per-request cost
-    const t0 = performance.now();
-    const res = await run(query);
-    const ms = performance.now() - t0;
-    expect(res.errors).toBeUndefined();
-    const c = res.data.campaign;
-    expect(c.saleCount).toBe(5000);
-    expect(c.grossVolumeStroops).toBe("50000000000");
-    expect(c.claimedStroops).toBe("2000000");
-    expect(c.sales).toHaveLength(1000);
-    expect(ms).toBeLessThan(100);
+    // Same query shape the client sends for each page.
+    const pageQuery = (offset: number) => `{ campaign(campaignId: 1) { saleCount grossVolumeStroops
+           claimedStroops sales(limit: 1000, offset: ${offset}) { id amountStroops matured } } }`;
+    await run(pageQuery(0)); // warm-up: server start and query parsing are not per-request cost
+
+    // Same loop the client uses: request pages until one comes back short.
+    const ids: string[] = [];
+    const pageMs: number[] = [];
+    let first: any;
+    for (let offset = 0; ; offset += 1000) {
+      const t0 = performance.now();
+      const res = await run(pageQuery(offset));
+      pageMs.push(performance.now() - t0);
+      expect(res.errors).toBeUndefined();
+      first = first ?? res.data.campaign;
+      const rows = res.data.campaign.sales as { id: string }[];
+      ids.push(...rows.map((s) => s.id));
+      if (rows.length < 1000) break;
+    }
+
+    expect(first.saleCount).toBe(5000);
+    expect(first.grossVolumeStroops).toBe("50000000000");
+    expect(first.claimedStroops).toBe("2000000");
+    expect(ids).toHaveLength(5000);
+    expect(new Set(ids).size).toBe(5000); // no duplicates or gaps across pages
+    expect(pageMs).toHaveLength(6); // 5 full pages + 1 empty page that ends the loop
+    // The latency target is per request; total time scales with the number of pages.
+    expect(Math.max(...pageMs)).toBeLessThan(100);
+  });
+
+  it("serves newest-first sales and refreshes the cached order when a sale is added", async () => {
+    const store = seeded(3);
+    const run = makeRunner(store);
+    const q = `{ campaign(campaignId: 1) { sales(limit: 10) { id } } }`;
+
+    const before = await run(q);
+    expect(before.data.campaign.sales.map((s: { id: string }) => s.id)).toEqual(["s2", "s1", "s0"]);
+
+    store.addSale({
+      id: "s-new",
+      campaignId: 1,
+      affiliate: AFF,
+      amountStroops: "1",
+      commissionStroops: "0",
+      loggedAt: "2027-01-01T00:00:00.000Z",
+      maturesAt: "2027-01-01T00:00:00.000Z",
+      txHash: "tx-new",
+    });
+
+    const after = await run(q);
+    expect(after.data.campaign.sales.map((s: { id: string }) => s.id)).toEqual([
+      "s-new",
+      "s2",
+      "s1",
+      "s0",
+    ]);
   });
 
   it("resolves user earnings and relationships", async () => {

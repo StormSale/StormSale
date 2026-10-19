@@ -49,6 +49,25 @@ export async function withRpcFallback<T>(
   }
 }
 
+/** Matches the indexer's per-request cap on `limit`. */
+export const INDEXER_PAGE_SIZE = 1000;
+
+/**
+ * Collects every row by requesting pages until one comes back short, so results
+ * are never silently truncated at the indexer's per-request cap.
+ */
+export async function fetchAllPages<T>(
+  fetchPage: (offset: number, limit: number) => Promise<T[]>,
+  pageSize: number = INDEXER_PAGE_SIZE,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const rows = await fetchPage(offset, pageSize);
+    all.push(...rows);
+    if (rows.length < pageSize) return all;
+  }
+}
+
 export interface CampaignHistory {
   campaignId: number;
   advertiser: string;
@@ -68,7 +87,7 @@ export interface CampaignHistory {
 }
 
 const CAMPAIGN_HISTORY_QUERY = /* GraphQL */ `
-  query CampaignHistory($id: Int!) {
+  query CampaignHistory($id: Int!, $limit: Int!, $offset: Int!) {
     campaign(campaignId: $id) {
       campaignId
       advertiser {
@@ -80,7 +99,7 @@ const CAMPAIGN_HISTORY_QUERY = /* GraphQL */ `
       saleCount
       grossVolumeStroops
       claimedStroops
-      sales(limit: 1000) {
+      sales(limit: $limit, offset: $offset) {
         id
         affiliate {
           address
@@ -93,19 +112,28 @@ const CAMPAIGN_HISTORY_QUERY = /* GraphQL */ `
   }
 `;
 
-/** Campaign history from the indexer in one request; falls back to a direct RPC `get_campaign`. */
+/**
+ * Complete campaign history from the indexer (all sales, fetched page by page);
+ * falls back to a direct RPC `get_campaign`.
+ */
 export function getCampaignHistory(campaignId: number): Promise<CampaignHistory | null> {
   return withRpcFallback(
     async () => {
-      const data = await queryIndexer<{ campaign: any | null }>(CAMPAIGN_HISTORY_QUERY, {
-        id: campaignId,
+      let campaign: any | null = null;
+      const sales = await fetchAllPages(async (offset, limit) => {
+        const data = await queryIndexer<{ campaign: any | null }>(CAMPAIGN_HISTORY_QUERY, {
+          id: campaignId,
+          limit,
+          offset,
+        });
+        campaign = campaign ?? data.campaign;
+        return data.campaign?.sales ?? [];
       });
-      const c = data.campaign;
-      if (!c) return null;
+      if (!campaign) return null;
       return {
-        ...c,
-        advertiser: c.advertiser.address,
-        sales: c.sales.map((s: any) => ({ ...s, affiliate: s.affiliate.address })),
+        ...campaign,
+        advertiser: campaign.advertiser.address,
+        sales: sales.map((s: any) => ({ ...s, affiliate: s.affiliate.address })),
       };
     },
     async () => {
@@ -136,8 +164,8 @@ export interface AffiliateClaimSummary {
 }
 
 const AFFILIATE_QUERY = /* GraphQL */ `
-  query AffiliateSales($address: String!) {
-    sales(affiliate: $address, limit: 1000) {
+  query AffiliateSales($address: String!, $limit: Int!, $offset: Int!) {
+    sales(affiliate: $address, limit: $limit, offset: $offset) {
       commissionStroops
       loggedAt
       matured
@@ -156,9 +184,13 @@ const AFFILIATE_QUERY = /* GraphQL */ `
 export async function fetchAffiliateClaimsFromIndexer(
   address: string,
 ): Promise<AffiliateClaimSummary[]> {
-  const data = await queryIndexer<{ sales: any[] }>(AFFILIATE_QUERY, { address });
+  // Page through every sale so totals are never understated for large affiliates.
+  const allSales = await fetchAllPages(async (offset, limit) => {
+    const data = await queryIndexer<{ sales: any[] }>(AFFILIATE_QUERY, { address, limit, offset });
+    return data.sales;
+  });
   const byCampaign = new Map<number, AffiliateClaimSummary>();
-  for (const s of data.sales) {
+  for (const s of allSales) {
     if (!s.matured) continue;
     const id = s.campaign.campaignId as number;
     const cur = byCampaign.get(id) ?? {

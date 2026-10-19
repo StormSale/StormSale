@@ -21,6 +21,8 @@ export class Store {
 
   private salesByCampaign = new Map<number, SaleRecord[]>();
   private claimsByCampaign = new Map<number, ClaimRecord[]>();
+  /** Newest-first copy per campaign, built on first read and dropped when a sale is added. */
+  private sortedSalesByCampaign = new Map<number, SaleRecord[]>();
   private seen = new Set<string>();
 
   constructor(private readonly filePath?: string) {
@@ -60,6 +62,7 @@ export class Store {
     const list = this.salesByCampaign.get(s.campaignId) ?? [];
     list.push(s);
     this.salesByCampaign.set(s.campaignId, list);
+    this.sortedSalesByCampaign.delete(s.campaignId);
   }
 
   addClaim(c: ClaimRecord) {
@@ -73,6 +76,19 @@ export class Store {
 
   salesFor(campaignId: number): SaleRecord[] {
     return this.salesByCampaign.get(campaignId) ?? [];
+  }
+
+  /**
+   * A campaign's sales, newest first. The sorted list is cached so paging through
+   * a large history does not re-sort it on every request. Callers must not mutate it.
+   */
+  salesNewestFirst(campaignId: number): SaleRecord[] {
+    let sorted = this.sortedSalesByCampaign.get(campaignId);
+    if (!sorted) {
+      sorted = newestFirst(this.salesFor(campaignId), (s) => s.loggedAt);
+      this.sortedSalesByCampaign.set(campaignId, sorted);
+    }
+    return sorted;
   }
 
   claimsFor(campaignId: number): ClaimRecord[] {

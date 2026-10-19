@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { queryIndexer, withRpcFallback, IndexerUnavailableError } from "../lib/graphqlClient";
+import {
+  queryIndexer,
+  withRpcFallback,
+  fetchAllPages,
+  IndexerUnavailableError,
+} from "../lib/graphqlClient";
 
 describe("GraphQL indexer client", () => {
   it("returns data from the indexer", async () => {
@@ -26,6 +31,26 @@ describe("GraphQL indexer client", () => {
     }, rpc);
     expect(out).toBe("from-rpc");
     expect(rpc).toHaveBeenCalledOnce();
+  });
+
+  it("fetchAllPages collects every row across pages", async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => i);
+    const fetchPage = vi.fn(async (offset: number, limit: number) => rows.slice(offset, offset + limit));
+    const out = await fetchAllPages(fetchPage, 1000);
+    expect(out).toHaveLength(2500);
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+  });
+
+  it("fetchAllPages makes one extra request when the total is an exact multiple", async () => {
+    const rows = Array.from({ length: 2000 }, (_, i) => i);
+    const fetchPage = vi.fn(async (offset: number, limit: number) => rows.slice(offset, offset + limit));
+    const out = await fetchAllPages(fetchPage, 1000);
+    expect(out).toHaveLength(2000);
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+  });
+
+  it("fetchAllPages returns an empty list when there are no rows", async () => {
+    expect(await fetchAllPages(async () => [], 1000)).toEqual([]);
   });
 
   it("does not hide unrelated errors", async () => {

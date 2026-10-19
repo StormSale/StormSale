@@ -40,10 +40,9 @@ export function buildSchema(store: Store) {
         sales: (_: unknown, a: Page & { campaignId?: number; affiliate?: string }) =>
           page(
             a.campaignId !== undefined && a.campaignId !== null
-              ? newestFirst(
-                  store.salesFor(a.campaignId).filter((s) => !a.affiliate || s.affiliate === a.affiliate),
-                  (s) => s.loggedAt,
-                )
+              ? store
+                  .salesNewestFirst(a.campaignId)
+                  .filter((s) => !a.affiliate || s.affiliate === a.affiliate)
               : sales((s) => !a.affiliate || s.affiliate === a.affiliate),
             a.limit,
             a.offset,
@@ -74,7 +73,7 @@ export function buildSchema(store: Store) {
         claimedStroops: (c: CampaignRecord) =>
           sum(store.claimsFor(c.campaignId).map((x) => x.amountStroops)),
         sales: (c: CampaignRecord, a: Page) =>
-          page(newestFirst(store.salesFor(c.campaignId), (s) => s.loggedAt), a.limit, a.offset),
+          page(store.salesNewestFirst(c.campaignId), a.limit, a.offset),
         claims: (c: CampaignRecord, a: Page) =>
           page(newestFirst(store.claimsFor(c.campaignId), (x) => x.claimedAt), a.limit, a.offset),
       },
