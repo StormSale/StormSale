@@ -1,10 +1,10 @@
-import React, { Suspense, useState, lazy } from "react";
+import React, { Suspense, useState, useEffect, useMemo, useCallback, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
-import { useEffect } from "react";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { loadBrandConfig } from "./lib/branding";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -85,38 +85,89 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-// Unified role-based route mapping. Each role has a single canonical page.
-const ROLE_ROUTES: Record<string, string> = {
-  advertiser: "advertiser",
-  affiliate: "affiliate",
-  auditor: "auditor",
+type UserRole = "dashboard" | "advertiser" | "affiliate" | "auditor";
+
+const ROLE_STORAGE_KEY = "app:userRole";
+
+const VALID_ROLES: UserRole[] = ["dashboard", "advertiser", "affiliate", "auditor"];
+
+function readPersistedRole(): UserRole | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(ROLE_STORAGE_KEY);
+    if (raw && (VALID_ROLES as string[]).includes(raw)) {
+      return raw as UserRole;
+    }
+  } catch {
+    // ignore storage access errors
+  }
+  return null;
+}
+
+function persistRole(role: UserRole) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+  } catch {
+    // ignore storage access errors
+  }
+}
+
+function resolveInitialRole(): UserRole {
+  if (isTelegramMiniApp()) return "affiliate";
+  return readPersistedRole() ?? "dashboard";
+}
+
+const ROLE_ACCESS: Record<UserRole, (ctx: { isConnected: boolean; tmaMode: boolean }) => boolean> = {
+  dashboard: ({ isConnected, tmaMode }) => isConnected || tmaMode,
+  advertiser: ({ isConnected, tmaMode }) => isConnected || tmaMode,
+  affiliate: ({ isConnected, tmaMode }) => isConnected || tmaMode,
+  auditor: ({ isConnected, tmaMode }) => isConnected || tmaMode,
 };
 
-function normalizeRole(role: string | null | undefined): string | null {
-  if (!role) return null;
-  const normalized = role.toLowerCase().trim();
-  return ROLE_ROUTES[normalized] ? normalized : null;
+function isUserRole(value: string | null): value is UserRole {
+  return value !== null && (VALID_ROLES as string[]).includes(value);
+}
+
+function isRoleAccessible(role: UserRole, ctx: { isConnected: boolean; tmaMode: boolean }): boolean {
+  const guard = ROLE_ACCESS[role];
+  return guard ? guard(ctx) : false;
 }
 
 function Router() {
-  const { isConnected, userRole, roleResolved } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const { isConnected } = useWeb3();
+  const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [currentPage, setCurrentPage] = useState(() =>
+    resolveInitialRole(),
+  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
 
-  // Role drives the active route. When the DB-synced role changes, the route follows.
-  // This keeps the UI in lock-step with the persisted role and avoids flicker.
+  const navigate = useCallback((next: UserRole) => {
+    setCurrentPage((prev) => {
+      if (prev === next) return prev;
+      persistRole(next);
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
-    const route = normalizeRole(userRole);
-    if (route) {
-      setCurrentPage(route);
-    } else if (!isConnected) {
+    persistRole(currentPage);
+  }, [currentPage]);
+
+  useEffect(() => {
+    if (!isUserRole(currentPage)) {
       setCurrentPage("dashboard");
     }
-  }, [roleResolved, userRole, isConnected]);
+  }, [currentPage]);
+
+  const canAccessCurrentPage = useMemo(() => {
+    if (!isUserRole(currentPage)) return false;
+    return isRoleAccessible(currentPage, { isConnected, tmaMode });
+  }, [currentPage, isConnected, tmaMode]);
 
   if (activeBrandSubdomain) {
     return (
@@ -133,36 +184,33 @@ function Router() {
     );
   }
 
-  // Avoid flicker: while the connected wallet's role is being resolved from the DB,
-  // render a neutral shell instead of flashing the default Dashboard.
-  if (isConnected && !roleResolved) {
-    return (
-      <>
-        <ConnectWalletModal />
-        <div className="min-h-screen bg-background flex items-center justify-center">
-          <div className="text-sm text-muted-foreground">Synchronizing account…</div>
-        </div>
-      </>
-    );
-  }
-
   return (
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!isConnected ? (
+        {!canAccessCurrentPage ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+              {currentPage === "dashboard" && <Dashboard onNavigate={navigate} />}
               {currentPage === "advertiser" && (
-                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                  <Advertiser onBack={() => navigate("dashboard")} />
+                </Suspense>
               )}
               {currentPage === "affiliate" && (
-                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                  <Affiliate
+                    onBack={() => (isConnected ? navigate("dashboard") : setTmaMode(false))}
+                  />
+                </Suspense>
               )}
-              {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+              {currentPage === "auditor" && (
+                <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                  <Auditor onBack={() => navigate("dashboard")} />
+                </Suspense>
+              )}
             </main>
           </div>
         )}
@@ -172,6 +220,14 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    initTelegramWebApp();
+    const cleanup = syncTelegramTheme();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
   return (
     <NotificationWrapper>
       <ErrorBoundary>

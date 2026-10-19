@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -23,40 +23,33 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
+    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
     network,
     xlmBalance,
     connectorType,
-    userRole,
   } = useWeb3();
   const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
-  // Sync persisted role from DB/context on mount to avoid flicker on load.
-  // If a role is already persisted, route the user immediately without
-  // waiting for a re-selection or a subsequent render cycle.
-  useEffect(() => {
-    if (userRole) {
-      onNavigate(userRole.toLowerCase());
-    }
-  }, [userRole, onNavigate]);
-
+  const [roleHydrated, setRoleHydrated] = useState(false);
+  const hasNavigatedRef = useRef(false);
 
   // Reconcile cached metrics with live network data (background sync, zero layout shift)
   useEffect(() => {
     if (!hydrated) return;
     const liveMetrics = {
-      userRole: null,
+      userRole: userRole ?? null,
       xlmBalance,
       network,
       isConnected,
       connectorType,
     };
     persistMetrics(liveMetrics);
-  }, [hydrated, isConnected, network, xlmBalance, connectorType, persistMetrics]);
+  }, [hydrated, isConnected, network, xlmBalance, connectorType, userRole, persistMetrics]);
 
   // Invalidate cache on wallet disconnect
   useEffect(() => {
@@ -65,11 +58,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   }, [isConnected, invalidateCache]);
 
+  // Sync role from cache/DB to avoid flicker on load. Only redirect once we
+  // have a confirmed role so the UI never flashes the role selector.
+  useEffect(() => {
+    if (!hydrated || roleHydrated) return;
+    const cachedRole = metrics.userRole ?? userRole ?? null;
+    setRoleHydrated(true);
+    if (cachedRole && !hasNavigatedRef.current) {
+      hasNavigatedRef.current = true;
+      onNavigate(cachedRole.toLowerCase());
+    }
+  }, [hydrated, roleHydrated, metrics.userRole, userRole, onNavigate]);
+
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
       await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
+      setRoleHydrated(true);
+      hasNavigatedRef.current = true;
       onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
@@ -78,17 +85,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   };
 
-  // Unified role-based route protection: block rendering of role selection
-  // while a persisted role is being resolved to prevent UI flicker.
-  const isResolvingRole = isConnected && !userRole;
-
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
-
-  if (isResolvingRole) {
-    return null;
-  }
 
   const roles = [
     {
@@ -163,6 +162,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       return "bg-slate-100/50 dark:bg-slate-900/30";
     return "bg-slate-50 dark:bg-[#09090b]";
   };
+
+  // Gate render until role state is reconciled to guarantee 0ms flicker.
+  if (!hydrated || !roleHydrated) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] flex items-center justify-center">
+        <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div

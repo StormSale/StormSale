@@ -1,16 +1,23 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
-import { useAuth } from "../../hooks/useAuth";
+import { useTelegram } from "../../hooks/useTelegram";
+import { useUserRole } from "../../hooks/useUserRole";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, LayoutDashboard } from "lucide-react";
-import { useState } from "react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Send, LayoutDashboard } from "lucide-react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
-  const { role, isRoleLoading } = useAuth();
+  const { isTelegram, user, platform } = useTelegram();
+  const { role, isReady } = useUserRole();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -25,14 +32,14 @@ export const Header = () => {
     { label: "FAQ", href: "#faq" },
     { label: "Contact", href: "#community" },
   ];
-
-  const showDashboardLink = !isRoleLoading && (role === "admin" || role === "seller");
+  const resolvedRole = isReady ? role : null;
+  const dashboardHref = resolvedRole === "admin" ? "/admin" : resolvedRole === "seller" ? "/dashboard" : "/marketplace";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
+    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
       <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
-        {/* Logo */}
-        <div className="flex items-center">
+        {/* Logo & TMA Badge */}
+        <div className="flex items-center gap-3">
           <a href="/" className="block group">
             <img
               src={logo}
@@ -40,6 +47,16 @@ export const Header = () => {
               className="h-10 sm:h-12 md:h-14 w-auto object-contain group-hover:scale-105 transition-transform duration-300"
             />
           </a>
+          {isTelegram && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50">
+              <Send className="w-3 h-3 text-sky-500" />
+              {user
+                ? user.username
+                  ? `@${user.username}`
+                  : user.first_name
+                : `TMA (${platform})`}
+            </span>
+          )}
         </div>
 
         {/* Desktop Nav Links */}
@@ -53,12 +70,12 @@ export const Header = () => {
               {item.label}
             </a>
           ))}
-          {showDashboardLink && (
+          {hasMounted && isReady && isConnected && (
             <a
-              href="/dashboard"
-              className="flex items-center text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
+              href={dashboardHref}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors"
             >
-              <LayoutDashboard className="w-4 h-4 mr-1.5" />
+              <LayoutDashboard className="w-4 h-4" />
               Dashboard
             </a>
           )}
@@ -173,18 +190,17 @@ export const Header = () => {
                   {item.label}
                 </a>
               ))}
+              {hasMounted && isReady && isConnected && (
+                <a
+                  href={dashboardHref}
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="col-span-2 inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-950/60 transition-colors"
+                >
+                  <LayoutDashboard className="w-3.5 h-3.5" />
+                  Dashboard
+                </a>
+              )}
             </div>
-
-            {showDashboardLink && (
-              <a
-                href="/dashboard"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="flex items-center px-3 py-2.5 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
-              >
-                <LayoutDashboard className="w-3.5 h-3.5 mr-2" />
-                Dashboard
-              </a>
-            )}
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
               {isConnected ? (

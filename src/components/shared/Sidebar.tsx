@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,7 +14,7 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
-  isLoadingRole?: boolean;
+  isLoading?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -24,27 +24,56 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
-  isLoadingRole = false,
+  isLoading = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-  const { disconnectWallet } = useWeb3();
-
-  // Prevent role flicker: keep last stable role name while loading
-  const [stableRoleName, setStableRoleName] = useState(roleName);
-  useEffect(() => {
-    if (!isLoadingRole && roleName) setStableRoleName(roleName);
-  }, [roleName, isLoadingRole]);
+  const { disconnectWallet } = useWeb3() ?? {};
 
   const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
+
+  // Render a stable skeleton while role is being hydrated from DB to avoid
+  // flicker. The skeleton mirrors the final layout dimensions so the swap is
+  // visually seamless (0ms perceived flicker).
+  if (isLoading) {
+    return (
+      <>
+        <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm tma-safe-top">
+          <div className="px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2.5">
+              <div className="w-7 h-7 bg-slate-200 dark:bg-zinc-800 rounded-lg animate-pulse" />
+              <div className="flex flex-col space-y-1">
+                <div className="h-3 w-24 bg-slate-200 dark:bg-zinc-800 rounded animate-pulse" />
+                <div className="h-2 w-16 bg-slate-200 dark:bg-zinc-800 rounded animate-pulse" />
+              </div>
+            </div>
+            <div className="w-8 h-8 bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse" />
+          </div>
+        </div>
+        <div className="hidden lg:flex flex-col w-80 bg-white dark:bg-zinc-950/50 border-r border-slate-200 dark:border-zinc-800 shadow-sm shrink-0">
+          <div className="p-6 border-b border-slate-200 dark:border-zinc-800">
+            <div className="h-10 w-full bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse" />
+          </div>
+          <div className="flex-1 p-4 space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div
+                key={i}
+                className="h-12 w-full bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse"
+              />
+            ))}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       {/* =========================================================================
           1. MOBILE & TABLET TOP BAR & DRAWER (Visible on screens < lg / 1024px)
          ========================================================================= */}
-      <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm">
+      <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm tma-safe-top">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-2.5">
             {onBack && (
@@ -67,7 +96,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
                 <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {stableRoleName}
+                  {roleName}
                 </span>
               </div>
             </div>
@@ -158,7 +187,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    disconnectWallet();
+                    disconnectWallet?.();
                     setIsMobileDrawerOpen(false);
                   }}
                   className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20"
@@ -219,7 +248,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <Shield className="w-4 h-4 text-white" />
                   </div>
                   <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {stableRoleName}
+                    {roleName}
                   </span>
                 </div>
               </motion.div>
@@ -292,7 +321,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
           <Button
             variant="ghost"
-            onClick={disconnectWallet}
+            onClick={() => disconnectWallet?.()}
             className={cn(
               "w-full h-12 rounded-xl transition-all duration-200 group flex items-center border border-transparent hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400",
               isCollapsed ? "justify-center px-0" : "justify-start px-4",
