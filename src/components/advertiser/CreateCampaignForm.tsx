@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import QRCode from "qrcode";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
@@ -27,18 +28,28 @@ import {
   RefreshCw,
   Lock,
   Sparkles,
+  QrCode,
+  Upload,
+  Printer,
 } from "lucide-react";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "../../components/ui/dialog";
+import {
+  prepareCreateCampaignTransactionXdr,
+  submitSignedSorobanTransactionXdr,
+} from "../../lib/stellar";
+import { splitTransactionXdrIntoQrFrames } from "../../lib/offlineXdr";
+import type { OfflineXdrQrFrame } from "../../lib/offlineXdr";
 
 export type FlowStep =
-  | "idle"
-  | "checking"
-  | "approving"
-  | "approved"
-  | "creating"
-  | "success"
-  | "error";
+  "idle" | "checking" | "approving" | "approved" | "creating" | "success" | "error";
 
 export const CreateCampaignForm = () => {
   const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
@@ -48,6 +59,16 @@ export const CreateCampaignForm = () => {
   const [budget, setBudget] = useState("");
   const [flowStep, setFlowStep] = useState<FlowStep>("idle");
   const [isRefreshingAllowance, setIsRefreshingAllowance] = useState(false);
+  const [isOfflineDialogOpen, setIsOfflineDialogOpen] = useState(false);
+  const [offlineAdvertiserAddress, setOfflineAdvertiserAddress] = useState("");
+  const [isPreparingOffline, setIsPreparingOffline] = useState(false);
+  const [isSubmittingOffline, setIsSubmittingOffline] = useState(false);
+  const [preparedOfflineXdr, setPreparedOfflineXdr] = useState("");
+  const [signedOfflineXdr, setSignedOfflineXdr] = useState("");
+  const [offlineQrFrames, setOfflineQrFrames] = useState<OfflineXdrQrFrame[]>([]);
+  const [offlineQrImages, setOfflineQrImages] = useState<string[]>([]);
+  const [activeQrFrame, setActiveQrFrame] = useState(0);
+  const [offlineError, setOfflineError] = useState("");
   const [lastCreatedCampaign, setLastCreatedCampaign] = useState<{
     campaignId: number;
     txHash?: string;
@@ -76,10 +97,10 @@ export const CreateCampaignForm = () => {
   const fracDigits = budget.includes(".") ? (budget.split(".")[1]?.length ?? 0) : 0;
   const isValidBudget = Boolean(
     budget &&
-      !isNaN(parsedBudget) &&
-      isFinite(parsedBudget) &&
-      parsedBudget > 0 &&
-      fracDigits <= maxDecimals,
+    !isNaN(parsedBudget) &&
+    isFinite(parsedBudget) &&
+    parsedBudget > 0 &&
+    fracDigits <= maxDecimals,
   );
   const budgetNum = isValidBudget ? parsedBudget : 0;
   const commissionRateNum = parseFloat(commissionRate) || 10;
@@ -87,6 +108,14 @@ export const CreateCampaignForm = () => {
   const currentAssetAllowance = assetAllowances[selectedAsset] ?? tokenAllowance;
   const isAllowanceSufficient = isConnected && isValidBudget && currentAssetAllowance >= budgetNum;
   const allowanceDeficit = Math.max(0, budgetNum - currentAssetAllowance);
+
+  useEffect(() => {
+    if (offlineQrFrames.length < 2) return;
+    const timer = window.setInterval(() => {
+      setActiveQrFrame((current) => (current + 1) % offlineQrFrames.length);
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [offlineQrFrames.length]);
 
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
@@ -109,6 +138,94 @@ export const CreateCampaignForm = () => {
       });
     } finally {
       setIsRefreshingAllowance(false);
+    }
+  };
+
+  const handlePrepareOfflineTransaction = async () => {
+    if (!campaignName.trim()) {
+      setOfflineError("Enter a campaign name before preparing the escrow transaction.");
+      return;
+    }
+    if (!isValidBudget) {
+      setOfflineError(
+        fracDigits > maxDecimals
+          ? `Budget for ${selectedAsset} supports at most ${maxDecimals} decimal places.`
+          : "Enter a valid positive campaign budget.",
+      );
+      return;
+    }
+    if (!offlineAdvertiserAddress.trim()) {
+      setOfflineError("Enter the advertiser's Stellar public key.");
+      return;
+    }
+    setIsPreparingOffline(true);
+    setOfflineError("");
+    setPreparedOfflineXdr("");
+    setSignedOfflineXdr("");
+    setOfflineQrFrames([]);
+    setOfflineQrImages([]);
+    try {
+      const xdr = await prepareCreateCampaignTransactionXdr(
+        offlineAdvertiserAddress.trim(),
+        commissionRateNum,
+        clearingPeriodNum,
+        budgetNum,
+        selectedAsset,
+      );
+      const frames = splitTransactionXdrIntoQrFrames(xdr);
+      const images = await Promise.all(
+        frames.map((frame) =>
+          QRCode.toDataURL(frame.payload, {
+            errorCorrectionLevel: "M",
+            margin: 2,
+            width: 320,
+          }),
+        ),
+      );
+      setPreparedOfflineXdr(xdr);
+      setOfflineQrFrames(frames);
+      setOfflineQrImages(images);
+      setActiveQrFrame(0);
+    } catch (error) {
+      console.error("Offline transaction preparation failed:", error);
+      setOfflineError(
+        error instanceof Error ? error.message : "Could not prepare the Soroban transaction.",
+      );
+    } finally {
+      setIsPreparingOffline(false);
+    }
+  };
+
+  const handleSubmitOfflineTransaction = async () => {
+    setIsSubmittingOffline(true);
+    setOfflineError("");
+    try {
+      const result = await submitSignedSorobanTransactionXdr(
+        signedOfflineXdr,
+        preparedOfflineXdr,
+        offlineAdvertiserAddress.trim(),
+      );
+      if (typeof result.resultValue === "number") {
+        setLastCreatedCampaign({ campaignId: result.resultValue, txHash: result.txHash });
+      } else {
+        setLastCreatedCampaign(null);
+      }
+      setFlowStep("success");
+      setIsOfflineDialogOpen(false);
+      showNotification({
+        type: "success",
+        title: "Offline-Signed Escrow Submitted",
+        message: `Soroban confirmed the offline-signed campaign transaction. Tx: ${result.txHash.slice(0, 12)}...`,
+      });
+    } catch (error) {
+      console.error("Offline signed transaction submission failed:", error);
+      setOfflineError(
+        error instanceof Error
+          ? error.message
+          : "Could not validate or submit the signed transaction.",
+      );
+    } finally {
+      setIsSubmittingOffline(false);
     }
   };
 
@@ -164,7 +281,6 @@ export const CreateCampaignForm = () => {
       setFlowStep("error");
     }
   };
-
 
   // Sequential Two-Step Execution: "Step 1: Approve" -> "Step 2: Create Escrow"
   const handleSequentialApproveAndCreate = async (e?: React.FormEvent) => {
@@ -384,7 +500,8 @@ export const CreateCampaignForm = () => {
                         USDC — USD Coin (Circle SAC) · Balance: {assetBalances?.USDC ?? "0.00"} USDC
                       </option>
                       <option value="EURC">
-                        EURC — Euro Coin (Circle SAC) · Balance: {assetBalances?.EURC ?? "0.00"} EURC
+                        EURC — Euro Coin (Circle SAC) · Balance: {assetBalances?.EURC ?? "0.00"}{" "}
+                        EURC
                       </option>
                     </select>
                     <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
@@ -406,14 +523,21 @@ export const CreateCampaignForm = () => {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-indigo-100/60 dark:border-indigo-900/30 text-zinc-600 dark:text-zinc-400">
                       <div>
-                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">SAC Contract: </span>
-                        <span className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200" title={SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress}>
+                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">
+                          SAC Contract:{" "}
+                        </span>
+                        <span
+                          className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200"
+                          title={SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress}
+                        >
                           {SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress.slice(0, 8)}...
                           {SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress.slice(-6)}
                         </span>
                       </div>
                       <div>
-                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">Wallet Balance: </span>
+                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">
+                          Wallet Balance:{" "}
+                        </span>
                         <span className="font-bold text-zinc-900 dark:text-white">
                           {assetBalances?.[selectedAsset] ?? "0.00"} {selectedAsset}
                         </span>
@@ -423,7 +547,8 @@ export const CreateCampaignForm = () => {
                     {selectedAsset !== "XLM" && (
                       <p className="text-[11px] text-indigo-700 dark:text-indigo-300 font-medium flex items-center gap-1.5 pt-0.5">
                         <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-                        SAC Allowance Workflow: Auto-authorizes token approval on Circle SAC before escrow deployment.
+                        SAC Allowance Workflow: Auto-authorizes token approval on Circle SAC before
+                        escrow deployment.
                       </p>
                     )}
                   </div>
@@ -478,12 +603,14 @@ export const CreateCampaignForm = () => {
                         {selectedAsset}
                       </div>
                     </div>
-                    {budget && parseFloat(budget) > parseFloat(assetBalances?.[selectedAsset] || "0") && (
-                      <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        Warning: Budget exceeds current {selectedAsset} balance ({assetBalances?.[selectedAsset] ?? "0.00"}).
-                      </p>
-                    )}
+                    {budget &&
+                      parseFloat(budget) > parseFloat(assetBalances?.[selectedAsset] || "0") && (
+                        <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" />
+                          Warning: Budget exceeds current {selectedAsset} balance (
+                          {assetBalances?.[selectedAsset] ?? "0.00"}).
+                        </p>
+                      )}
                   </div>
                 </InputField>
               </div>
@@ -564,7 +691,10 @@ export const CreateCampaignForm = () => {
                       </span>
                     </div>
                     <div className="text-xl font-bold text-zinc-900 dark:text-white font-mono">
-                      {currentAssetAllowance.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">{selectedAsset}</span>
+                      {currentAssetAllowance.toLocaleString()}{" "}
+                      <span className="text-xs font-sans text-zinc-400 font-normal">
+                        {selectedAsset}
+                      </span>
                     </div>
                   </div>
 
@@ -573,7 +703,10 @@ export const CreateCampaignForm = () => {
                       Required Deposit
                     </div>
                     <div className="text-xl font-bold text-zinc-900 dark:text-white font-mono">
-                      {budgetNum.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">{selectedAsset}</span>
+                      {budgetNum.toLocaleString()}{" "}
+                      <span className="text-xs font-sans text-zinc-400 font-normal">
+                        {selectedAsset}
+                      </span>
                     </div>
                   </div>
 
@@ -594,7 +727,9 @@ export const CreateCampaignForm = () => {
                       ) : (
                         <div className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 font-semibold text-xs">
                           <AlertCircle className="w-4 h-4" />
-                          <span>Approval Needed (-{allowanceDeficit.toLocaleString()} {selectedAsset})</span>
+                          <span>
+                            Approval Needed (-{allowanceDeficit.toLocaleString()} {selectedAsset})
+                          </span>
                         </div>
                       )}
                     </div>
@@ -612,9 +747,11 @@ export const CreateCampaignForm = () => {
                       className={`p-3.5 rounded-xl border transition-all flex items-center justify-between ${
                         flowStep === "approving"
                           ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 ring-2 ring-indigo-500/20"
-                          : isAllowanceSufficient || flowStep === "approved" || flowStep === "success"
-                          ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-300"
-                          : "border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50"
+                          : isAllowanceSufficient ||
+                              flowStep === "approved" ||
+                              flowStep === "success"
+                            ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-300"
+                            : "border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50"
                       }`}
                     >
                       <div className="flex items-center space-x-3">
@@ -622,12 +759,16 @@ export const CreateCampaignForm = () => {
                           className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${
                             flowStep === "approving"
                               ? "bg-indigo-600 text-white animate-pulse"
-                              : isAllowanceSufficient || flowStep === "approved" || flowStep === "success"
-                              ? "bg-emerald-500 text-white"
-                              : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+                              : isAllowanceSufficient ||
+                                  flowStep === "approved" ||
+                                  flowStep === "success"
+                                ? "bg-emerald-500 text-white"
+                                : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
                           }`}
                         >
-                          {isAllowanceSufficient || flowStep === "approved" || flowStep === "success" ? (
+                          {isAllowanceSufficient ||
+                          flowStep === "approved" ||
+                          flowStep === "success" ? (
                             <CheckCircle2 className="w-4 h-4" />
                           ) : (
                             "1"
@@ -640,9 +781,11 @@ export const CreateCampaignForm = () => {
                           <div className="text-xs text-zinc-500 dark:text-zinc-400">
                             {flowStep === "approving"
                               ? "Signing approval..."
-                              : isAllowanceSufficient || flowStep === "approved" || flowStep === "success"
-                              ? "Allowance Granted"
-                              : `Authorize ${budgetNum ? budgetNum + " " + selectedAsset : "Escrow"}`}
+                              : isAllowanceSufficient ||
+                                  flowStep === "approved" ||
+                                  flowStep === "success"
+                                ? "Allowance Granted"
+                                : `Authorize ${budgetNum ? budgetNum + " " + selectedAsset : "Escrow"}`}
                           </div>
                         </div>
                       </div>
@@ -657,8 +800,8 @@ export const CreateCampaignForm = () => {
                         flowStep === "creating"
                           ? "border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/30 ring-2 ring-indigo-500/20"
                           : flowStep === "success"
-                          ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-300"
-                          : "border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50"
+                            ? "border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/20 text-emerald-900 dark:text-emerald-300"
+                            : "border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/50"
                       }`}
                     >
                       <div className="flex items-center space-x-3">
@@ -667,15 +810,11 @@ export const CreateCampaignForm = () => {
                             flowStep === "creating"
                               ? "bg-indigo-600 text-white animate-pulse"
                               : flowStep === "success"
-                              ? "bg-emerald-500 text-white"
-                              : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+                                ? "bg-emerald-500 text-white"
+                                : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
                           }`}
                         >
-                          {flowStep === "success" ? (
-                            <CheckCircle2 className="w-4 h-4" />
-                          ) : (
-                            "2"
-                          )}
+                          {flowStep === "success" ? <CheckCircle2 className="w-4 h-4" /> : "2"}
                         </div>
                         <div>
                           <div className="font-bold text-sm text-zinc-900 dark:text-white">
@@ -685,8 +824,8 @@ export const CreateCampaignForm = () => {
                             {flowStep === "creating"
                               ? "Deploying contract..."
                               : flowStep === "success"
-                              ? "Escrow Live"
-                              : "Lock budget on Stellar"}
+                                ? "Escrow Live"
+                                : "Lock budget on Stellar"}
                           </div>
                         </div>
                       </div>
@@ -736,6 +875,24 @@ export const CreateCampaignForm = () => {
 
               {/* ACTION BUTTONS: Sequential 1-Click vs Step-by-Step */}
               <div className="space-y-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isExecuting || !isValidBudget}
+                  onClick={() => {
+                    setOfflineError("");
+                    setPreparedOfflineXdr("");
+                    setSignedOfflineXdr("");
+                    setOfflineQrFrames([]);
+                    setOfflineQrImages([]);
+                    setOfflineAdvertiserAddress(userAddress ?? "");
+                    setIsOfflineDialogOpen(true);
+                  }}
+                  className="w-full h-12 rounded-xl border-indigo-300 text-indigo-700 dark:border-indigo-800 dark:text-indigo-300"
+                >
+                  <QrCode className="w-4 h-4 mr-2" />
+                  Air-Gapped / Offline Sign
+                </Button>
                 {!isAllowanceSufficient && budgetNum > 0 ? (
                   <div className="space-y-3">
                     <Button
@@ -763,7 +920,9 @@ export const CreateCampaignForm = () => {
                     </Button>
 
                     <div className="flex items-center justify-center gap-2 pt-1">
-                      <span className="text-xs text-zinc-400 font-medium">Or perform steps manually:</span>
+                      <span className="text-xs text-zinc-400 font-medium">
+                        Or perform steps manually:
+                      </span>
                       <Button
                         type="button"
                         variant="outline"
@@ -801,6 +960,156 @@ export const CreateCampaignForm = () => {
           </form>
         </CardContent>
       </Card>
+
+      <Dialog open={isOfflineDialogOpen} onOpenChange={setIsOfflineDialogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Air-Gapped / Offline Sign</DialogTitle>
+            <DialogDescription>
+              Prepare the campaign escrow online, sign the exported XDR on your offline device, then
+              import and submit the signed envelope.
+            </DialogDescription>
+          </DialogHeader>
+
+          <style>{`
+            @media print {
+              body * { visibility: hidden !important; }
+              #offline-xdr-print, #offline-xdr-print * { visibility: visible !important; }
+              #offline-xdr-print { position: absolute; inset: 0; width: 100%; }
+              #offline-xdr-print .offline-qr-frame { break-inside: avoid; page-break-inside: avoid; }
+            }
+          `}</style>
+
+          <div className="space-y-5">
+            <label className="block space-y-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+              Advertiser Stellar public key (transaction source)
+              <Input
+                value={offlineAdvertiserAddress}
+                onChange={(event) => setOfflineAdvertiserAddress(event.target.value.trim())}
+                placeholder="G... advertiser public key"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </label>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              The source account must be funded and, for USDC/EURC, must already have approved the
+              escrow contract. Preparation simulates the transaction against the selected Stellar
+              network.
+            </p>
+
+            <Button
+              type="button"
+              onClick={handlePrepareOfflineTransaction}
+              disabled={isPreparingOffline || isSubmittingOffline}
+              className="w-full rounded-xl"
+            >
+              {isPreparingOffline ? "Preparing unsigned XDR..." : "Prepare unsigned transaction"}
+            </Button>
+
+            {preparedOfflineXdr && (
+              <div id="offline-xdr-print" className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-zinc-900 dark:text-white">
+                      Unsigned transaction QR sequence
+                    </h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Frame {activeQrFrame + 1} of {offlineQrFrames.length} · scan the complete
+                      sequence in order using a StormSale XDR frame scanner.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => window.print()}
+                    className="rounded-xl print:hidden"
+                  >
+                    <Printer className="mr-2 h-4 w-4" />
+                    Print QR frames
+                  </Button>
+                </div>
+
+                {offlineQrImages[activeQrFrame] && (
+                  <div className="flex justify-center rounded-xl border border-slate-200 bg-white p-4 print:hidden">
+                    <img
+                      src={offlineQrImages[activeQrFrame]}
+                      alt={`Unsigned transaction QR frame ${activeQrFrame + 1} of ${offlineQrImages.length}`}
+                      className="h-64 w-64"
+                    />
+                  </div>
+                )}
+                <div className="hidden grid-cols-2 gap-4 print:grid">
+                  {offlineQrImages.map((image, index) => (
+                    <div
+                      className="offline-qr-frame rounded-lg border border-slate-300 p-3 text-center"
+                      key={offlineQrFrames[index].index}
+                    >
+                      <img
+                        src={image}
+                        alt={`Transaction QR frame ${index + 1}`}
+                        className="mx-auto h-48 w-48"
+                      />
+                      <p className="mt-2 text-xs">
+                        Frame {index + 1} of {offlineQrImages.length}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <label className="block space-y-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200 print:hidden">
+                  Unsigned transaction XDR (copy to your offline signing device)
+                  <textarea
+                    readOnly
+                    value={preparedOfflineXdr}
+                    rows={5}
+                    className="w-full resize-y rounded-xl border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+                  />
+                </label>
+              </div>
+            )}
+
+            {preparedOfflineXdr && (
+              <div className="space-y-3 border-t border-slate-200 pt-4 dark:border-zinc-800">
+                <label className="block space-y-2 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
+                  Import signed transaction XDR
+                  <textarea
+                    value={signedOfflineXdr}
+                    onChange={(event) => setSignedOfflineXdr(event.target.value)}
+                    rows={5}
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="Paste the complete signed transaction envelope XDR"
+                    className="w-full resize-y rounded-xl border border-slate-200 bg-white p-3 font-mono text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
+                  />
+                </label>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Import checks the network, transaction source, exact prepared transaction
+                  contents, and an Ed25519 signature from the advertiser before RPC submission.
+                </p>
+                <Button
+                  type="button"
+                  onClick={handleSubmitOfflineTransaction}
+                  disabled={isSubmittingOffline || !signedOfflineXdr.trim()}
+                  className="w-full rounded-xl"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {isSubmittingOffline
+                    ? "Validating and submitting..."
+                    : "Validate & submit signed XDR"}
+                </Button>
+              </div>
+            )}
+
+            {offlineError && (
+              <p
+                role="alert"
+                className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+              >
+                {offlineError}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

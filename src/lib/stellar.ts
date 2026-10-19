@@ -10,6 +10,8 @@ import {
 import {
   rpc,
   Contract,
+  Keypair,
+  Transaction,
   TransactionBuilder,
   nativeToScVal,
   scValToNative,
@@ -306,13 +308,15 @@ export async function fetchAssetBalances(
     const usdc = balances.find(
       (b: any) =>
         b.asset_code === "USDC" &&
-        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
     );
 
     const eurc = balances.find(
       (b: any) =>
         b.asset_code === "EURC" &&
-        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
     );
 
     return {
@@ -543,6 +547,156 @@ export async function invokeSorobanMethod(
 }
 
 /**
+ * Simulates a campaign creation and returns its unsigned Soroban transaction XDR.
+ * The transaction can be signed on a separate, offline device.
+ */
+export async function prepareCreateCampaignTransactionXdr(
+  advertiserAddress: string,
+  commissionRatePercent: number,
+  clearingPeriodSecs: number,
+  budgetAmount: number,
+  assetCode: SupportedEscrowAssetCode = "XLM",
+): Promise<string> {
+  const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
+  if (!assetConfig) throw new Error(`Unsupported escrow asset: ${assetCode}`);
+  if (
+    !Number.isFinite(commissionRatePercent) ||
+    commissionRatePercent < 1 ||
+    commissionRatePercent > 50
+  ) {
+    throw new Error("Commission rate must be between 1% and 50%.");
+  }
+  if (!Number.isSafeInteger(clearingPeriodSecs) || clearingPeriodSecs < 0) {
+    throw new Error("Clearing period must be a non-negative integer.");
+  }
+
+  const amount = parseUnitsToBigInt(budgetAmount, assetConfig.decimals);
+  const args: xdr.ScVal[] = [
+    new Address(advertiserAddress).toScVal(),
+    nativeToScVal(Math.floor(commissionRatePercent * 100), { type: "u32" }),
+    nativeToScVal(clearingPeriodSecs, { type: "u32" }),
+    nativeToScVal(amount, { type: "i128" }),
+    new Address(assetConfig.contractAddress).toScVal(),
+  ];
+
+  const server = getSorobanRpcServer();
+  const account = await server.getAccount(advertiserAddress);
+  const operation = new Contract(STELLAR_CONFIG.contractId).call("create_campaign", ...args);
+  const transaction = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+  })
+    .addOperation(operation)
+    .setTimeout(60)
+    .build();
+  const simulation = await server.simulateTransaction(transaction);
+  if (rpc.Api.isSimulationError(simulation)) {
+    throw new Error(`Soroban simulation failed: ${simulation.error}`);
+  }
+  return rpc.assembleTransaction(transaction, simulation).build().toXDR();
+}
+
+export function validateSignedSorobanTransactionXdr(
+  signedXdr: string,
+  preparedUnsignedXdr: string,
+  expectedSignerAddress: string,
+): Transaction {
+  if (!signedXdr.trim() || !preparedUnsignedXdr.trim()) {
+    throw new Error("Both signed XDR and its prepared unsigned transaction are required.");
+  }
+
+  let signedTransaction: ReturnType<typeof TransactionBuilder.fromXDR>;
+  let preparedTransaction: ReturnType<typeof TransactionBuilder.fromXDR>;
+  signedTransaction = TransactionBuilder.fromXDR(
+    signedXdr.trim(),
+    STELLAR_CONFIG.networkPassphrase,
+  );
+  preparedTransaction = TransactionBuilder.fromXDR(
+    preparedUnsignedXdr.trim(),
+    STELLAR_CONFIG.networkPassphrase,
+  );
+
+  if (
+    !(signedTransaction instanceof Transaction) ||
+    !(preparedTransaction instanceof Transaction)
+  ) {
+    throw new Error("Only standard Soroban transaction envelopes are supported.");
+  }
+  if (signedTransaction.source !== expectedSignerAddress) {
+    throw new Error("Signed transaction source does not match the expected advertiser account.");
+  }
+  if (preparedTransaction.source !== expectedSignerAddress) {
+    throw new Error("Prepared transaction source does not match the expected advertiser account.");
+  }
+
+  const importedSignatures = [...signedTransaction.signatures];
+  if (importedSignatures.length === 0) {
+    throw new Error("The imported transaction has no signatures.");
+  }
+
+  signedTransaction.signatures = [];
+  preparedTransaction.signatures = [];
+  if (signedTransaction.toXDR() !== preparedTransaction.toXDR()) {
+    throw new Error("Signed XDR does not match the prepared transaction.");
+  }
+  signedTransaction.signatures = importedSignatures;
+
+  const signer = Keypair.fromPublicKey(expectedSignerAddress);
+  const hasValidSignature = importedSignatures.some((decoratedSignature) => {
+    try {
+      return signer.verify(signedTransaction.hash(), decoratedSignature.signature);
+    } catch {
+      return false;
+    }
+  });
+  if (!hasValidSignature) {
+    throw new Error("No valid signature from the expected advertiser account was found.");
+  }
+  return signedTransaction;
+}
+
+/**
+ * Validates an imported offline-signed transaction against the prepared XDR and
+ * submits it without using a browser wallet signer.
+ */
+export async function submitSignedSorobanTransactionXdr(
+  signedXdr: string,
+  preparedUnsignedXdr: string,
+  expectedSignerAddress: string,
+): Promise<{ success: boolean; txHash: string; resultValue?: unknown }> {
+  const signedTransaction = validateSignedSorobanTransactionXdr(
+    signedXdr,
+    preparedUnsignedXdr,
+    expectedSignerAddress,
+  );
+  const server = getSorobanRpcServer();
+  const submission = await server.sendTransaction(signedTransaction);
+  if (submission.status === "ERROR") {
+    throw new Error(`Failed to submit transaction: ${JSON.stringify(submission.errorResult)}`);
+  }
+
+  let attempts = 0;
+  const maxAttempts = 25;
+  while (attempts < maxAttempts) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    attempts++;
+    const status = await server.getTransaction(submission.hash);
+    if (status.status === "SUCCESS") {
+      return {
+        success: true,
+        txHash: submission.hash,
+        resultValue: status.returnValue ? scValToNative(status.returnValue) : undefined,
+      };
+    }
+    if (status.status === "FAILED") {
+      throw new Error("Soroban transaction failed on the ledger.");
+    }
+  }
+
+  throw new Error(`Transaction timed out awaiting confirmation. Hash: ${submission.hash}`);
+}
+
+/**
  * Creates an on-chain campaign with an XLM or SAC stablecoin (USDC, EURC) escrow deposit.
  */
 export async function createCampaignContractCall(
@@ -654,7 +808,9 @@ export async function claimPayoutContractCall(
   assetAddress?: string;
 }> {
   let resolvedAssetCode = assetCode;
-  let resolvedAssetAddress = assetCode ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress : undefined;
+  let resolvedAssetAddress = assetCode
+    ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress
+    : undefined;
 
   // When not explicitly provided by the caller, attempt to query the campaign's settlement asset from contract storage
   if (!resolvedAssetCode && !affiliateAddress.startsWith("GASTORMSALE7") && walletType !== "mock") {
@@ -739,10 +895,13 @@ export async function getTokenAllowanceQuery(
   if (
     ownerAddress.startsWith("GASTORMSALE7") ||
     ownerAddress === "mock" ||
-    (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process?.env?.NODE_ENV === "test")
+    (typeof (globalThis as any).process !== "undefined" &&
+      (globalThis as any).process?.env?.NODE_ENV === "test")
   ) {
     if (typeof window !== "undefined" && window.localStorage) {
-      const mockVal = window.localStorage.getItem(`mock_allowance_${ownerAddress}_${spenderAddress}`);
+      const mockVal = window.localStorage.getItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      );
       if (mockVal !== null) return parseFloat(mockVal) || 0;
     }
     return 0;
@@ -751,7 +910,10 @@ export async function getTokenAllowanceQuery(
   try {
     const server = getSorobanRpcServer();
     const contract = new Contract(tokenContractId);
-    const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
+    const dummyAccount = new Account(
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "0",
+    );
 
     const tx = new TransactionBuilder(dummyAccount, {
       fee: BASE_FEE,
@@ -778,7 +940,9 @@ export async function getTokenAllowanceQuery(
   } catch (error) {
     console.warn("Failed to query token allowance:", error);
     if (typeof window !== "undefined" && window.localStorage) {
-      const fallback = window.localStorage.getItem(`mock_allowance_${ownerAddress}_${spenderAddress}`);
+      const fallback = window.localStorage.getItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      );
       if (fallback !== null) return parseFloat(fallback) || 0;
     }
     return 0;
@@ -802,12 +966,16 @@ export async function approveTokenContractCall(
   if (
     walletType === "mock" ||
     ownerAddress.startsWith("GASTORMSALE7") ||
-    (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process?.env?.NODE_ENV === "test")
+    (typeof (globalThis as any).process !== "undefined" &&
+      (globalThis as any).process?.env?.NODE_ENV === "test")
   ) {
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+      window.localStorage.setItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+        amount.toString(),
+      );
     }
     return {
       success: true,
@@ -837,7 +1005,10 @@ export async function approveTokenContractCall(
   );
 
   if (typeof window !== "undefined" && window.localStorage) {
-    window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+    window.localStorage.setItem(
+      `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      amount.toString(),
+    );
   }
 
   return {
