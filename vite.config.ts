@@ -6,23 +6,6 @@ import { defineConfig as defineVitestConfig } from "vitest/config";
 // https://vite.dev/config/
 export default defineVitestConfig({
   plugins: [react(), tailwindcss()],
-  test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: ["./src/tests/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.{ts,tsx}"],
-      exclude: [
-        "src/**/*.d.ts",
-        "src/tests/**",
-        "src/**/*.{test,spec}.{ts,tsx}",
-      ],
-    },
-  },
   build: {
     rollupOptions: {
       output: {
@@ -38,6 +21,24 @@ export default defineVitestConfig({
           }
         },
       },
+    },
+  },
+  test: {
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./src/tests/setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx,js}x"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "lconv"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx,jsx,js}"],
+      exclude: [
+        "src/**/*.d.ts",
+        "src/**/*.{test,spec}.{ts,tsx,jsx,js}x",
+        "src/tests/**",
+        "src/main.tsx",
+      ],
     },
   },
 });
