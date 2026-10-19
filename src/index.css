@@ -45,6 +45,29 @@
     --input: 240 3.7% 15.9%;
     --ring: 142 70% 50%;
   }
+
+  [data-theme='high-contrast'],
+  .high-contrast {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 0%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 0%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 60 100% 50%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 13%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 80%;
+    --accent: 0 0% 20%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 100% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 100%;
+    --input: 0 0% 100%;
+    --ring: 60 100% 50%;
+  }
 }
 
 @layer base {
@@ -54,6 +77,16 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+
+  /* Bold keyboard focus indicators for WCAG AAA accessibility compliance */
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  a:focus-visible {
+    outline: 3px solid hsl(var(--ring)) !important;
+    outline-offset: 2px !important;
   }
 }
 
@@ -74,4 +107,27 @@
 
 .gradient-bg {
   background: linear-gradient(135deg, #10b981 0%, #0ea5e9 50%, #3b82f6 100%);
+}
+
+/* Telegram Mini App & Safe Area container rules */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+.tma-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.tma-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tma-safe-padding {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
 }

@@ -7,6 +7,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
+import { CohortVisualizer } from "./CohortVisualizer";
 
 export const CampaignAnalytics = () => {
   const campaignStats = [
@@ -245,27 +246,8 @@ export const CampaignAnalytics = () => {
         </Card>
       </div>
 
-      {/* Revenue Chart Placeholder */}
-      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
-        <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
-          <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-            Revenue Trends
-          </CardTitle>
-          <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Monthly revenue performance over time
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-6">
-          <div className="h-64 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl flex items-center justify-center">
-            <div className="text-center">
-              <BarChart3 className="w-12 h-12 text-zinc-300 dark:text-zinc-700 mx-auto mb-4" />
-              <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
-                Revenue visualization goes here
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Cohort Retention & Customer LTV Heatmap */}
+      <CohortVisualizer />
 
       {/* Quick Insights */}
       <div className="grid md:grid-cols-3 gap-6">
