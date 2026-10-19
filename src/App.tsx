@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, lazy } from "react";
+import React, { Suspense, useState, useEffect, useMemo, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -43,10 +43,6 @@ export function PageLoader() {
   );
 }
 
-type UserRole = "dashboard" | "advertiser" | "affiliate" | "auditor";
-
-const ROLE_STORAGE_KEY = "app:userRole";
-
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
@@ -89,59 +85,49 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-function readPersistedRole(): UserRole | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = window.localStorage.getItem(ROLE_STORAGE_KEY);
-    if (
-      stored === "dashboard" ||
-      stored === "advertiser" ||
-      stored === "affiliate" ||
-      stored === "auditor"
-    ) {
-      return stored;
-    }
-  } catch {
-    // ignore storage access errors
-  }
-  return null;
-}
-
 function Router() {
-  const { isConnected } = useWeb3();
+  const { isConnected, role, isRoleLoading } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [currentPage, setCurrentPage] = useState(() =>
+    isTelegramMiniApp() ? "affiliate" : "dashboard",
+  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
-  // Initialize role from persisted storage, but defer readiness until the
-  // web3 connection state has settled so DB-backed role can be reconciled.
-  const [currentPage, setCurrentPage] = useState<UserRole>(() => {
-    const persisted = readPersistedRole();
-    if (persisted) return persisted;
-    return isTelegramMiniApp() ? "affiliate" : "dashboard";
-  });
-  const [roleReady, setRoleReady] = useState(false);
 
-  // Persist role changes so subsequent loads hydrate without flicker.
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(ROLE_STORAGE_KEY, currentPage);
-    } catch {
-      // ignore storage access errors
+  // Sync role from DB to UI to prevent flicker: derive the allowed page from
+  // the persisted role and only fall back to defaults once role is resolved.
+  // Once the DB role is known it becomes the single source of truth for
+  // routing, so the UI never flickers between role-specific views.
+  const resolvedPage = useMemo(() => {
+    if (isRoleLoading) return null;
+    if (role === "advertiser" || role === "affiliate" || role === "auditor") {
+      return role;
     }
-  }, [currentPage]);
+    return currentPage;
+  }, [role, isRoleLoading, currentPage]);
 
-  // Only mark role as ready once the connection state is known, so the UI
-  // does not flash the default route before the DB-backed role is applied.
+  // Keep local navigation state in sync with the persisted role so that
+  // subsequent navigations (e.g. onBack) start from the resolved page.
+  // This runs only when the persisted role actually changes to avoid an
+  // extra render pass (which would reintroduce a one-frame flicker).
   useEffect(() => {
-    // Mark ready once connection state is known (connected or resolved to
-    // disconnected outside TMA), avoiding an indefinite loader.
-    if (isConnected || tmaMode || !isConnected) {
-      setRoleReady(true);
+    if (!isRoleLoading && role && resolvedPage && resolvedPage !== currentPage) {
+      setCurrentPage(resolvedPage);
     }
-  }, [isConnected, tmaMode]);
+  }, [isRoleLoading, role, resolvedPage, currentPage]);
+
+  // Unified role-based route protection: block rendering until role is known
+  // so the UI never flickers between unauthenticated and role-specific views.
+  if (isRoleLoading) {
+    return <PageLoader />;
+  }
+
+  // Unified role-based route protection: role-specific pages require an
+  // active connection; otherwise fall back to the landing view.
+  const protectedPage = isConnected || tmaMode ? resolvedPage : "dashboard";
 
   if (activeBrandSubdomain) {
     return (
@@ -162,31 +148,25 @@ function Router() {
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!roleReady ? (
-          <PageLoader />
-        ) : !isConnected && !tmaMode ? (
+        {!isConnected && !tmaMode ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {currentPage === "dashboard" && (
-                <Dashboard onNavigate={(page) => setCurrentPage(page as UserRole)} />
-              )}
-              {currentPage === "advertiser" && (
+              {protectedPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+              {protectedPage === "advertiser" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
                   <Advertiser onBack={() => setCurrentPage("dashboard")} />
                 </Suspense>
               )}
-              {currentPage === "affiliate" && (
+              {protectedPage === "affiliate" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
                   <Affiliate
-                    onBack={() =>
-                      isConnected ? setCurrentPage("dashboard") : setTmaMode(false)
-                    }
+                    onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
                   />
                 </Suspense>
               )}
-              {currentPage === "auditor" && (
+              {protectedPage === "auditor" && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
                   <Auditor onBack={() => setCurrentPage("dashboard")} />
                 </Suspense>
@@ -198,9 +178,6 @@ function Router() {
     </>
   );
 }
-
-// Guard: ensure role-based routing is only rendered once role is hydrated.
-// This prevents the brief flash of the default route before persistence loads.
 
 function App() {
   useEffect(() => {
