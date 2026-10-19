@@ -40,3 +40,4 @@ indexer/node_modules
 indexer/data.json
 indexer/dist
 lens/
+test-results.json
