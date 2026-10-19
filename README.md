@@ -141,21 +141,25 @@ Add the asynchronous script to any page. The SDK stores a `?ref={wallet}` value 
 first-party cookie shared by the site's subdomains. When an order completes, call the global API:
 
 ```html
+<script>
+  // Create the readiness promise before the async SDK script can load, so the
+  // SDK's inline onload/onerror handlers always have a promise to settle.
+  window.stormSaleReady = new Promise((resolve, reject) => {
+    window.stormSaleResolve = resolve;
+    window.stormSaleReject = reject;
+  });
+</script>
 <script
   async
   id="stormsale-sdk"
   src="https://stormsale.io/stormsale.js"
   data-endpoint="https://your-site.example/api/conversions"
+  onload="window.stormSaleResolve(window.stormsale)"
+  onerror="window.stormSaleReject(new Error('StormSale SDK failed to load'))"
 ></script>
 <script>
-  const stormSaleReady = new Promise((resolve, reject) => {
-    const sdk = document.getElementById("stormsale-sdk");
-    sdk.addEventListener("load", () => resolve(window.stormsale));
-    sdk.addEventListener("error", reject);
-  });
-
   async function onOrderComplete(order) {
-    const stormsale = await stormSaleReady;
+    const stormsale = await window.stormSaleReady;
     await stormsale.trackConversion({ orderId: order.id, amount: order.total });
   }
 </script>
