@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { initialMockCampaigns, type Campaign } from "../components/advertiser/MyCampaignsList";
 import { refundCampaignEscrowContractCall } from "../lib/stellar";
 
+
 describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
   const isCampaignLowEscrow = (c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;
@@ -49,7 +50,7 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
     });
 
     it("executes refund contract call on Soroban returning valid txHash", async () => {
-      const testAdvertiser = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+      const testAdvertiser = "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777";
       const campaignId = 4;
 
       const result = await refundCampaignEscrowContractCall(testAdvertiser, campaignId, "mock");

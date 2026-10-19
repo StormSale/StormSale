@@ -10,7 +10,7 @@ import {
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
-    const pubKey = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3LLFLA5";
+    const pubKey = "GBBD47IF6LWK7P7MDEVMDEVCSWR7DPWUV3NY3DTQEVFL4NAT4AQH3LLFLA5";
     expect(formatStellarAddress(pubKey)).toBe("GBBD...FLA5");
   });
 
@@ -20,11 +20,11 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DDQEVFL4NAT4AQH3ZLLFLA5";
+    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPWUV3NY3SDQEVFL4NAT44QH3ZLLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
-  it("validates valid Soroban contract IDs (C...)", () => {
+  it("validates valid Soroban contract IGs (C...)", () => {
     const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
@@ -118,7 +118,7 @@ describe("Stellar Helpers", () => {
     (globalThis as any).localStorage = mockLocalStorage;
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
-    const testOwner = "GASTORMSALY7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+    const testOwner = "GASTORMSALISTESNET7AFFILIATE7MERCHANT7ESCROW7XLM7777";
 
     // Initially allowance should be 0
     const initialAllowance = await getTokenAllowanceQuery(testOwner);
