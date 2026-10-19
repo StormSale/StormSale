@@ -1,5 +1,4 @@
-import type { ComponentType } from "react";
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, type ComponentType } from "react";
 import {
   Card,
   CardContent,
@@ -22,7 +21,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
-import { runCryptoAudit, type CryptoAuditResult } from "../../lib/crypto.worker";
+import { Soc2EvidenceExport } from "./Soc2EvidenceExport";
 import {
   buildSignedAuditReport,
   exportComplianceToCSV,
@@ -33,6 +32,7 @@ import {
   DEFAULT_AUDIT_RECORDS,
   type ComplianceExportOptions,
 } from "../../lib/complianceExport";
+import { computeAuditDigest, type AuditDigestResult } from "../../lib/crypto.worker";
 
 const statusMap: Record<string, { badge: string; icon: ComponentType<{ className?: string }> }> = {
   Compliant: {
@@ -49,38 +49,6 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
   },
 };
 
-type AuditState =
-  | { status: "idle" }
-  | { status: "running" }
-  | { status: "done"; result: CryptoAuditResult }
-  | { status: "error"; message: string };
-
-const useCryptoAudit = () => {
-  const [state, setState] = useState<AuditState>({ status: "idle" });
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  const run = async () => {
-    setState({ status: "running" });
-    try {
-      const result = await runCryptoAudit();
-      if (mounted.current) setState({ status: "done", result });
-    } catch (err) {
-      if (mounted.current) {
-        setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
-      }
-    }
-  };
-
-  return { state, run };
-};
-
 export const ComplianceReport = () => {
   // Batch Export & Date Range State
   const [startDate, setStartDate] = useState("2026-05-01");
@@ -92,6 +60,12 @@ export const ComplianceReport = () => {
     cert: string;
     time: string;
   } | null>(null);
+
+  // Off-main-thread cryptographic digest state (AES/SHA work runs in crypto.worker.ts)
+  const [workerDigest, setWorkerDigest] = useState<AuditDigestResult | null>(null);
+  const [digestPending, setDigestPending] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
+  const digestRequestId = useRef(0);
 
   // Active Audit Report object derived from current selections
   const currentReport = useMemo(() => {
@@ -105,9 +79,33 @@ export const ComplianceReport = () => {
     return buildSignedAuditReport(opts, DEFAULT_COMPLIANCE_STANDARDS, DEFAULT_AUDIT_RECORDS);
   }, [startDate, endDate, statusFilter]);
 
+  // Offload digest computation to the background crypto web worker so the UI
+  // stays at 60fps during audits. Falls back gracefully if the worker fails.
+  useEffect(() => {
+    const requestId = ++digestRequestId.current;
+    setDigestPending(true);
+    setDigestError(null);
+
+    computeAuditDigest({
+      reportId: currentReport.reportId,
+      dateRange: currentReport.dateRange,
+      standards: currentReport.standards,
+      metrics: currentReport.metrics,
+    })
+      .then((result) => {
+        if (digestRequestId.current !== requestId) return;
+        setWorkerDigest(result);
+        setDigestPending(false);
+      })
+      .catch((err: unknown) => {
+        if (digestRequestId.current !== requestId) return;
+        setDigestError(err instanceof Error ? err.message : "Digest worker failed");
+        setDigestPending(false);
+      });
+  }, [currentReport]);
+
   const compliant = currentReport.standards.filter((c) => c.status === "Compliant").length;
   const review = currentReport.standards.filter((c) => c.status === "Review Needed").length;
-  const { state: auditState, run: runAudit } = useCryptoAudit();
 
   // Preset Date Range Helper
   const applyPreset = (preset: "last7" | "last30" | "mayAudit" | "allTime") => {
@@ -195,15 +193,6 @@ export const ComplianceReport = () => {
           >
             <Printer className="w-4 h-4 mr-1.5" />
             Export Signed PDF
-          </Button>
-
-          <Button
-            onClick={runAudit}
-            disabled={auditState.status === "running"}
-            className="h-10 rounded-xl bg-indigo-600 text-white font-semibold shadow-sm"
-          >
-            <Lock className="w-4 h-4 mr-2" />
-            {auditState.status === "running" ? "Running Audit…" : "Run Crypto Audit"}
           </Button>
         </div>
       </div>
@@ -324,6 +313,20 @@ export const ComplianceReport = () => {
                 <div className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-xl">
                   SHA-256 Digest: {currentReport.cryptoSignature.digestHash}
                 </div>
+                <div className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-xl">
+                  Worker Digest:{" "}
+                  {digestPending ? (
+                    <span className="text-indigo-500 dark:text-indigo-400">computing…</span>
+                  ) : digestError ? (
+                    <span className="text-red-500 dark:text-red-400">{digestError}</span>
+                  ) : workerDigest ? (
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      {workerDigest.digestHash}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-400">pending</span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center space-x-2">
@@ -409,6 +412,9 @@ export const ComplianceReport = () => {
         </Card>
       </div>
 
+      {/* Automated SOC 2 Type II Evidence Packager */}
+      <Soc2EvidenceExport />
+
       {/* Compliance Standards List */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
@@ -493,42 +499,6 @@ export const ComplianceReport = () => {
         </CardContent>
       </Card>
 
-      {/* Background crypto audit result (non-blocking worker) */}
-      {auditState.status === "done" && (
-        <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-bold text-zinc-900 dark:text-white text-sm">
-                  Crypto Audit Complete
-                </p>
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                  AES-256-GCM verified in background worker. Ciphertext:{" "}
-                  <span className="font-mono">{auditState.result.ciphertext.slice(0, 16)}…</span>{" "}
-                  · Duration: {auditState.result.durationMs}ms
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-      {auditState.status === "error" && (
-        <Card className="border border-amber-200 dark:border-amber-500/30 bg-white dark:bg-zinc-900/50 rounded-2xl">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-bold text-zinc-900 dark:text-white text-sm">Crypto Audit Failed</p>
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                  {auditState.message}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Cryptographic Tamper-Evident Ledger Notice */}
       <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
         <CardContent className="p-6">
@@ -542,8 +512,18 @@ export const ComplianceReport = () => {
                 <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed max-w-2xl">
                   Every compliance audit report and batch export is digitally hashed using SHA-256
                   and immutably anchored to the Stellar ledger. Exported PDF/CSV certificates can be
-                  independently verified. AES operations are offloaded to background Web Workers to
-                  keep the UI at 60fps.
+                  independently verified.
+                </p>
+                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed max-w-2xl">
+                  Digest computation is offloaded to a background crypto web worker, keeping the
+                  UI responsive at 60fps during audits.{" "}
+                  {digestPending
+                    ? "Worker is currently computing the audit digest…"
+                    : digestError
+                      ? `Worker error: ${digestError}`
+                      : workerDigest
+                        ? `Worker verified digest in ${workerDigest.durationMs.toFixed(1)}ms.`
+                        : "Awaiting worker result."}
                 </p>
               </div>
             </div>

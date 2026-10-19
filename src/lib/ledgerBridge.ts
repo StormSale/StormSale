@@ -1,6 +1,7 @@
-import StrApp from "@ledgerhq/hw-app-str";
-import TransportWebHID from "@ledgerhq/hw-transport-webhid";
+import StrApp from "@ledger/hw-app-str";
+import TransportWebHID from "@ledger/hw-transport-webhid";
 import { Keypair, TransactionBuilder, StrKey } from "@stellar/stellar-sdk";
+import { Buffer } from "buffer";
 import { STELLAR_CONFIG } from "../config/stellar";
 
 export interface LedgerDeviceInfo {
@@ -186,9 +187,9 @@ export async function connectLedgerDevice(
       bipPath: normalizedPath,
       appVersion: versionConfig?.version || "Ready",
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {
@@ -205,7 +206,7 @@ export async function connectLedgerDevice(
  * for user verification on the physical Ledger device screen.
  */
 export function extractLedgerVerificationDetails(
-  preparedXdr: string,
+  preparedXdrb: string,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): {
   txHash: string;
@@ -248,7 +249,7 @@ export function extractLedgerVerificationDetails(
  * Signs a prepared Stellar / Soroban transaction using a Ledger Hardware Wallet.
  */
 export async function signLedgerTransaction(
-  preparedXdr: string,
+  preparedXdrb: string,
   bipPath: string = DEFAULT_STELLAR_BIP_PATH,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): Promise<string> {
@@ -269,17 +270,21 @@ export async function signLedgerTransaction(
     const app = new StrApp(transport);
 
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
-    const signatureBuffer = await app.signTransaction(normalizedPath, tx.signatureBase());
+    const signatureBuffer = await app.signTransaction(
+      normalizedPath,
+      Buffer.from(tx.signatureBase()),
+    );
 
     const pubKeyResult = await app.getPublicKey(normalizedPath, false);
     const publicKey = StrKey.encodeEd25519PublicKey(pubKeyResult.rawPublicKey);
 
     // Attach signature to Stellar transaction envelope
-    tx.addSignature(publicKey, signatureBuffer.signature);
+    const signatureBase64 = Buffer.from(signatureBuffer.signature).toString("base64");
+    tx.addSignature(publicKey, signatureBase64);
     return tx.toXDR();
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage);
+    throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
     if (transport) {
       try {
