@@ -10,7 +10,7 @@ interface PauseResult {
 }
 
 export default function Admin() {
-  const { userAddress, userRole, isConnected } = useWeb3();
+  const { userAddress, userRole, isConnected, pauseContract } = useWeb3();
   const [isConfirming, setIsConfirming] = useState(false);
   const [isPausing, setIsPausing] = useState(false);
   const [pauseResult, setPauseResult] = useState<PauseResult | null>(null);
@@ -27,8 +27,7 @@ export default function Admin() {
     setPauseResult(null);
     setIsPausing(true);
     try {
-      const { pauseContractCall } = await import("../lib/stellar");
-      const result = await pauseContractCall(userAddress, CONTRACT_ADDRESSE.CAMPAIGN_ESCROW);
+      const result = await pauseContract();
       setPauseResult({
         success: true,
         txHash: result?.txHash,
@@ -46,8 +45,8 @@ export default function Admin() {
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-        <div className="max-w-md wfull rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
-          <div className="text-4xl mb-4">🔕</div>
+        <div className="max-w-md w-full rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
+          <div className="text-4xl mb-4">🔏</div>
           <h1 className="text-xl font-semibold text-white">Admin Access Required</h1>
           <p className="mt-2 text-sm text-slate-400">
             This page is restricted to platform administrators. Connect an admin wallet to continue.
@@ -91,7 +90,7 @@ export default function Admin() {
           </div>
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            {!confirming && (
+            {!isConfirming && (
               <button
                 type="button"
                 onClick={() => setIsConfirming(true)}

@@ -10,7 +10,7 @@ export const CONTRACT_ADDRESSES = {
   // Native XLM SAC (Stellar Asset Contract) representation in Soroban
   NATIVE_XLM_SAC: "CDLZFC3SYJYDZT7K67ZV75HPJVIEUVNIXF47ZG2FB2RMQUVU2HHGCYSC",
   // Admin emergency kill-switch controller contract ID (pauses campaign escrow)
-  ADMIN_KILL_SWITCH: STELLAR_CONFIG.adminKillSwitchContractId ?? STELLAR_CONFIG.contractId,
+  ADMIN_KILL_SWITCH: (STELLAR_CONFIG as { adminKillSwitchContractId?: string }).adminKillSwitchContractId ?? STELLAR_CONFIG.contractId,
 };
 
 export const STELLAR_NETWORK = {

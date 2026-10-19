@@ -20,7 +20,7 @@ export const Affiliate = lazy(() =>
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
 export const Admin = lazy(() =>
-  import("./pages/Admin").then((m) => ({ default: m.Admin })),
+  import("./pages/Admin").then((m) => ({ default: (m as any).Admin ?? (m as any).default })),
 );
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
@@ -154,7 +154,7 @@ function Router() {
               )}
               {currentPage === "admin" && isAdmin && (
                 <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
-                  <Admin onBack={() => setCurrentPage("dashboard")} />
+                  <Admin />
                 </Suspense>
               )}
             </main>

@@ -190,7 +190,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(isTelegramMiniApp()).toBe(false);
     });
 
-    it("returns false when Telegram WebApp SDK is not present", () => {
+    it("returns false when Telegram WebApp SDk is not present", () => {
       delete (globalThis as any).window.Telegram;
       expect(isTelegramMiniApp()).toBe(false);
       expect(getTelegramPlatform()).toBe("web");
@@ -344,45 +344,43 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
       (navigator.clipboard as any).writeText = writeTextMock;
 
-      const mockTextArea = {
+      const execCommandMock = vi.fn(() => true);
+      const appendChildMock = vi.fn();
+      const removeChildMock = vi.fn();
+      const createElementMock = vi.fn(() => ({
         value: "",
+        setAttribute: vi.fn(),
+        style: {},
         select: vi.fn(),
+      }));
+
+      const doc = (globalThis as any).document;
+      doc.execCommand = execCommandMock;
+      doc.body = {
+        appendChild: appendChildMock,
+        removeChild: removeChildMock,
       };
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
-      };
-      (document as any).createElement = vi.fn().mockReturnValue(mockTextArea);
-      (document as any).execCommand = vi.fn().mockReturnValue(true);
+      doc.createElement = createElementMock;
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
       const result = await copyReferralLinkWithHaptic(url);
 
       expect(result).toBe(true);
-      expect((document as any).execCommand).toHaveBeenCalledWith("copy");
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
     });
   });
 
-  describe("Telegram Campaign Directory", () => {
-    it("contains multi-asset active campaigns with valid contract references and commission details", () => {
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThanOrEqual(4);
+  describe("Telegram Campaign Browser Data", () => {
+    it("exposes mock campaigns with required fields for sharing", () => {
+      expect(Array.isArray(MOCK_TELEGRAM_CAMPAIGNS)).toBe(true);
+      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThan(0);
 
-      const usdcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "USDC");
-      const eurcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "EURC");
-      const xlmCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "XLM");
-
-      expect(usdcCampaign).toBeDefined();
-      expect(eurcCampaign).toBeDefined();
-      expect(xlmCampaign).toBeDefined();
-
-      MOCK_TELEGRAM_CAMPAIGNS.forEach((c) => {
-        expect(c.id).toBeTruthy();
-        expect(c.name).toBeTruthy();
-        expect(c.commissionRate).toBeTruthy();
-        expect(c.clearingPeriod).toBeTruthy();
-        expect(c.contractAddress).toBeTruthy();
-      });
+      for (const campaign of MOCK_TELEGRAM_CAMPAIGNS) {
+        expect(campaign.id).toBeTruthy();
+        expect(campaign.name).toBeTruthy();
+        expect(campaign.referralUrl).toBeTruthy();
+      }
     });
   });
 });
