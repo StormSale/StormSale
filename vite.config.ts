@@ -5,13 +5,13 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  test: {
-    setupFiles: ["./tests/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.{ts,tsx}"],
-    css: false,
+  resolve: {
+    dedupe: ["react", "react-dom"],
+    preserveSymlinks: true,
   },
   build: {
     rollupOptions: {
+      external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
       output: {
         manualChunks: (id) => {
           if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {
@@ -25,6 +25,22 @@ export default defineConfig({
           }
         },
       },
+    },
+  },
+  test: {
+    globals: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "json", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/tests/**",
+        "src/types/**",
+        "src/main.tsx",
+        "src/assets/**",
+      ],
     },
   },
 });

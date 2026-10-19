@@ -17,6 +17,9 @@ label_issues.js
 /scripts/*
 !scripts/verify-evidence-pack.mjs
 !scripts/generate-auditor-key.mjs
+!scripts/check-coverage.cjs
+coverage/
+coverage-audit-report.md
 !.github/scripts/
 .husky/
 issues.csv  
@@ -32,3 +35,4 @@ generate_commits.sh
 *.njsproj
 *.sln
 *.sw?
+lens/

@@ -108,3 +108,26 @@
 .gradient-bg {
   background: linear-gradient(135deg, #10b981 0%, #0ea5e9 50%, #3b82f6 100%);
 }
+
+/* Telegram Mini App & Safe Area container rules */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+.tma-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.tma-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tma-safe-padding {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
