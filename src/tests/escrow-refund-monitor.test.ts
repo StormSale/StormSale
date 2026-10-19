@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { initialMockCampaigns, type Campaign } from "../components/advertiser/MyCampaignsList";
 import { refundCampaignEscrowContractCall } from "../lib/stellar";
 
+
 describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
   const isCampaignLowEscrow = (c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;

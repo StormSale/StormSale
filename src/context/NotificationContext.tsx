@@ -58,6 +58,7 @@ export interface NotificationContextType {
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
   notifyTransactionTimeout: (params: TransactionTimeoutParams) => string;
+  pollTransaction: (params: PollTransactionParams) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -71,6 +72,15 @@ export interface EscrowMonitoredCampaign {
 export interface TransactionTimeoutParams {
   txHash?: string;
   message?: string;
+  onRetry?: () => void;
+  explorerUrl?: string;
+}
+
+export interface PollTransactionParams {
+  txHash?: string;
+  checkStatus: () => Promise<"pending" | "success" | "failed">;
+  onSuccess?: () => void;
+  onFailure?: () => void;
   onRetry?: () => void;
   explorerUrl?: string;
 }
@@ -229,13 +239,72 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     [showNotification],
   );
 
-  const clearPollingTimer = useCallback((id: string) => {
-    const timer = pollingTimers.current.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      pollingTimers.current.delete(id);
-    }
-  }, []);
+  // Adaptive transaction polling with exponential backoff
+  const pollTransaction = useCallback(
+    (params: PollTransactionParams): string => {
+      const notificationId = showNotification({
+        type: "pending",
+        title: "Confirming Transaction",
+        message: params.txHash
+          ? `Waiting for confirmation of ${params.txHash.slice(0, 10)}...`
+          : "Waiting for transaction confirmation...",
+        persistent: true,
+        duration: 0,
+      });
+
+      let attempt = 0;
+
+      const clearTimer = () => {
+        const timer = pollingTimers.current.get(notificationId);
+        if (timer) {
+          clearTimeout(timer);
+          pollingTimers.current.delete(notificationId);
+        }
+      };
+
+      const scheduleNext = () => {
+        if (hasPollingTimedOut(attempt, POLLING_MAX_ATTEMPTS)) {
+          clearTimer();
+          dismissNotification(notificationId);
+          notifyTransactionTimeout({
+            txHash: params.txHash,
+            onRetry: params.onRetry,
+            explorerUrl: params.explorerUrl,
+          });
+          return;
+        }
+
+        const delay = computePollingDelay(attempt);
+        const timer = setTimeout(async () => {
+          attempt += 1;
+          try {
+            const status = await params.checkStatus();
+            if (status === "success") {
+              clearTimer();
+              dismissNotification(notificationId);
+              if (params.onSuccess) params.onSuccess();
+              return;
+            }
+            if (status === "failed") {
+              clearTimer();
+              dismissNotification(notificationId);
+              if (params.onFailure) params.onFailure();
+              return;
+            }
+          } catch {
+            // treat errors as pending and continue polling
+          }
+          scheduleNext();
+        }, delay);
+
+        pollingTimers.current.set(notificationId, timer);
+      };
+
+      scheduleNext();
+      return notificationId;
+    },
+    [showNotification, dismissNotification, notifyTransactionTimeout],
+  );
 
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = useCallback(
@@ -270,6 +339,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         checkEscrowBalances,
         clearAllNotifications,
         notifyTransactionTimeout,
+        pollTransaction,
       }}
     >
       {children}

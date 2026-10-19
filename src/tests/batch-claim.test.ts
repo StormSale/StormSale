@@ -6,6 +6,7 @@ import {
   type ClaimableCampaignItem,
 } from "../lib/batchClaim";
 
+
 describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
   const mockCampaigns: ClaimableCampaignItem[] = [
     {
@@ -21,7 +22,7 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
     {
       campaignId: 204,
       campaignName: "Nova Quantum Cloud Services",
-      advertiserAddress: "GB4RN8XJLP8M1K3V6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G",
+      advertiserAddress: "GB4RN8JLP8M1K3V6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G",
       maturedSalesCount: 7,
       claimableXlm: 78.0,
       clearingPeriodDays: 14,
@@ -31,7 +32,7 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
     {
       campaignId: 309,
       campaignName: "Stellar Horizon SaaS Hub",
-      advertiserAddress: "GC1M2N3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L",
+      advertiserAddress: "GC1M2N3P4Q5R6S7T8U9V0W1Q2X3Y3Z4A5B6C7D8E9F0G1H2I3J4K5L",
       maturedSalesCount: 3,
       claimableXlm: 32.25,
       clearingPeriodDays: 3,
