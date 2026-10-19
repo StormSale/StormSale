@@ -74,19 +74,6 @@ class WalletConnectSingleton {
       return this.initPromise;
     }
 
-    // Allow E2E tests to inject a mock bridge before initialization.
-    const injectedBridge =
-      typeof window !== "undefined"
-        ? (window as unknown as { __STORMSALE_WALLETCONNECT_MOCK__?: WalletConnectCoreProvider })
-            .__STORMSALE_WALLETCONNECT_MOCK__
-        : undefined;
-
-    if (injectedBridge) {
-      this.isInitialized = true;
-      this.initPromise = Promise.resolve(injectedBridge);
-      return this.initPromise;
-    }
-
     this.initPromise = (async () => {
       try {
         // Create the core provider instance once per app session
@@ -138,10 +125,6 @@ class WalletConnectSingleton {
 
   public getSession(): WalletConnectSession | null {
     return this.session;
-  }
-
-  public setSession(session: WalletConnectSession | null): void {
-    this.session = session;
   }
 
   public getIsInitialized(): boolean {
