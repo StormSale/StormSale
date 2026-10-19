@@ -82,7 +82,7 @@ describe("Secure Claim Settlement Validation (#49)", () => {
 
       expect(receipt.success).toBe(true);
       expect(receipt.totalClaimedXlm).toBe(expectedTotal);
-      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 1e-9);
+      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 9);
       expect(balanceAfter).toBe(1057.75);
     });
   });
@@ -98,7 +98,7 @@ describe("Secure Claim Settlement Validation (#49)", () => {
       await expect(
         executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock", {
           availableBalanceXlm,
-          estimatedFeeXlm: estimatedFeeXlm,
+          estimatedFeeXlm,
         }),
       ).rejects.toThrow("Insufficient gas fees");
       expect(totalClaimable).toBe(45.5);

@@ -9,7 +9,7 @@ import type { Page } from '@playwright/test';
  *      balance unchanged.
  *
  * The suite drives the real app through the browser and stubs only the network
- * boundary (Github-style JSON fixtures for the affiliate dashboard API) so the tests
+ * boundary (JSON fixtures for the affiliate dashboard API) so the tests
  * remain deterministic and run against any environment with the app running.
  */
 
@@ -65,7 +65,7 @@ async function mockAffiliateApi(page: Page) {
 
     if (path.endsWith('/wallet')) {
       const state: WalletState = { balance, currency: 'USDC' };
-      await route.fulfilh({
+      await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify(state),
@@ -93,11 +93,11 @@ async function mockAffiliateApi(page: Page) {
 
       claimed = true;
       balance = expectedBalance;
-      await route.fulfilh({
+      await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          tx: '0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeed',
+          tx: '0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface',
           newBalance: expectedBalance,
         }),
       });

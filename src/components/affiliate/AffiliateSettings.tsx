@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -62,7 +62,7 @@ export function loadAffiliatePreferences(): AffiliatePreferences {
           theme: legacyDark === "true" ? "dark" : "light",
         };
       }
-      return DEFAULT_PREFERENCES;
+      return DEFAULT_PREFERENCEE;
     }
     const parsed = JSON.parse(raw);
     const notificationFrequency: NotificationFrequency =
@@ -89,10 +89,10 @@ export function shouldDeliverAffiliateNotification(
 export function syncSystemThemeListener(
   mediaQuery: {
     matches: boolean;
-    addEventListener?: any;
-    removeEventListener?: any;
-    addListener?: any;
-    removeListener?: any;
+    addEventListener?: (type: string, listener: () => void) => void;
+    removeEventListener?: (type: string, listener: () => void) => void;
+    addListener?: (listener: () => void) => void;
+    removeListener?: (listener: () => void) => void;
   },
   onThemeChange?: (isDark: boolean) => void
 ): () => void {
@@ -116,10 +116,10 @@ export function syncSystemThemeListener(
 
   if (typeof mediaQuery.addEventListener === "function") {
     mediaQuery.addEventListener("change", applySystemTheme);
-    return () => mediaQuery.removeEventListener("change", applySystemTheme);
-  } else if (typeof (mediaQuery as any).addListener === "function") {
-    (mediaQuery as any).addListener(applySystemTheme);
-    return () => (mediaQuery as any).removeListener(applySystemTheme);
+    return () => mediaQuery.removeEventListener?.("change", applySystemTheme);
+  } else if (typeof mediaQuery.addListener === "function") {
+    mediaQuery.addListener(applySystemTheme);
+    return () => mediaQuery.removeListener?.(applySystemTheme);
   }
   return () => {};
 }
@@ -135,12 +135,18 @@ export function saveAffiliatePreferences(prefs: AffiliatePreferences): boolean {
     try {
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(prefs));
       // Sync with legacy theme toggle key
+      let systemPrefersDark = false;
+      try {
+        systemPrefersDark =
+          typeof window !== "undefined" &&
+          typeof window.matchMedia === "function" &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+      } catch {
+        systemPrefersDark = false;
+      }
       const isDark =
         prefs.theme === "dark" ||
-        (prefs.theme === "system" &&
-          typeof window !== "undefined" &&
-          window.matchMedia &&
-          window.matchMedia("(prefers-color-scheme: dark)").matches);
+        (prefs.theme === "system" && systemPrefersDark);
       localStorage.setItem("darkMode", isDark ? "true" : "false");
       if (typeof document !== "undefined") {
         document.documentElement.classList.toggle("dark", Boolean(isDark));
@@ -206,6 +212,7 @@ export const AffiliateSettings: React.FC = () => {
 
   // Synchronize state when theme is changed via external ThemeToggle
   useEffect(() => {
+    if (typeof window === "undefined") return;
     const handleStorage = () => {
       const latest = loadAffiliatePreferences();
       setPreferences((prev) => {
@@ -219,7 +226,7 @@ export const AffiliateSettings: React.FC = () => {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const handleThemeChange = (newTheme: ThemeOption) => {
+  const handleThemeChange = useCallback((newTheme: ThemeOption) => {
     setPreferences((prev) => ({ ...prev, theme: newTheme }));
     const saved = loadAffiliatePreferences();
     if (!saveAffiliatePreferences({ ...saved, theme: newTheme })) {
@@ -230,20 +237,24 @@ export const AffiliateSettings: React.FC = () => {
       });
       return;
     }
-    window.dispatchEvent(new Event("storage"));
-  };
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("storage"));
+    }
+  }, [showNotification]);
 
-  const handleFrequencyChange = (freq: NotificationFrequency) => {
+  const handleFrequencyChange = useCallback((freq: NotificationFrequency) => {
     const updated = { ...preferences, notificationFrequency: freq };
     setPreferences(updated);
-  };
+  }, [preferences]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     const success = saveAffiliatePreferences(preferences);
     if (success) {
       setSaveFailed(false);
       setIsSaved(true);
-      window.dispatchEvent(new Event("storage"));
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("storage"));
+      }
       showNotification({
         type: "success",
         title: "Settings Saved",
@@ -260,7 +271,7 @@ export const AffiliateSettings: React.FC = () => {
       });
       setTimeout(() => setSaveFailed(false), 3500);
     }
-  };
+  }, [preferences, showNotification]);
 
   return (
     <div className="space-y-6">
@@ -278,7 +289,7 @@ export const AffiliateSettings: React.FC = () => {
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
           <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+              <div className="w-12 h-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                 <Sliders className="w-6 h-6" />
               </div>
               <div>
@@ -300,67 +311,45 @@ export const AffiliateSettings: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleThemeChange("light")}
-                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${
-                    preferences.theme === "light"
-                      ? "border-indigo-600 bg-indigo-50/60 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400"
-                  }`}
+                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${preferences.theme === "light" ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
                 >
-                  <Sun className="w-5 h-5 text-amber-500" />
+                  <Sun className="w-5 h-text-amber-500" />
                   <span>Light</span>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => handleThemeChange("dark")}
-                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${
-                    preferences.theme === "dark"
-                      ? "border-indigo-600 bg-indigo-50/60 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400"
-                  }`}
+                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${preferences.theme === "dark" ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
                 >
                   <Moon className="w-5 h-5 text-indigo-400" />
                   <span>Dark</span>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => handleThemeChange("system")}
-                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${
-                    preferences.theme === "system"
-                      ? "border-indigo-600 bg-indigo-50/60 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400"
-                  }`}
+                  className={`flex flex-col items-center justify-center gap-2 p-3.5 rounded-xl border text-sm font-semibold transition-all ${preferences.theme === "system" ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
                 >
-                  <Monitor className="w-5 h-5 text-zinc-400" />
+                  <Monitor className="w-5 h-5 text-slate-500" />
                   <span>System</span>
                 </button>
               </div>
             </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800 text-xs text-zinc-500 dark:text-zinc-400 flex items-start gap-3">
-              <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-              <span>
-                Theme choices are immediately synchronized with the Stellar Web3 shell and stored
-                locally in browser storage.
-              </span>
-            </div>
           </CardContent>
         </Card>
 
-        {/* Notification Frequency Controls */}
+        {/* Notification Settings Card */}
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
           <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-amber-50 dark:bg-amber-950/60 rounded-xl flex items-center justify-center text-amber-600 dark:text-amber-400">
-                <BellRing className="w-6 h-6" />
+              <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/60 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                <Bell className="w-6 h-6" />
               </div>
               <div>
-                <CardTitle className="text-xl font-bold text-zinc-900 dark:text-white">
-                  Notification Frequency
+                <CardTitle className="texxl font-bold text-zinc-900 dark:text-white">
+                  Notifications
                 </CardTitle>
                 <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                  Control the rhythm and delivery cadence of platform alerts
+                  Control alert frequency and delivery channels
                 </CardDescription>
               </div>
             </div>
@@ -368,91 +357,60 @@ export const AffiliateSettings: React.FC = () => {
           <CardContent className="p-8 space-y-6">
             <div>
               <Label className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block mb-3">
-                Frequency Cadence
+                Alert Frequency
               </Label>
-              <div className="grid grid-cols-2 gap-2.5">
-                {[
-                  {
-                    id: "instant" as const,
-                    label: "Instant",
-                    desc: "Real-time alerts",
-                  },
-                  {
-                    id: "muted" as const,
-                    label: "Muted",
-                    desc: "No popup alerts",
-                  },
-                ].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => handleFrequencyChange(item.id)}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      preferences.notificationFrequency === item.id
-                        ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 font-bold"
-                        : "border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-400 font-medium"
-                    }`}
-                  >
-                    <div className="text-xs font-bold">{item.label}</div>
-                    <div className="text-[11px] opacity-75">{item.desc}</div>
-                  </button>
-                ))}
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleFrequencyChange("instant")}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-semibold transition-all ${preferences.notificationFrequency === "instant" ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
+                >
+                  <BellRing className="w-4 h-4" />
+                  <span>Instant</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFrequencyChange("muted")}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-semibold transition-all ${preferences.notificationFrequency === "muted" ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
+                >
+                  <Bell className="w-4 h-4" />
+                  <span>Muted</span>
+                </button>
               </div>
             </div>
 
-            <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-zinc-800/60">
-              <Label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 block mb-2">
-                Trigger Channels
-              </Label>
-
-              <label className="flex items-center justify-between text-sm cursor-pointer">
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium">
-                  New sale commission attributed
-                </span>
+            <div className="space-y-3">
+              <label className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                <span>Notify on Commission</span>
                 <input
                   type="checkbox"
                   checked={preferences.notifyOnCommission}
                   onChange={(e) =>
-                    setPreferences({
-                      ...preferences,
-                      notifyOnCommission: e.target.checked,
-                    })
+                    setPreferences((prev) => ({ ...prev, notifyOnCommission: e.target.checked }))
                   }
-                  className="rounded border-zinc-300 dark:border-zinc-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                  className="h-4 w-4 rounded border-slate-300"
                 />
               </label>
-
-              <label className="flex items-center justify-between text-sm cursor-pointer">
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium">
-                  Clearing period matured (ready to claim)
-                </span>
+              <label className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                <span>Notify on Clearing Maturity</span>
                 <input
                   type="checkbox"
                   checked={preferences.notifyOnClearingMaturity}
                   onChange={(e) =>
-                    setPreferences({
-                      ...preferences,
-                      notifyOnClearingMaturity: e.target.checked,
-                    })
+                    setPreferences((prev) => ({ ...prev, notifyOnClearingMaturity: e.target.checked }))
                   }
-                  className="rounded border-zinc-300 dark:border-zinc-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                  className="h-4 w-4 rounded border-slate-300"
                 />
               </label>
-
-              <label className="flex items-center justify-between text-sm cursor-pointer">
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium">
-                  Payout settled on Stellar ledger
-                </span>
+              <label className="flex items-center justify-between gap-3 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                <span>Notify on Payout Settled</span>
                 <input
                   type="checkbox"
                   checked={preferences.notifyOnPayoutSettled}
                   onChange={(e) =>
-                    setPreferences({
-                      ...preferences,
-                      notifyOnPayoutSettled: e.target.checked,
-                    })
+                    setPreferences((prev) => ({ ...prev, notifyOnPayoutSettled: e.target.checked }))
                   }
-                  className="rounded border-zinc-300 dark:border-zinc-700 text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                  className="h-4 w-4 rounded border-slate-300"
                 />
               </label>
             </div>
@@ -463,112 +421,73 @@ export const AffiliateSettings: React.FC = () => {
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl md:col-span-2">
           <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-12 bg-emerald-50 dark:bg-emerald-950/60 rounded-xl flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+              <div className="w-12 h-12 bg-amber-50 dark:bg-amber-950/60 rounded-xl flex items-center justify-center text-amber-600 dark:text-amber-400">
                 <DollarSign className="w-6 h-6" />
               </div>
               <div>
                 <CardTitle className="text-xl font-bold text-zinc-900 dark:text-white">
-                  Payout Automation & Asset Preferences
+                  Payout Preferences
                 </CardTitle>
                 <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                  Customize preferred settlement assets and withdrawal thresholds
+                  Define your preferred asset and minimum claim threshold
                 </CardDescription>
               </div>
             </div>
           </CardHeader>
           <CardContent className="p-8 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block mb-2">
-                  Preferred Settlement Currency
-                </Label>
-                <div className="grid grid-cols-3 gap-3">
-                  {(["XLM", "USDC", "EURC"] as const).map((asset) => (
-                    <button
-                      key={asset}
-                      type="button"
-                      onClick={() =>
-                        setPreferences({
-                          ...preferences,
-                          preferredAsset: asset,
-                        })
-                      }
-                      className={`p-3 rounded-xl border text-center font-bold text-sm transition-all ${
-                        preferences.preferredAsset === asset
-                          ? "border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300"
-                          : "border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
-                      }`}
-                    >
-                      {asset}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block mb-2">
-                  Minimum Notification / Claim Threshold
-                </Label>
-                <div className="relative">
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={preferences.minClaimThreshold}
-                    onChange={(e) =>
-                      setPreferences({
-                        ...preferences,
-                        minClaimThreshold: e.target.value,
-                      })
-                    }
-                    className="rounded-xl pr-16 font-mono"
-                    placeholder="20.0"
-                  />
-                  <div className="absolute right-3 top-2.5 text-xs font-bold text-zinc-400 uppercase">
-                    {preferences.preferredAsset}
-                  </div>
-                </div>
-                <p className="text-xs text-zinc-400 mt-1.5">
-                  Only trigger payout ready alerts when cumulative balance exceeds this threshold.
-                </p>
+            <div>
+              <Label className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block mb-3">
+                Preferred Asset
+              </Label>
+              <div className="grid grid-cols-3 gap-3">
+                {(["XLM", "USDC", "EURC"] as const[name of AffiliatePreferences["preferredAsset"][]).map((asset) => (
+                  <button
+                    key={asset}
+                    type="button"
+                    onClick={() => setPreferences((prev) => ({ ...prev, preferredAsset: asset }))}
+                    className={`flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-semibold transition-all ${preferences.preferredAsset === asset ? "border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300" : "border-slate-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800/50"}`}
+                  >
+                    {asset}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-zinc-800/60">
-              <span className="text-xs text-zinc-400 flex items-center gap-1.5 font-medium">
-                <Bell className="w-3.5 h-3.5 text-zinc-400" />
-                Saved preferences are automatically retained across page reloads.
-              </span>
-              <Button
-                onClick={handleSave}
-                className={`h-10 px-6 rounded-xl font-bold transition-all flex items-center gap-2 ${
-                  saveFailed
-                    ? "bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-500/25"
-                    : isSaved
-                    ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-500/25"
-                    : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-md hover:shadow-indigo-500/25"
-                }`}
-              >
-                {saveFailed ? (
-                  <>
-                    <AlertCircle className="w-4 h-4 text-rose-200" />
-                    Failed to Save
-                  </>
-                ) : isSaved ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-                    Saved!
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4" />
-                    Save Preferences
-                  </>
-                )}
-              </Button>
+            <div>
+              <Label className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 block mb-3">
+                Minimum Claim Threshold
+              </Label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0"
+                value={preferences.minClaimThreshold}
+                onChange={(e) =>
+                  setPreferences((prev) => ({ ...prev, minClaimThreshold: e.target.value }))
+                }
+              />
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="flex items-center justify-end gap-3">
+        {saveFailed && (
+          <div className="flex items-center gap-2 text-sm font-medium text-red-600 dark:text-red-400">
+            <AlertCircle className="w-4 h-4" />
+            <span>Save failed</span>
+          </div>
+        )}
+        {isSaved && (
+          <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2className="w-4 h-4" />
+            <span>Saved</span>
+          </div>
+        )}
+        <Button onClick={handleSave} className="gap-2">
+          <Save className="w-4 h-4" />
+          Save Settings
+        </Button>
       </div>
     </div>
   );
