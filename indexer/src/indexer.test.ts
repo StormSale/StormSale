@@ -25,7 +25,6 @@ function seeded(nSales = 5000) {
       amountStroops: "10000000",
       commissionStroops: "1000000",
       loggedAt: new Date(2026, 0, 1, 0, 0, i).toISOString(),
-      maturesAt: "2026-01-01T00:00:00.000Z",
       txHash: `tx${i}`,
     });
   }
@@ -100,7 +99,6 @@ describe("indexer GraphQL", () => {
       amountStroops: "1",
       commissionStroops: "0",
       loggedAt: "2027-01-01T00:00:00.000Z",
-      maturesAt: "2027-01-01T00:00:00.000Z",
       txHash: "tx-new",
     });
 
@@ -129,5 +127,35 @@ describe("indexer GraphQL", () => {
     const store = seeded(1);
     store.addSale({ ...store.sales[0] });
     expect(store.sales).toHaveLength(1);
+  });
+
+  it("computes commission and maturity on read when the sale has no stored commission", async () => {
+    const store = new Store();
+    store.addCampaign({
+      campaignId: 2,
+      advertiser: ADV,
+      commissionBps: 500, // 5%
+      clearingPeriodSecs: 3600, // 1 hour
+      budgetStroops: "1000000000",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      txHash: "tx-c2",
+    });
+    store.addSale({
+      id: "no-commission",
+      campaignId: 2,
+      affiliate: AFF,
+      amountStroops: "10000000",
+      commissionStroops: null,
+      loggedAt: "2026-01-01T00:00:00.000Z",
+      txHash: "tx-nc",
+    });
+
+    const res = await makeRunner(store)(
+      `{ sales(campaignId: 2) { commissionStroops maturesAt matured } }`,
+    );
+    expect(res.errors).toBeUndefined();
+    expect(res.data.sales[0].commissionStroops).toBe("500000"); // 5% of 10,000,000
+    expect(new Date(res.data.sales[0].maturesAt).toISOString()).toBe("2026-01-01T01:00:00.000Z");
+    expect(res.data.sales[0].matured).toBe(true); // that date is in the past
   });
 });

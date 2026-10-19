@@ -13,9 +13,9 @@ export interface SaleRecord {
   campaignId: number;
   affiliate: string;
   amountStroops: string;
-  commissionStroops: string;
+  /** Commission from the on-chain event, or null if the event didn't include it. */
+  commissionStroops: string | null;
   loggedAt: string;
-  maturesAt: string;
   txHash: string;
 }
 

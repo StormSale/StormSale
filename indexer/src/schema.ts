@@ -20,6 +20,18 @@ export function buildSchema(store: Store) {
   const claims = (f: (c: ClaimRecord) => boolean) =>
     newestFirst(store.claims.filter(f), (c) => c.claimedAt);
 
+  /** Commission from the event if we have it, otherwise computed from the campaign at read time. */
+  const commissionOf = (s: SaleRecord): string => {
+    if (s.commissionStroops !== null) return s.commissionStroops;
+    const bps = BigInt(store.campaigns.get(s.campaignId)?.commissionBps ?? 0);
+    return ((BigInt(s.amountStroops) * bps) / 10000n).toString();
+  };
+  /** Maturity date computed at read time, so it uses the campaign even if it was indexed later. */
+  const maturesAtOf = (s: SaleRecord): string => {
+    const secs = store.campaigns.get(s.campaignId)?.clearingPeriodSecs ?? 0;
+    return new Date(new Date(s.loggedAt).getTime() + secs * 1000).toISOString();
+  };
+
   return createSchema({
     typeDefs,
     resolvers: {
@@ -80,7 +92,9 @@ export function buildSchema(store: Store) {
       Sale: {
         campaign: (s: SaleRecord) => store.campaigns.get(s.campaignId),
         affiliate: (s: SaleRecord) => ({ address: s.affiliate }),
-        matured: (s: SaleRecord) => new Date(s.maturesAt).getTime() <= Date.now(),
+        commissionStroops: (s: SaleRecord) => commissionOf(s),
+        maturesAt: (s: SaleRecord) => maturesAtOf(s),
+        matured: (s: SaleRecord) => new Date(maturesAtOf(s)).getTime() <= Date.now(),
       },
       Claim: {
         campaign: (c: ClaimRecord) => store.campaigns.get(c.campaignId),
@@ -94,7 +108,7 @@ export function buildSchema(store: Store) {
         claims: (u: { address: string }, a: Page) =>
           page(claims((c) => c.affiliate === u.address), a.limit, a.offset),
         totalEarnedStroops: (u: { address: string }) =>
-          sum(store.sales.filter((s) => s.affiliate === u.address).map((s) => s.commissionStroops)),
+          sum(store.sales.filter((s) => s.affiliate === u.address).map(commissionOf)),
         totalClaimedStroops: (u: { address: string }) =>
           sum(store.claims.filter((c) => c.affiliate === u.address).map((c) => c.amountStroops)),
       },

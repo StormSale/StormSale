@@ -46,7 +46,7 @@ describe("applyEvent", () => {
     });
   });
 
-  it("indexes a sale_logged event with commission and maturity from the campaign", () => {
+  it("stores a sale without a commission when the event does not include one", () => {
     const store = new Store();
     applyEvent(store, campaignEvent(7));
     const sale = makeEvent(
@@ -58,16 +58,37 @@ describe("applyEvent", () => {
 
     expect(applyEvent(store, sale)).toBe(true);
     expect(store.sales).toHaveLength(1);
-    expect(store.sales[0]).toMatchObject({
+    expect(store.sales[0]).toEqual({
       id: "0000000002-0000000001",
       campaignId: 7,
       affiliate: AFFILIATE,
       amountStroops: "10000000",
-      commissionStroops: "1000000", // 10% of 10,000,000
+      commissionStroops: null, // calculated later, when the sale is read
       loggedAt: LEDGER_TIME,
-      maturesAt: "2026-03-01T13:00:00.000Z", // + 3600s clearing period
       txHash: "tx-2",
     });
+  });
+
+  it("stores a sale before its campaign is indexed, without a wrong 0 commission", () => {
+    const store = new Store(); // no campaign indexed yet
+    const sale = makeEvent(
+      [sym("sale_logged"), u32(7)],
+      tuple(u32(7), addr(AFFILIATE), i128(10_000_000n)),
+    );
+
+    expect(applyEvent(store, sale)).toBe(true);
+    expect(store.sales[0].commissionStroops).toBeNull();
+  });
+
+  it("uses the commission from the sale event when it includes one", () => {
+    const store = new Store();
+    const sale = makeEvent(
+      [sym("sale_logged"), u32(7)],
+      tuple(u32(7), addr(AFFILIATE), i128(10_000_000n), i128(1_234_567n)),
+    );
+
+    expect(applyEvent(store, sale)).toBe(true);
+    expect(store.sales[0].commissionStroops).toBe("1234567");
   });
 
   it("indexes a claim_payout event", () => {

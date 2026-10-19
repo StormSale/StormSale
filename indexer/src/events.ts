@@ -37,7 +37,7 @@ export function applyEvent(store: Store, ev: rpc.Api.EventResponse, _index = 0):
   const name = String(topics[0] ?? "");
   const data = scValToNative(ev.value);
   const when = new Date(ev.ledgerClosedAt).toISOString();
-    const id = ev.id;
+  const id = ev.id;
   const topicCampaignId = topics[1] !== undefined ? num(topics[1]) : undefined;
 
   if ((EVENT_NAMES.campaignCreated as readonly string[]).includes(name)) {
@@ -55,21 +55,19 @@ export function applyEvent(store: Store, ev: rpc.Api.EventResponse, _index = 0):
   }
 
   if ((EVENT_NAMES.saleLogged as readonly string[]).includes(name)) {
-    const o = toObject(data, ["campaign_id", "affiliate", "amount"]);
+    const o = toObject(data, ["campaign_id", "affiliate", "amount", "commission"]);
     const campaignId = topicCampaignId ?? num(pick(o, "campaign_id"));
-    const campaign = store.campaigns.get(campaignId);
     const amount = BigInt(str(pick(o, "amount", "sale_amount")) || "0");
-    const bps = BigInt(campaign?.commissionBps ?? 0);
-    const commission = (amount * bps) / 10000n;
-    const matures = new Date(new Date(when).getTime() + (campaign?.clearingPeriodSecs ?? 0) * 1000);
+    // Use the commission from the event if the contract sends one.
+    // Otherwise store null and work it out when the sale is read (see schema.ts).
+    const eventCommission = str(pick(o, "commission", "commission_amount"));
     store.addSale({
       id,
       campaignId,
       affiliate: str(pick(o, "affiliate")),
       amountStroops: amount.toString(),
-      commissionStroops: commission.toString(),
+      commissionStroops: eventCommission || null,
       loggedAt: when,
-      maturesAt: matures.toISOString(),
       txHash: ev.txHash,
     });
     return true;
