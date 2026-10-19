@@ -20,36 +20,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { Button } from "../components/ui/button";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "../lib/queryClient";
 
 interface AffiliateProps {
   onBack: () => void;
 }
 
-/**
- * Global TanStack Query client configured for the affiliate portal.
- * - staleTime: 1 minute of fresh cache data.
- * - gcTime: 5 minutes before inactive queries are garbage collected.
- * - refetchOnReconnect / refetchOnWindowFocus: automated refetch hooks for all roles.
- * - retry: exponential backoff for transient failures.
- */
-export const affiliateQueryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60 * 1000,
-      gcTime: 5 * 60 * 1000,
-      refry: 2,
-      refetchOnReconnect: true,
-      refetchOnWindowFocus: true,
-    },
-    mutations: {
-      retry: 1,
-    },
-  },
-});
-
-const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
+const AffiliateContent: React.FC < AffiliateProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState(() =>
     isTelegramMiniApp() ? "telegram-browser" : "overview",
   );
@@ -95,7 +73,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
       {/* Main Content Area */}
       <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="max-w-6x mx-auto space-y-6">
           {/* Header Bar with Persistent Theme Toggle & Settings Navigation */}
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-zinc-800">
             <div>
@@ -139,7 +117,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 };
 
 export const Affiliate: React.FC<AffiliateProps> = (props) => (
-  <QueryClientProvider client={affiliateQueryClient}>
+  <QueryClientProvider client={queryClient}>
     <NotificationProvider>
       <AffiliateContent {...props} />
     </NotificationProvider>
