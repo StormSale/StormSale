@@ -5,15 +5,21 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { LedgerExplorer } from "../components/shared/LedgerExplorer";
+
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
+
 import {
   Users,
   TrendingUp,
   DollarSign,
+  BarChart3,
   Shield,
   LayoutDashboard,
+  Blocks,Shield,
+  LayoutDashboard,
   Send,
-  Sliders,
+  Sliders
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -37,6 +43,9 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
+    { id: "performance", label: "Performance Analytics", icon: BarChart3 },
+    { id: "security", label: "Security Settings", icon: Shield },
+    { id: "ledger-explorer", label: "Ledger Explorer", icon: Blocks },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
     { id: "security", label: "Security & Keys", icon: Shield },
   ];
@@ -51,6 +60,9 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+
+      case "ledger-explorer":
+        return <LedgerExplorer />;
       case "settings":
         return <AffiliateSettings />;
       case "overview":
