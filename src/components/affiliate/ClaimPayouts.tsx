@@ -36,24 +36,14 @@ export const ClaimPayouts = () => {
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadClaims() {
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const data = await fetchAffiliateMaturedClaims(userAddress || "");
-        setCampaigns(data);
-        // Select all matured campaigns by default
-        const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
-        setSelectedIds(matured);
-      } catch (err: any) {
-        console.error("Failed to load matured claims:", err);
-        setLoadError(err.message || "Failed to load matured claims.");
-      } finally {
-        setIsLoading(false);
-      }
+      const data = await fetchAffiliateMaturedClaims(userAddress || "");
+      setCampaigns(data);
+      // Select all matured campaigns by default
+      const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
+      setSelectedIds(matured);
     }
     loadClaims();
   }, [userAddress]);
