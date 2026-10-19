@@ -21,8 +21,17 @@ import {
   Link2,
   QrCode,
   ShieldCheck,
+  Award,
 } from "lucide-react";
 import { useWeb3 } from "../../context/Web3Context";
+import { Input } from "../ui/input";
+import {
+  assessCommissionTier,
+  getAffiliateCampaignVolume,
+  loadCampaignCommissionConfig,
+  normalizeCommissionCampaignId,
+} from "../../lib/commissionTiers";
+import type { CampaignCommissionConfig, CommissionAssessment } from "../../lib/commissionTiers";
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -236,6 +245,149 @@ const AffiliateLinkGenerator = () => {
   );
 };
 
+const AffiliateCommissionProgress = () => {
+  const { userAddress } = useWeb3();
+  const [campaignId, setCampaignId] = useState("");
+  const [config, setConfig] = useState<CampaignCommissionConfig | null>(null);
+  const [assessment, setAssessment] = useState<CommissionAssessment | null>(null);
+  const [historicalVolume, setHistoricalVolume] = useState(0);
+  const [lookupMessage, setLookupMessage] = useState("");
+
+  const loadProgress = () => {
+    setLookupMessage("");
+    setConfig(null);
+    setAssessment(null);
+
+    if (!userAddress) {
+      setLookupMessage("Connect your affiliate wallet to view its tier progress.");
+      return;
+    }
+    const normalizedCampaignId = normalizeCommissionCampaignId(campaignId);
+    if (!normalizedCampaignId) {
+      setLookupMessage("Enter a campaign ID to view your progress.");
+      return;
+    }
+
+    try {
+      const campaignConfig = loadCampaignCommissionConfig(normalizedCampaignId);
+      if (!campaignConfig) {
+        setLookupMessage("No tier metadata for that campaign was found in this browser.");
+        return;
+      }
+      const volume = getAffiliateCampaignVolume(normalizedCampaignId, userAddress);
+      setConfig(campaignConfig);
+      setHistoricalVolume(volume);
+      setAssessment(assessCommissionTier(campaignConfig, volume));
+    } catch (error) {
+      setLookupMessage(
+        error instanceof Error ? error.message : "Could not load local commission tier data.",
+      );
+    }
+  };
+
+  return (
+    <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+      <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+            <Award className="w-5 h-5" />
+          </div>
+          <div>
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+              Commission tier progress
+            </CardTitle>
+            <CardDescription className="text-zinc-500 dark:text-zinc-400">
+              Check your current tier and next sales milestone
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-5 space-y-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <Input
+            value={campaignId}
+            onChange={(event) => setCampaignId(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                loadProgress();
+              }
+            }}
+            placeholder="Campaign ID (e.g. 123)"
+            aria-label="Campaign ID for commission tier progress"
+          />
+          <Button onClick={loadProgress} className="rounded-xl shrink-0">
+            View progress
+          </Button>
+        </div>
+
+        {lookupMessage && (
+          <p role="status" className="text-sm text-zinc-600 dark:text-zinc-300">
+            {lookupMessage}
+          </p>
+        )}
+
+        {config && assessment && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Current tier</p>
+                <p className="font-bold text-zinc-900 dark:text-white">
+                  {assessment.currentTier?.name ?? "Base"} · {assessment.commissionRate}%
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">Recorded volume</p>
+                <p className="font-bold text-zinc-900 dark:text-white">
+                  {historicalVolume.toLocaleString()} XLM
+                </p>
+              </div>
+            </div>
+
+            {assessment.nextTier ? (
+              <>
+                <div className="flex justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-300">
+                  <span>
+                    Next: {assessment.nextTier.name} at {assessment.nextTier.commissionRate}%
+                  </span>
+                  <span className="text-right">
+                    {Math.max(
+                      0,
+                      assessment.nextTier.volumeThreshold - historicalVolume,
+                    ).toLocaleString()}{" "}
+                    XLM remaining
+                  </span>
+                </div>
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/50"
+                  role="progressbar"
+                  aria-label="Progress toward next commission tier"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(assessment.progressPercent)}
+                >
+                  <div
+                    className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
+                    style={{ width: `${assessment.progressPercent}%` }}
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                You have reached the highest configured commission tier.
+              </p>
+            )}
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              Tier metadata and volume are local to this browser. Rates are estimates; the current
+              Soroban contract still pays its fixed base rate.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
 export const AffiliateOverview = () => {
   const stats = [
     {
@@ -326,6 +478,7 @@ export const AffiliateOverview = () => {
       </div>
 
       <AffiliateLinkGenerator />
+      <AffiliateCommissionProgress />
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -18,7 +18,15 @@ import {
   getPublicKeyForAddress,
 } from "../../lib/crypto";
 import { triggerConversionPostback } from "../../lib/webhookEngine";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
+import { Shield, Zap, Users, FileKey, TrendingUp } from "lucide-react";
+import {
+  assessCommissionTier,
+  calculateCommissionAmount,
+  getAffiliateCampaignVolume,
+  loadCampaignCommissionConfig,
+  normalizeCommissionCampaignId,
+  recordAffiliateCampaignSale,
+} from "../../lib/commissionTiers";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
@@ -28,6 +36,35 @@ export const LogSaleForm = () => {
   const [isLoading, setIsLoading] = useState(false);
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
+
+  const { tierPreview, tierPreviewError } = useMemo(() => {
+    const normalizedCampaignId = normalizeCommissionCampaignId(campaignAddress);
+    if (!normalizedCampaignId || !affiliateAddress.trim()) {
+      return { tierPreview: null, tierPreviewError: "" };
+    }
+
+    try {
+      const config = loadCampaignCommissionConfig(normalizedCampaignId);
+      if (!config) {
+        return { tierPreview: null, tierPreviewError: "" };
+      }
+      const historicalVolume = getAffiliateCampaignVolume(normalizedCampaignId, affiliateAddress);
+      return {
+        tierPreview: {
+          config,
+          historicalVolume,
+          assessment: assessCommissionTier(config, historicalVolume),
+        },
+        tierPreviewError: "",
+      };
+    } catch (error) {
+      return {
+        tierPreview: null,
+        tierPreviewError:
+          error instanceof Error ? error.message : "Could not load local commission tier data.",
+      };
+    }
+  }, [campaignAddress, affiliateAddress]);
 
   const handleLogSale = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,9 +76,29 @@ export const LogSaleForm = () => {
       });
       return;
     }
+    const parsedSaleAmount = Number(saleAmount);
+    if (!Number.isFinite(parsedSaleAmount) || parsedSaleAmount <= 0) {
+      showNotification({
+        type: "warning",
+        title: "Invalid Sale Amount",
+        message: "Sale amount must be a positive number.",
+      });
+      return;
+    }
 
     setIsLoading(true);
     try {
+      const normalizedCampaignId = normalizeCommissionCampaignId(campaignAddress);
+      const commissionConfig = loadCampaignCommissionConfig(normalizedCampaignId);
+      const historicalVolume = commissionConfig
+        ? getAffiliateCampaignVolume(normalizedCampaignId, affiliateAddress)
+        : 0;
+      const commissionAssessment = commissionConfig
+        ? assessCommissionTier(commissionConfig, historicalVolume)
+        : null;
+      const estimatedCommission = commissionAssessment
+        ? calculateCommissionAmount(parsedSaleAmount, commissionAssessment.commissionRate)
+        : null;
       const campaignContract = getCampaignContract(campaignAddress);
 
       showNotification({
@@ -58,6 +115,16 @@ export const LogSaleForm = () => {
         product: "Digital Product",
         timestamp: new Date().toISOString(),
         metadata: "Additional sale information",
+        tierCommissionEstimate:
+          commissionAssessment && estimatedCommission !== null
+            ? {
+                tierName: commissionAssessment.currentTier?.name ?? "Base",
+                commissionRatePercent: commissionAssessment.commissionRate,
+                estimatedCommissionAmount: estimatedCommission,
+                historicalVolume,
+                volumeAfterSale: historicalVolume + parsedSaleAmount,
+              }
+            : null,
       };
       const encryptedPayload = await encryptPayload(payload, aesKey);
 
@@ -82,6 +149,20 @@ export const LogSaleForm = () => {
       );
 
       await tx.wait();
+
+      if (commissionConfig) {
+        try {
+          recordAffiliateCampaignSale(normalizedCampaignId, affiliateAddress, parsedSaleAmount);
+        } catch (storageError) {
+          console.error("Could not update local affiliate sales volume:", storageError);
+          showNotification({
+            type: "warning",
+            title: "Tier Progress Not Updated",
+            message:
+              "The sale is confirmed on-chain, but local tier progress could not be updated in this browser.",
+          });
+        }
+      }
 
       // Automated Conversion Postback Dispatch
       try {
@@ -120,7 +201,9 @@ export const LogSaleForm = () => {
       showNotification({
         type: "success",
         title: "Sale Logged Successfully!",
-        message: "Encrypted sale data has been recorded on-chain",
+        message: commissionAssessment
+          ? `Encrypted sale recorded. Estimated tier rate: ${commissionAssessment.commissionRate}% (${estimatedCommission} XLM). The contract still pays its fixed base rate.`
+          : "Encrypted sale data has been recorded on-chain",
       });
 
       setAffiliateAddress("");
@@ -171,14 +254,14 @@ export const LogSaleForm = () => {
           <form onSubmit={handleLogSale}>
             <InputGroup className="space-y-8">
               <InputField
-                label="Campaign Address"
-                description="The campaign contract where this sale belongs"
+                label="Campaign ID"
+                description="The numeric Soroban campaign ID where this sale belongs"
                 required
               >
                 <Input
                   value={campaignAddress}
                   onChange={(e) => setCampaignAddress(e.target.value)}
-                  placeholder="e.g. Campaign #1 or Soroban Contract ID"
+                  placeholder="e.g. 1 or Campaign #1"
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   required
                 />
@@ -221,6 +304,92 @@ export const LogSaleForm = () => {
                   </div>
                 </InputField>
               </div>
+
+              {(tierPreview || tierPreviewError) && (
+                <div className="rounded-2xl border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/70 dark:bg-indigo-950/20 p-5">
+                  {tierPreview ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        <h3 className="font-bold text-zinc-900 dark:text-white">
+                          Estimated tier commission
+                        </h3>
+                      </div>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-3 text-sm">
+                        <div>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">Current tier</p>
+                          <p className="font-semibold text-zinc-900 dark:text-white">
+                            {tierPreview.assessment.currentTier?.name ?? "Base"} ·{" "}
+                            {tierPreview.assessment.commissionRate}%
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Historical volume
+                          </p>
+                          <p className="font-semibold text-zinc-900 dark:text-white">
+                            {tierPreview.historicalVolume.toLocaleString()} XLM
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Estimated commission on this sale
+                          </p>
+                          <p className="font-semibold text-zinc-900 dark:text-white">
+                            {Number.isFinite(Number(saleAmount)) && Number(saleAmount) > 0
+                              ? calculateCommissionAmount(
+                                  Number(saleAmount),
+                                  tierPreview.assessment.commissionRate,
+                                )
+                              : "—"}{" "}
+                            XLM
+                          </p>
+                        </div>
+                      </div>
+                      {tierPreview.assessment.nextTier && (
+                        <div className="mt-3">
+                          <div className="flex justify-between text-xs text-zinc-600 dark:text-zinc-300">
+                            <span>
+                              Next: {tierPreview.assessment.nextTier.name} (
+                              {tierPreview.assessment.nextTier.commissionRate}%)
+                            </span>
+                            <span>
+                              {Math.max(
+                                0,
+                                tierPreview.assessment.nextTier.volumeThreshold -
+                                  tierPreview.historicalVolume,
+                              ).toLocaleString()}{" "}
+                              XLM to go
+                            </span>
+                          </div>
+                          <div
+                            className="mt-2 h-2 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/50"
+                            role="progressbar"
+                            aria-label="Progress toward next commission tier"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(tierPreview.assessment.progressPercent)}
+                          >
+                            <div
+                              className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
+                              style={{ width: `${tierPreview.assessment.progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">
+                        This estimate and history are stored in this browser only. Tier rates are
+                        included in the encrypted sale metadata; the current Soroban contract still
+                        pays its fixed base rate.
+                      </p>
+                    </>
+                  ) : (
+                    <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
+                      {tierPreviewError}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <InputField
                 label="Customer Information"

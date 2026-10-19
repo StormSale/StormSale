@@ -390,10 +390,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
       setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
       if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`);
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
         if (stored) {
           const updated = Math.max(0, parseFloat(stored) - budgetAmount);
-          window.localStorage.setItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`, updated.toString());
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
         }
       }
       return {
@@ -436,10 +441,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   // Soroban: Claim Affiliate Commission
-  const claimPayoutOnChain = async (
-    campaignId: number,
-    assetCode?: SupportedEscrowAssetCode,
-  ) => {
+  const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
     console.log(
@@ -522,7 +524,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     },
   };
 
-  const getCampaignContract = (_address: string) => ({
+  const getCampaignContract = (address: string) => ({
     logEncryptedSale: async (
       affiliate: string,
       amount: string,
@@ -530,7 +532,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       _advKey: any,
       _affKey: any,
     ) => {
-      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
+      const campaignIdMatch = address.match(/^(?:campaign\s*#\s*)?(\d+)$/i);
+      const parsedCampaignId = campaignIdMatch ? Number(campaignIdMatch[1]) : 1;
+      const campaignId =
+        Number.isSafeInteger(parsedCampaignId) && parsedCampaignId > 0 ? parsedCampaignId : 1;
+      const res = await logSaleOnChain(campaignId, affiliate, parseFloat(amount) || 0);
       return {
         wait: async () => res,
       };
