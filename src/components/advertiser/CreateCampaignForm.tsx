@@ -147,7 +147,11 @@ export const CreateCampaignForm = () => {
     setIsLoading(true);
 
     // Snapshot current form state for reliable revert on failure
-    const snapshot = { campaignName, budget, commissionRate, clearingPeriod };
+    const snapshot = {
+      budget,
+      commissionRate,
+      clearingPeriod,
+    };
 
     // Optimistic UI: instantly reflect the pending campaign (<50ms)
     const optimistic = {
@@ -262,7 +266,11 @@ export const CreateCampaignForm = () => {
     setFlowStep("creating");
 
     // Snapshot current form state for reliable revert on failure
-    const snapshot = { campaignName, budget, commissionRate, clearingPeriod };
+    const snapshot = {
+      budget,
+      commissionRate,
+      clearingPeriod,
+    };
 
     // Optimistic UI: instantly reflect the pending campaign (<50ms)
     const optimistic = {
@@ -319,7 +327,6 @@ export const CreateCampaignForm = () => {
 
       // Revert optimistic state and restore form inputs on failure
       setOptimisticCampaign({ ...optimistic, status: "failed" });
-      setCampaignName(snapshot.campaignName);
       setBudget(snapshot.budget);
       setCommissionRate(snapshot.commissionRate);
       setClearingPeriod(snapshot.clearingPeriod);

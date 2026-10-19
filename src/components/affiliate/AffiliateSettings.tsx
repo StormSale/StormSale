@@ -239,10 +239,16 @@ export const AffiliateSettings: React.FC = () => {
   };
 
   const handleSave = () => {
+    const previousPreferences = preferences;
+    const previousSaved = isSaved;
+    const previousFailed = saveFailed;
+
+    // Optimistic UI update: reflect success immediately
+    setIsSaved(true);
+    setSaveFailed(false);
+
     const success = saveAffiliatePreferences(preferences);
     if (success) {
-      setSaveFailed(false);
-      setIsSaved(true);
       window.dispatchEvent(new Event("storage"));
       showNotification({
         type: "success",
@@ -251,14 +257,16 @@ export const AffiliateSettings: React.FC = () => {
       });
       setTimeout(() => setIsSaved(false), 3000);
     } else {
-      setIsSaved(false);
+      // Reliable revert on failure
+      setPreferences(previousPreferences);
+      setIsSaved(previousSaved);
       setSaveFailed(true);
       showNotification({
         type: "error",
         title: "Save Failed",
         message: "Unable to save preferences to storage. Please check browser permissions.",
       });
-      setTimeout(() => setSaveFailed(false), 3500);
+      setTimeout(() => setSaveFailed(previousFailed), 3500);
     }
   };
 

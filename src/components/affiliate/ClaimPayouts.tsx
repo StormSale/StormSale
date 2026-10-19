@@ -361,12 +361,12 @@ export const ClaimPayouts = () => {
                           )}
                         </TableCell>
                         <TableCell className="text-xs text-zinc-500 dark:text-zinc-400">
-                          {campaign.maturedAt
-                            ? new Date(campaign.maturedAt).toLocaleDateString()
+                          {campaign.maturedAtLedger
+                            ? new Date(campaign.maturedAtLedger).toLocaleDateString()
                             : "—"}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-zinc-900 dark:text-white">
-                          {campaign.commissionXlm.toFixed(2)} XLM
+                          {campaign.commissionAmount.toFixed(2)} XLM
                         </TableCell>
                         <TableCell className="text-right">
                           {isMatured ? (

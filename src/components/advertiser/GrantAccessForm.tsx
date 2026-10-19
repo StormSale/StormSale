@@ -20,6 +20,7 @@ export const GrantAccessForm = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [optimisticGrant, setOptimisticGrant] = useState<{ saleId: string; auditorAddress: string } | null>(null);
+  const pendingRef = useRef({ saleId: "", auditorAddress: "", campaignAddress: "" });
   const { getCampaignContract } = useWeb3();
   const { showNotification } = useNotification();
 
@@ -34,7 +35,7 @@ export const GrantAccessForm = () => {
       return;
     }
 
-    const snapshot = { saleId, auditorAddress, campaignAddress };
+    pendingRef.current = { saleId, auditorAddress, campaignAddress };
 
     // Optimistic update: apply instant feedback (<50ms) before awaiting on-chain confirmation.
     setOptimisticGrant({ saleId, auditorAddress });
@@ -75,18 +76,15 @@ export const GrantAccessForm = () => {
       console.error("Error granting audit access:", error);
       // Revert optimistic state on txn failure.
       setOptimisticGrant(null);
-      if (pendingRef.current) {
-        setSaleId(pendingRef.current.saleId);
-        setAuditorAddress(pendingRef.current.auditorAddress);
-        setCampaignAddress(pendingRef.current.campaignAddress);
-      }
+      setSaleId(pendingRef.current.saleId);
+      setAuditorAddress(pendingRef.current.auditorAddress);
+      setCampaignAddress(pendingRef.current.campaignAddress);
       showNotification({
         type: "error",
         title: "Access Grant Failed",
         message: error.message || "Failed to grant audit access",
       });
     } finally {
-      // Defensive: ensure optimistic state is cleared if not already handled.
       setOptimisticGrant(null);
       setIsLoading(false);
     }
