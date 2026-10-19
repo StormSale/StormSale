@@ -55,7 +55,7 @@ export interface Web3ContextType {
     tokenAddress: string,
     spenderAddress: string,
     amount: number,
-  ) => Promise<{ success: boolean; tyHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string }>;
 
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
@@ -75,7 +75,7 @@ export interface Web3ContextType {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ) => Promise<{ success: boolean; tyHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -85,7 +85,7 @@ export interface Web3ContextType {
     txHash?: string;
     asset?: SupportedEscrowAssetCode;
   }>;
-  refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; tyHash?: string }>;
+  refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
   batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
 
@@ -210,7 +210,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           throw new Error(`Allowance approval is not supported for ${connectorType} wallets.`);
         }
         setTokenAllowance(amount);
-        return { success: true, tyHash: "sim_allowance", allowance: amount };
+        return { success: true, txHash: "sim_allowance", allowance: amount };
       }
       const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
       const res = await approveTokenContractCall(
@@ -355,18 +355,68 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-    const res = await createCampaignContractCall(
-      userAddress,
-      name,
-      budgetAmount,
-      commissionRatePercent,
-      clearingPeriodSecs,
-      connectorType || "freighter",
-      assetConfig.contractAddress,
-      assetConfig.decimals,
+
+    console.log(
+      `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
-    return { ...res, asset: assetCode };
+
+    // Escrow locking interacts with corresponding Stellar Asset Contract:
+    // If deploying with a SAC stablecoin (USDC, EURC), authorize token allowance on SAC contract for escrow spender
+    // Gate allowance approval to supported connectors only (freighter, albedo, xbull)
+    if (assetCode !== "XLM") {
+      const isSupportedConnector =
+        connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
+      if (isSupportedConnector) {
+        const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
+        if (assetConfig) {
+          console.log(
+            `[Soroban SAC] Authorizing ${budgetAmount} ${assetCode} allowance on SAC contract ${assetConfig.contractAddress} for escrow ${STELLAR_CONFIG.contractId}`,
+          );
+          await approveTokenAllowanceCall(
+            userAddress,
+            assetConfig.contractAddress,
+            STELLAR_CONFIG.contractId,
+            budgetAmount,
+            connectorType,
+            assetConfig.decimals,
+          );
+        }
+      }
+    }
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await createCampaignContractCall(
+        userAddress,
+        commissionRatePercent,
+        clearingPeriodSecs,
+        budgetAmount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      // Mock fallback for UI preview without extension
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+      setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`);
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - budgetAmount);
+          window.localStorage.setItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`, updated.toString());
+        }
+      }
+      return {
+        success: true,
+        campaignId: newCampaignId,
+        txHash: mockTxHash,
+        asset: assetCode,
+      };
+    }
   };
 
   // Soroban: Log Sale
@@ -376,69 +426,83 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     amountXlm: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    return logSaleContractCall(
-      userAddress,
-      campaignId,
-      affiliateAddress,
-      amountXlm,
-      connectorType || "freighter",
+
+    console.log(
+      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
     );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await logSaleContractCall(
+        userAddress,
+        campaignId,
+        affiliateAddress,
+        amountXlm,
+        connectorType,
+      );
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
   };
 
-  // Soroban: Claim Payout
+  // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (
     campaignId: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
+    assetCode?: SupportedEscrowAssetCode,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-    const res = await claimPayoutContractCall(
-      userAddress,
-      campaignId,
-      connectorType || "freighter",
-      assetConfig.contractAddress,
-      assetConfig.decimals,
+
+    console.log(
+      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
     );
-    return { ...res, asset: assetCode };
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+        ...(assetCode ? { asset: assetCode } : {}),
+      };
+    }
   };
 
-  // Soroban: Refund Escrow
+  // Soroban: Refund Unused Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    return refundCampaignEscrowContractCall(
-      userAddress,
-      campaignId,
-      connectorType || "freighter",
-    );
+
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
   };
 
-  // Batch claim payouts on-chain
-  const batchClaimPayoutsOnChain = async (
-    campaigns: ClaimableCampaignItem[],
-  ): Promise<BatchClaimReceipt> => {
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  const batchClaimPayoutsOnChain = async (campaigns: ClaimableCampaignItem[]) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const receipts: BatchClaimReceipt = {
-      successful: [],
-      failed: [],
-    };
-    for (const campaign of campaigns) {
-      try {
-        const res = await claimPayoutContractCall(
-          userAddress,
-          campaign.campaignId,
-          connectorType || "freighter",
-          campaign.assetConfig.contractAddress,
-          campaign.assetConfig.decimals,
-        );
-        receipts.successful.push({ campaignId: campaign.campaignId, txHash: res.txHash });
-      } catch (err) {
-        receipts.failed.push({
-          campaignId: campaign.campaignId,
-          reason: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return receipts;
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+    );
+    return res;
   };
 
   // Register passkey account
@@ -504,7 +568,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  const isAdmin = userBole === "admin";
+  const isAdmin = userRole === "admin";
 
   const value: Web3ContextType = {
     userAddress,
