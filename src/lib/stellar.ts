@@ -18,7 +18,8 @@ import {
   BASE_FEE,
   xdr,
 } from "@stellar/stellar-sdk";
-import { STELLAR_CONFIG } from "../config/stellar";
+import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
+import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 
 export type WalletType =
@@ -270,6 +271,128 @@ export async function fetchXlmBalance(address: string): Promise<string> {
 }
 
 /**
+ * Queries the Stellar Horizon API for all supported escrow assets (XLM, USDC, EURC).
+ */
+/**
+ * Helper to convert decimal amount string/number to BigInt stroops/units at given decimal precision
+ * without floating-point inaccuracies.
+ */
+export function parseUnitsToBigInt(amount: number | string, decimals: number = 7): bigint {
+  const str =
+    typeof amount === "number"
+      ? amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 })
+      : amount.trim();
+  if (!/^-?\d*(\.\d*)?$/.test(str) || str === "" || str === ".") {
+    throw new Error(`Invalid token amount: ${amount}`);
+  }
+  const [wholeStr, fracStr = ""] = str.split(".");
+  const paddedFrac = fracStr.padEnd(decimals, "0").slice(0, decimals);
+  const combined = `${wholeStr || "0"}${paddedFrac}`;
+  return BigInt(combined);
+}
+
+export async function fetchAssetBalances(
+  address: string,
+): Promise<Record<SupportedEscrowAssetCode, string>> {
+  try {
+    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/accounts/${address}`);
+    if (!response.ok) {
+      return { XLM: "0.00", USDC: "0.00", EURC: "0.00" };
+    }
+    const data = await response.json();
+    const balances = data.balances || [];
+
+    const native = balances.find((b: any) => b.asset_type === "native");
+    const usdc = balances.find(
+      (b: any) =>
+        b.asset_code === "USDC" &&
+        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
+    );
+
+    const eurc = balances.find(
+      (b: any) =>
+        b.asset_code === "EURC" &&
+        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
+    );
+
+    return {
+      XLM: native ? parseFloat(native.balance).toFixed(4) : "0.00",
+      USDC: usdc ? parseFloat(usdc.balance).toFixed(2) : "0.00",
+      EURC: eurc ? parseFloat(eurc.balance).toFixed(2) : "0.00",
+    };
+  } catch (error) {
+    console.warn("Error fetching multi-asset Horizon balances:", error);
+    return { XLM: "0.00", USDC: "0.00", EURC: "0.00" };
+  }
+}
+
+export const stellarOperations = {
+  getSorobanRpcServer: (): rpc.Server => getSorobanRpcServer(),
+  invokeSorobanMethod: (
+    callerAddress: string,
+    methodName: string,
+    scValArgs: xdr.ScVal[],
+    walletType: WalletType = "freighter",
+    contractIdOverride?: string,
+  ): Promise<SorobanInvokeResult> =>
+    invokeSorobanMethod(callerAddress, methodName, scValArgs, walletType, contractIdOverride),
+};
+
+const ALLOWANCE_LEDGER_OFFSET = 100_000;
+
+async function getAllowanceExpirationLedger(server: rpc.Server): Promise<number> {
+  const latest = await server.getLatestLedger();
+  if (typeof latest?.sequence !== "number") {
+    throw new Error("Unable to determine the current ledger for allowance expiration.");
+  }
+  return latest.sequence + ALLOWANCE_LEDGER_OFFSET;
+}
+
+/**
+ * Approves a token allowance on the corresponding Stellar Asset Contract (SAC).
+ */
+export async function approveTokenAllowance(
+  ownerAddress: string,
+  tokenContractAddress: string,
+  spenderAddress: string,
+  amount: number,
+  walletType: WalletType = "freighter",
+  decimals: number = 7,
+): Promise<{ success: boolean; txHash: string }> {
+  const amountStroops = parseUnitsToBigInt(amount, decimals);
+
+  if (walletType === "mock" || walletType === "readonly") {
+    return {
+      success: true,
+      txHash: "SIM_ALLOWANCE_" + Math.random().toString(36).substring(2, 10).toUpperCase(),
+    };
+  }
+
+  const expirationLedger = await getAllowanceExpirationLedger(
+    stellarOperations.getSorobanRpcServer(),
+  );
+
+  const args: xdr.ScVal[] = [
+    new Address(ownerAddress).toScVal(),
+    new Address(spenderAddress).toScVal(),
+    nativeToScVal(amountStroops, { type: "i128" }),
+    nativeToScVal(expirationLedger, { type: "u32" }),
+  ];
+
+  const result = await stellarOperations.invokeSorobanMethod(
+    ownerAddress,
+    "approve",
+    args,
+    walletType,
+    tokenContractAddress,
+  );
+  return {
+    success: true,
+    txHash: result.txHash,
+  };
+}
+
+/**
  * Formats a 56-character Stellar public key (G...) or Soroban contract ID (C...).
  */
 export function formatStellarAddress(address: string): string {
@@ -472,6 +595,68 @@ export function startSorobanEventStream(
 }
 
 /**
+ * Creates an on-chain campaign with an XLM or SAC stablecoin (USDC, EURC) escrow deposit.
+ */
+export async function createCampaignContractCall(
+  advertiserAddress: string,
+  commissionRatePercent: number,
+  clearingPeriodSecs: number,
+  budgetAmount: number,
+  walletType: WalletType = "freighter",
+  assetCode: SupportedEscrowAssetCode = "XLM",
+): Promise<{
+  success: boolean;
+  campaignId: number;
+  txHash: string;
+  asset: SupportedEscrowAssetCode;
+  assetAddress: string;
+}> {
+  const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
+  const budgetStroops = parseUnitsToBigInt(budgetAmount, assetConfig.decimals);
+
+  if (walletType === "mock" || advertiserAddress.startsWith("GASTORMSALE7")) {
+    const mockHash =
+      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+    const campaignId = Math.floor(Math.random() * 9000) + 1000;
+    return {
+      success: true,
+      campaignId,
+      txHash: mockHash,
+      asset: assetConfig.code,
+      assetAddress: assetConfig.contractAddress,
+    };
+  }
+  const rateBasisPoints = Math.floor(commissionRatePercent * 100);
+
+  const args: xdr.ScVal[] = [
+    new Address(advertiserAddress).toScVal(),
+    nativeToScVal(rateBasisPoints, { type: "u32" }),
+    nativeToScVal(clearingPeriodSecs, { type: "u32" }),
+    nativeToScVal(budgetStroops, { type: "i128" }),
+    new Address(assetConfig.contractAddress).toScVal(),
+  ];
+
+  const result = await stellarOperations.invokeSorobanMethod(
+    advertiserAddress,
+    "create_campaign",
+    args,
+    walletType,
+  );
+  const campaignId =
+    typeof result.resultValue === "number"
+      ? result.resultValue
+      : Math.floor(Math.random() * 9000) + 1000;
+
+  return {
+    success: true,
+    campaignId,
+    txHash: result.txHash,
+    asset: assetCode,
+    assetAddress: assetConfig.contractAddress,
+  };
+}
+
+/**
  * Logs an affiliate sale on-chain for a campaign.
  */
 export async function logSaleContractCall(
@@ -507,22 +692,51 @@ export async function logSaleContractCall(
 }
 
 /**
- * Claims cleared affiliate commission from escrow.
+ * Claims cleared affiliate commission from escrow in the campaign's settlement asset.
  */
 export async function claimPayoutContractCall(
   affiliateAddress: string,
   campaignId: number,
   walletType: WalletType = "freighter",
-): Promise<{ success: boolean; txHash: string }> {
+  assetCode?: SupportedEscrowAssetCode,
+): Promise<{
+  success: boolean;
+  txHash: string;
+  asset?: SupportedEscrowAssetCode;
+  assetAddress?: string;
+}> {
+  let resolvedAssetCode = assetCode;
+  let resolvedAssetAddress = assetCode ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress : undefined;
+
+  // When not explicitly provided by the caller, attempt to query the campaign's settlement asset from contract storage
+  if (!resolvedAssetCode && !affiliateAddress.startsWith("GASTORMSALE7") && walletType !== "mock") {
+    try {
+      const campaign = await getCampaignContractQuery(campaignId);
+      if (campaign && campaign.asset) {
+        const matched = Object.values(SUPPORTED_ESCROW_ASSETS).find(
+          (a) => a.contractAddress.toLowerCase() === String(campaign.asset).toLowerCase(),
+        );
+        if (matched) {
+          resolvedAssetCode = matched.code;
+          resolvedAssetAddress = matched.contractAddress;
+        }
+      }
+    } catch {
+      // Ignore simulation/query error on unmocked non-network calls
+    }
+  }
+
   if (walletType === "mock" || affiliateAddress.startsWith("GASTORMSALE7")) {
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     return {
       success: true,
       txHash: mockHash,
+      ...(resolvedAssetCode && resolvedAssetAddress
+        ? { asset: resolvedAssetCode, assetAddress: resolvedAssetAddress }
+        : {}),
     };
   }
-
   const args: xdr.ScVal[] = [
     new Address(affiliateAddress).toScVal(),
     nativeToScVal(campaignId, { type: "u32" }),
@@ -532,6 +746,9 @@ export async function claimPayoutContractCall(
   return {
     success: true,
     txHash: result.txHash,
+    ...(resolvedAssetCode && resolvedAssetAddress
+      ? { asset: resolvedAssetCode, assetAddress: resolvedAssetAddress }
+      : {}),
   };
 }
 
@@ -566,6 +783,7 @@ export async function getTokenAllowanceQuery(
   ownerAddress: string,
   spenderAddress: string = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
   tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
+  decimals: number = 7,
 ): Promise<number> {
   if (!ownerAddress) return 0;
 
@@ -604,8 +822,9 @@ export async function getTokenAllowanceQuery(
     const sim = await server.simulateTransaction(tx);
     if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
       const nativeVal = scValToNative(sim.result.retval);
+      const divisor = Math.pow(10, decimals);
       const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
-      return Math.max(0, stroops / 1e7);
+      return Math.max(0, stroops / divisor);
     }
     return 0;
   } catch (error) {
@@ -623,16 +842,14 @@ export async function getTokenAllowanceQuery(
  */
 export async function approveTokenContractCall(
   ownerAddress: string,
-  amountXlm: number,
+  amount: number,
   spenderAddress: string = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
   walletType: WalletType = "freighter",
   tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
+  decimals: number = 7,
 ): Promise<{ success: boolean; txHash: string; allowance: number }> {
   if (!ownerAddress) throw new Error("Wallet not connected");
-  if (amountXlm <= 0) throw new Error("Approval amount must be greater than zero");
-
-  const amountStroops = BigInt(Math.floor(amountXlm * 1e7));
-  const liveUntilLedger = 1000000;
+  if (amount <= 0) throw new Error("Approval amount must be greater than zero");
 
   if (
     walletType === "mock" ||
@@ -642,14 +859,19 @@ export async function approveTokenContractCall(
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amountXlm.toString());
+      window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
     }
     return {
       success: true,
       txHash: mockHash,
-      allowance: amountXlm,
+      allowance: amount,
     };
   }
+
+  const amountStroops = parseUnitsToBigInt(amount, decimals);
+  const liveUntilLedger = await getAllowanceExpirationLedger(
+    stellarOperations.getSorobanRpcServer(),
+  );
 
   const args: xdr.ScVal[] = [
     new Address(ownerAddress).toScVal(),
@@ -658,7 +880,7 @@ export async function approveTokenContractCall(
     nativeToScVal(liveUntilLedger, { type: "u32" }),
   ];
 
-  const result = await invokeSorobanMethod(
+  const result = await stellarOperations.invokeSorobanMethod(
     ownerAddress,
     "approve",
     args,
@@ -667,13 +889,13 @@ export async function approveTokenContractCall(
   );
 
   if (typeof window !== "undefined" && window.localStorage) {
-    window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amountXlm.toString());
+    window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
   }
 
   return {
     success: true,
     txHash: result.txHash,
-    allowance: amountXlm,
+    allowance: amount,
   };
 }
 

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, lazy } from "react";
+import React, { Suspense, useState, useEffect, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -7,6 +7,7 @@ import { useWeb3 } from "./hooks/useWeb3";
 import { SorobanConnectionPill } from "./components/shared/SorobanConnectionPill";
 import { SorobanEventToaster } from "./components/shared/SorobanEventToaster";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { loadBrandConfig } from "./lib/branding";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -89,7 +90,10 @@ class ErrorBoundary extends React.Component<
 
 function Router() {
   const { isConnected } = useWeb3();
-  const [currentPage, setCurrentPage] = useState("dashboard");
+  const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [currentPage, setCurrentPage] = useState(() =>
+    isTelegramMiniApp() ? "affiliate" : "dashboard",
+  );
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -115,7 +119,7 @@ function Router() {
     <>
       <ConnectWalletModal />
       <Suspense fallback={<PageLoader />}>
-        {!isConnected ? (
+        {!isConnected && !tmaMode ? (
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
@@ -125,12 +129,22 @@ function Router() {
             <main>
               {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
               {currentPage === "advertiser" && (
-                <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                  <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                </Suspense>
               )}
               {currentPage === "affiliate" && (
-                <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                  <Affiliate
+                    onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
+                  />
+                </Suspense>
               )}
-              {currentPage === "auditor" && <Auditor onBack={() => setCurrentPage("dashboard")} />}
+              {currentPage === "auditor" && (
+                <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                  <Auditor onBack={() => setCurrentPage("dashboard")} />
+                </Suspense>
+              )}
             </main>
           </div>
         )}
@@ -140,6 +154,14 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    initTelegramWebApp();
+    const cleanup = syncTelegramTheme();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
   return (
     <NotificationWrapper>
       <ErrorBoundary>
