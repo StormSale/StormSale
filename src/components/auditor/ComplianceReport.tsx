@@ -30,7 +30,7 @@ import {
   buildSignedAuditReport,
   exportComplianceToCSV,
   generateBrandedPDFHtml,
-  printOrSavePDF,
+  printOrSavePDf,
   downloadFile,
   DEFAULT_COMPLIANCE_STANDARDS,
   DEFAULT_AUDIT_RECORDS,
@@ -121,9 +121,9 @@ export const ComplianceReport = () => {
   };
 
   // Generate Branded PDF Action
-  const handleExportPDF = () => {
+  const handleExportPDF2 = () => {
     const html = generateBrandedPDFHtml(currentReport);
-    printOrSavePDF(html);
+    printOrSavePDf(html);
     setLastExportedSignature({
       digest: currentReport.cryptoSignature.digestHash,
       cert: currentReport.cryptoSignature.signatureCert,
@@ -210,7 +210,7 @@ export const ComplianceReport = () => {
           </Button>
 
           <Button
-            onClick={handleExportPDF}
+            onClick={handleExportPDF2}
             className="h-10 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white font-bold text-xs shadow-md hover:bg-zinc-800 dark:hover:bg-indigo-500 transition-all"
           >
             <Printer className="w-4 h-4 mr-1.5" />
@@ -305,9 +305,9 @@ export const ComplianceReport = () => {
                   <button
                     type="button"
                     onClick={() => applyPreset("mayAudit")}
-                    className="px-2.5 py-2 text-[11px] font-bold rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:border-indigo-400 text-indigo-600 dark:text-indigo-400"
+                    className="px-2.5 py-2 text-[11px] font-bold rounded-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 hover:border-indigo-400"
                   >
-                    May '26
+                    May
                   </button>
                   <button
                     type="button"
@@ -320,278 +320,154 @@ export const ComplianceReport = () => {
               </div>
             </div>
 
-            {/* Cryptographic Seal Preview */}
-            <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200/80 dark:border-zinc-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-              <div className="space-y-1">
-                <div className="flex items-center space-x-2">
-                  <Lock className="w-3.5 h-3.5 text-indigo-500" />
-                  <span className="font-bold text-zinc-900 dark:text-white">
-                    Live Cryptographic Report Signature:
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-bold">
-                    {currentReport.reportId}
-                  </span>
+            {/* Signature Status */}
+            {lastExportedSignature && (
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/20 p-4">
+                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 text-xs font-bold">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Last export signed at {lastExportedSignature.time}
                 </div>
-                <div className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-xl">
-                  SHA-256 Digest: {currentReport.cryptoSignature.digestHash}
+                <div className="mt-2 text-[11px] font-mono text-zinc-600 dark:text-zinc-400 break-all">
+                  digest: {lastExportedSignature.digest}
                 </div>
               </div>
-
-              <div className="flex items-center space-x-2">
-                <Button
-                  size="sm"
-                  onClick={handleExportPDF}
-                  className="h-8 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold"
-                >
-                  <Download className="w-3 h-3 mr-1" />
-                  Download Signed PDF
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleExportCSV}
-                  className="h-8 px-3 rounded-lg text-xs font-bold"
-                >
-                  <Download className="w-3 h-3 mr-1" />
-                  Download CSV
-                </Button>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Export Confirmation Toast / Banner if previously exported */}
-      {lastExportedSignature && (
-        <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-between text-xs text-emerald-900 dark:text-emerald-300">
-          <div className="flex items-center space-x-2 truncate">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span>
-              Successfully exported signed report at {lastExportedSignature.time}! Digest:{" "}
-              <strong className="font-mono text-[11px]">
-                {lastExportedSignature.digest.slice(0, 16)}...
-              </strong>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setLastExportedSignature(null)}
-            className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline ml-2 shrink-0 font-bold"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Summary KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border border-slate-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900/80 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500" />
-          <CardContent className="p-6">
-            <div className="text-3xl font-extrabold text-zinc-900 dark:text-white">
-              {compliant}/{currentReport.standards.length}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800">
+          <CardContent className="p-6 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
             </div>
-            <div className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-2">
-              Standards Compliant ({currentReport.metrics.complianceScore}%)
+            <div>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white">{compliant}</p>
+              <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Compliant</p>
             </div>
           </CardContent>
         </Card>
-
-        <Card className="border border-slate-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900/80 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-amber-500" />
-          <CardContent className="p-6">
-            <div className="text-3xl font-extrabold text-zinc-900 dark:text-white">{review}</div>
-            <div className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-2">
-              Require Review
+        <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800">
+          <CardContent className="p-6 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white">{review}</p>
+              <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Review Needed</p>
             </div>
           </CardContent>
         </Card>
-
-        <Card className="border border-slate-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900/80 relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
-          <CardContent className="p-6">
-            <div className="text-3xl font-extrabold text-zinc-900 dark:text-white">
-              {currentReport.metrics.totalAuditedSales}
+        <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800">
+          <CardContent className="p-6 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-indigo-100 dark:bg-indigo-500/20 flex items-center justify-center">
+              <FileCheck className="w-5 h-5 text-indigo-600" />
             </div>
-            <div className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-2">
-              Audited Ledger Records ({startDate} &rarr; {endDate})
+            <div>
+              <p className="text-2xl font-extrabold text-zinc-900 dark:text-white">{currentReport.standards.length}</p>
+              <p className="text-xs font-bold text-zinc-500 dark:text-zinc-400">Total Standards</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Automated SOC 2 Type II Evidence Packager */}
-      <Soc2EvidenceExport />
-
-      {/* Compliance Standards List */}
-      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
-        <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-                <FileCheck className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-                  Regulatory Standards Assessment
-                </CardTitle>
-                <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                  Compliance evaluation across NIST, ISO/IEC, GDPR, SOC 2, and FIPS security
-                  frameworks
-                </CardDescription>
-              </div>
-            </div>
-
-            <div className="text-right hidden sm:block">
-              <div className="text-xs text-zinc-400 font-mono">
-                Window: {startDate} to {endDate}
-              </div>
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-            {currentReport.standards.map((item, i) => {
-              const cfg = statusMap[item.status] || statusMap["Compliant"];
-              const StatusIcon = cfg.icon;
-              return (
-                <div
-                  key={i}
-                  className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 px-8 py-6 hover:bg-slate-50/50 dark:hover:bg-zinc-900/30 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                        item.status === "Compliant"
-                          ? "bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20"
-                          : "bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20"
-                      }`}
-                    >
-                      <StatusIcon
-                        className={`w-5 h-5 ${
-                          item.status === "Compliant"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-amber-600 dark:text-amber-400"
-                        }`}
-                      />
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {item.standard}
-                      </div>
-                      <div className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 mt-0.5">
-                        {item.category}
-                      </div>
-                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed max-w-lg">
-                        {item.details}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex sm:flex-col items-center sm:items-end gap-2 shrink-0">
-                    <span
-                      className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${cfg.badge}`}
-                    >
-                      {item.status}
-                    </span>
-                    <div className="flex items-center gap-1 text-xs text-zinc-400 dark:text-zinc-500">
-                      <Clock className="w-3 h-3" />
-                      {item.lastChecked}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Secure external sharing */}
-      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
-        <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-              <Share2 className="w-6 h-6 text-white" />
+      {/* Share / Expiry-Locked Link Panel */}
+      <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800">
+        <CardHeader className="pb-4 pt-6 px-6 sm:px-8 border-b border-slate-100 dark:border-zinc-800">
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+              <Share2 className="w-5 h-5" />
             </div>
             <div>
               <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-                Secure External Sharing
+                Expiry-Locked Sharing
               </CardTitle>
-              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                Encrypt this report with a PGP-style passphrase and generate an expiry-locked link
+              <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
+                Generate a passphrase-protected share link that expires automatically
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="p-8 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-end gap-4">
-            <div className="flex-1">
-              <label className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                Link Expiry
+        <CardContent className="p-6 sm:p-8 space-y-5">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                Link Expiry:
               </label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <select
+                value={expiryHours}
+                onChange={(e) => setExpiryHours(Number(e.target.value))}
+                className="h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
                 {EXPIRY_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.hours}
-                    type="button"
-                    onClick={() => setExpiryHours(opt.hours)}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors border ${
-                      expiryHours === opt.hours
-                        ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-300 border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                    }`}
-                  >
+                  <option key={opt.hours} value={opt.hours}>
                     {opt.label}
-                  </button>
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
+            <Button
+              onClick={handleGenerateLink}
+              className="h-10 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white font-bold text-xs shadow-md hover:bg-zinc-800 dark:hover:bg-indigo-500 transition-all"
+            >
+              <KeyRound className="w-4 h-4 mr-1.5" />
+              Generate Secure Share Link
+            </Button>
           </div>
+
+          {shareLink && (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-3 flex items-center gap-2">
+                <Lock className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                  {shareLink}
+                </span>
+                <Button
+                  onClick={handleCopy}
+                  variant="outline"
+                  className="h-8 rounded-lg text-xs font-bold flex-shrink-0"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {passphrase && (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3">
+                  <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                    <KeyRound className="w-4 h-4" />
+                    Share passphrase (share separately):
+                  </div>
+                  <div className="mt-1 text-sm font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                    {passphrase}
+                  </div>
+                </div>
+              )}
+
+              {expiresAt && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  <Clock className="w-4 h-4" />
+                  Expires at {expiresAt.toLocaleString()}
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Cryptographic Tamper-Evident Ledger Notice */}
-      <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl">
-        <CardContent className="p-6">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-4">
-              <Lock className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 shrink-0" />
-              <div>
-                <p className="font-bold text-zinc-900 dark:text-white text-sm">
-                  Cryptographic Audit Immutability & Ledger Attestation
-                </p>
-                <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed max-w-2xl">
-                  Every compliance audit report and batch export is digitally hashed using SHA-256
-                  and immutably anchored to the Stellar ledger. Exported PDF/CSV certificates can be
-                  independently verified.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2 shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportPDF}
-                className="rounded-xl border-slate-200 dark:border-zinc-800 text-xs font-bold"
-              >
-                <Printer className="w-3.5 h-3.5 mr-1.5" />
-                Print / Save PDF
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleExportCSV}
-                className="rounded-xl border-slate-200 dark:border-zinc-800 text-xs font-bold"
-              >
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                Batch CSV
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Soc2 Evidence Export */}
+      <Soc2EvidenceExport />
     </div>
   );
 };

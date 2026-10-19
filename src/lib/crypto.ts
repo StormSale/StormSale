@@ -63,6 +63,17 @@ function getSubtle(): SubtleCrypto {
   return subtle;
 }
 
+/**
+ * Normalize a byte array to a plain ArrayBuffer-backed Uint8Array.
+ * This avoids TS WebCrypto overload errors where `Uint8Array<ArrayBufferLike>`
+ * is not assignable to `BufferSource` (SharedArrayBuffer is not an ArrayBuffer).
+ */
+function toBufferSource(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(bytes.byteLength));
+  out.set(bytes);
+  return out;
+}
+
 function base64Encode(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -90,7 +101,7 @@ function base64Decode(input: string): Uint8Array<ArrayBuffer> {
 
 function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(new ArrayBuffer(length));
-  const c = globalThis.crypto ?? (globalThis as unknown as { webcrypto?: Crypto }).webcrypto;
+  const c = globalThis.crypto ?? (globalThis as unknown as { webcrypto: Crypto }).webcrypto;
   if (c?.getRandomValues) {
     c.getRandomValues(bytes);
     return bytes;
@@ -98,7 +109,7 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   throw new Error("Secure random number generator is unavailable.");
 }
 
-function assertAesGcmKey(key: unknown): asserts key is CryptoKey {
+function assertAESGcmKey(key: unknown): asserts key is CryptoKey {
   const k = key as CryptoKey | null;
   if (!k || typeof k !== "object" || (k.algorithm as Algorithm | undefined)?.name?.toUpperCase() !== "AES-GCM") {
     throw new Error("Decryption failed: invalid key.");
@@ -119,7 +130,7 @@ async function deriveWrappingKey(identifier: string): Promise<CryptoKey> {
 
 async function deriveShareKey(secret: Uint8Array, expiresAt: number): Promise<CryptoKey> {
   const subtle = getSubtle();
-  const base = await subtle.importKey("raw", secret, { name: "HMAC", hash: "SHA-256" }, false, [
+  const base = await subtle.importKey("raw", toBufferSource(secret), { name: "HMAC", hash: "SHA-256" }, false, [
     "sign",
   ]);
   const mac = await subtle.sign("HMAC", base, TEXT_ENCODER.encode(`STORMSALE-SHARE-V1:${expiresAt}`));
@@ -151,7 +162,7 @@ export async function generateAESKey(): Promise<CryptoKey> {
 }
 
 export async function encryptPayload(payload: object, aesKey: CryptoKey): Promise<string> {
-  assertAesGcmKey(aesKey);
+  assertAESGcmKey(aesKey);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("Encryption failed: payload must be a JSON object.");
   }
@@ -162,7 +173,7 @@ export async function encryptPayload(payload: object, aesKey: CryptoKey): Promis
   const iv = randomBytes(GCM_IV_BYTES);
   let ct: ArrayBuffer;
   try {
-    ct = await getSubtle().encrypt({ name: "AES-GCM", iv }, aesKey, plaintext);
+    ct = await getSubtle().encrypt(subtleArgs("encrypt", iv, aesKey, plaintext));
   } catch {
     throw new Error("Encryption failed.");
   }
@@ -176,7 +187,7 @@ export async function encryptPayload(payload: object, aesKey: CryptoKey): Promis
 }
 
 export async function wrapAESKey(aesKey: CryptoKey, publicKey: string): Promise<string> {
-  assertAesGcmKey(aesKey);
+  assertAESGcmKey(aesKey);
   let raw: ArrayBuffer;
   try {
     raw = await getSubtle().exportKey("raw", aesKey);
@@ -187,7 +198,7 @@ export async function wrapAESKey(aesKey: CryptoKey, publicKey: string): Promise<
   const iv = randomBytes(GCM_IV_BYTES);
   let ct: ArrayBuffer;
   try {
-    ct = await getSubtle().encrypt({ name: "AES-GCM", iv }, wk, raw);
+    ct = await getSubtle().encrypt(subtleArgs("encrypt", iv, wk, raw));
   } catch {
     throw new Error("Key wrap failed.");
   }
@@ -229,7 +240,7 @@ export async function unwrapAESKey(wrappedKey: string, privateKey: string): Prom
   const wk = await deriveWrappingKey(privateKey);
   let raw: ArrayBuffer;
   try {
-    raw = await getSubtle().decrypt({ name: "AES-GCM", iv }, wk, data);
+    raw = await getSubtle().decrypt(subtleArgs("decrypt", iv, wk, data));
   } catch {
     throw FAIL;
   }
@@ -247,7 +258,7 @@ export async function decryptPayload(
   encryptedPayload: string,
   aesKey: CryptoKey,
 ): Promise<object> {
-  assertAesGcmKey(aesKey);
+  assertAESGcmKey(aesKey);
   const FAIL = new Error("Decryption failed: invalid payload or key.");
   if (!encryptedPayload || typeof encryptedPayload !== "string") throw FAIL;
   if (encryptedPayload.length > MAX_ENVELOPE_CHARS) throw FAIL;
@@ -277,7 +288,7 @@ export async function decryptPayload(
   if (iv.byteLength !== GCM_IV_BYTES || data.byteLength === 0) throw FAIL;
   let pt: ArrayBuffer;
   try {
-    pt = await getSubtle().decrypt({ name: "AES-GCM", iv }, aesKey, data);
+    pt = await getSubtle().decrypt(subtleArgs("decrypt", iv, aesKey, data));
   } catch {
     throw FAIL;
   }
@@ -366,26 +377,30 @@ export async function createShareLink(
     throw new Error("Share link failed: payload must be a JSON object.");
   }
   const now = Date.now();
-  const requestedExpiry =
+  const expiresAt =
     typeof options.expiresAt === "number" && Number.isFinite(options.expiresAt)
       ? options.expiresAt
       : now + (typeof options.ttlMs === "number" && Number.isFinite(options.ttlMs)
           ? options.ttlMs
           : DEFAULT_SHARE_TTL_MS);
-  if (!requestedExpiry || requestedExpiry <= now) {
+  if (!Number.isFinite(expiresAt) || expiresAt <= now) {
     throw new Error("Share link failed: expiry must be in the future.");
   }
-  const expiresAt = Math.floor(requestedExpiry);
   const secret = randomBytes(SHARE_LINK_SECRET_BYTES);
   const key = await deriveShareKey(secret, expiresAt);
-  const iv = randomBytes(GCM_IV_BYTES);
+  const keyCheck = await computeKeyCheck(key, expiresAt);
   const plaintext = TEXT_ENCODER.encode(JSON.stringify(payload));
   if (plaintext.byteLength === 0 || plaintext.byteLength > MAX_PLAINTEXT_BYTES) {
     throw new Error("Share link failed: payload size out of bounds.");
   }
-  const ct = await getSubtle().encrypt({ name: "AES-GCM", iv }, key, plaintext);
-  const keyCheck = await computeKeyCheck(key, expiresAt);
-  const sharePayload: ShareLinkPayload = {
+  const iv = randomBytes(GCM_IV_BYTES);
+  let ct: ArrayBuffer;
+  try {
+    ct = await getSubtle().encrypt(subtleArgs("encrypt", iv, key, plaintext));
+  } catch {
+    throw new Error("Share link failed.");
+  }
+  const share: ShareLinkPayload = {
     v: SHARE_LINK_VERSION,
     alg: "AES-GCM-256",
     iv: base64Encode(iv),
@@ -393,60 +408,57 @@ export async function createShareLink(
     expiresAt,
     keyCheck,
   };
-  const token = base64Encode(
-    TEXT_ENCODER.encode(
-      JSON.stringify({ v: SHARE_LINK_VERSION, secret: base64Encode(secret), payload: sharePayload }),
-    ),
-  );
-  return { token, expiresAt };
+  const token = base64Encode(TEXT_ENCODER.encode(JSON.stringify({ ...share, secret: base64Encode(secret) })));
+  return { token: token.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""), expiresAt };
 }
 
+/**
+ * Decrypt an expiry-locked sharing token. Throws if the token is expired,
+ * tampered with, or otherwise invalid.
+ */
 export async function decryptShareLink(token: string): Promise<ShareLinkDecryptResult> {
-  const FAIL = new Error("Share link invalid or expired.");
+  const FAIL = new Error("Share link decryption failed: invalid or tampered token.");
   if (!token || typeof token !== "string" || token.length > MAX_ENVELOPE_CHARS) {
     throw FAIL;
   }
-  let outer: { v?: number; secret?: string; payload?: ShareLinkPayload };
+  let env: ShareLinkPayload & { secret?: string };
   try {
-    outer = JSON.parse(TEXT_DECODER.decode(base64Decode(token))) as typeof outer;
+    env = JSON.parse(TEXT_DECODER.decode(base64Decode(token))) as typeof env;
   } catch {
     throw FAIL;
   }
-  if (!outer || outer.v !== SHARE_LINK_VERSION || typeof outer.secret !== "string") {
-    throw FAIL;
-  }
-  const p = outer.payload;
   if (
-    !p ||
-    p.v !== SHARE_LINK_VERSION ||
-    p.alg !== "AES-GCM-256" ||
-    typeof p.iv !== "string" ||
-    typeof p.data !== "string" ||
-    typeof p.keyCheck !== "string" ||
-    typeof p.expiresAt !== "number"
+    !env ||
+    env.v !== SHARE_LINK_VERSION ||
+    env.alg !== "AES-GCM-256" ||
+    typeof env.iv !== "string" ||
+    typeof env.data !== "string" ||
+    typeof env.keyCheck !== "string" ||
+    typeof env.secret !== "string" ||
+    typeof env.expiresAt !== "number"
   ) {
     throw FAIL;
   }
-  if (Date.now() > p.expiresAt) throw FAIL;
-  let secret: Uint8Array<ArrayBuffer>;
+  if (!env.expiresAt || Date.now() > env.expiresAt) {
+    throw new Error("Share link expired.");
+  }
   let iv: Uint8Array<ArrayBuffer>;
   let data: Uint8Array<ArrayBuffer>;
+  let secret: Uint8Array<ArrayBuffer>;
   try {
-    secret = base64Decode(outer.secret);
-    iv = base64Decode(p.iv);
-    data = base64Decode(p.data);
+    iv = base64Decode(env.iv);
+    data = base64Decode(env.data);
+    secret = base64Decode(env.secret);
   } catch {
     throw FAIL;
   }
-  if (secret.byteLength !== SHARE_LINK_SECRET_BYTES || iv.byteLength !== GCM_IV_BYTES || data.byteLength === 0) {
-    throw FAIL;
-  }
-  const key = await deriveShareKey(secret, p.expiresAt);
-  const expectedCheck = await computeKeyCheck(key, p.expiresAt);
-  if (expectedCheck !== p.keyCheck) throw FAIL;
+  if (iv.byteLength !== GCM_IV_BYTES || data.byteLength === 0) throw FAIL;
+  const key = await deriveShareKey(secret, env.expiresAt);
+  const keyCheck = await computeKeyCheck(key, env.expiresAt);
+  if (keyCheck !== env.keyCheck) throw FAIL;
   let pt: ArrayBuffer;
   try {
-    pt = await getSubtle().decrypt({ name: "AES-GCM", iv }, key, data);
+    pt = await getSubtle().decrypt(subtleArgs("decrypt", iv, key, data));
   } catch {
     throw FAIL;
   }
@@ -457,15 +469,21 @@ export async function decryptShareLink(token: string): Promise<ShareLinkDecryptR
     throw FAIL;
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw FAIL;
-  return { payload: parsed as object, expiresAt: p.expiresAt };
+  return { payload: parsed as object, expiresAt: env.expiresAt };
 }
 
-// Helper to get a "mock" public key from a wallet address
-export async function getPublicKeyForAddress(address: string): Promise<string> {
-  if (!address || typeof address !== "string" || address.trim().length === 0) {
-    throw new Error("Unknown address: identifier is required.");
-  }
-  const t = address.trim();
-  if (/^[GC][A-Z0-9]{55}$/.test(t)) return t;
-  return `STORMSALE-PUBKEY:${t}`;
+function subtleArgs(
+  usage: "encrypt" | "decrypt",
+  iv: Uint8Array<ArrayBuffer>,
+  key: CryptoKey,
+  data: Uint8Array<ArrayBuffer> | ArrayBuffer,
+): AesGcmParams {
+  return {
+    name: "AES-GCM",
+    iv: toBufferSource(iv),
+    tagLength: 128,
+    // The data is passed as the second argument to encrypt/decrypt.
+    // Keep this helper signature compatible with both call sites.
+    ...(usage === "encrypt" ? {} : {}),
+  } as AesGcmParams;
 }

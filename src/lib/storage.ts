@@ -138,7 +138,7 @@ export async function setEncryptedItem<T>(key: string, value: T): Promise<void> 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const plaintext = new TextEncoder().encode(JSON.stringify(value));
 
-  const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv }, storageKey, plaintext);
+  const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv: iv as BufferSource }, storageKey, plaintext as BufferSource);
 
   const payload: EncryptedPayload = {
     v: 1,
@@ -172,7 +172,7 @@ export async function getEncryptedItem<T>(key: string): Promise<T | null> {
     const iv = new Uint8Array(payload.iv);
     const data = new Uint8Array(payload.data);
 
-    const decrypted = await subtle.decrypt({ name: "AES-GCM", iv }, storageKey, data);
+    const decrypted = await subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, storageKey, data as BufferSource);
 
     const text = new TextDecoder().decode(decrypted);
     return JSON.parse(text) as T;
@@ -438,14 +438,14 @@ export async function createExternalShare(
   const now = Date.now();
   assertExpiryWindow(expiresAt, now);
 
-  if (!recipient.label || !recipient.publicKeySpki) {
+  if (!recipient.label || !recipient.publicKeySpkb) {
     throw new Error("Share recipient must include a label and RSA public key.");
   }
 
   const subtle = getSubtle();
   const crypto = getCrypto();
 
-  const recipientKey = await importRemotePublicKey(recipient.publicKeySpki);
+  const recipientKey = await importRemotePublicKey(recipient.publicKeySpkb);
 
   // Fresh AES-256-GCM content key for this share.
   const contentKey = await subtle.generateKey(
@@ -473,7 +473,7 @@ export async function createExternalShare(
     iv: Array.from(iv),
     ciphertext: Array.from(new Uint8Array(ciphertext)),
     wrappedKey: Array.from(new Uint8Array(wrappedKey)),
-    sharerPublicKeySpkb: options?.sharerPublicKeySpkb ?? "",
+    sharerPublicKeySpkb: options?.sharerPublicKeySpki ?? "",
   };
 
   const id = await sha256Hex(canonicalEnvelopeBody(baseEnvelope));
