@@ -59,6 +59,50 @@ describe("Dialog (modal) visual baseline", () => {
     snapshotBody();
   });
 
+  describe.each(["sm", "md", "lg", "xl", "full", "mobile-full"] as const)("size: %s", (size) => {
+    it("open", () => {
+      render(
+        <Dialog open>
+          <DialogContent size={size}>
+            <DialogHeader>
+              <DialogTitle>Sized modal</DialogTitle>
+              <DialogDescription>Size variant {size}.</DialogDescription>
+            </DialogHeader>
+          </DialogContent>
+        </Dialog>,
+      );
+      snapshotBody();
+    });
+  });
+
+  it("open: animated disabled", () => {
+    render(
+      <Dialog open>
+        <DialogContent animated={false}>
+          <DialogHeader>
+            <DialogTitle>Static modal</DialogTitle>
+            <DialogDescription>Rendered without the entrance animation.</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>,
+    );
+    snapshotBody();
+  });
+
+  it("open: close button hidden", () => {
+    render(
+      <Dialog open>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>No close button</DialogTitle>
+            <DialogDescription>Dismiss via footer actions only.</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>,
+    );
+    snapshotBody();
+  });
+
   it("closed: renders nothing", () => {
     render(
       <Dialog open={false}>
