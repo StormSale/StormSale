@@ -1,84 +1,90 @@
-import { useWeb3 as useWeb3Context } from "../context/Web3Context";
+import { useWeb3 as useWebContext } from "../context/WebContext";
 
-export const useWeb3 = useWeb3Context;
+export type SorobanResourceConsumption = {
+  cpuInstructions: number;
+  memoryBytes: number;
+  readBytes?: number;
+  writeBytes?: number;
+  minResourceFee?: string;
+};
 
-export const useWeb3ResourceDiagnostics = useSorobanResourceDiagnostics;
-
-export interface SorobanResourceDiagnostics {
-  minResourceFee: string;
-  cpuInstructions: string;
-  memoryBytes: string;
-  ledgerReadBytes?: string;
-  ledgerWriteBytes?: string;
-  warnings: string[];
-}
-
-export interface SimulateTransactionResponse {
-  minResourceFee?: string | number;
-  transactionData?: string;
-  results?: Array<{
-    cost?: {
-      cpuInsns?: string | number;
-      memBytes?: string | number;
-    };
-    auth?: unknown[];
-  }>;
+export type SorobanSimulationResult = {
+  success?: boolean;
+  minResourceFee?: string;
   cost?: {
-    cpuInsns?: string | number;
-    memBytes?: string | number;
+    cpuInstructions?: string | number;
+    memoryBytes?: string | number;
   };
-  latestLedger?: number;
-  error?: string;
-}
+  result?: {
+    returnValue?: unknown;
+  };
+};
+
+export type ResourceDiagnostic = {
+  consumption: SorobanResourceConsumption;
+  warnings: string[];
+  isOptimized: boolean;
+};
 
 const CPU_WARN_THRESHOLD = 100_000_000;
 const MEMORY_WARN_THRESHOLD = 40_000_000;
+const READ_WARN_THRESHOLD = 100_000;
+const WRITE_WARN_THRESHOLD = 100_000;
 
-const toNumericString = (value: string | number | undefined): string => {
-  if (value === undefined || value === null) return "0";
-  return String(value);
-};
-
-const toNumber = (value: string | number | undefined): number => {
-  if (value === undefined || value === null) return 0;
+function toNumber(value: string | number | undefined): number {
+  if (value === undefined) {
+    return 0;
+  }
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
-};
+}
 
-/**
- * Parses a Soroban RPC `simulateTransaction` response into a granular
- * resource diagnostic breakdown suitable for display in confirmation modals.
- */
-export const parseSorobanResourceDiagnostics = (
-  response: SimulateTransactionResponse | null | undefined
-): SorobanResourceDiagnostics | null => {
-  if (!response || response.error) return null;
-
-  const cost = response.cost ?? response.results?.[0]?.cost;
-  const cpuInstructions = toNumericString(cost?.cpuInsns);
-  const memoryBytes = toNumericString(cost?.memBytes);
-  const minResourceFee = toNumericString(response.minResourceFee);
+export function parseSorobanSimulation(
+  simulation: SorobanSimulationResult | undefined | null,
+): ResourceDiagnostic {
+  const consumption: SorobanResourceConsumption = {
+    cpuInstructions: toNumber(simulation?.cost?.cpuInstructions),
+    memoryBytes: toNumber(simulation?.cost?.memoryBytes),
+    readBytes: toNumber(
+      (simulation as { readBytes?: string | number } | undefined)?.readBytes,
+    ),
+    writeBytes: toNumber(
+      (simulation as { writeBytes?: string | number } | undefined)?.writeBytes,
+    ),
+    minResourceFee: simulation?.minResourceFee,
+  };
 
   const warnings: string[] = [];
-  if (toNumber(cost?.cpuInsns) > CPU_WARN_THRESHOLD) {
+
+  if (consumption.cpuInstructions > CPU_WARN_THRESHOLD) {
     warnings.push(
-      "High CPU instruction footprint detected; consider optimizing contract logic."
+      `CPU usage (${consumption.cpuInstructions.toLocaleString()} instructions) exceeds the recommended threshold of ${CPU_WARN_THRESHOLD.toLocaleString()}. Consider optimizing contract logic.`,
     );
   }
-  if (toNumber(cost?.memBytes) > MEMORY_WARN_THRESHOLD) {
+
+  if (consumption.memoryBytes > MEMORY_WARN_THRESHOLD) {
     warnings.push(
-      "High memory consumption detected; review contract data structures."
+      `Memory usage (${consumption.memoryBytes.toLocaleString()} bytes) exceeds the recommended threshold of ${MEMORY_WARN_THRESHOLD.toLocaleString()}. Consider reducing in-memory data size.`,
+    );
+  }
+
+  if ((consumption.readBytes ?? 0) > READ_WARN_THRESHOLD) {
+    warnings.push(
+      `Ledger read volume (${consumption.readBytes?.toLocaleString()} bytes) is high. Consider caching or batching state reads.`,
+    );
+  }
+
+  if ((consumption.writeBytes ?? 0) > WRITE_WARN_THRESHOLD) {
+    warnings.push(
+      `Ledger write volume (${consumption.writeBytes?.toLocaleString()} bytes) is high. Consider reducing persistent state writes.`,
     );
   }
 
   return {
-    minResourceFee,
-    cpuInstructions,
-    memoryBytes,
+    consumption,
     warnings,
+    isOptimized: warnings.length === 0,
   };
-};
+}
 
-export const useSorobanResourceDiagnostics = (
-  response: SimulateTransactionResponse | null | undefined
-): SorobanResourceDiagnostics | null => parseSorobanResourceDiagnostics(response);
+export const useWeb3 = useWebContext;
