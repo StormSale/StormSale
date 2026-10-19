@@ -7,12 +7,81 @@ import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
-import { BarChart3, Eye, ClipboardList, FileCheck, ShieldCheck, Network } from "lucide-react";
+import {
+  AuditorTenancyProvider,
+  useAuditorTenancy,
+} from "../context/AuditorTenancyContext";
+import {
+  BarChart3,
+  Eye,
+  ClipboardList,
+  FileCheck,
+  ShieldCheck,
+  Network,
+  Building2,
+  KeyRound,
+  Lock,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
   onBack: () => void;
 }
+
+/**
+ * Organization tenancy selector (Issue #189). Lives in the auditor navigation
+ * so every tab below is visibly scoped to one read-only organization.
+ */
+const TenantSelector = () => {
+  const { org, organizations, switchTenant, cachedKeyIds } = useAuditorTenancy();
+
+  return (
+    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-6 p-4 bg-white dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
+          <Building2 className="w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-wider">
+            Organization scope
+          </span>
+        </div>
+        {organizations.map((candidate) => {
+          const isActive = candidate.id === org.id;
+          return (
+            <button
+              key={candidate.id}
+              type="button"
+              onClick={() => switchTenant(candidate.id)}
+              aria-pressed={isActive}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${
+                isActive
+                  ? "bg-indigo-600 border-indigo-600 text-white shadow-sm"
+                  : "bg-slate-50 dark:bg-zinc-950/50 border-slate-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-indigo-300 dark:hover:border-indigo-500/40"
+              }`}
+            >
+              {candidate.shortName}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+          <Eye className="w-3.5 h-3.5" />
+          Read-only scope
+        </span>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
+          {cachedKeyIds.length > 0 ? (
+            <KeyRound className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+          ) : (
+            <Lock className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+          )}
+          {cachedKeyIds.length} session key{cachedKeyIds.length === 1 ? "" : "s"}
+          {" · "}
+          {org.name}
+        </span>
+      </div>
+    </div>
+  );
+};
 
 const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState("overview");
@@ -56,6 +125,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
       {/* Main content */}
       <div className="flex-1 p-4 lg:p-8 lg:overflow-y-auto">
         <div className="max-w-6xl mx-auto">
+          <TenantSelector />
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -75,6 +145,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
 export const Auditor: React.FC<AuditorProps> = (props) => (
   <NotificationProvider>
-    <AuditorContent {...props} />
+    <AuditorTenancyProvider>
+      <AuditorContent {...props} />
+    </AuditorTenancyProvider>
   </NotificationProvider>
 );

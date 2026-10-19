@@ -25,6 +25,7 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
+import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { useUserQuery, useUpdateRoleMutation } from "../hooks/useUserQuery";
 import { useBalanceQuery } from "../hooks/useBalanceQuery";
@@ -90,7 +91,10 @@ export interface Web3ContextType {
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
-  batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
+  batchClaimPayoutsOnChain: (
+    campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
+  ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
@@ -380,6 +384,99 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         amountXlm,
         connectorType || "freighter",
       );
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
+  };
+
+  // Soroban: Claim Affiliate Commission
+  const claimPayoutOnChain = async (
+    campaignId: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+        ...(assetCode ? { asset: assetCode } : {}),
+      };
+    }
+  };
+
+  // Soroban: Refund Unused Campaign Escrow
+  const refundCampaignEscrow = async (campaignId: number) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
+    }
+  };
+
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
+  const batchClaimPayoutsOnChain = async (
+    campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+      splitPlan,
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
+  };
+
+  // Passkey Smart Account Registration
+  const registerPasskeyAccount = async (userName?: string) => {
+    const { registerPasskey } = await import("../lib/passkeySigner");
+    const record = await registerPasskey(userName || "Affiliate User");
+    await connectWallet("passkey");
+    return record;
+  };
+
+  // Compatibility facade for existing form components
+  const factoryContract = {
+    createCampaign: async (rate: string, period: string) => {
+      const res = await createCampaignOnChain(
+        "Campaign",
+        1000,
+        parseFloat(rate) || 10,
+        parseInt(period) || 604800,
+        "XLM",
+      );
+      return {
+        wait: async () => res,
+      };
     },
     [userAddress, connectorType],
   );
