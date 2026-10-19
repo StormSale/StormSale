@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
 import {
@@ -27,7 +27,7 @@ import type { WalletType } from "../../lib/stellar";
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
   const { connect: connectWalletConnect } = useWalletConnect();
-  const [connectingType, setConnectingType] = useState<WalletType | null>(null);
+  const [connectingType, setConnectingType] = useState<WalletType | "walletconnect" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState("");
   const [showReadOnlyInput, setShowReadOnlyInput] = useState(false);
@@ -94,13 +94,13 @@ export const ConnectWalletModal: React.FC = () => {
     return `m/44'/148'/${ledgerAccountIndex}'`;
   };
 
-  const handleSelectWallet = async (type: WalletType) => {
+  const handleSelectWallet = async (type: WalletType | "walletconnect") => {
     if (type === "readonly" && !showReadOnlyInput) {
       setShowReadOnlyInput(true);
       return;
     }
 
-    if ((type as string) === "walletconnect") {
+    if (type === "walletconnect") {
       setShowQrView(true);
       await generateWalletConnectUri();
       return;
@@ -134,7 +134,7 @@ export const ConnectWalletModal: React.FC = () => {
   };
 
   const handleCompleteWalletConnect = async () => {
-    setConnectingType("walletconnect" as any);
+    setConnectingType("walletconnect");
     setErrorMessage(null);
     try {
       await connectWalletConnect();

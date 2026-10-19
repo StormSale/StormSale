@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
-import React from "react";
 import { CopyButton, copyToClipboard } from "../components/ui/copy-button";
 
 describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {

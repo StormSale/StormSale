@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import React from "react";
-import {
-  NotificationProvider,
-  useNotification,
-  type NotificationType,
-} from "../context/NotificationContext";
+import { type NotificationType } from "../context/NotificationContext";
 
 describe("[UI] Toast Notification & Progress System Suite (#12)", () => {
   beforeEach(() => {
@@ -33,12 +28,19 @@ describe("[UI] Toast Notification & Progress System Suite (#12)", () => {
     });
 
     it("verifies auto-dismiss behavior for timed notifications", () => {
-      let notificationId = "";
-      const mockDismiss = vi.fn();
+      const notifications: Array<{
+        id: string;
+        type: NotificationType;
+        duration: number;
+        persistent: boolean;
+      }> = [];
 
-      const notifications: Array<{ id: string; type: NotificationType; duration: number; persistent: boolean }> = [];
-
-      const addNotification = (notif: { type: NotificationType; title: string; duration?: number; persistent?: boolean }) => {
+      const addNotification = (notif: {
+        type: NotificationType;
+        title: string;
+        duration?: number;
+        persistent?: boolean;
+      }) => {
         const id = "notif_" + Math.random().toString(36).substring(2, 8);
         const isPersistent = notif.persistent === true || notif.duration === 0;
         const entry = {
@@ -48,17 +50,17 @@ describe("[UI] Toast Notification & Progress System Suite (#12)", () => {
           duration: isPersistent ? 0 : notif.duration ?? 5000,
         };
         notifications.push(entry);
-        notificationId = id;
         return id;
       };
 
       // 1. Add auto-dismissing pending notification
-      addNotification({
+      const notifId = addNotification({
         type: "pending",
         title: "Submitting Soroban Transaction...",
         duration: 4000,
       });
 
+      expect(notifId).toBeTruthy();
       expect(notifications.length).toBe(1);
       expect(notifications[0].persistent).toBe(false);
       expect(notifications[0].duration).toBe(4000);
