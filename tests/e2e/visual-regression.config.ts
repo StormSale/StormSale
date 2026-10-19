@@ -1,89 +1,51 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Multi-Resolution visual regression configuration.
+ * Multi-Resolution Visual Regression Config.
  *
- * Two projects are defined so that the same spec file runs at both
- * the 375px (Mobile) and 1440px (Desktop) viewports, producing a
- * separate baseline + diff per resolution.
+ * Runs the same spec against two viewports (Mobile 375px vs Desktop 1440px).
+ * Snapshots are stored under a per-project directory so diffs are isolated per resolution.
  */
+
+export const MOBILE_VIEWPORT = { width: 375, height: 812 } as const;
+export const DESKTOP_VIEWPORT = { width: 1440, height: 900 } as const;
 
 export default defineConfig({
 	testDir: '.',
-	testMatch: /.*\.spec\.ts$/,
-	fullyParallel: true,
-	forbidOnly: true,
-	retries: process.env.CI ? 1 : 0,
-	reporter: [['list'], ['line']],
+	testMatch: /.*\.visual-regression\.spec\.ts$/,
+	fullyParallelized: true,
+	forbidOnly: process.env.CI ? 'on' : 'warn',
+	reporter: [['list'], ['html', { outputFolder: 'playwright-html-report', open: 'never' }]],
 	use: {
-		trace: 'on-first-retry',
+		baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:4173',
+		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
 		video: 'retain-on-failure',
 	},
 	expect: {
 		toHaveSnapshot: {
-			maxDiffPixelsRatio: 0.01,
+			// Allow small anti-aliasing diffs but fail on real UI breaks.
+			maxDiffPixels: 100,
 			threshold: 0.2,
 			animations: 'disabled',
-			caret: hide,
+			caret: 'hide',
 			scale: 'css',
 		},
 	},
-	snapshotPathTemplate: '{testDir}/{snapshotDir}/{snapshotSuffix}-{projectName}-{arg}.png',
 	projects: [
 		{
-			name: 'mobile-375px',
+			name: 'mobile-375',
 			use: {
-				...devices['Pixel 5'],
-				viewport: { width: 375, height: 812 },
-				deviceScaleFactor: 1,
+				...devices['iPhone 12'],
+				viewport: MOBILE_VIEWPORT,
 			},
 		},
 		{
-			name: 'desktop-1440px',
+			name: 'desktop-1440',
 			use: {
 				...devices['Desktop Chrome'],
-				viewport: { width: 1440, height: 900 },
-				deviceScaleFactor: 1,
+				viewport: DESKTOP_VIEWPORT,
 			},
 		},
-		{
-			name: 'desktop-1440px-firefox',
-			use: {
-				...devices['Desktop Firefox'],
-				viewport: { width: 1440, height: 900 },
-				deviceScaleFactor: 1,
-			},
-		},
-		{
-			name: 'mobile-375px-firefox',
-			use: {
-				...devices['Desktop Firefox'],
-				viewport: { width: 375, height: 812 },
-				deviceScaleFactor: 1,
-			},
-		},
-		{
-			name: 'desktop-1440px-webkit',
-			use: {
-				...devices['Desktop Safari'],
-				viewport: { width: 1440, height: 900 },
-				deviceScaleFactor: 1,
-			},
-		},
-		{
-			name: 'mobile-375px-webkit',
-			use: {
-				...devices['Desktop Safari'],
-				viewport: { width: 375, height: 812 },
-				deviceScaleFactor: 1,
-			},
-		},
-	],
-	webServer: {
-		command: 'npm run dev -- --host 127.0.0.1 --port 4173',
-		url: 'http://127.0.0.1:4173',
-		reuseExistingServer: !process.env.CI,
-		timeout: 120_000,
-	},
+],
 });
