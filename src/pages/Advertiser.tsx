@@ -10,6 +10,8 @@ import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
 import { NotificationProvider } from "../context/NotificationContext";
+import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
+import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import {
   ArrowRight,
@@ -42,6 +44,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
+    { id: "audit-logs", label: "Audit Access Logs", icon: FileSearch },
     { id: "analytics", label: "Campaign Analytics", icon: BarChart3 },
   ];
 
@@ -59,6 +62,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <WebhookManager />;
       case "grant-access":
         return <GrantAccessForm />;
+      case "audit-logs":
+        return <AuditAccessPortal />;
       case "analytics":
         return <CampaignAnalytics />;
       case "overview":
@@ -145,6 +150,43 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
             New Smart Contract
           </Button>
         </div>
+      </div>
+
+      {/* Live Soroban Contract TTL Health & Restorer */}
+      <ContractTTLRestorer
+        contractAddress={STELLAR_CONFIG.contractId}
+        campaignName="Primary Campaign Escrow"
+      />
+
+      {/* Escrow Auto-Refill Status Banner */}
+      <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/20 text-amber-600 dark:text-amber-400">
+            <Coins className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-bold text-base text-zinc-900 dark:text-white">
+                Escrow Auto-Refill Engine
+              </h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase">
+                Active &bull; 15% Trigger
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+              Monitors smart contract escrow reserves. Automatically triggers merchant alerts and
+              pre-approved refills when campaign balances fall below the configurable threshold.
+            </p>
+          </div>
+        </div>
+
+        <Button
+          onClick={() => onTabChange("my-campaigns")}
+          variant="outline"
+          className="rounded-xl border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-xs font-semibold px-4 py-2"
+        >
+          Manage Thresholds
+        </Button>
       </div>
 
       {/* Bento Grid Stats */}

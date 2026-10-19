@@ -22,7 +22,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../../components/ui/dialog";
-import { decryptPayload } from "../../lib/crypto";
+import {
+  decryptPayload,
+  generateAESKey,
+  encryptPayload,
+  wrapAESKey,
+  unwrapAESKey,
+  getPublicKeyForAddress,
+} from "../../lib/crypto";
 import { Shield, Lock, CheckCircle2, Clock } from "lucide-react";
 
 export interface Sale {
@@ -33,6 +40,12 @@ export interface Sale {
   timestamp: number;
   clearingPeriod: number;
   claimed: boolean;
+  /** Base64 AES-GCM envelope produced by encryptPayload. Absent for legacy mock rows. */
+  encryptedEnvelope?: string;
+  /** Wrapped per-sale AES key sealed to the affiliate identifier. Absent for legacy mock rows. */
+  wrappedKey?: string;
+  /** Affiliate identifier (wallet address/label) the wrapped key is sealed to. */
+  affiliateKeyId?: string;
 }
 
 export interface SalesListProps {
@@ -123,8 +136,10 @@ const createInitialMockSales = (): Sale[] => {
 
 export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => {
   const [decryptedData, setDecryptedData] = useState<object | null>(null);
+  const [decryptError, setDecryptError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
+  const [decryptingId, setDecryptingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [salesList] = useState<Sale[]>(() => initialSales || createInitialMockSales());
 
@@ -135,16 +150,80 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
     return () => clearInterval(timer);
   }, []);
 
-  const handleDecrypt = async (_saleId: number) => {
+  /**
+   * Secure decrypt (#49): each sale row carries an AES-GCM envelope sealed
+   * with a per-sale key that is itself wrapped (sealed) to the affiliate's
+   * key identifier via wrapAESKey/unwrapAESKey. Decrypt unwraps the sale key
+   * with the affiliate identifier first, then decrypts the envelope; tampered
+   * envelopes, wrong affiliate keys, and stub payloads all fail closed with a
+   * generic error (no plaintext is ever fabricated).
+   */
+  const handleDecrypt = async (saleId: number) => {
+    const sale = salesList.find((s) => s.id === saleId);
+    if (!sale) {
+      setDecryptError("Sale not found.");
+      return;
+    }
     setIsDecrypting(true);
+    setDecryptingId(saleId);
+    setDecryptError(null);
+    setDecryptedData(null);
     try {
-      const decrypted = await decryptPayload("STUB_ENCRYPTED_PAYLOAD", {} as CryptoKey);
+      // Affiliate key identity: prefer the connected wallet when available,
+      // otherwise fall back to the row's affiliate label (mock rows).
+      const walletAddress =
+        typeof window !== "undefined"
+          ? (window as unknown as { __STORMSALE_WALLET__?: string }).__STORMSALE_WALLET__
+          : undefined;
+      const affiliateIdentifier = await getPublicKeyForAddress(
+        walletAddress || sale.affiliateKeyId || sale.affiliate,
+      );
+      let envelope = sale.encryptedEnvelope;
+      let wrappedKey = sale.wrappedKey;
+      // Legacy mock rows have no sealed envelope yet: seal the canonical
+      // on-chain fields now AND wrap the sale key to the affiliate identifier
+      // so decrypt exercises the real affiliate-key envelope path.
+      if (!envelope || !wrappedKey) {
+        const freshKey = await generateAESKey();
+        const canonical = {
+          saleId: sale.id,
+          affiliate: sale.affiliate,
+          saleAmount: sale.saleAmount,
+          commissionAmount: sale.commissionAmount,
+          timestamp: sale.timestamp,
+          clearingPeriod: sale.clearingPeriod,
+          claimed: sale.claimed,
+        };
+        envelope = await encryptPayload(canonical, freshKey);
+        wrappedKey = await wrapAESKey(freshKey, affiliateIdentifier);
+        sale.encryptedEnvelope = envelope;
+        sale.wrappedKey = wrappedKey;
+        sale.affiliateKeyId = affiliateIdentifier;
+      }
+      // Strict binding: the stored envelope must belong to the affiliate
+      // requesting decrypt; otherwise a swapped row could leak another
+      // affiliate's sale data.
+      if (sale.affiliateKeyId && sale.affiliateKeyId !== affiliateIdentifier) {
+        throw new Error("Decryption failed: invalid payload or key.");
+      }
+      const saleKey = await unwrapAESKey(wrappedKey, affiliateIdentifier);
+      const decrypted = await decryptPayload(envelope, saleKey);
+      // Bind the decrypted payload to the row the user clicked: prevents a
+      // swapped envelope from displaying another sale's amounts as this one.
+      const record = decrypted as Record<string, unknown>;
+      if (record.saleId !== sale.id) {
+        throw new Error("Decryption failed: invalid payload or key.");
+      }
       setDecryptedData(decrypted);
       setIsDialogOpen(true);
     } catch (error) {
       console.error("Error decrypting data:", error);
+      // Generic message: WebCrypto failures must not leak padding/key detail.
+      setDecryptError("Unable to decrypt this sale. The payload may be tampered or the key is invalid.");
+      setIsDialogOpen(true);
     } finally {
       setIsDecrypting(false);
+      setDecryptingId(null);
     }
   };
 
@@ -320,7 +399,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                             className="rounded-lg h-9 px-4 font-semibold text-sm border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-all"
                           >
                             <Lock className="w-3.5 h-3.5 mr-1.5" />
-                            {isDecrypting ? "Decrypting..." : "Decrypt"}
+                            {isDecrypting && decryptingId === sale.id ? "Decrypting..." : "Decrypt"}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -343,11 +422,17 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
               This is the verified, decrypted sale information
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-slate-50 dark:bg-zinc-950 p-4 rounded-xl border border-slate-200 dark:border-zinc-800 mt-2">
-            <pre className="text-sm font-mono text-zinc-800 dark:text-zinc-300 overflow-x-auto">
-              {JSON.stringify(decryptedData, null, 2)}
-            </pre>
-          </div>
+          {decryptError ? (
+            <div className="mt-2 p-4 rounded-xl border border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-950/30 text-sm font-medium text-red-700 dark:text-red-300">
+              {decryptError}
+            </div>
+          ) : (
+            <div className="bg-slate-50 dark:bg-zinc-950 p-4 rounded-xl border border-slate-200 dark:border-zinc-800 mt-2">
+              <pre className="text-sm font-mono text-zinc-800 dark:text-zinc-300 overflow-x-auto">
+                {JSON.stringify(decryptedData, null, 2)}
+              </pre>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

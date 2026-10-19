@@ -1,6 +1,7 @@
 import StrApp from "@ledgerhq/hw-app-str";
 import TransportWebHID from "@ledgerhq/hw-transport-webhid";
 import { Keypair, TransactionBuilder, StrKey } from "@stellar/stellar-sdk";
+import { Buffer } from "buffer";
 import { STELLAR_CONFIG } from "../config/stellar";
 
 export interface LedgerDeviceInfo {
@@ -186,7 +187,7 @@ export async function connectLedgerDevice(
       bipPath: normalizedPath,
       appVersion: versionConfig?.version || "Ready",
     };
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
     throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
@@ -280,7 +281,7 @@ export async function signLedgerTransaction(
     // Attach signature to Stellar transaction envelope
     tx.addSignature(publicKey, signatureBuffer.signature.toString("base64"));
     return tx.toXDR();
-  } catch (err: any) {
+  } catch (err: unknown) {
     const parsed = parseLedgerError(err);
     throw new Error(parsed.friendlyMessage, { cause: err });
   } finally {
