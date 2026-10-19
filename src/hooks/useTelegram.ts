@@ -3,7 +3,7 @@ import type {
   TelegramUser,
   TelegramThemeParams,
   HapticImpactStyle,
-  HapticImactionType,
+  HapticNotificationType,
 } from "../lib/telegram";
 import {
   getTelegramWebApp,
@@ -23,7 +23,7 @@ export interface UseTelegramReturn {
   colorScheme: "light" | "dark";
   themeParams: TelegramThemeParams;
   isExpanded: boolean;
-  triggerHaptic: (type: HapticImpactStyle | HapticImactionType | "selection") => boolean;
+  triggerHaptic: (type: HapticImpactStyle | HapticNotificationType | "selection") => boolean;
   shareReferral: (referralUrl: string, shareText?: string) => void;
   copyReferralLink: (referralUrl: string) => Promise<boolean>;
 }
