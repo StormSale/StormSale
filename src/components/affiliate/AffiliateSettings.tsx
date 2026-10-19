@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -182,6 +182,41 @@ export const AffiliateSettings: React.FC = () => {
   const [preferences, setPreferences] = useState<AffiliatePreferences>(loadAffiliatePreferences);
   const [isSaved, setIsSaved] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSave = useCallback(() => {
+    const success = saveAffiliatePreferences(preferences);
+    if (success) {
+      setSaveFailed(false);
+      setIsSaved(true);
+      window.dispatchEvent(new Event("storage"));
+      showNotification({
+        type: "success",
+        title: "Settings Saved",
+        message: "Your affiliate preferences & notification schedule have been updated.",
+      });
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setIsSaved(false), 3000);
+    } else {
+      setIsSaved(false);
+      setSaveFailed(true);
+      showNotification({
+        type: "error",
+        title: "Save Failed",
+        message: "Unable to save preferences to storage. Please check browser permissions.",
+      });
+      setTimeout(() => setSaveFailed(false), 3500);
+    }
+  }, [preferences, showNotification]);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current) {
+        clearTimeout(savedTimerRef.current);
+        savedTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -236,30 +271,6 @@ export const AffiliateSettings: React.FC = () => {
   const handleFrequencyChange = (freq: NotificationFrequency) => {
     const updated = { ...preferences, notificationFrequency: freq };
     setPreferences(updated);
-  };
-
-  const handleSave = () => {
-    const success = saveAffiliatePreferences(preferences);
-    if (success) {
-      setSaveFailed(false);
-      setIsSaved(true);
-      window.dispatchEvent(new Event("storage"));
-      showNotification({
-        type: "success",
-        title: "Settings Saved",
-        message: "Your affiliate preferences & notification schedule have been updated.",
-      });
-      setTimeout(() => setIsSaved(false), 3000);
-    } else {
-      setIsSaved(false);
-      setSaveFailed(true);
-      showNotification({
-        type: "error",
-        title: "Save Failed",
-        message: "Unable to save preferences to storage. Please check browser permissions.",
-      });
-      setTimeout(() => setSaveFailed(false), 3500);
-    }
   };
 
   return (

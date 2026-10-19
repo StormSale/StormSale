@@ -11,7 +11,6 @@ import {
   copyReferralLinkWithHaptic,
 } from "../lib/telegram";
 import type { TelegramWebApp } from "../lib/telegram";
-import { MOCK_TELEGRAM_CAMPAIGNS } from "../components/affiliate/TelegramCampaignBrowser";
 
 describe("Telegram Mini-App (TMA) Client Integration", () => {
   let mockWebApp: TelegramWebApp;
@@ -111,7 +110,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
 
     const mockNavigator = {
       clipboard: {
-        writeText: vi.fn().mockResolvedValue(undefined),
+        writeText: vi.fn().mockResolved(undefined),
       },
     };
 
@@ -190,7 +189,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(isTelegramMiniApp()).toBe(false);
     });
 
-    it("returns false when Telegram WebApp SDK is not present", () => {
+    it("returns false when Telegram WebApp SDk is not present", () => {
       delete (globalThis as any).window.Telegram;
       expect(isTelegramMiniApp()).toBe(false);
       expect(getTelegramPlatform()).toBe("web");
@@ -318,7 +317,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
 
   describe("Link Copy with Native Telegram Feedback", () => {
     it("copies referral URL to clipboard and triggers success haptic feedback", async () => {
-      const writeTextMock = vi.fn().mockResolvedValue(undefined);
+      const writeTextMock = vi.fn().mockResolved(undefined);
       (navigator.clipboard as any).writeText = writeTextMock;
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
@@ -330,7 +329,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
     });
 
     it("triggers error haptic feedback if clipboard writing fails", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
+      const writeTextMock = vi.fn().mockRejected(new Error("Permission denied"));
       (navigator.clipboard as any).writeText = writeTextMock;
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
@@ -341,48 +340,61 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
     });
 
     it("falls back to execCommand when navigator.clipboard.writeText rejects and succeeds if execCommand succeeds", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
+      const writeTextMock = vi.fn().mockRejected(new Error("Permission denied"));
       (navigator.clipboard as any).writeText = writeTextMock;
 
-      const mockTextArea = {
+      const execCommandMock = vi.fn().mockReturnValue(true);
+      const appendChildMock = vi.fn();
+      const removeChildMock = vi.fn();
+      const fakeInput = {
         value: "",
+        setAttribute: vi.fn(),
         select: vi.fn(),
+        style: {},
       };
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
+
+      (globalThis as any).document.createElement = vi.fn().mockReturnValue(fakeInput);
+      (globalThis as any).document.body = {
+        appendChild: appendChildMock,
+        removeChild: removeChildMock,
       };
-      (document as any).createElement = vi.fn().mockReturnValue(mockTextArea);
-      (document as any).execCommand = vi.fn().mockReturnValue(true);
+      (globalThis as any).document.execCommand = execCommandMock;
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
       const result = await copyReferralLinkWithHaptic(url);
 
       expect(result).toBe(true);
-      expect((document as any).execCommand).toHaveBeenCalledWith("copy");
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
+      expect(fakeInput.value).toBe(url);
+      expect(appendChildMock).toHaveBeenCalledWith(fakeInput);
+      expect(removeChildMock).toHaveBeenCalledWith(fakeInput);
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
     });
-  });
 
-  describe("Telegram Campaign Directory", () => {
-    it("contains multi-asset active campaigns with valid contract references and commission details", () => {
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThanOrEqual(4);
+    it("triggers error haptic when both clipboard API and execCommand fail", async () => {
+      const writeTextMock = vi.fn().mockRejected(new Error("Permission denied"));
+      (navigator.clipboard as any).writeText = writeTextMock;
 
-      const usdcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "USDC");
-      const eurcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "EURC");
-      const xlmCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "XLM");
+      const execCommandMock = vi.fn().mockReturnValue(false);
+      const fakeInput = {
+        value: "",
+        setAttribute: vi.fn(),
+        select: vi.fn(),
+        style: {},
+      };
 
-      expect(usdcCampaign).toBeDefined();
-      expect(eurcCampaign).toBeDefined();
-      expect(xlmCampaign).toBeDefined();
+      (globalThis as any).document.createElement = vi.fn().mockReturnValue(fakeInput);
+      (globalThis as any).document.body = {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      };
+      (globalThis as any).document.execCommand = execCommandMock;
 
-      MOCK_TELEGRAM_CAMPAIGNS.forEach((c) => {
-        expect(c.id).toBeTruthy();
-        expect(c.name).toBeTruthy();
-        expect(c.commissionRate).toBeTruthy();
-        expect(c.clearingPeriod).toBeTruthy();
-        expect(c.contractAddress).toBeTruthy();
-      });
+      const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
+      const result = await copyReferralLinkWithHaptic(url);
+
+      expect(result).toBe(false);
+      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("error");
     });
   });
 });

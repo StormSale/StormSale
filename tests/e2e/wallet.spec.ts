@@ -80,6 +80,7 @@ describe("WalletConnect E2E - mock bridge", () => {
   let bridge: MockBridge;
 
   beforeEach(() => {
+    // The test environment already provides window/document/localStorage.
     // Fresh singleton + storage for every test.
     WalletConnectSingleton.resetInstance();
     window.localStorage.clear();

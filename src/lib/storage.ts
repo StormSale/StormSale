@@ -1,4 +1,4 @@
-/**
+/*
  * Encrypted Local Cache Layer for StormSale
  *
  * Implements AES-GCM 256-bit encryption for all sensitive key-value pairs stored
@@ -18,11 +18,11 @@ interface EncryptedPayload {
 }
 
 function getCrypto(): Crypto {
-  if (typeof window !== "undefined" && window.crypto) {
-    return window.crypto;
-  }
   if (typeof globalThis !== "undefined" && globalThis.crypto) {
     return globalThis.crypto;
+  }
+  if (typeof window !== "undefined" && window.crypto) {
+    return window.crypto;
   }
   throw new Error("WebCrypto API is not available in the current environment.");
 }
@@ -109,14 +109,14 @@ class MemoryStorage implements Storage {
 let globalMemoryStorage: MemoryStorage | null = null;
 
 export function getLocalStorage(): Storage {
-  if (typeof window !== "undefined" && window.localStorage) {
-    return window.localStorage;
-  }
   if (
     typeof globalThis !== "undefined" &&
     (globalThis as unknown as { localStorage?: Storage }).localStorage
   ) {
     return (globalThis as unknown as { localStorage: Storage }).localStorage;
+  }
+  if (typeof window !== "undefined" && window.localStorage) {
+    return window.localStorage;
   }
   if (!globalMemoryStorage) {
     globalMemoryStorage = new MemoryStorage();
