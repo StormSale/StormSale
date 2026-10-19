@@ -18,14 +18,18 @@ import {
   Target,
   Clock,
   DollarSign,
+  Coins,
+  ChevronDown,
   ShieldCheck,
-  CheckCircle2,
   AlertCircle,
+  CheckCircle2,
   ArrowRight,
   RefreshCw,
   Lock,
   Sparkles,
 } from "lucide-react";
+import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
+import type { SupportedEscrowAssetCode } from "../../config/stellar";
 
 export type FlowStep =
   | "idle"
@@ -37,6 +41,7 @@ export type FlowStep =
   | "error";
 
 export const CreateCampaignForm = () => {
+  const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
   const [commissionRate, setCommissionRate] = useState("");
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
@@ -57,6 +62,12 @@ export const CreateCampaignForm = () => {
     txHash?: string;
   } | null>(null);
 
+  const [assetAllowances, setAssetAllowances] = useState<Record<SupportedEscrowAssetCode, number>>({
+    XLM: 0,
+    USDC: 0,
+    EURC: 0,
+  });
+
   const {
     createCampaignOnChain,
     isConnected,
@@ -64,32 +75,46 @@ export const CreateCampaignForm = () => {
     tokenAllowance,
     refreshTokenAllowance,
     approveTokenAllowance,
+    assetBalances,
   } = useWeb3();
-
   const { showNotification } = useNotification();
 
   // Numeric calculations
-  const budgetNum = parseFloat(budget) || 0;
+  const parsedBudget = parseFloat(budget);
+  const maxDecimals = SUPPORTED_ESCROW_ASSETS[selectedAsset]?.decimals ?? 7;
+  const fracDigits = budget.includes(".") ? (budget.split(".")[1]?.length ?? 0) : 0;
+  const isValidBudget = Boolean(
+    budget &&
+      !isNaN(parsedBudget) &&
+      isFinite(parsedBudget) &&
+      parsedBudget > 0 &&
+      fracDigits <= maxDecimals,
+  );
+  const budgetNum = isValidBudget ? parsedBudget : 0;
   const commissionRateNum = parseFloat(commissionRate) || 10;
   const clearingPeriodNum = parseInt(clearingPeriod) || 604800;
-  const isAllowanceSufficient = isConnected && budgetNum > 0 && tokenAllowance >= budgetNum;
-  const allowanceDeficit = Math.max(0, budgetNum - tokenAllowance);
+  const currentAssetAllowance = assetAllowances[selectedAsset] ?? tokenAllowance;
+  const isAllowanceSufficient = isConnected && isValidBudget && currentAssetAllowance >= budgetNum;
+  const allowanceDeficit = Math.max(0, budgetNum - currentAssetAllowance);
 
-  // Poll or refresh allowance on address change or mount
+  // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
     if (isConnected && userAddress) {
-      refreshTokenAllowance();
+      refreshTokenAllowance(undefined, selectedAsset).then((val) => {
+        setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
+      });
     }
-  }, [isConnected, userAddress, refreshTokenAllowance]);
+  }, [isConnected, userAddress, selectedAsset, refreshTokenAllowance]);
 
   const handleManualRefreshAllowance = async () => {
     setIsRefreshingAllowance(true);
     try {
-      await refreshTokenAllowance();
+      const val = await refreshTokenAllowance(undefined, selectedAsset);
+      setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
       showNotification({
         type: "info",
         title: "Allowance Refreshed",
-        message: `Current token allowance: ${tokenAllowance} XLM`,
+        message: `Current token allowance: ${val} ${selectedAsset}`,
       });
     } finally {
       setIsRefreshingAllowance(false);
@@ -107,11 +132,14 @@ export const CreateCampaignForm = () => {
       return;
     }
 
-    if (budgetNum <= 0) {
+    if (!isValidBudget) {
       showNotification({
         type: "error",
         title: "Invalid Budget",
-        message: "Please enter a valid campaign budget to approve allowance",
+        message:
+          fracDigits > maxDecimals
+            ? `Budget for ${selectedAsset} supports at most ${maxDecimals} decimal places.`
+            : "Please enter a valid positive budget amount.",
       });
       return;
     }
@@ -137,15 +165,16 @@ export const CreateCampaignForm = () => {
       showNotification({
         type: "info",
         title: "Step 1: Approving Token Allowance",
-        message: `Approving ${budgetNum} XLM for the Escrow Contract...`,
+        message: `Approving ${budgetNum} ${selectedAsset} for the Escrow Contract...`,
       });
 
-      const res = await approveTokenAllowance(budgetNum);
+      const res = await approveTokenAllowance(budgetNum, undefined, selectedAsset);
+      setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: budgetNum }));
 
       showNotification({
         type: "success",
         title: "Allowance Approved!",
-        message: `Approved ${budgetNum} XLM allowance. Tx: ${
+        message: `Approved ${budgetNum} ${selectedAsset} allowance. Tx: ${
           res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"
         }`,
       });
@@ -186,11 +215,14 @@ export const CreateCampaignForm = () => {
       return;
     }
 
-    if (budgetNum <= 0) {
+    if (!isValidBudget) {
       showNotification({
         type: "error",
         title: "Invalid Budget",
-        message: "Please enter a campaign budget greater than 0",
+        message:
+          fracDigits > maxDecimals
+            ? `Budget for ${selectedAsset} supports at most ${maxDecimals} decimal places.`
+            : "Please enter a valid positive budget amount.",
       });
       return;
     }
@@ -202,10 +234,11 @@ export const CreateCampaignForm = () => {
         showNotification({
           type: "info",
           title: "Step 1/2: Approving Token Allowance",
-          message: `Approving ${budgetNum} XLM for the Escrow Contract...`,
+          message: `Approving ${budgetNum} ${selectedAsset} for the Escrow Contract...`,
         });
 
-        await approveTokenAllowance(budgetNum);
+        await approveTokenAllowance(budgetNum, undefined, selectedAsset);
+        setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: budgetNum }));
 
         showNotification({
           type: "success",
@@ -246,7 +279,7 @@ export const CreateCampaignForm = () => {
       showNotification({
         type: "info",
         title: "Step 2/2: Deploying Soroban Escrow",
-        message: `Locking ${budgetNum} XLM budget and creating campaign on Stellar...`,
+        message: `Locking ${budgetNum} ${selectedAsset} budget and creating campaign on Stellar...`,
       });
 
       const result = await createCampaignOnChain(
@@ -254,6 +287,7 @@ export const CreateCampaignForm = () => {
         optimistic.budget,
         optimistic.commissionRate,
         optimistic.clearingPeriod,
+        selectedAsset,
       ) as { campaignId: string; txHash?: string };
 
       setOptimisticCampaign({
@@ -265,7 +299,7 @@ export const CreateCampaignForm = () => {
       showNotification({
         type: "success",
         title: "Campaign Escrow Live on Stellar!",
-        message: `Campaign #${result.campaignId} successfully deployed. Tx: ${
+        message: `Campaign #${result.campaignId} deployed with ${selectedAsset} escrow. Tx: ${
           result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"
         }`,
       });
@@ -385,6 +419,73 @@ export const CreateCampaignForm = () => {
                 />
               </InputField>
 
+              <InputField
+                label="Escrow Settlement Currency"
+                description="Select native XLM or Circle SAC stablecoin (USDC, EURC) for commission escrow"
+                required
+              >
+                <div className="space-y-3">
+                  <div className="relative">
+                    <select
+                      id="asset-selector"
+                      aria-label="Escrow Settlement Currency"
+                      value={selectedAsset}
+                      onChange={(e) => setSelectedAsset(e.target.value as SupportedEscrowAssetCode)}
+                      className="w-full h-12 pl-4 pr-10 appearance-none border border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 text-zinc-900 dark:text-white font-medium text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-indigo-600 dark:focus:ring-indigo-500 transition-all cursor-pointer"
+                    >
+                      <option value="XLM">
+                        XLM — Stellar Lumens (Native) · Balance: {assetBalances?.XLM ?? "0.00"} XLM
+                      </option>
+                      <option value="USDC">
+                        USDC — USD Coin (Circle SAC) · Balance: {assetBalances?.USDC ?? "0.00"} USDC
+                      </option>
+                      <option value="EURC">
+                        EURC — Euro Coin (Circle SAC) · Balance: {assetBalances?.EURC ?? "0.00"} EURC
+                      </option>
+                    </select>
+                    <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-zinc-400">
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+
+                  {/* SAC Asset Specification Banner */}
+                  <div className="p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-zinc-700 dark:text-zinc-200 flex items-center gap-1.5">
+                        <Coins className="w-4 h-4 text-indigo-500" />
+                        {SUPPORTED_ESCROW_ASSETS[selectedAsset].name}
+                      </span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
+                        {selectedAsset === "XLM" ? "Native Asset" : "Circle SAC Token"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-indigo-100/60 dark:border-indigo-900/30 text-zinc-600 dark:text-zinc-400">
+                      <div>
+                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">SAC Contract: </span>
+                        <span className="font-mono text-[11px] text-zinc-800 dark:text-zinc-200" title={SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress}>
+                          {SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress.slice(0, 8)}...
+                          {SUPPORTED_ESCROW_ASSETS[selectedAsset].contractAddress.slice(-6)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="font-semibold text-zinc-500 dark:text-zinc-400">Wallet Balance: </span>
+                        <span className="font-bold text-zinc-900 dark:text-white">
+                          {assetBalances?.[selectedAsset] ?? "0.00"} {selectedAsset}
+                        </span>
+                      </div>
+                    </div>
+
+                    {selectedAsset !== "XLM" && (
+                      <p className="text-[11px] text-indigo-700 dark:text-indigo-300 font-medium flex items-center gap-1.5 pt-0.5">
+                        <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+                        SAC Allowance Workflow: Auto-authorizes token approval on Circle SAC before escrow deployment.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </InputField>
+
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Commission Rate"
@@ -413,24 +514,32 @@ export const CreateCampaignForm = () => {
                   description="Total budget allocated for commissions and escrow deposit"
                   required
                 >
-                  <div className="relative">
-                    <Input
-                      type="number"
-                      min="1"
-                      value={budget}
-                      onChange={(e) => {
-                        setBudget(e.target.value);
-                        if (flowStep === "success" || flowStep === "error") {
-                          setFlowStep("idle");
-                        }
-                      }}
-                      placeholder="e.g., 1000"
-                      className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                      required
-                    />
-                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
-                      XLM
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="1"
+                        value={budget}
+                        onChange={(e) => {
+                          setBudget(e.target.value);
+                          if (flowStep === "success" || flowStep === "error") {
+                            setFlowStep("idle");
+                          }
+                        }}
+                        placeholder="e.g., 1000"
+                        className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                        required
+                      />
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-bold uppercase text-xs">
+                        {selectedAsset}
+                      </div>
                     </div>
+                    {budget && parseFloat(budget) > parseFloat(assetBalances?.[selectedAsset] || "0") && (
+                      <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Warning: Budget exceeds current {selectedAsset} balance ({assetBalances?.[selectedAsset] ?? "0.00"}).
+                      </p>
+                    )}
                   </div>
                 </InputField>
               </div>
@@ -530,7 +639,7 @@ export const CreateCampaignForm = () => {
                       </span>
                     </div>
                     <div className="text-xl font-bold text-zinc-900 dark:text-white font-mono">
-                      {tokenAllowance.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">XLM</span>
+                      {currentAssetAllowance.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">{selectedAsset}</span>
                     </div>
                   </div>
 
@@ -539,7 +648,7 @@ export const CreateCampaignForm = () => {
                       Required Deposit
                     </div>
                     <div className="text-xl font-bold text-zinc-900 dark:text-white font-mono">
-                      {budgetNum.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">XLM</span>
+                      {budgetNum.toLocaleString()} <span className="text-xs font-sans text-zinc-400 font-normal">{selectedAsset}</span>
                     </div>
                   </div>
 
@@ -560,7 +669,7 @@ export const CreateCampaignForm = () => {
                       ) : (
                         <div className="flex items-center space-x-1.5 text-amber-600 dark:text-amber-400 font-semibold text-xs">
                           <AlertCircle className="w-4 h-4" />
-                          <span>Approval Needed (-{allowanceDeficit.toLocaleString()} XLM)</span>
+                          <span>Approval Needed (-{allowanceDeficit.toLocaleString()} {selectedAsset})</span>
                         </div>
                       )}
                     </div>
@@ -608,7 +717,7 @@ export const CreateCampaignForm = () => {
                               ? "Signing approval..."
                               : isAllowanceSufficient || flowStep === "approved" || flowStep === "success"
                               ? "Allowance Granted"
-                              : `Authorize ${budgetNum ? budgetNum + " XLM" : "Escrow"}`}
+                              : `Authorize ${budgetNum ? budgetNum + " " + selectedAsset : "Escrow"}`}
                           </div>
                         </div>
                       </div>
@@ -694,7 +803,7 @@ export const CreateCampaignForm = () => {
                       Initial Escrow Deposit
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
-                      {budget || "0"} XLM
+                      {budget || "0"} {selectedAsset}
                     </div>
                   </div>
                 </div>
@@ -712,17 +821,17 @@ export const CreateCampaignForm = () => {
                       {flowStep === "approving" ? (
                         <div className="flex items-center space-x-3">
                           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>Step 1/2: Approving Token Allowance...</span>
+                          <span>Step 1/2: Approving {selectedAsset} Allowance...</span>
                         </div>
                       ) : flowStep === "creating" ? (
                         <div className="flex items-center space-x-3">
                           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          <span>Step 2/2: Deploying Campaign Escrow...</span>
+                          <span>Step 2/2: Deploying {selectedAsset} Campaign Escrow...</span>
                         </div>
                       ) : (
                         <div className="flex items-center justify-center space-x-2">
                           <Zap className="w-5 h-5" />
-                          <span>Approve & Launch Campaign (2-Step Flow)</span>
+                          <span>Approve & Launch {selectedAsset} Campaign</span>
                           <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
                         </div>
                       )}
@@ -752,12 +861,12 @@ export const CreateCampaignForm = () => {
                     {flowStep === "creating" ? (
                       <div className="flex items-center space-x-3">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Creating Campaign Escrow...</span>
+                        <span>Creating {selectedAsset} Campaign Escrow...</span>
                       </div>
                     ) : (
                       <div className="flex items-center space-x-2">
                         <Zap className="w-5 h-5" />
-                        <span>Launch Campaign (Escrow Ready)</span>
+                        <span>Launch {selectedAsset} Campaign (Escrow Ready)</span>
                       </div>
                     )}
                   </Button>
