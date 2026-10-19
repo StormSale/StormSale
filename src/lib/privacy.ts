@@ -10,9 +10,16 @@ const encoder = new TextEncoder();
 
 export const SALT_DOMAIN = "stormsale:ip-salt:v1";
 
-const IPV4_PATTERN = /\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/;
-const IPV6_PATTERN =
-  /\b(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}\b|(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{0,4}::[0-9a-f:]*/i;
+// Digit/hex boundaries instead of word boundaries: word boundaries miss IPs glued to letters
+// or "_" (e.g. "client_203.0.113.7"). Prefixes are consumed rather than using lookbehind so
+// older Safari can still parse this module.
+const IPV4_PATTERN =
+  /(?:^|\D)(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?!\d)/;
+const IPV6_FULL_PATTERN = /(?:^|[^\d:])(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}(?![0-9a-f:])/i;
+// The compressed form must contain a hex group, so "Foo::Bar" is not flagged; a field that is
+// exactly "::" is caught by the canonicalizeIp check in looksLikeRawIp.
+const IPV6_COMPRESSED_PATTERN =
+  /(?:^|[^\d:])(?=[0-9a-f:]*[0-9a-f])(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{0,4}::[0-9a-f:]*(?![0-9a-z:])/i;
 
 /** Lowercase hex encoding of a byte buffer. */
 const toHex = (buf: ArrayBuffer): string =>
@@ -102,9 +109,15 @@ export function canonicalizeIp(input: string): string | null {
   return v6.map((g) => g.toString(16)).join(":");
 }
 
-/** True if the string contains something that looks like an IPv4/IPv6 address. */
+/**
+ * True if the string is an IP address (including a bare "::") or contains
+ * something that looks like one.
+ */
 export const looksLikeRawIp = (value: string): boolean =>
-  IPV4_PATTERN.test(value) || IPV6_PATTERN.test(value);
+  canonicalizeIp(value) !== null ||
+  IPV4_PATTERN.test(value) ||
+  IPV6_FULL_PATTERN.test(value) ||
+  IPV6_COMPRESSED_PATTERN.test(value);
 
 const IP_KEY_SEGMENT = "<ip-key>";
 

@@ -94,7 +94,9 @@ export const PrivacyVerification = () => {
       <Card>
         <CardHeader>
           <CardTitle>Proof of zero-PII architecture</CardTitle>
-          <CardDescription>Why hashes are unique per day yet irreversible</CardDescription>
+          <CardDescription>
+            Hashes are stable within a UTC day, and irreversible only while the secret stays private
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <ol className="list-decimal pl-5 space-y-2 text-sm text-zinc-700 dark:text-zinc-300">

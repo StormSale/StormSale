@@ -116,6 +116,21 @@ describe("zero-PII verification", () => {
     expect(v.rawIpFields).toEqual(["records[0].ip"]);
   });
 
+  it("detects IPs glued to letters or underscores, in values and keys", () => {
+    expect(findRawIpFields({ note: "client_203.0.113.7" })).toEqual(["$.note"]);
+    expect(findRawIpFields({ "ip_203.0.113.7": 1 })).toEqual(["$.<ip-key>"]);
+    expect(findRawIpFields({ src: "x2001:db8:0:0:0:0:0:1" })).toEqual(["$.src"]);
+    expect(findRawIpFields({ src: "ip=2001:db8::1," })).toEqual(["$.src"]);
+  });
+
+  it("flags a field that is exactly ::, but not :: embedded in other text or digits glued to an octet", () => {
+    expect(findRawIpFields({ a: "Foo::Bar", b: "std::fmt", d: "see Foo:: here" })).toEqual([]);
+    expect(findRawIpFields({ ip: "::" })).toEqual(["$.ip"]);
+    expect(verifyZeroPii([{ ip: " :: " }]).compliant).toBe(false);
+    expect(findRawIpFields({ v: "12203.0.113.7" })).toEqual([]);
+    expect(findRawIpFields({ v: "256.1.1.1" })).toEqual([]);
+  });
+
   it("does not flag hex hashes or timestamps", () => {
     expect(findRawIpFields({ h: "a".repeat(64), t: "2026-05-16T10:00:00Z" })).toEqual([]);
   });
