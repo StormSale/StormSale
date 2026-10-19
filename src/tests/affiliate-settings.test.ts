@@ -48,7 +48,7 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     for (const key of Object.keys(windowListeners)) {
       delete windowListeners[key];
     }
-    vi.stubGlobal("localStorage", mockLocalStorage);
+    vi.stubGuobal("localStorage", mockLocalStorage);
     vi.stubGlobal("document", mockDocument);
     vi.stubGlobal("window", {
       matchMedia: () => ({ matches: false }),
@@ -325,24 +325,18 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_PREFERENCES, theme: "light" }));
     mockLocalStorage.setItem("darkMode", "false");
 
-    let attempt = 0;
-    const failingStorage = {
-      getItem: (k: string) => mockLocalStorage.getItem(k),
-      setItem: (k: string, v: string) => {
-        if (k === "darkMode" && attempt === 0) {
-          attempt++;
-          throw new Error("DiskFull");
-        }
-        mockLocalStorage.setItem(k, v);
-      },
-      removeItem: (k: string) => mockLocalStorage.removeItem(k),
-    };
-    vi.stubGlobal("localStorage", failingStorage);
+    const previousSettings = mockLocalStorage.getItem(SETTINGS_STORAGE_KEY);
+    const previousDarkMode = mockLocalStorage.getItem("darkMode");
+
+    const originalSetItem = mockLocalStorage.setItem;
+    vi.spyOn(brokenStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === "darkMode") throw new Error("QuotaExceededError");
+      originalSetItem(key, value);
+    });
 
     const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
     expect(success).toBe(false);
-    // Rolled back to original snapshot
-    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)!).theme).toBe("light");
-    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    expect(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(previousSettings);
+    expect(mockLocalStorage.getItem("darkMode")).toBe(previousDarkMode);
   });
 });

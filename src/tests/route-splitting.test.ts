@@ -25,6 +25,23 @@ describe("Route Splitting & Chunk Optimization (#99)", () => {
     expect(typeof Affiliate).toBe("object");
     expect(typeof Auditor).toBe("object");
     expect(typeof BrandedCampaignView).toBe("object");
+
+    // React.lazy components expose a $$typeof of Symbol(react.lazy)
+    const lazySymbol = Symbol.for("react.lazy");
+    for (const component of [
+      Landing,
+      Dashboard,
+      Advertiser,
+      Affiliate,
+      Auditor,
+      BrandedCampaignView,
+    ]) {
+      const lazyType = (component as { $$typeof?: symbol; _payload?: unknown; _init?: unknown });
+      expect(
+        lazyType.$$typeof === lazySymbol ||
+          (lazyType._payload !== undefined && typeof lazyType._init === "function")
+      ).toBe(!0);
+    }
   });
 
   it("should be able to resolve lazy-loaded page modules dynamically", async () => {
