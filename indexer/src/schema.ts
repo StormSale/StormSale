@@ -26,10 +26,16 @@ export function buildSchema(store: Store) {
     const bps = BigInt(store.campaigns.get(s.campaignId)?.commissionBps ?? 0);
     return ((BigInt(s.amountStroops) * bps) / 10000n).toString();
   };
-  /** Maturity date computed at read time, so it uses the campaign even if it was indexed later. */
-  const maturesAtOf = (s: SaleRecord): string => {
-    const secs = store.campaigns.get(s.campaignId)?.clearingPeriodSecs ?? 0;
-    return new Date(new Date(s.loggedAt).getTime() + secs * 1000).toISOString();
+  /**
+   * Maturity date computed at read time. Returns null when the campaign is not indexed yet,
+   * because the clearing period is then unknown (it must not be treated as 0 seconds).
+   */
+  const maturesAtOf = (s: SaleRecord): string | null => {
+    const campaign = store.campaigns.get(s.campaignId);
+    if (!campaign) return null;
+    return new Date(
+      new Date(s.loggedAt).getTime() + campaign.clearingPeriodSecs * 1000,
+    ).toISOString();
   };
 
   return createSchema({
@@ -90,14 +96,19 @@ export function buildSchema(store: Store) {
           page(newestFirst(store.claimsFor(c.campaignId), (x) => x.claimedAt), a.limit, a.offset),
       },
       Sale: {
-        campaign: (s: SaleRecord) => store.campaigns.get(s.campaignId),
+        // A sale can arrive before its campaign is indexed, so this may be null.
+        campaign: (s: SaleRecord) => store.campaigns.get(s.campaignId) ?? null,
         affiliate: (s: SaleRecord) => ({ address: s.affiliate }),
         commissionStroops: (s: SaleRecord) => commissionOf(s),
         maturesAt: (s: SaleRecord) => maturesAtOf(s),
-        matured: (s: SaleRecord) => new Date(maturesAtOf(s)).getTime() <= Date.now(),
+        // Unknown campaign means unknown clearing period, so the sale is not matured.
+        matured: (s: SaleRecord) => {
+          const maturesAt = maturesAtOf(s);
+          return maturesAt !== null && new Date(maturesAt).getTime() <= Date.now();
+        },
       },
       Claim: {
-        campaign: (c: ClaimRecord) => store.campaigns.get(c.campaignId),
+        campaign: (c: ClaimRecord) => store.campaigns.get(c.campaignId) ?? null,
         affiliate: (c: ClaimRecord) => ({ address: c.affiliate }),
       },
       User: {

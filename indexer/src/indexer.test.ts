@@ -158,4 +158,26 @@ describe("indexer GraphQL", () => {
     expect(new Date(res.data.sales[0].maturesAt).toISOString()).toBe("2026-01-01T01:00:00.000Z");
     expect(res.data.sales[0].matured).toBe(true); // that date is in the past
   });
+
+  it("returns null campaign and not matured for a sale whose campaign is not indexed", async () => {
+    const store = new Store(); // no campaign indexed
+    store.addSale({
+      id: "orphan",
+      campaignId: 99,
+      affiliate: AFF,
+      amountStroops: "10000000",
+      commissionStroops: "1000000",
+      loggedAt: "2020-01-01T00:00:00.000Z",
+      txHash: "tx-orphan",
+    });
+
+    const res = await makeRunner(store)(
+      `{ sales(affiliate: "${AFF}") { campaign { campaignId } matured maturesAt commissionStroops } }`,
+    );
+    expect(res.errors).toBeUndefined();
+    expect(res.data.sales[0].campaign).toBeNull();
+    expect(res.data.sales[0].matured).toBe(false);
+    expect(res.data.sales[0].maturesAt).toBeNull();
+    expect(res.data.sales[0].commissionStroops).toBe("1000000"); // event commission kept
+  });
 });

@@ -41,7 +41,7 @@ type Sale {
   "Unique id: `<txHash>:<eventIndex>`."
   id: ID!
   "Campaign this sale belongs to."
-  campaign: Campaign!
+  campaign: Campaign
   "Affiliate credited with the sale."
   affiliate: User!
   "Sale amount in stroops."
@@ -51,7 +51,7 @@ type Sale {
   "ISO-8601 time the sale was logged."
   loggedAt: String!
   "ISO-8601 time the commission becomes claimable."
-  maturesAt: String!
+  maturesAt: String
   "True once the clearing period has passed and the commission is claimable."
   matured: Boolean!
   "Hash of the logging transaction."
@@ -65,7 +65,7 @@ type Claim {
   "Unique id: `<txHash>:<eventIndex>`."
   id: ID!
   "Campaign the payout came from."
-  campaign: Campaign!
+  campaign: Campaign
   "Affiliate that received the payout."
   affiliate: User!
   "Amount paid out in stroops."
