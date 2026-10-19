@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer, generateSep7TxUri, pollForTransactionInclusion } from "./stellar";
+import {
+  formatStellarAddress,
+  isValidStellarAddress,
+  getSorobanRpcServer,
+  buildSep0007TxUri,
+  buildSep0007QrFallback,
+  streamTransactionInclusion,
+} from "./stellar";
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
-    const pubKey = "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4NAT4AQH3LLFLA5";
+    const pubKey = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3LLFLA5";
     expect(formatStellarAddress(pubKey)).toBe("GBBD...FLA5");
   });
 
@@ -13,12 +20,12 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBDD47IF6LWK7P7MDEVMSWR7DPUWV3NY3DDTQEVFL4OAT4AQH3LLFLA5";
+    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DDQEVFL4NAT4AQH3ZLLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
   it("validates valid Soroban contract IDs (C...)", () => {
-    const validC = "CDLZFC3SYJYDZT7K67Z75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
+    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
@@ -33,36 +40,62 @@ describe("Stellar Helpers", () => {
     expect(server).toBeDefined();
   });
 
-  it("generates a SEP-0007 tx URI with base64 XDR and replace=false", () => {
-    const xdr = "AAAAAgAAAAB...mockXdr==";
-    const uri = generateSep7TxUri(xdr);
+  it("generates SEP-0007 tx URI with base64 XDR and replace=false", () => {
+    const xdr = "AAAAAgAAAABtestXdrPayload==";
+    const uri = buildSep0007TxUri(xdr);
+    expect(uri).toBe(`web+stellar:tx?xdr=${encodeURIComponent(xdr)}&replace=false`);
     expect(uri.startsWith("web+stellar:tx?")).toBe(true);
-    expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
     expect(uri).toContain("replace=false");
   });
 
-  it("polls Horizon until the transaction is included on the ledger", async () => {
-    let calls = 0;
-    const fakeFetch = async () => {
-      calls += 1;
-      if (calls < 3) {
-        return { ok: true, json: async () => ({ _embedded: { records: [] } }) } as any;
-      }
-      return {
-        ok: true,
-        json: async () => ({
-          _embedded: { records: [{ hash: "abc123", successful: true, ledger: 42 }] },
-        }),
-      } as any;
-    };
-    const result = await pollForTransactionInclusion("GADC", "abc123", {
-      fetchImpl: fakeFetch as any,
-      intervalMs: 1,
-      timeoutMs: 1000,
+  it("encodes XDR safely in SEP-0007 URI", () => {
+    const xdr = "abc+def/ghi==";
+    const uri = buildSep0007TxUri(xdr);
+    expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
+    expect(uri).not.toContain("xdr=abc+def/ghi==");
+  });
+
+  it("builds QR fallback payload for SEP-0007 URI", () => {
+    const xdr = "AAAAAgAAAABtestXdrPayload==";
+    const fallback = buildSep0007QrFallback(xdr);
+    expect(fallback.uri).toBe(buildSep0007TxUri(xdr));
+    expect(fallback.qrData).toBe(fallback.uri);
+    expect(fallback.qrData.length).toBeGreaterThan(0);
+  });
+
+  it("streams Horizon transactions until inclusion is confirmed", async () => {
+    const txHash = "abc123hash";
+    const events: string[] = [];
+    const stop = streamTransactionInclusion(txHash, {
+      onPending: () => events.push("pending"),
+      onConfirmed: (hash) => events.push(`confirmed:${hash}`),
+      onError: (err) => events.push(`error:${err.message}`),
+      pollIntervalMs: 5,
+      maxAttempts: 3,
+      fetchTransaction: async (hash) =>
+        hash === txHash ? { hash, successful: true } : null,
     });
-    expect(result.confirmed).toBe(true);
-    expect(result.ledger).toBe(42);
-    expect(calls).toBeGreaterThanOrEqual(3);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    stop();
+    expect(events).toContain("pending");
+    expect(events).toContain(`confirmed:${txHash}`);
+  });
+
+  it("reports error when transaction inclusion polling fails", async () => {
+    const events: string[] = [];
+    const stop = streamTransactionInclusion("missinghash", {
+      onPending: () => events.push("pending"),
+      onConfirmed: (hash) => events.push(`confirmed:${hash}`),
+      onError: (err) => events.push(`error:${err.message}`),
+      pollIntervalMs: 5,
+      maxAttempts: 2,
+      fetchTransaction: async () => {
+        throw new Error("horizon unavailable");
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    stop();
+    expect(events.some((e) => e.startsWith("error:"))).toBe(true);
   });
 
   it("handles token allowance query and approval flow with mock storage", async () => {
@@ -85,7 +118,7 @@ describe("Stellar Helpers", () => {
     (globalThis as any).localStorage = mockLocalStorage;
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
-    const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+    const testOwner = "GASTORMSALY7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 
     // Initially allowance should be 0
     const initialAllowance = await getTokenAllowanceQuery(testOwner);
