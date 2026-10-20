@@ -23,8 +23,12 @@ import {
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
+import {
+  loadAffiliatePreferences,
+  shouldDeliverAffiliateNotification,
+} from "./AffiliateSettings";
+import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
 import { motion, AnimatePresence } from "framer-motion";
-import { shouldDeliverAffiliateNotification } from "./AffiliateSettings";
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
@@ -77,7 +81,10 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns);
+      // Apply the affiliate's auto-split plan (if enabled & valid) so the claimed
+      // total is routed across vault destinations inside the same atomic envelope.
+      const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
+      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan);
       setReceipt(resultReceipt);
 
       // Mark claimed campaigns
@@ -115,7 +122,8 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const res = await claimPayoutOnChain(campaignId);
+      const target = campaigns.find((c) => c.campaignId === campaignId);
+      const res = await claimPayoutOnChain(campaignId, target?.assetCode);
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
@@ -136,7 +144,6 @@ export const ClaimPayouts = () => {
       setClaimingId(null);
     }
   };
-
   return (
     <div className="space-y-8">
       {/* Page Title */}
@@ -475,6 +482,41 @@ export const ClaimPayouts = () => {
                   ))}
                 </div>
               </div>
+
+              {/* Auto-Split Payment Operations Breakdown (#167) */}
+              {receipt.splitAllocations && receipt.splitAllocations.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    Auto-Split Payment Operations ({receipt.paymentOperationCount} ops • same
+                    transaction)
+                  </div>
+                  <div className="rounded-2xl border border-sky-100 dark:border-sky-900/50 overflow-hidden divide-y divide-sky-100 dark:divide-sky-900/40 bg-sky-50/40 dark:bg-sky-950/10">
+                    {receipt.splitAllocations.map((alloc, i) => (
+                      <div
+                        key={`${alloc.address}-${i}`}
+                        className="p-3.5 flex items-center justify-between text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
+                              Op #{receipt.itemizedClaims.length + i + 1}
+                            </span>
+                            <span className="truncate">{alloc.label || "Destination"}</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-zinc-500 mt-1">
+                            {alloc.address.slice(0, 6)}...{alloc.address.slice(-4)} •{" "}
+                            {alloc.percentage}% • balance after payout:{" "}
+                            {formatStroopsAsXlm(BigInt(alloc.amountStroops))} XLM
+                          </div>
+                        </div>
+                        <div className="font-mono font-black text-sm text-sky-700 dark:text-sky-300 ml-3 shrink-0">
+                          +{alloc.amountXlm.toFixed(2)} XLM
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Explorer Link & Close Button */}
               <div className="pt-2 flex items-center justify-between">
