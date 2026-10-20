@@ -2,12 +2,15 @@ import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
+import { LanguageSelector } from "./LanguageSelector";
+import { useTranslation } from "react-i18next";
 import { Wallet, Menu, X, Coins, ShieldCheck, Send } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
+  const { t } = useTranslation();
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -15,15 +18,15 @@ export const Header = () => {
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
   const navLinks = [
-    { label: "Home", href: "/" },
-    { label: "About Us", href: "#about-us" },
-    { label: "Features", href: "#features" },
-    { label: "How it Works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "Stats", href: "#stats" },
-    { label: "Community", href: "#community" },
-    { label: "FAQ", href: "#faq" },
-    { label: "Contact", href: "#community" },
+    { label: t("nav.home", "Home"), href: "/" },
+    { label: t("nav.aboutUs", "About Us"), href: "#about-us" },
+    { label: t("nav.features", "Features"), href: "#features" },
+    { label: t("nav.howItWorks", "How it Works"), href: "#how-it-works" },
+    { label: t("nav.pricing", "Pricing"), href: "#pricing" },
+    { label: t("nav.stats", "Stats"), href: "#stats" },
+    { label: t("nav.community", "Community"), href: "#community" },
+    { label: t("nav.faq", "FAQ"), href: "#faq" },
+    { label: t("nav.contact", "Contact"), href: "#community" },
   ];
 
   return (
@@ -64,7 +67,8 @@ export const Header = () => {
         </nav>
 
         {/* Desktop Actions */}
-        <div className="hidden sm:flex items-center space-x-4">
+        <div className="hidden sm:flex items-center space-x-3">
+          <LanguageSelector />
           <ThemeToggle />
 
           {isConnected ? (
@@ -84,7 +88,7 @@ export const Header = () => {
                 onClick={disconnectWallet}
                 className="h-9 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-900 text-zinc-700 dark:text-zinc-300 font-bold text-xs transition-all"
               >
-                Disconnect
+                {t("header.disconnect", "Disconnect")}
               </Button>
             </div>
           ) : (
@@ -93,13 +97,14 @@ export const Header = () => {
               className="h-10 px-5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all"
             >
               <Wallet className="w-4 h-4 mr-2" />
-              Connect Wallet
+              {t("header.connectWallet", "Connect Wallet")}
             </Button>
           )}
         </div>
 
         {/* Mobile / Tablet Controls (Right) */}
         <div className="flex sm:hidden items-center space-x-2">
+          <LanguageSelector compact />
           <ThemeToggle />
           {!isConnected ? (
             <Button
@@ -108,7 +113,7 @@ export const Header = () => {
               className="h-9 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
             >
               <Wallet className="w-3.5 h-3.5 mr-1" />
-              Connect
+              {t("header.connectWallet", "Connect")}
             </Button>
           ) : (
             <button
@@ -184,7 +189,7 @@ export const Header = () => {
                   }}
                   className="w-full rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                 >
-                  Disconnect Wallet
+                  {t("header.disconnect", "Disconnect Wallet")}
                 </Button>
               ) : (
                 <Button
@@ -195,7 +200,7 @@ export const Header = () => {
                   className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
                 >
                   <Wallet className="w-3.5 h-3.5 mr-2" />
-                  Select Stellar Wallet
+                  {t("header.connectWallet", "Select Stellar Wallet")}
                 </Button>
               )}
             </div>

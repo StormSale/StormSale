@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Sidebar } from "../components/shared/Sidebar";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
@@ -38,6 +39,7 @@ const AFFILIATE_TABS = [
 type AffiliateTab = (typeof AFFILIATE_TABS)[number];
 
 const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = usePreference<AffiliateTab>(
     "stormsale.affiliate.tab",
     isTelegramMiniApp() ? "telegram-browser" : "overview",
@@ -45,13 +47,41 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
   );
 
   const tabs = [
-    { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
-    { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
-    { id: "join-campaign", label: "Join Campaign", icon: Users },
-    { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
-    { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
-    { id: "settings", label: "Personalized Settings", icon: Sliders },
-    { id: "security", label: "Security & Keys", icon: Shield },
+    {
+      id: "overview",
+      label: t("affiliate.dashboardOverview", "Dashboard Overview"),
+      icon: LayoutDashboard,
+    },
+    {
+      id: "telegram-browser",
+      label: t("affiliate.telegramCampaigns", "Telegram Campaigns"),
+      icon: Send,
+    },
+    {
+      id: "join-campaign",
+      label: t("affiliate.joinCampaign", "Join Campaign"),
+      icon: Users,
+    },
+    {
+      id: "my-sales",
+      label: t("affiliate.mySales", "My Sales & Commissions"),
+      icon: DollarSign,
+    },
+    {
+      id: "claim-payouts",
+      label: t("affiliate.claimPayouts", "Claim Payouts"),
+      icon: TrendingUp,
+    },
+    {
+      id: "settings",
+      label: t("affiliate.personalizedSettings", "Personalized Settings"),
+      icon: Sliders,
+    },
+    {
+      id: "security",
+      label: t("affiliate.securityKeys", "Security & Keys"),
+      icon: Shield,
+    },
   ];
 
   const renderContent = () => {
@@ -80,7 +110,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         onTabChange={(tab) => setActiveTab(tab as AffiliateTab)}
         tabs={tabs}
         onBack={onBack}
-        roleName="Affiliate Pro"
+        roleName={t("affiliate.roleName", "Affiliate Pro")}
       />
 
       {/* Main Content Area */}
@@ -90,10 +120,11 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-zinc-800">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                Affiliate Pro Portal
+                {t("affiliate.title", "Affiliate Portal")}
               </span>
               <h2 className="text-xl font-bold text-zinc-900 dark:text-white capitalize">
-                {tabs.find((t) => t.id === activeTab)?.label || "Dashboard Overview"}
+                {tabs.find((tab) => tab.id === activeTab)?.label ||
+                  t("affiliate.dashboardOverview", "Dashboard Overview")}
               </h2>
             </div>
             <div className="flex items-center space-x-3">
@@ -102,11 +133,13 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
                 variant={activeTab === "settings" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setActiveTab("settings")}
-                aria-label="Preferences"
+                aria-label={t("affiliate.personalizedSettings", "Preferences")}
                 className="rounded-xl h-10 px-4 font-semibold text-xs flex items-center space-x-1.5 border border-slate-200 dark:border-zinc-800"
               >
                 <Sliders className="w-4 h-4" />
-                <span className="hidden sm:inline">Preferences</span>
+                <span className="hidden sm:inline">
+                  {t("affiliate.personalizedSettings", "Preferences")}
+                </span>
               </Button>
             </div>
           </div>
