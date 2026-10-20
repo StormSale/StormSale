@@ -164,6 +164,13 @@ npm run lint
 npm run format
 ```
 
+## 🔌 No-Code Webhook Integrations
+
+The Webhook Manager supports browser-based event delivery to Zapier and
+Make.com custom webhook triggers. See the
+[Zapier and Make.com setup guide](docs/integrations/zapier-make.md) for
+configuration steps, sample payloads, retry behavior, and current limitations.
+
 ---
 
 ## 📁 Repository Directory Structure

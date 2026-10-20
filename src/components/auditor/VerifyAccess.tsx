@@ -18,6 +18,13 @@ import {
 } from "../../components/ui/dialog";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { verifyAccessSchema, getFieldErrors } from "../../lib/validation";
+import {
+  appendAuditAccessEvent,
+  isAuditorRevoked,
+  revokeAuditorKey,
+  type AuditAccessEvent,
+} from "../../lib/auditLedger";
 import {
   Eye,
   Shield,
@@ -40,6 +47,9 @@ interface PendingAuditItem {
   urgency: "High" | "Medium" | "Low";
 }
 
+/** Fallback identity so the console stays usable (read-only demo) without a connected key. */
+const DEMO_AUDITOR_KEY = "GDEMOAUDITOR7KEY7FOR7LOCAL7LEDGER7DEMO7SESSION7XLM77";
+
 export const VerifyAccess: React.FC = () => {
   const [saleId, setSaleId] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -48,8 +58,12 @@ export const VerifyAccess: React.FC = () => {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedData, setDecryptedData] = useState<Record<string, string> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [lastLedgerEntry, setLastLedgerEntry] = useState<AuditAccessEvent | null>(null);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
+
+  const auditorKey = userAddress || DEMO_AUDITOR_KEY;
 
   const pendingRequests: PendingAuditItem[] = [
     {
@@ -88,21 +102,62 @@ export const VerifyAccess: React.FC = () => {
   };
 
   const checkAccess = async () => {
-    if (!saleId || !campaignAddress) {
-      showNotification({
-        type: "warning",
-        title: "Missing Information",
-        message: "Please enter both Campaign Address and Sale ID",
-      });
+    setErrors({});
+
+    const result = verifyAccessSchema.safeParse({ campaignAddress, saleId });
+    if (!result.success) {
+      const fieldErrors = getFieldErrors(result.error);
+      setErrors(fieldErrors);
+      // Show a single toast only if both fields are empty (UX shortcut)
+      const messages = Object.values(fieldErrors);
+      if (messages.length > 0) {
+        showNotification({
+          type: "warning",
+          title: "Invalid Input",
+          message: messages[0],
+        });
+      }
       return;
     }
+
     setIsChecking(true);
     setHasAccess(null);
     setDecryptedData(null);
+    setLastLedgerEntry(null);
     try {
+      // Emergency revocation gate: a revoked auditor key never reaches the grant path
+      if (isAuditorRevoked(auditorKey)) {
+        const entry = await appendAuditAccessEvent({
+          action: "access_denied",
+          auditorPublicKey: auditorKey,
+          saleId,
+          campaignAddress,
+          detail: "Denied — auditor key is revoked in the tamper-evident ledger",
+        });
+        setHasAccess(false);
+        setLastLedgerEntry(entry);
+        showNotification({
+          type: "error",
+          title: "Auditor Key Revoked",
+          message: "This public key was emergency-revoked. All decryption sessions are terminated.",
+        });
+        return;
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 1400));
       // Demo deterministic access logic: if saleId is provided and valid, allow access
       const isGranted = parseInt(saleId, 10) % 2 === 0 || saleId.length > 2;
+
+      // #182: record every access decision against the auditor key in the append-only ledger
+      const entry = await appendAuditAccessEvent({
+        action: isGranted ? "access_granted" : "access_denied",
+        auditorPublicKey: auditorKey,
+        saleId,
+        campaignAddress,
+        detail: isGranted ? "Cryptographic access grant verified" : "No grant for this key",
+      });
+      setLastLedgerEntry(entry);
+
       setHasAccess(isGranted);
       showNotification({
         type: isGranted ? "success" : "warning",
@@ -123,6 +178,14 @@ export const VerifyAccess: React.FC = () => {
   };
 
   const handleDecrypt = async () => {
+    if (isAuditorRevoked(auditorKey)) {
+      showNotification({
+        type: "error",
+        title: "Session Terminated",
+        message: "Payload decryption blocked — this auditor key has been revoked.",
+      });
+      return;
+    }
     setIsDecrypting(true);
     try {
       await new Promise((resolve) => setTimeout(resolve, 1200));
@@ -136,6 +199,17 @@ export const VerifyAccess: React.FC = () => {
         Timestamp: new Date().toUTCString(),
         "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
       };
+
+      // #182: every payload decryption is logged with auditor key + record ID + timestamp
+      const entry = await appendAuditAccessEvent({
+        action: "payload_decrypted",
+        auditorPublicKey: auditorKey,
+        saleId,
+        campaignAddress,
+        detail: "AES-GCM envelope opened by auditor session",
+      });
+      setLastLedgerEntry(entry);
+
       setDecryptedData(stubData);
       setIsDialogOpen(true);
     } catch (_err) {
@@ -146,6 +220,32 @@ export const VerifyAccess: React.FC = () => {
       });
     } finally {
       setIsDecrypting(false);
+    }
+  };
+
+  // Emergency action: cryptographically terminate this session's auditor key
+  const handleRevokeSession = async () => {
+    try {
+      const entry = await revokeAuditorKey(
+        auditorKey,
+        "Self-revocation from Verify Access console (suspected compromise)",
+        auditorKey,
+      );
+      setLastLedgerEntry(entry);
+      setHasAccess(null);
+      setDecryptedData(null);
+      setIsDialogOpen(false);
+      showNotification({
+        type: "warning",
+        title: "Auditor Key Revoked",
+        message: `Session terminated and recorded as ledger entry #${entry.sequence}. A new key is required for future audits.`,
+      });
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Revocation Failed",
+        message: err.message || "Audit ledger rejected the revocation event.",
+      });
     }
   };
 
@@ -191,6 +291,14 @@ export const VerifyAccess: React.FC = () => {
                 ? `${userAddress.slice(0, 6)}...${userAddress.slice(-4)}`
                 : "Key Not Connected"}
             </div>
+            <button
+              type="button"
+              onClick={handleRevokeSession}
+              className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 hover:underline"
+            >
+              <XCircle className="w-3 h-3" />
+              Emergency Revoke Session Key
+            </button>
           </div>
         </div>
       </div>
@@ -221,27 +329,37 @@ export const VerifyAccess: React.FC = () => {
               <InputGroup className="space-y-5">
                 <InputField
                   label="Campaign Contract Address"
-                  description="Stellar/Soroban contract address starting with C..."
+                  description="Soroban contract address starting with C… (56 characters)"
+                  error={errors.campaignAddress}
                   required
                 >
                   <Input
                     value={campaignAddress}
-                    onChange={(e) => setCampaignAddress(e.target.value)}
+                    onChange={(e) => {
+                      setCampaignAddress(e.target.value);
+                      setErrors((prev) => ({ ...prev, campaignAddress: "" }));
+                    }}
                     placeholder="CA7QW5KXGPTR4N2K9J2L77XLMESCROW..."
+                    variant={errors.campaignAddress ? "error" : "default"}
                     className="h-12 border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono text-xs sm:text-sm"
                   />
                 </InputField>
 
                 <InputField
                   label="Sale ID / Transaction Index"
-                  description="Numeric ledger identifier for the sale record"
+                  description="Positive integer ledger identifier for the sale record"
+                  error={errors.saleId}
                   required
                 >
                   <Input
                     type="number"
                     value={saleId}
-                    onChange={(e) => setSaleId(e.target.value)}
+                    onChange={(e) => {
+                      setSaleId(e.target.value);
+                      setErrors((prev) => ({ ...prev, saleId: "" }));
+                    }}
                     placeholder="e.g. 1042"
+                    variant={errors.saleId ? "error" : "default"}
                     className="h-12 border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono text-sm"
                   />
                 </InputField>
@@ -329,6 +447,36 @@ export const VerifyAccess: React.FC = () => {
                       </>
                     )}
                   </div>
+                </div>
+              )}
+
+              {/* Append-Only Access Ledger Receipt (#182) */}
+              {lastLedgerEntry && (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950/80 border border-slate-200 dark:border-zinc-800">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs font-bold text-zinc-900 dark:text-white">
+                      <Shield className="w-4 h-4 text-indigo-500" />
+                      <span>
+                        Logged to tamper-evident access ledger · Entry #
+                        {lastLedgerEntry.sequence}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+                      {lastLedgerEntry.action.replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono text-zinc-500 dark:text-zinc-400">
+                    <div className="truncate" title={lastLedgerEntry.eventHash}>
+                      hash: {lastLedgerEntry.eventHash.slice(0, 24)}…
+                    </div>
+                    <div className="truncate sm:text-right" title={lastLedgerEntry.prevHash}>
+                      prev: {lastLedgerEntry.prevHash.slice(0, 24)}…
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mt-1.5">
+                    {new Date(lastLedgerEntry.timestamp).toLocaleString()} · merchant transparency
+                    portal mirrors this entry; altering it breaks chain verification.
+                  </p>
                 </div>
               )}
 
@@ -495,6 +643,15 @@ export const VerifyAccess: React.FC = () => {
                 </div>
               ))}
           </div>
+          {lastLedgerEntry && (
+            <div className="mt-3 p-3 rounded-xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 text-[10px] font-mono text-zinc-500 dark:text-zinc-400 space-y-1">
+              <div className="font-bold text-zinc-700 dark:text-zinc-300">
+                Access receipt · ledger entry #{lastLedgerEntry.sequence}
+              </div>
+              <div className="truncate">event: {lastLedgerEntry.eventHash}</div>
+              <div className="truncate">link: {lastLedgerEntry.prevHash}</div>
+            </div>
+          )}
           <div className="mt-4 flex justify-end">
             <Button
               onClick={() => setIsDialogOpen(false)}

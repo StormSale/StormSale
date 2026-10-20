@@ -1,11 +1,13 @@
-import React, { Suspense, useState, useEffect, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
+import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { loadBrandConfig } from "./lib/branding";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -47,7 +49,7 @@ class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error?: Error }
 > {
-  constructor(props: any) {
+  constructor(props: { children: React.ReactNode }) {
     super(props);
     this.state = { hasError: false };
   }
@@ -56,8 +58,7 @@ class ErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, info: any) {
-    // You can log error to an external service here
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("Unhandled error caught by ErrorBoundary:", error, info);
   }
 
@@ -85,17 +86,42 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
+
+type Page = (typeof VALID_PAGES)[number];
+
 function Router() {
   const { isConnected } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
-  const [currentPage, setCurrentPage] = useState(() =>
+
+  const [currentPage, setCurrentPage] = usePreference<Page>(
+    "stormsale.app.currentPage",
     isTelegramMiniApp() ? "affiliate" : "dashboard",
+    (value) => VALID_PAGES.includes(value as Page),
   );
+
+  const prevConnectedRef = useRef(isConnected);
+
+  useEffect(() => {
+    // Only reset to "dashboard" after isConnected transitions from true to false,
+    // preserving saved page state on initial load / reload.
+    if (prevConnectedRef.current && !isConnected) {
+      setCurrentPage("dashboard");
+    }
+    prevConnectedRef.current = isConnected;
+  }, [isConnected, setCurrentPage]);
+
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+
+  const handleNavigate = (page: string) => {
+    if (VALID_PAGES.includes(page as Page)) {
+      setCurrentPage(page as Page);
+    }
+  };
 
   if (activeBrandSubdomain) {
     return (
@@ -121,23 +147,29 @@ function Router() {
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+              {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
               {currentPage === "advertiser" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
-                  <Advertiser onBack={() => setCurrentPage("dashboard")} />
-                </Suspense>
+                <ProtectedRoute requiredRole="ADVERTISER" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                    <Advertiser onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
               )}
               {currentPage === "affiliate" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
-                  <Affiliate
-                    onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
-                  />
-                </Suspense>
+                <ProtectedRoute requiredRole="AFFILIATE" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                    <Affiliate
+                      onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
+                    />
+                  </Suspense>
+                </ProtectedRoute>
               )}
               {currentPage === "auditor" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
-                  <Auditor onBack={() => setCurrentPage("dashboard")} />
-                </Suspense>
+                <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                    <Auditor onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
               )}
             </main>
           </div>

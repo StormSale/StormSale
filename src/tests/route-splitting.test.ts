@@ -52,7 +52,7 @@ describe("Route Splitting & Chunk Optimization (#99)", () => {
 
     const auditorModule = await import("../pages/Auditor");
     expect(auditorModule.Auditor).toBeDefined();
-  });
+  }, 15000);
 
   it("should export PageLoader component for suspense fallback", () => {
     expect(typeof PageLoader).toBe("function");

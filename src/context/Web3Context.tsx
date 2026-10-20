@@ -21,7 +21,9 @@ import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
+import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
+import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { TxSequenceManager, fetchNextSequence } from "../lib/txSequenceManager";
 import type { QueueState } from "../lib/txSequenceManager";
@@ -86,7 +88,10 @@ export interface Web3ContextType {
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
-  batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
+  batchClaimPayoutsOnChain: (
+    campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
+  ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
@@ -391,11 +396,31 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         assetCode,
         sequence,
       );
-      return { txHash: res.txHash };
+      if (res.success) {
+        void dispatchWebhookEvent("campaign.created", {
+          id: `campaign_${res.campaignId}`,
+          event: "campaign.created",
+          created_at: new Date().toISOString(),
+          campaign_id: res.campaignId,
+          campaign_name: name,
+          advertiser_address: userAddress,
+          budget: budgetAmount,
+          currency: assetCode || "XLM",
+          commission_rate_percent: commissionRatePercent,
+          clearing_period_seconds: clearingPeriodSecs,
+          tx_hash: res.txHash,
+          status: "created",
+        });
+      }
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
     });
     return {
       success: true,
-      campaignId: 0,
+      campaignId: result.campaignId ?? 0,
       txHash: result.txHash,
       asset: assetCode,
     };
@@ -438,6 +463,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         assetCode,
         sequence,
       );
+      if (res.success) {
+        void dispatchWebhookEvent("payout.created", {
+          id: `payout_${res.txHash}`,
+          event: "payout.created",
+          created_at: new Date().toISOString(),
+          payout_id: res.txHash,
+          campaign_id: campaignId,
+          affiliate_address: userAddress,
+          currency: (res.asset as string) || (assetCode as string) || "XLM",
+          tx_hash: res.txHash,
+          status: "claimed",
+        });
+      }
+      setTimeout(() => refreshBalance(userAddress), 1000);
       return { txHash: res.txHash };
     });
     return { success: true, txHash: result.txHash, asset: assetCode };
@@ -459,34 +498,24 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return { success: true, txHash: result.txHash };
   };
 
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
     const manager = sequenceManagerRef.current;
     if (!manager) throw new Error("Transaction manager not initialized");
-    const receipt: BatchClaimReceipt = {
-      success: true,
-      claims: [],
-    };
-    for (const campaign of campaigns) {
-      const result = await manager.enqueue(`batchClaim:${campaign.campaignId}`, async (sequence) => {
-        const res = await claimPayoutContractCall(
-          userAddress,
-          campaign.campaignId,
-          connectorType || "freighter",
-          campaign.assetCode || "XLM",
-          sequence,
-        );
-        return { txHash: res.txHash };
-      });
-      receipt.claims.push({
-        campaignId: campaign.campaignId,
-        txHash: result.txHash,
-        success: true,
-      });
-    }
-    return receipt;
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+      splitPlan,
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
   };
 
   const registerPasskeyAccount = async (userName?: string) => {
