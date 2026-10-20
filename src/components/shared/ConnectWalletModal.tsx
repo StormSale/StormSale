@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
+import { useNavigate } from "react-router-dom";
 import {
   X,
   Smartphone,
@@ -27,6 +28,7 @@ import type { WalletType } from "../../lib/stellar";
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
   const { connect: connectWalletConnect } = useWalletConnect();
+  const navigate = useNavigate();
   const [connectingType, setConnectingType] = useState<WalletType | "walletconnect" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState("");
@@ -122,6 +124,7 @@ export const ConnectWalletModal: React.FC = () => {
         await connectWallet(type);
       }
       handleClose();
+      navigate("/dashboard");
     } catch (err: any) {
       console.error("Wallet connection error:", err);
       setErrorMessage(
@@ -133,24 +136,13 @@ export const ConnectWalletModal: React.FC = () => {
     }
   };
 
-  // E2E test hook: allow tests to force a wallet type via URL query param
-  // e.g. /?wallet=mock or /?wallet=walletconnect
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const forced = params.get("wallet");
-    if (forced && isWalletModalOpen && connectingType === null) {
-      void handleSelectWallet(forced as WalletType);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWalletModalOpen]);
-
   const handleCompleteWalletConnect = async () => {
     setConnectingType("walletconnect");
     setErrorMessage(null);
     try {
       await connectWalletConnect();
       handleClose();
+      navigate("/dashboard");
     } catch (err: any) {
       console.error("WalletConnect completion error:", err);
       setErrorMessage(err.message || "Failed to finalize WalletConnect session.");
@@ -229,6 +221,7 @@ export const ConnectWalletModal: React.FC = () => {
       icon: CheckCircle2,
       accent: "from-sky-500 to-blue-600",
       borderHover: "hover:border-sky-500/50 hover:bg-sky-50/50 dark:hover:bg-sky-950/20",
+      testId: "wallet-option-mock",
     },
     {
       id: "walletconnect" as any,
@@ -240,6 +233,7 @@ export const ConnectWalletModal: React.FC = () => {
       icon: QrCode,
       accent: "from-indigo-600 to-blue-600",
       borderHover: "hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
+      testId: "wallet-option-walletconnect",
     },
   ];
 
@@ -297,7 +291,6 @@ export const ConnectWalletModal: React.FC = () => {
             <button
               onClick={handleClose}
               aria-label="Close modal"
-              data-testid="connect-wallet-close"
               className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -476,7 +469,7 @@ export const ConnectWalletModal: React.FC = () => {
                     <button
                       disabled={connectingType !== null}
                       onClick={() => handleSelectWallet(wallet.id)}
-                      data-testid={`wallet-option-${wallet.id}`}
+                      data-testid={(wallet as any).testId ?? `wallet-option-${wallet.id}`}
                       className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
                         isBusy ? "opacity-70 pointer-events-none" : ""
                       }`}
@@ -526,7 +519,6 @@ export const ConnectWalletModal: React.FC = () => {
                           <motion.div
                             initial={{ opacity: 0, height: 0 }}
                             animate={{ opacity: 1, height: "auto" }}
-                            data-testid="ledger-settings-panel"
                             className="mt-2 p-3.5 bg-slate-100/70 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/60 space-y-2 text-xs"
                           >
                             <div className="font-bold text-zinc-800 dark:text-zinc-200">
@@ -589,7 +581,6 @@ export const ConnectWalletModal: React.FC = () => {
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
-                    data-testid="readonly-input-panel"
                     className="p-4 bg-slate-50 dark:bg-zinc-800/50 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5"
                   >
                     <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300">
@@ -599,7 +590,6 @@ export const ConnectWalletModal: React.FC = () => {
                       type="text"
                       value={customKey}
                       onChange={(e) => setCustomKey(e.target.value)}
-                      data-testid="readonly-public-key-input"
                       placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
                       className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     />
@@ -612,7 +602,6 @@ export const ConnectWalletModal: React.FC = () => {
                       </button>
                       <button
                         onClick={() => handleSelectWallet("readonly")}
-                        data-testid="readonly-connect-button"
                         className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-xs font-bold rounded-xl"
                       >
                         Connect Watch Key
@@ -634,7 +623,6 @@ export const ConnectWalletModal: React.FC = () => {
               href="https://stellar.org/soroban"
               target="_blank"
               rel="noopener noreferrer"
-              data-testid="soroban-footer-link"
               className="hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center font-medium transition-colors"
             >
               Powered by Soroban
