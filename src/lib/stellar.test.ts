@@ -3,8 +3,8 @@ import {
   formatStellarAddress,
   isValidStellarAddress,
   getSorobanRpcServer,
-  buildSep0007TxUri,
-  buildSep0007QrFallback,
+  generateSep0007TxUri,
+  generateSep0007QrCodeUrl,
   streamTransactionInclusion,
 } from "./stellar";
 
@@ -41,31 +41,45 @@ describe("Stellar Helpers", () => {
   });
 
   it("generates a SEP-0007 tx URI with base64 XDR and replace=false", () => {
-    const xdr = "AAAAAgAAAABmockXdrPayload==";
-    const uri = buildSep0007TxUri(xdr);
-    expect(uri.startsWith("web+stellar:tx?")).toBe(true);
-    expect(uri).toContain(`xdr=${encodeURIComponent(xdr)}`);
-    expect(uri).toContain("replace=false");
+    const xdr = "AAAAAgAAAAB...mockXdr==";
+    const uri = generateSep0007TxUri(xdr);
+    expect(uri).toBe(`web+stellar:tx?xdr=${encodeURIComponent(xdr)}&replace=false`);
   });
 
-  it("builds a QR code fallback for the SEP-0007 URI", () => {
-    const uri = buildSep0007TxUri("AAAAAgAAAABmockXdrPayload==");
-    const fallback = buildSep0007QrFallback(uri);
-    expect(fallback.uri).toBe(uri);
-    expect(fallback.qrDataUrl).toContain("data:image");
+  it("generates a fallback QR code URL for the SEP-0007 URI", () => {
+    const uri = generateSep0007TxUri("mockXdr");
+    const qr = generateSep0007QrCodeUrl(uri);
+    expect(qr).toContain("mockXdr");
+    expect(qr.startsWith("https://")).toBe(true);
   });
 
-  it("streams ledger inclusion until the transaction is confirmed", async () => {
-    const events: string[] = [];
-    const stop = await streamTransactionInclusion(
-      "GTESTACCOUNT7STREAM7HORIZON7TX7INCLUSION7XLM7777777777",
-      "mock-tx-hash",
-      (status) => events.push(status),
-      { pollIntervalMs: 1, maxAttempts: 2, mockConfirmed: true },
+  it("streams Horizon transactions until the target hash is included", async () => {
+    const targetHash = "abc123";
+    let closeFn: (() => void) | undefined;
+    const fakeServer = {
+      transactions: () => ({
+        forAccount: () => ({
+          cursor: () => ({
+            stream: (opts: any) => {
+              setTimeout(() => {
+                opts.onmessage({ hash: "other" });
+                opts.onmessage({ hash: targetHash });
+              }, 0);
+              closeFn = () => opts.onerror?.(new Error("closed"));
+              return closeFn;
+            },
+          }),
+        }),
+      }),
+    };
+    const result = await streamTransactionInclusion(
+      "GACCOUNT",
+      targetHash,
+      fakeServer as any,
+      1000,
     );
-    expect(events).toContain("pending");
-    expect(events).toContain("confirmed");
-    expect(typeof stop).toBe("function");
+    expect(result.included).toBe(true);
+    expect(result.hash).toBe(targetHash);
   });
 
   it("handles token allowance query and approval flow with mock storage", async () => {
