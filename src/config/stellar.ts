@@ -14,7 +14,7 @@ export const STELLAR_CONFIG = {
   // Deployed Soroban Contract ID on Stellar Testnet
   contractId:
     import.meta.env.VITE_STORMSALE_CONTRACT_ID ||
-    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
 
   nativeAsset: "XLM",
   nativeDecimals: 7,
@@ -38,7 +38,7 @@ export interface EscrowAsset {
  * - EURC Issuer: GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO
  *
  * PUBLIC (Mainnet):
- * - USDC Issuer: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPPPRE34K4KZVN
+ * - USDC Issuer: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
  * - EURC Issuer: GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2
  */
 export const ISSUERS = {
@@ -47,7 +47,7 @@ export const ISSUERS = {
     EURC: "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO",
   },
   PUBLIC: {
-    USDC: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPPPRE34K4KZVN",
+    USDC: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
     EURC: "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2",
   },
 } as const;
@@ -125,232 +125,84 @@ export const STELLAR_NETWORKS = {
 };
 
 /**
- * Soroban resource budget configuration.
- *
- * These thresholds are used by the Resource Diagnostic profiler to flag
- * transactions whose simulated footprint looks unoptimized. Values are
- * intentionally conservative and can be tuned per-network.
+ * Soroban resource budget thresholds used by the Resource Diagnostic profiler.
+ * Values are expressed in the units returned by `simulateTransaction`:
+ * - cpuInstructions: total CPU instructions (u64 as string)
+ * - memoryBytes: total memory bytes (u64 as string)
+ * - minResourceFee: minimum resource fee in stroops (i64 as string)
  */
 export interface SorobanResourceBudget {
-  /** Maximum acceptable CPU instructions for a single invocation. */
-  maxCpuInstructions: number;
-  /** Maximum acceptable memory footprint in bytes. */
-  maxMemoryBytes: number;
-  /** Maximum acceptable ledger read bytes. */
-  maxReadBytes: number;
-  /** Maximum acceptable ledger write bytes. */
-  maxWriteBytes: number;
-  /** Maximum acceptable min resource fee in stroops. */
-  maxMinResourceFee: number;
+  /** Soft ceiling for CPU instructions before a warning is raised. */
+  cpuInstructionsWarn: bigint;
+  /** Hard ceiling for CPU instructions before an error is raised. */
+  cpuInstructionsMax: bigint;
+  /** Soft ceiling for memory bytes before a warning is raised. */
+  memoryBytesWarn: bigint;
+  /** Hard ceiling for memory bytes before an error is raised. */
+  memoryBytesMax: bigint;
+  /** Soft ceiling for minResourceFee (stroops) before a warning is raised. */
+  minResourceFeeWarn: bigint;
+  /** Hard ceiling for minResourceFee (stroops) before an error is raised. */
+  minResourceFeeMax: bigint;
 }
 
-export const SOROBAN_RESOURCE_BUDGETS: Record<"TESTNET" | "PUBLIC", SorobanResourceBudget> = {
-  TESTNET: {
-    maxCpuInstructions: 100_000_000,
-    maxMemoryBytes: 40 * 1024 * 1024,
-    maxReadBytes: 200_000,
-    maxWriteBytes: 100_000,
-    maxMinResourceFee: 10_000_000,
-  },
-  PUBLIC: {
-    maxCpuInstructions: 100_000_000,
-    maxMemoryBytes: 40 * 1024 * 1024,
-    maxReadBytes: 200_000,
-    maxWriteBytes: 100_000,
-    maxMinResourceFee: 10_000_000,
-  },
-} as const;
+/**
+ * Default Soroban resource budgets. These are conservative defaults aligned
+ * with typical testnet simulation headroom and can be overridden per-network
+ * via environment variables for advanced auditing workflows.
+ */
+export const SOROBAN_RESOURCE_BUDGET: SorobanResourceBudget = {
+  cpuInstructionsWarn: BigInt(
+    import.meta.env.VITE_SOROBAN_CPU_WARN || "100000000",
+  ),
+  cpuInstructionsMax: BigInt(
+    import.meta.env.VITE_SOROBAN_CPU_MAX || "400000000",
+  ),
+  memoryBytesWarn: BigInt(import.meta.env.VITE_SOROBAN_MEM_WARN || "41943040"),
+  memoryBytesMax: BigInt(import.meta.env.VITE_SOROBAN_MEM_MAX || "419430400"),
+  minResourceFeeWarn: BigInt(
+    import.meta.env.VITE_SOROBAN_FEE_WARN || "1000000",
+  ),
+  minResourceFeeMax: BigInt(
+    import.meta.env.VITE_SOROBAN_FEE_MAX || "10000000",
+  ),
+};
 
+/**
+ * Feature flag gating the Resource Diagnostic accordion in confirmation modals.
+ * Enabled by default in dev builds, opt-in in production via env var.
+ */
+export const RESOURCE_DIAGNOSTIC_ENABLED: boolean =
+  import.meta.env.VITE_RESOURCE_DIAGNOSTIC === "true" ||
+  (import.meta.env.DEV === true &&
+    import.meta.env.VITE_RESOURCE_DIAGNOSTIC !== "false");
+
+/**
+ * Returns the effective resource budget for the active network, allowing
+ * per-network overrides without mutating the shared default.
+ */
 export function getSorobanResourceBudget(
   network: "TESTNET" | "PUBLIC" = STELLAR_CONFIG.network,
 ): SorobanResourceBudget {
-  return SOROBAN_RESOURCE_BUDGETS[network === "PUBLIC" ? "PUBLIC" : "TESTNET"];
-}
-
-/**
- * Normalized shape of the resource data extracted from a Soroban RPC
- * `simulateTransaction` response. All numeric fields are optional because
- * simulation may fail or return partial data.
- */
-export interface SorobanResourceUsage {
-  minResourceFee?: number;
-  cpuInstructions?: number;
-  memoryBytes?: number;
-  readBytes?: number;
-  writeBytes?: number;
-}
-
-export type SorobanResourceSeverity = "ok" | "warning" | "critical";
-
-export interface SorobanResourceDiagnostic {
-  metric: keyof SorobanResourceBudget;
-  label: string;
-  value?: number;
-  limit: number;
-  /** Ratio of value to limit (0..1+). Undefined when value is missing. */
-  ratio: number | undefined;
-  severity: SorobanResourceSeverity;
-  message: string;
-}
-
-export interface SorobanResourceReport {
-  usage: SorobanResourceUsage;
-  budget: SorobanResourceBudget;
-  diagnostics: SorobanResourceDiagnostic[];
-  /** True when any diagnostic is "warning" or "critical". */
-  hasWarnings: boolean;
-  /** True when any diagnostic is "critical". */
-  hasCritical: boolean;
-}
-
-const RESOURCE_METRIC_LABELS: Record<keyof SorobanResourceBudget, string> = {
-  maxCpuInstructions: "CPU Instructions",
-  maxMemoryBytes: "Memory Bytes",
-  maxReadBytes: "Ledger Read Bytes",
-  maxWriteBytes: "Ledger Write Bytes",
-  maxMinResourceFee: "Min Resource Fee (stroops)",
-};
-
-const RESOURCE_USAGE_KEYS: Record<keyof SorobanResourceBudget, keyof SorobanResourceUsage> = {
-  maxCpuInstructions: "cpuInstructions",
-  maxMemoryBytes: "memoryBytes",
-  maxReadBytes: "readBytes",
-  maxWriteBytes: "writeBytes",
-  maxMinResourceFee: "minResourceFee",
-};
-
-function classifyRatio(ratio: number): SorobanResourceSeverity {
-  if (ratio >= 1) return "critical";
-  if (ratio >= 0.8) return "warning";
-  return "ok";
-}
-
-/**
- * Build a per-metric diagnostic report from a normalized resource usage
- * object. This is a pure function so it can be unit-tested without a live
- * RPC connection.
- */
-export function buildSorobanResourceReport(
-  usage: SorobanResourceUsage,
-  budget: SorobanResourceBudget = getSorobanResourceBudget(),
-): SorobanResourceReport {
-  const diagnostics: SorobanResourceDiagnostic[] = (
-    Object.keys(RESOURCE_METRIC_LABELS) as (keyof SorobanResourceBudget)[]
-  ).map((metric) => {
-    const limit = budget[metric];
-    const value = usage[RESOURCE_USAGE_KEYS[metric]];
-    const label = RESOURCE_METRIC_LABELS[metric];
-
-    if (value === undefined || value === null) {
-      return {
-        metric,
-        label,
-        value: undefined,
-        limit,
-        ratio: undefined,
-        severity: "ok" as const,
-        message: `${label}: not reported by simulation`,
-      };
-    }
-
-    const ratio = limit > 0 ? value / limit : 0;
-    const severity = classifyRatio(ratio);
-    const pct = (ratio * 100).toFixed(1);
-    const message =
-      severity === "critical"
-        ? `${label} exceeds budget (${pct}% of ${limit})`
-        : severity === "warning"
-          ? `${label} approaching budget (${pct}% of ${limit})`
-          : `${label} within budget (${pct}% of ${limit})`;
-
-    return { metric, label, value, limit, ratio, severity, message };
-  });
-
+  const prefix = network === "PUBLIC" ? "VITE_SOROBAN_PUBLIC" : "VITE_SOROBAN_TESTNET";
   return {
-    usage,
-    budget,
-    diagnostics,
-    hasWarnings: diagnostics.some((d) => d.severity !== "ok"),
-    hasCritical: diagnostics.some((d) => d.severity === "critical"),
+    cpuInstructionsWarn: BigInt(
+      import.meta.env[`${prefix}_CPU_WARN`] || SOROBAN_RESOURCE_BUDGET.cpuInstructionsWarn.toString(),
+    ),
+    cpuInstructionsMax: BigInt(
+      import.meta.env[`${prefix}_CPU_MAX`] || SOROBAN_RESOURCE_BUDGET.cpuInstructionsMax.toString(),
+    ),
+    memoryBytesWarn: BigInt(
+      import.meta.env[`${prefix}_MEM_WARN`] || SOROBAN_RESOURCE_BUDGET.memoryBytesWarn.toString(),
+    ),
+    memoryBytesMax: BigInt(
+      import.meta.env[`${prefix}_MEM_MAX`] || SOROBAN_RESOURCE_BUDGET.memoryBytesMax.toString(),
+    ),
+    minResourceFeeWarn: BigInt(
+      import.meta.env[`${prefix}_FEE_WARN`] || SOROBAN_RESOURCE_BUDGET.minResourceFeeWarn.toString(),
+    ),
+    minResourceFeeMax: BigInt(
+      import.meta.env[`${prefix}_FEE_MAX`] || SOROBAN_RESOURCE_BUDGET.minResourceFeeMax.toString(),
+    ),
   };
 }
-
-/**
- * Extract a normalized resource usage object from a raw Soroban RPC
- * `simulateTransaction` response. Handles both the legacy `cost` shape and
- * the newer `transactionData`/`minResourceFee` shape returned by testnet.
- */
-export function extractSorobanResourceUsage(simulation: unknown): SorobanResourceUsage {
-  const usage: SorobanResourceUsage = {};
-  if (!simulation || typeof simulation !== "object") return usage;
-
-  const sim = simulation as Record<string, unknown>;
-
-  const minFee = sim.minResourceFee;
-  if (typeof minFee === "string" && minFee.length > 0) {
-    const parsed = Number(minFee);
-    if (Number.isFinite(parsed)) usage.minResourceFee = parsed;
-  } else if (typeof minFee === "number" && Number.isFinite(minFee)) {
-    usage.minResourceFee = minFee;
-  }
-
-  const cost = sim.cost as Record<string, unknown> | undefined;
-  if (cost && typeof cost === "object") {
-    const cpu = cost.cpuIns;
-    const mem = cost.memBytes;
-    if (typeof cpu === "string" && cpu.length > 0) {
-      const parsed = Number(cpu);
-      if (Number.isFinite(parsed)) usage.cpuInstructions = parsed;
-    } else if (typeof cpu === "number" && Number.isFinite(cpu)) {
-      usage.cpuInstructions = cpu;
-    }
-    if (typeof mem === "string" && mem.length > 0) {
-      const parsed = Number(mem);
-      if (Number.isFinite(parsed)) usage.memoryBytes = parsed;
-    } else if (typeof mem === "number" && Number.isFinite(mem)) {
-      usage.memoryBytes = mem;
-    }
-  }
-
-  const txData = sim.transactionData as Record<string, unknown> | undefined;
-  if (txData && typeof txData === "object") {
-    const readBytes = txData.readBytes;
-    const writeBytes = txData.writeBytes;
-    if (typeof readBytes === "string" && readBytes.length > 0) {
-      const parsed = Number(readBytes);
-      if (Number.isFinite(parsed)) usage.readBytes = parsed;
-    } else if (typeof readBytes === "number" && Number.isFinite(readBytes)) {
-      usage.readBytes = readBytes;
-    }
-    if (typeof writeBytes === "string" && writeBytes.length > 0) {
-      const parsed = Number(writeBytes);
-      if (Number.isFinite(parsed)) usage.writeBytes = parsed;
-    } else if (typeof writeBytes === "number" && Number.isFinite(writeBytes)) {
-      usage.writeBytes = writeBytes;
-    }
-  }
-
-  return usage;
-}
-
-/**
- * Convenience helper: extract usage from a simulation response and build a
- * full diagnostic report in one call.
- */
-export function profileSorobanSimulation(
-  simulation: unknown,
-  network: "TESTNET" | "PUBLIC" = STELLAR_CONFIG.network,
-): SorobanResourceReport {
-  return buildSorobanResourceReport(
-    extractSorobanResourceUsage(simulation),
-    getSorobanResourceBudget(network),
-  );
-}
-
-/**
- * Dev-mode toggle used by the Resource Diagnostic accordion. Reads from
- * `VITE_STELLAR_DEV_MODE` and defaults to off in production builds.
- */
-export const STELLAR_DEV_MODE: boolean =
-  import.meta.env.VITE_STELLAR_DEV_MODE === "true" ||
-  (import.meta.env.DEV === true && import.meta.env.VITE_STELLAR_DEV_MODE !== "false");
