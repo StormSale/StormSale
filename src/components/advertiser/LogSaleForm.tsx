@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -29,6 +29,10 @@ export const LogSaleForm = () => {
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [queueStatus, setQueueStatus] = useState<string>("");
+
+  const inFlightQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const localSequenceRef = useRef<number | null>(null);
 
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
@@ -36,6 +40,76 @@ export const LogSaleForm = () => {
   const clearError = (field: string) => {
     setErrors((prev) => ({ ...prev, [field]: "" }));
   };
+
+  const isBadSequenceError = (error: unknown): boolean => {
+    const message =
+      error instanceof Error ? error.message : String(error ?? "");
+    return /txBAD_SEQ|bad_seq|bad sequence|sequence number/i.test(message);
+  };
+
+  const resyncSequenceFromHorizon = useCallback(async (): Promise<number> => {
+    const anyWeb3 = (window as unknown as { stellar?: unknown }).stellar;
+    void anyWeb3;
+    const resyncFn = (getCampaignContract as unknown as {
+      resyncSequence?: () => Promise<number>;
+    }).resyncSequence;
+    if (typeof resyncFn === "function") {
+      const seq = await resyncFn();
+      localSequenceRef.current = seq;
+      return seq;
+    }
+    localSequenceRef.current = null;
+    return 0;
+  }, [getCampaignContract]);
+
+  const enqueueTransaction = useCallback(
+    <T,>(task: () => Promise<T>): Promise<T> => {
+      const run = inFlightQueueRef.current.then(task, task);
+      inFlightQueueRef.current = run.catch(() => undefined);
+      return run;
+    },
+    [],
+  );
+
+  const submitWithSequenceRecovery = useCallback(
+    async <T,>(task: () => Promise<T>): Promise<T> => {
+      try {
+        const result = await task();
+        if (localSequenceRef.current !== null) {
+          localSequenceRef.current += 1;
+        }
+        return result;
+      } catch (error) {
+        if (!isBadSequenceError(error)) {
+          throw error;
+        }
+
+        setQueueStatus("Sequence mismatch detected — resyncing from Horizon…");
+        showNotification({
+          type: "warning",
+          title: "Resyncing Sequence",
+          message:
+            "Transaction sequence was out of sync. Resyncing from Horizon and retrying once.",
+        });
+
+        await resyncSequenceFromHorizon();
+
+        setQueueStatus("Retrying transaction with updated sequence…");
+        try {
+          const retried = await task();
+          if (localSequenceRef.current !== null) {
+            localSequenceRef.current += 1;
+          }
+          setQueueStatus("");
+          return retried;
+        } catch (retryError) {
+          setQueueStatus("");
+          throw retryError;
+        }
+      }
+    },
+    [resyncSequenceFromHorizon, showNotification],
+  );
 
   const handleLogSale = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -64,6 +138,7 @@ export const LogSaleForm = () => {
 
     const { data } = result;
     setIsLoading(true);
+    setQueueStatus("Queued — waiting for in-flight transactions…");
 
     try {
       const campaignContract = getCampaignContract(data.campaignAddress);
@@ -106,15 +181,23 @@ export const LogSaleForm = () => {
         message: "Logging encrypted sale...",
       });
 
-      const tx = await campaignContract.logEncryptedSale(
-        data.affiliateAddress,
-        data.saleAmount,
-        encryptedPayload,
-        advertiserWrappedKey,
-        affiliateWrappedKey,
+      setQueueStatus("Submitting transaction…");
+
+      const waitResult = await enqueueTransaction(() =>
+        submitWithSequenceRecovery(async () => {
+          const tx = await campaignContract.logEncryptedSale(
+            data.affiliateAddress,
+            data.saleAmount,
+            encryptedPayload,
+            advertiserWrappedKey,
+            affiliateWrappedKey,
+          );
+
+          return tx.wait();
+        }),
       );
 
-      const waitResult = await tx.wait();
+      const tx = waitResult;
 
       const postbackTxHash =
         waitResult?.txHash || tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
@@ -191,6 +274,7 @@ export const LogSaleForm = () => {
           error instanceof Error ? error.message : "Failed to log sale.",
       });
     } finally {
+      setQueueStatus("");
       setIsLoading(false);
     }
   };
@@ -339,6 +423,15 @@ export const LogSaleForm = () => {
                   })}
                 </div>
               </div>
+
+              {queueStatus && (
+                <div className="flex items-center space-x-3 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 rounded-xl px-4 py-3">
+                  <div className="w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-600 rounded-full animate-spin" />
+                  <span className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
+                    {queueStatus}
+                  </span>
+                </div>
+              )}
 
               <Button
                 type="submit"

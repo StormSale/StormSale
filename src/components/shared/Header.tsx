@@ -1,15 +1,14 @@
 import { Button } from "../../components/ui/button";
-import React from "react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck, Send, Loader2, AlertCircle } from "lucide-react";
+import { Wallet, Menu, X, Coins, ShieldCheck, Send } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance, txQueueStatus } = useWeb3() as ReturnType<typeof useWeb3> & { txQueueStatus?: { pending: number; lastError?: string | null } };
+  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance, pendingTxCount = 0, isSequenceSyncing = false } = useWeb3() as any;
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -51,23 +50,6 @@ export const Header = () => {
           )}
         </div>
 
-        {/* Transaction Queue Status */}
-        {txQueueStatus && (txQueueStatus.pending > 0 || txQueueStatus.lastError) && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 text-xs font-semibold text-amber-700 dark:text-amber-400">
-            {txQueueStatus.lastError ? (
-              <React.Fragment>
-                <AlertCircle className="w-3.5 h-3.5" />
-                <span>Resyncing sequence…</span>
-              </React.Fragment>
-            ) : (
-              <React.Fragment>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{txQueueStatus.pending} tx queued</span>
-              </React.Fragment>
-            )}
-          </div>
-        )}
-
         {/* Desktop Nav Links */}
         <nav className="hidden lg:flex items-center space-x-5">
           {navLinks.map((item) => (
@@ -87,6 +69,17 @@ export const Header = () => {
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
+              {(pendingTxCount > 0 || isSequenceSyncing) && (
+                <div
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-xl"
+                  title={isSequenceSyncing ? "Resyncing sequence from Horizon" : `${pendingTxCount} transaction(s) queued`}
+                >
+                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                    {isSequenceSyncing ? "SYNCING" : `${pendingTxCount} QUEUED`}
+                  </span>
+                </div>
+              )}
               <div className="flex items-center space-x-2 px-3 py-1.5 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
                 <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
                 <span className="text-xs font-mono font-semibold text-zinc-900 dark:text-white">
