@@ -13,6 +13,7 @@ import {
   retryDeliveryNow,
   clearWebhookDeliveries,
   generateWebhookSecret,
+  isSafeWebhookUrl,
 } from "../../lib/webhookEngine";
 import { verifyWebhookSignature, generateWebhookSignature } from "../../lib/webhookSecurity";
 import type {
@@ -145,21 +146,12 @@ export const WebhookManager = () => {
       return;
     }
 
-    try {
-      const parsedUrl = new URL(endpointUrl.trim());
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-        showNotification({
-          type: "error",
-          title: "Unsupported Protocol",
-          message: "Webhook URLs must use standard http:// or https:// protocol.",
-        });
-        return;
-      }
-    } catch {
+    if (!isSafeWebhookUrl(endpointUrl.trim())) {
       showNotification({
         type: "error",
-        title: "Invalid URL",
-        message: "Please enter a valid HTTP or HTTPS endpoint URL.",
+        title: "Unsafe Webhook URL",
+        message:
+          "Webhook URLs must use HTTPS and a public hostname. Local, private, and IP-literal destinations are not allowed.",
       });
       return;
     }
@@ -235,7 +227,7 @@ export const WebhookManager = () => {
     setTestingEndpointId(endpointId);
     showNotification({
       type: "info",
-      title: "Dispatching Dummy Payload",
+      title: "Dispatching Sample Event",
       message: "Signing payload with HMAC-SHA256 and posting to endpoint...",
     });
 
@@ -246,7 +238,7 @@ export const WebhookManager = () => {
       if (delivery && delivery.status === "delivered") {
         showNotification({
           type: "success",
-          title: "Dummy Test Payload Delivered (200 OK)",
+          title: "Sample Event Delivered (200 OK)",
           message: "Endpoint successfully responded with status 200.",
         });
       } else if (delivery && delivery.status === "retrying") {
@@ -569,7 +561,7 @@ export const WebhookManager = () => {
                 Registered Postback Destinations
               </h2>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Manage destination URLs and test with dummy conversion packets
+                Manage destination URLs and test with sample event payloads
               </p>
             </div>
             <div className="flex items-center space-x-3">
@@ -580,6 +572,9 @@ export const WebhookManager = () => {
                 className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-xs font-semibold rounded-xl px-3 py-2 text-zinc-800 dark:text-zinc-200"
               >
                 <option value="conversion.confirmed">conversion.confirmed</option>
+                <option value="campaign.created">campaign.created (New Campaign)</option>
+                <option value="conversion.created">conversion.created (New Conversion)</option>
+                <option value="payout.created">payout.created (New Payout)</option>
                 <option value="payout.claimed">payout.claimed</option>
                 <option value="commission.escrowed">commission.escrowed</option>
                 <option value="ping.test">ping.test</option>
@@ -1191,13 +1186,13 @@ function verifyStormSale(req, secret) {
                   htmlFor={endpointUrlId}
                   className="block text-xs font-bold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider mb-1"
                 >
-                  Target Ingestion URL (HTTP POST)
+                  Target Webhook URL (HTTPS POST)
                 </label>
                 <Input
                   id={endpointUrlId}
                   value={endpointUrl}
                   onChange={(e) => setEndpointUrl(e.target.value)}
-                  placeholder="https://crm.yourcompany.com/api/postback"
+                  placeholder="https://hooks.zapier.com/..."
                   className="h-11 rounded-xl font-mono text-xs bg-slate-50 dark:bg-zinc-950 border-slate-200 dark:border-zinc-800"
                   required
                 />
@@ -1258,6 +1253,9 @@ function verifyStormSale(req, secret) {
                 </span>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {[
+                    { id: "campaign.created", label: "campaign.created (New Campaign)" },
+                    { id: "conversion.created", label: "conversion.created (New Conversion)" },
+                    { id: "payout.created", label: "payout.created (New Payout)" },
                     { id: "conversion.confirmed", label: "conversion.confirmed (Affiliate Sale)" },
                     { id: "payout.claimed", label: "payout.claimed (Commission Payout)" },
                     { id: "commission.escrowed", label: "commission.escrowed (Escrow Fund)" },

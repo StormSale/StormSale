@@ -13,7 +13,10 @@ import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
 import { NotificationProvider } from "../context/NotificationContext";
+import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
+import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { usePreference } from "../hooks/usePreference";
 import {
   ArrowRight,
   Plus,
@@ -27,6 +30,7 @@ import {
   Palette,
   FileSearch,
   Layers,
+  Coins,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -38,8 +42,26 @@ const fetchAdvertiserOverview = async () => {
   return { totalRoi: 124500, activeCampaigns: 12, activeAffiliates: 89 };
 };
 
+const ADVERTISER_TABS = [
+  "overview",
+  "create-campaign",
+  "my-campaigns",
+  "brand-customizer",
+  "log-sale",
+  "cohort-analysis",
+  "webhooks",
+  "grant-access",
+  "audit-logs",
+  "analytics",
+] as const;
+type AdvertiserTab = (typeof ADVERTISER_TABS)[number];
+
 const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = usePreference<AdvertiserTab>(
+    "stormsale.advertiser.tab",
+    "overview",
+    (v) => ADVERTISER_TABS.includes(v as AdvertiserTab),
+  );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
@@ -73,11 +95,11 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
       case "analytics":
         return <CampaignAnalytics />;
       case "overview":
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
       case "my-campaigns":
         return <MyCampaignsList />;
       default:
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
     }
   };
 
@@ -85,7 +107,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Advertiser Pro"
@@ -167,6 +189,43 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
             New Smart Contract
           </Button>
         </div>
+      </div>
+
+      {/* Live Soroban Contract TTL Health & Restorer */}
+      <ContractTTLRestorer
+        contractAddress={STELLAR_CONFIG.contractId}
+        campaignName="Primary Campaign Escrow"
+      />
+
+      {/* Escrow Auto-Refill Status Banner */}
+      <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center border border-amber-500/20 text-amber-600 dark:text-amber-400">
+            <Coins className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-bold text-base text-zinc-900 dark:text-white">
+                Escrow Auto-Refill Engine
+              </h4>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase">
+                Active &bull; 15% Trigger
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5 max-w-xl">
+              Monitors smart contract escrow reserves. Automatically triggers merchant alerts and
+              pre-approved refills when campaign balances fall below the configurable threshold.
+            </p>
+          </div>
+        </div>
+
+        <Button
+          onClick={() => onTabChange("my-campaigns")}
+          variant="outline"
+          className="rounded-xl border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 text-xs font-semibold px-4 py-2"
+        >
+          Manage Thresholds
+        </Button>
       </div>
 
       {/* Bento Grid Stats */}
