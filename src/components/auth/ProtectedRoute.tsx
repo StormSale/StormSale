@@ -14,13 +14,14 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 
-export type ProtocolRole = "ADVERTISER" | "AFFILIATE" | "AUDITOR";
+export type ProtocolRole = "ADVERTISER" | "AFFILIATE" | "AUDITOR" | "ADMIN";
 
 export interface ProtectedRouteProps {
   children: React.ReactNode;
   requiredRole: ProtocolRole | ProtocolRole[];
   onNavigate?: (page: string) => void;
   fallback?: React.ReactNode;
+  adminOnly?: boolean;
 }
 
 const ROLE_METADATA: Record<
@@ -57,6 +58,14 @@ const ROLE_METADATA: Record<
     badgeClass:
       "bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-200 dark:border-zinc-700",
   },
+  ADMIN: {
+    title: "Administrator",
+    description: "Platform oversight, emergency pause controls, and protocol governance.",
+    icon: ShieldAlert,
+    accentColor: "rose",
+    badgeClass:
+      "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border-rose-200 dark:border-rose-800",
+  },
 };
 
 /**
@@ -81,6 +90,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requiredRole,
   onNavigate,
   fallback,
+  adminOnly = false,
 }) => {
   const { userAddress, userRole, isConnected, openWalletModal, updateUserRole } = useWeb3();
   const [isRegistering, setIsRegistering] = useState(false);
@@ -92,8 +102,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     ? requiredRole.map((r) => r.toUpperCase())
     : [requiredRole.toUpperCase()];
 
+  const effectiveAllowedRoles = adminOnly ? ["ADMIN"] : allowedRoles;
+
   const isAuthorized =
-    isConnected && userRole !== null && allowedRoles.includes(userRole.toUpperCase());
+    isConnected &&
+    userRole !== null &&
+    effectiveAllowedRoles.includes(userRole.toUpperCase());
 
   // 1. Unauthenticated State: Wallet not connected
   if (!isConnected) {
@@ -182,7 +196,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
           {/* Role Options */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {(["ADVERTISER", "AFFILIATE", "AUDITOR"] as ProtocolRole[]).map((role) => {
+            {(["ADVERTISER", "AFFILIATE", "AUDITOR", "ADMIN"] as ProtocolRole[]).map((role) => {
               const meta = ROLE_METADATA[role];
               const Icon = meta.icon;
               const isSelected = selectedOnboardingRole === role;
@@ -263,7 +277,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // 3. Unauthorized State: Direct Page Bypass attempted by mismatched role
   if (!isAuthorized) {
-    const primaryRequired = allowedRoles[0];
+    const primaryRequired = effectiveAllowedRoles[0];
     const userRoleDisplay = userRole ? userRole.toUpperCase() : "UNKNOWN";
 
     const handleSwitchRole = async () => {
@@ -300,6 +314,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
                 <span className="font-bold uppercase">{primaryRequired}</span> dashboard is
                 restricted under Role-Based Access Control policies.
               </p>
+              {adminOnly && (
+                <p className="text-xs sm:text-sm text-rose-800 dark:text-rose-300/80 leading-relaxed font-semibold">
+                  This area is restricted to platform administrators only.
+                </p>
+              )}
             </div>
           </div>
 
@@ -324,7 +343,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
                 Required Authorization
               </span>
               <span className="font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 uppercase text-[10px]">
-                {allowedRoles.join(" OR ")}
+                {effectiveAllowedRoles.join(" OR ")}
               </span>
             </div>
           </div>
@@ -342,6 +361,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
               variant="outline"
               onClick={handleSwitchRole}
               disabled={isRegistering}
+              hidden={adminOnly}
               className="w-full sm:flex-1 h-12 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 font-bold text-xs sm:text-sm text-zinc-800 dark:text-zinc-200 flex items-center justify-center gap-2"
             >
               {isRegistering ? (

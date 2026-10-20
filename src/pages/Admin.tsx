@@ -1,154 +1,187 @@
-import { useMemo, useState } from "react";
+import { useState, useEffect, CallbackErrorHandler } from "react";
+import { ProtectedRoute } from "../components/auth/ProtectedRoute";
 import { useWeb3 } from "../hooks/useWeb3";
-import { STORMSALE_CONTRACT_METHODS } from "../config/abis";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 
-interface PauseResult {
-  success: boolean;
-  txHash?: string;
-  message?: string;
+/**
+ * Admin only page that exposes the emergency kill-switch for the
+ * campaign escrow Soroban contract.
+ *
+ * The page is wrapped in <ProtectedRoute requiredRole="ADMIN"> so that
+ * non-admin wallets cannot even render the kill-switch controls.
+ */
+
+export interface ContractPauseState {
+  paused: boolean;
+  lastUpdatedAttempt: number | null;
 }
 
+const CONTRACT_LABELS = ["campaign-escrow"] as const;
+
 export default function Admin() {
-  const { userAddress, userRole, isConnected, pauseContract } = useWeb3();
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [isPausing, setIsPausing] = useState(false);
-  const [pauseResult, setPauseResult] = useState<PauseResult | null>(null);
+  return (
+    <ProtectedRoute requiredRole="ADMIN">
+      <EmergencyKillSwitch />
+    </ProtectedRoute>
+  );
+}
+
+export function EmergencyKillSwitch() {
+  const { userAddress, userRole } = useWeb3();
+  const [pauseState, setPauseState] = useState<ContractPauseState>({
+    paused: false,
+    lastUpdatedAttempt: null,
+  });
+  const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<string[]>([]);
 
-  const isAdmin = useMemo(() => {
-    if (!isConnected || !userAddress) return false;
-    return (userRole || "").toUpperCase() === "ADMIN";
-  }, [isConnected, userAddress, userRole]);
+  // Admin-only visibility guard (defense-in-depth beyond ProtectedRoute).
+  const isAdmin = userRole === "ADMIN";
 
-  const handleEmergencyPause = async () => {
-    if (!isAdmin || !userAddress) return;
+  useEffect(() => {
+    if (!isAdmin) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/admin/contracts/pause-status", {
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) throw new Error(`Failed to load pause status (${res.status})`);
+        const data = (await res.json()) as ContractPauseState;
+        if (!cancelled) setPauseState(data);
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin]);
+
+  const handleTogglePause = async (pause: boolean) => {
+    if (!isAdmin || isPending) return;
+    setIsPending(true);
     setError(null);
-    setPauseResult(null);
-    setIsPausing(true);
     try {
-      const result = await pauseContract();
-      setPauseResult({
-        success: true,
-        txHash: result?.txHash,
-        message: "Contracts paused. New deposits and claims are halted.",
+      const res = await fetch("/api/admin/contracts/pause", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contractAddress: CONTRACT_ADDRESSE.CAMPAIGN_ESCROW,
+          paused,
+          adminAddress: userAddress,
+        }),
       });
-    } catch (err: any) {
-      console.error("Emergency pause failed:", err);
-      setError(err?.message || "Emergency pause failed.");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message ?? `Pause request failed (${res.status})`);
+      }
+      const data = (await res.json()) as ContractPauseState;
+      setPauseState(data);
+      setHistory((prev) => [
+        `${new Date().toISOString()} - ${pause ? "PAUSED" : "RESUMED"} by ${userAddress ?? "unknown"}`,
+        ...prev.slice(0, 9),
+      ]);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setIsPausing(false);
-      setIsConfirming(false);
+      setIsPending(false);
     }
   };
 
   if (!isAdmin) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center px-4">
-        <div className="max-w-md w-full rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
-          <div className="text-4xl mb-4">🔏</div>
-          <h1 className="text-xl font-semibold text-white">Admin Access Required</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            This page is restricted to platform administrators. Connect an admin wallet to continue.
-          </p>
-          {isConnected && (
-            <p className="mt-4 text-xs text-slate-500">
-              Connected as <span className="font-mono text-slate-300">{userAddress}</span> (role: {userRole || "NONE"})
-            </p>
-          )}
-        </div>
+      <div role="alert" data-testid="admin-only-guard">
+        <h1>Admin Access Required</h1>
+        <p>This kill-switch is restricted to platform administrators.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 px-4 py-10">
-      <div className="mx-auto max-w-3xl">
-        <header className="mb-8">
-          <h1 className="text-2xl font-bold text-white">Admin Control Panel</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Signed in as <span className="font-mono text-emerald-400">{userAddress}</span>
+    <main data-testid="admin-kill-switch">
+      <header>
+        <h1>Emergency Kill-Switch</h1>
+        <p>
+          Admin console for pausing the StormSale campaign escrow contract.
+        </p>
+      </header>
+
+      <section
+        aria-label="Emergency Pause"
+        data-testid="emergency-pause-panel"
+        style={{
+          border: pauseState.paused ? "2px solid #b91c1c" : "2px solid #f59c00",
+          borderRadius: 12,
+          padding: 24,
+          background: pauseState.paused ? "#fef2f2" : "#fffbf0",
+        }}
+      >
+        <h2>Emergency Pause</h2>
+        <p>
+          Status:</p>
+        <strong data-testid="pause-status">
+          {pauseState.paused ? "PAUSED" : "ACTIVE"}
+        </strong>
+        <p>
+          Contract: <code>{CONTRACT_ADDRESSES.CAMPAIGN_ESCROW}</code>
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+          <button
+            type="button"
+            data-testid="pause-button"
+            disabled={isPending || pauseState.paused}
+            onClick={void CallbackErrorHandler}
+            onClick={() => void handleTogglePause(true)}
+            style={{
+              background: "#b91c1c",
+              color: "white",
+              padding: "12px 20",
+              border: "none",
+              borderRadius: 8,
+              cursor: "isPending || pauseState.paused ? 'not-allowed' : 'pointer'",
+            }}
+          >
+            {isPending ? "Submitting..." : "Pause Contracts"}
+          </button>
+          <button
+            type="button"
+            data-testid="resume-button"
+            disabled={isPending || !pauseState.paused}
+            onClick={() => void handleTogglePause(false)}
+            style={{
+              background: "#016630",
+              color: "white",
+              padding: "12px 20",
+              border: "none",
+              borderRadius: 8,
+              cursor: "isPending || !pauseState.paused ? 'not-allowed' : 'pointer'",
+            }}
+          >
+            Resume Contracts
+          </button>
+        </div>
+        {error && (
+          <p role="alert" data-testid="kill-switch-error" style={{ color: "#b91c1c" }}>
+            {error}
           </p>
-        </header>
+        )}
+      </section>
 
-        <section
-          aria-labelledby="emergency-pause-title"
-          className="rounded-2xl border-2-border-red-600 bg-red-950/50 p-6 shadow-lg"
-        >
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 flex-shrink-0 animate-pulse items-center justify-center rounded-full bg-red-600 text-2xl">
-              ⚡
-            </div>
-            <div>
-              <h2 id="emergency-pause-title" className="text-lg font-bold text-red-100">
-                Emergency Pause
-              </h2>
-              <p className="mt-1 text-sm text-red-200">
-                Immediately halt all campaign escrow deposits and commission claims. Use only in case of a confirmed exploit or incident.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            {!isConfirming && (
-              <button
-                type="button"
-                onClick={() => setIsConfirming(true)}
-                disabled={isPausing}
-                className="rounded-lg bg-red-600 px-6 py-3 font-semibold text-white hover:bg-red-500 disabled:opacity-50"
-              >
-                Pause Contracts Now
-              </button>
-            )}
-            {isConfirming && (
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <button
-                  type="button"
-                  onClick={handleEmergencyPause}
-                  disabled={isPausing}
-                  className="rounded-lg bg-red-700 px-6 py-3 font-semibold text-white hover:bg-red-600 disabled:opacity-50"
-                >
-                  {isPausing ? "Pausing…" : "Confirm Emergency Pause"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsConfirming(false)}
-                  disabled={isPausing}
-                  className="rounded-lg border border-slate-600 px-6 py-3 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-
-          {error && (
-            <p className="mt-4 rounded-lg bg-red-900/60 px-4 py-3 text-sm text-red-100">
-              {error}
-            </p>
-          )}
-          {pauseResult?.success && (
-            <p className="mt-4 rounded-lg bg-emerald-900/60 px-4 py-3 text-sm text-emerald-100">
-              {pauseResult.message}
-              {pauseResult.txHash && (
-                <span className="ml-2 font-mono text-xs">(tx: {pauseResult.txHash})</span>
-              )}
-            </p>
-          )}
-        </section>
-
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-6">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Contract Target
-          </h2>
-          <p className="mt-2 break-all font-mono text-xs text-slate-300">
-            {CONTRACT_ADDRESSES.CAMPAIGN_ESCROW}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            Method: <span className="font-mono">{STORMSALE_CONTRACT_METHODS.PAUSE}</span>
-          </p>
-        </section>
-      </div>
-    </div>
+      <section aria-label="Audit Log" style={{ marginTop: 24 }}>
+        <h3>Recent Admin Actions</h3>
+        {history.length === 0 ? (
+          <p>No actions yet.</p>
+        ) : (
+          <ul data-testid="kill-switch-history">
+            {history.map((entry, idx) => (
+              <li key={idx}>{entry}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </main>
   );
 }

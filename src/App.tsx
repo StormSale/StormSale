@@ -22,7 +22,7 @@ export const Affiliate = lazy(() =>
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
 export const Admin = lazy(() =>
-  import("./pages/Admin").then((m) => ({ default: (m as any).Admin ?? (m as any).default })),
+  import("./pages/Admin").then((m) => ({ default: m.Admin })),
 );
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
@@ -89,14 +89,14 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
+const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor", "admin"] as const;
 
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
   const { isConnected } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
-  const [isAdmin, setIsAdmin] = useState(false);
+
   const [currentPage, setCurrentPage] = usePreference<Page>(
     "stormsale.app.currentPage",
     isTelegramMiniApp() ? "affiliate" : "dashboard",
@@ -119,15 +119,6 @@ function Router() {
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("admin") === "1") {
-      setIsAdmin(true);
-      setCurrentPage("admin");
-    }
-  }, []);
 
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
@@ -183,10 +174,12 @@ function Router() {
                   </Suspense>
                 </ProtectedRoute>
               )}
-              {currentPage === "admin" && isAdmin && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
-                  <Admin />
-                </Suspense>
+              {currentPage === "admin" && (
+                <ProtectedRoute requiredRole="ADMIN" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
+                    <Admin onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
               )}
             </main>
           </div>
@@ -195,6 +188,9 @@ function Router() {
     </>
   );
 }
+
+// Admin route is gated by ProtectedRoute (requiredRole="ADMIN") so the
+// Emergency Pause kill-switch UI is only reachable by platform admins.
 
 function App() {
   useEffect(() => {
