@@ -456,19 +456,24 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       fetchSpy.mockRestore();
     });
 
-    it("should select the Horizon endpoint corresponding to networkOverride", async () => {
+    it("should select the Soroban RPC endpoint corresponding to networkOverride and filter by contract", async () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          _embedded: { records: [] },
+          result: { events: [], latestLedger: 888888 },
         }),
       } as Response);
 
       await fetchLiveOnChainTelemetry("PUBLIC");
       expect(fetchSpy).toHaveBeenCalledWith(
-        expect.stringContaining("https://horizon.stellar.org/transactions"),
+        "https://soroban-rpc.mainnet.stellar.org",
         expect.objectContaining({
-          headers: { Accept: "application/json" },
+          method: "POST",
+          headers: expect.objectContaining({
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          }),
+          body: expect.stringContaining("getEvents"),
         }),
       );
 
@@ -505,7 +510,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(abortError);
 
       await expect(fetchLiveNistControls("TESTNET", { timeoutMs: 100 })).rejects.toThrow(
-        /Horizon telemetry query timed out after 100ms/,
+        /Soroban RPC telemetry query timed out after 100ms/,
       );
 
       fetchSpy.mockRestore();
@@ -515,12 +520,13 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          _embedded: {
-            records: [
-              { hash: "1".repeat(64), ledger: 99999 },
-              { hash: "2".repeat(64), ledger: 99998 },
-              { hash: "3".repeat(64), ledger: 99997 },
+          result: {
+            events: [
+              { txHash: "1".repeat(64), ledger: 99999 },
+              { txHash: "2".repeat(64), ledger: 99998 },
+              { txHash: "3".repeat(64), ledger: 99997 },
             ],
+            latestLedger: 99999,
           },
         }),
       } as Response);
@@ -530,12 +536,46 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       expect(controls.length).toBeGreaterThan(0);
 
       const ac3 = controls.find((c) => c.id === "AC-3");
+      expect(ac3?.status).toBe("PASS");
       const txEvidence = ac3?.evidenceLinks.find((l) => l.type === "transaction");
       expect(txEvidence?.identifier).toBe("1".repeat(64));
       // Confirms explorer URL uses public for PUBLIC network
       expect(txEvidence?.url).toContain("explorer/public");
 
+      // Verify AU-3 uses explorer contract link rather than broken Horizon accounts link
+      const au3 = controls.find((c) => c.id === "AU-3");
+      const contractLink = au3?.evidenceLinks.find((l) => l.type === "contract");
+      expect(contractLink).toBeDefined();
+      expect(contractLink?.url).toContain("/contract/");
+      expect(contractLink?.url).not.toContain("/accounts/");
+
       fetchSpy.mockRestore();
+    });
+
+    it("should set controls to REVIEW and avoid testnet fallback hashes on PUBLIC or empty live results", () => {
+      // 1. PUBLIC network without live telemetry: no testnet fake hashes, status is REVIEW
+      const publicControls = getStandardNistControls("PUBLIC");
+      const pubAc3 = publicControls.find((c) => c.id === "AC-3");
+      expect(pubAc3?.status).toBe("REVIEW");
+      expect(pubAc3?.evidenceLinks.some((l) => l.type === "transaction")).toBe(false);
+
+      // 2. Offline telemetry: marks dependent controls REVIEW with WARN metrics
+      const offlineControls = getStandardNistControls("TESTNET", { isOnline: false });
+      const offAc3 = offlineControls.find((c) => c.id === "AC-3");
+      expect(offAc3?.status).toBe("REVIEW");
+      expect(offAc3?.metrics.some((m) => m.status === "WARN")).toBe(true);
+
+      // 3. Live audit with 0 contract transactions: marks AC-3, AU-3, SC-8 as REVIEW
+      const emptyLiveControls = getStandardNistControls("TESTNET", {
+        isOnline: true,
+        recentTransactions: [],
+      });
+      const emptyAc3 = emptyLiveControls.find((c) => c.id === "AC-3");
+      const emptyAu3 = emptyLiveControls.find((c) => c.id === "AU-3");
+      const emptySc8 = emptyLiveControls.find((c) => c.id === "SC-8");
+      expect(emptyAc3?.status).toBe("REVIEW");
+      expect(emptyAu3?.status).toBe("REVIEW");
+      expect(emptySc8?.status).toBe("REVIEW");
     });
   });
 });

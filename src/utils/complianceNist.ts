@@ -9,6 +9,7 @@ import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { STELLAR_CONFIG, STELLAR_NETWORKS } from "../config/stellar";
 import type {
   ComplianceAuditPack,
+  ComplianceStatus,
   NistControl,
   NistControlFamily,
   NistScorecardSummary,
@@ -23,6 +24,7 @@ export function getNetworkConfig(networkOverride?: string) {
   if (norm === "PUBLIC" || norm === "MAINNET") {
     return {
       network: "PUBLIC" as const,
+      rpcUrl: STELLAR_NETWORKS.PUBLIC.rpcUrl,
       horizonUrl: STELLAR_NETWORKS.PUBLIC.horizonUrl,
       explorerUrl: "https://stellar.expert/explorer/public",
       passphrase: STELLAR_NETWORKS.PUBLIC.passphrase,
@@ -30,6 +32,7 @@ export function getNetworkConfig(networkOverride?: string) {
   }
   return {
     network: "TESTNET" as const,
+    rpcUrl: STELLAR_NETWORKS.TESTNET.rpcUrl,
     horizonUrl: STELLAR_NETWORKS.TESTNET.horizonUrl,
     explorerUrl: "https://stellar.expert/explorer/testnet",
     passphrase: STELLAR_NETWORKS.TESTNET.passphrase,
@@ -43,6 +46,7 @@ export interface LiveTelemetryData {
   latestLedger?: number;
   recentTransactions?: string[];
   isOnline: boolean;
+  contractVerified?: boolean;
 }
 
 export interface TelemetryFetchOptions {
@@ -77,8 +81,8 @@ export async function computeSha256(data: string): Promise<string> {
 }
 
 /**
- * Queries live Stellar Horizon API for real on-chain transaction records and ledger sequence height.
- * Selects the Horizon endpoint matching the target network (TESTNET or PUBLIC).
+ * Queries live Soroban RPC for real contract-scoped transactions and ledger sequence height.
+ * Selects the RPC endpoint matching the target network (TESTNET or PUBLIC).
  * Enforces a timeout via AbortController to prevent hanging audit executions.
  * Propagates errors when throwOnError is true (for requested live verifications),
  * while retaining the offline fallback when throwOnError is false (for display defaults).
@@ -93,42 +97,79 @@ export async function fetchLiveOnChainTelemetry(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(`${netConfig.horizonUrl}/transactions?limit=5&order=desc`, {
-      headers: { Accept: "application/json" },
+    const response = await fetch(netConfig.rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getEvents",
+        params: {
+          startLedger: 1,
+          filters: [
+            {
+              type: "contract",
+              contractIds: [CONTRACT_ADDRESSES.CAMPAIGN_ESCROW],
+            },
+          ],
+          limit: 5,
+        },
+      }),
       signal: controller.signal,
     });
+
     if (!response.ok) {
       if (throwOnError) {
         throw new Error(
-          `Horizon returned HTTP status ${response.status} (${response.statusText || "Error"}) for network ${netConfig.network}`,
+          `Soroban RPC returned HTTP status ${response.status} (${response.statusText || "Error"}) for network ${netConfig.network}`,
         );
       }
       return { isOnline: false };
     }
+
     const data = await response.json();
-    const records = data._embedded?.records || [];
-    const hashes: string[] = records
-      .map((r: { hash?: string }) => r.hash)
-      .filter((h: unknown): h is string => typeof h === "string" && h.length === 64);
-    const latestLedger = records[0]?.ledger;
+
+    // Extract contract-scoped transaction hashes from Soroban RPC getEvents or Horizon mock format
+    const rpcEvents = data.result?.events || [];
+    const horizonRecords = data._embedded?.records || [];
+    const rawHashes: string[] = [
+      ...rpcEvents.map((e: { txHash?: string }) => e.txHash),
+      ...horizonRecords.map((r: { hash?: string }) => r.hash),
+    ].filter((h: unknown): h is string => typeof h === "string" && h.length === 64);
+
+    const hashes = Array.from(new Set(rawHashes));
+
+    const latestLedger =
+      typeof data.result?.latestLedger === "number"
+        ? data.result.latestLedger
+        : typeof data.latestLedger === "number"
+          ? data.latestLedger
+          : typeof horizonRecords[0]?.ledger === "number"
+            ? horizonRecords[0].ledger
+            : undefined;
+
     return {
-      latestLedger: typeof latestLedger === "number" ? latestLedger : undefined,
+      latestLedger,
       recentTransactions: hashes,
-      isOnline: hashes.length > 0,
+      isOnline: true,
+      contractVerified: hashes.length > 0,
     };
   } catch (err: unknown) {
     if (throwOnError) {
       if (err instanceof Error && err.name === "AbortError") {
         throw new Error(
-          `Horizon telemetry query timed out after ${timeoutMs}ms for network ${netConfig.network}.`,
+          `Soroban RPC telemetry query timed out after ${timeoutMs}ms for network ${netConfig.network}.`,
           { cause: err },
         );
       }
       throw err instanceof Error
         ? err
-        : new Error(`Failed to query live Horizon telemetry for network ${netConfig.network}.`, {
-            cause: err,
-          });
+        : new Error(
+            `Failed to query live Soroban RPC telemetry for network ${netConfig.network}.`,
+            {
+              cause: err,
+            },
+          );
     }
     return { isOnline: false };
   } finally {
@@ -149,24 +190,48 @@ export function getStandardNistControls(
   const escrowContract = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW;
   const sacContract = CONTRACT_ADDRESSES.NATIVE_XLM_SAC;
 
-  // Real confirmed transactions on Stellar Testnet (or live queried telemetry)
-  const txList =
-    telemetry?.recentTransactions && telemetry.recentTransactions.length > 0
-      ? telemetry.recentTransactions
-      : [
+  const isTestnet = netConfig.network === "TESTNET";
+  const hasTelemetry = telemetry !== undefined;
+  const isOnline = telemetry?.isOnline ?? true;
+  const liveTxs = (telemetry?.recentTransactions || []).filter(
+    (h): h is string => typeof h === "string" && h.length === 64,
+  );
+  const hasContractTxs = liveTxs.length > 0;
+
+  // Use fallback testnet hashes ONLY when:
+  // 1. Network is TESTNET, AND
+  // 2. No live telemetry was supplied (i.e. static initial render before live query runs).
+  // If telemetry was queried and returned 0 hashes or failed, do NOT use arbitrary fallback hashes.
+  // Never use testnet fallback hashes for PUBLIC (mainnet).
+  const allowTestnetFallback = isTestnet && !hasTelemetry;
+
+  const txList: string[] = hasContractTxs
+    ? liveTxs
+    : allowTestnetFallback
+      ? [
           "983aeadb05066b76603c834b29d75a6df3033ec760099fe96530b1483ec8611e",
           "0a47db4571067d07ebd95633ee8d33576ef3cdebb22c891796848239ddc83fbc",
           "28c2e6f4773837fba268c37021eb3d5c58a6ee5f27c73ecaaecba0e53a270f2d",
-        ];
+        ]
+      : [];
 
-  const sampleTxAc3 =
-    txList[0] || "983aeadb05066b76603c834b29d75a6df3033ec760099fe96530b1483ec8611e";
-  const sampleTxAu3 =
-    txList[1] || "0a47db4571067d07ebd95633ee8d33576ef3cdebb22c891796848239ddc83fbc";
-  const sampleTxSc8 =
-    txList[2] || "28c2e6f4773837fba268c37021eb3d5c58a6ee5f27c73ecaaecba0e53a270f2d";
+  const isStaticExample = allowTestnetFallback && txList.length > 0;
+  const sampleTxAc3 = txList[0] || null;
+  const sampleTxAu3 = txList[1] || txList[0] || null;
+  const sampleTxSc8 = txList[2] || txList[0] || null;
 
   const evaluatedDate = new Date().toISOString().split("T")[0];
+
+  // Dynamic status evaluation
+  const ac3Status: ComplianceStatus =
+    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
+  const ac17Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
+  const au3Status: ComplianceStatus =
+    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
+  const au6Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
+  const au12Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
+  const sc8Status: ComplianceStatus =
+    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
 
   return [
     // -------------------------------------------------------------------------
@@ -181,29 +246,34 @@ export function getStandardNistControls(
         "The information system enforces approved authorizations for logical access to information and system resources in accordance with applicable access control policies.",
       platformImplementation:
         "Soroban smart contract enforces cryptographic access gates and cryptographic key verification. Escrow allocations, payout releases, and auditor decrypt grants strictly require Ed25519 account authorization.",
-      status: "PASS",
+      status: ac3Status,
       verificationMethod: "Soroban Auth Simulation & Escrow Entrypoint Guard Test",
       lastEvaluated: evaluatedDate,
       metrics: [
         {
           name: "Soroban Caller Auth Checks",
-          value: "100%",
+          value: !isOnline ? "Unverified (Offline)" : "100%",
           threshold: "100%",
-          status: "PASS",
+          status: !isOnline ? "WARN" : "PASS",
           description: "All state-changing entrypoints enforce Address.require_auth().",
         },
         {
           name: "Unauthorized Access Rejections",
-          value: 0,
+          value: !isOnline ? "N/A" : 0,
           threshold: "0",
-          status: "PASS",
+          status: !isOnline ? "WARN" : "PASS",
           description: "Zero unauthorized calls successfully bypassed contract access logic.",
         },
         {
-          name: "Contract Isolation",
-          value: "Guaranteed",
-          status: "PASS",
-          description: "Sandboxed WebAssembly execution environment on Stellar Core.",
+          name: "On-Chain Authorization Proofs",
+          value: hasContractTxs
+            ? `${liveTxs.length} Confirmed Txs`
+            : isStaticExample
+              ? "Static Testnet Baseline"
+              : "0 Confirmed Txs",
+          threshold: ">= 1",
+          status: hasContractTxs || isStaticExample ? "PASS" : "WARN",
+          description: "Verifiable contract-scoped authorization transactions on target network.",
         },
       ],
       evidenceLinks: [
@@ -214,15 +284,33 @@ export function getStandardNistControls(
           url: `${explorerUrl}/contract/${escrowContract}`,
           description: "Active Soroban escrow contract with require_auth() enforcement.",
         },
-        {
-          label: "Access Verification Tx",
-          type: "transaction",
-          identifier: sampleTxAc3,
-          url: `${explorerUrl}/tx/${sampleTxAc3}`,
-          description: "On-chain transaction verifying cryptographic authorization gate.",
-        },
+        sampleTxAc3
+          ? {
+              label: isStaticExample
+                ? "Access Verification Tx (Static Example)"
+                : "Access Verification Tx",
+              type: "transaction",
+              identifier: sampleTxAc3,
+              url: `${explorerUrl}/tx/${sampleTxAc3}`,
+              description: isStaticExample
+                ? "Static testnet example transaction verifying cryptographic authorization gate."
+                : "On-chain transaction verifying cryptographic authorization gate.",
+            }
+          : {
+              label: "Escrow Contract Entrypoint",
+              type: "contract",
+              identifier: escrowContract,
+              url: `${explorerUrl}/contract/${escrowContract}`,
+              description: `Contract authorization entrypoints awaiting live transactions on ${netConfig.network}.`,
+            },
       ],
-      notes: "Fully verified via automated Soroban host environment test suite.",
+      notes: !isOnline
+        ? `Live Soroban RPC unreachable for network ${netConfig.network}. Manual review required.`
+        : !hasContractTxs && hasTelemetry
+          ? `No contract-scoped transactions found in current retention window on ${netConfig.network}. Flagged for auditor review.`
+          : !isTestnet && !hasTelemetry
+            ? `Public mainnet baseline awaiting live on-chain contract execution.`
+            : "Fully verified via automated Soroban host environment test suite.",
     },
     {
       id: "AC-6",
@@ -287,7 +375,7 @@ export function getStandardNistControls(
         "The organization establishes and documents usage restrictions, configuration/connection requirements, and implementation guidance for each type of remote access allowed.",
       platformImplementation:
         "Non-custodial remote wallet connectivity (Freighter, Albedo, xBull) using standard SEP-0007 / SEP-0010 protocols. User private keys never leave local hardware/browser enclaves.",
-      status: "PASS",
+      status: ac17Status,
       verificationMethod: "Cryptographic Wallet Bridge Protocol Inspection",
       lastEvaluated: evaluatedDate,
       metrics: [
@@ -299,10 +387,11 @@ export function getStandardNistControls(
           description: "Zero server-side private key storage or custody.",
         },
         {
-          name: "Asymmetric Signature Standards",
-          value: "Ed25519 / SEP-10",
-          status: "PASS",
-          description: "All client transactions signed via browser/mobile wallet enclaves.",
+          name: "Remote Ledger Connectivity",
+          value: !isOnline ? "Offline / Unreachable" : `Connected (${netConfig.network})`,
+          threshold: "Active",
+          status: !isOnline ? "WARN" : "PASS",
+          description: "Connection status to remote Stellar network RPC nodes.",
         },
       ],
       evidenceLinks: [
@@ -314,7 +403,9 @@ export function getStandardNistControls(
           description: `Active remote ledger network: ${netConfig.passphrase}`,
         },
       ],
-      notes: "Cryptographically verified client-side signing verified.",
+      notes: !isOnline
+        ? `Remote RPC connection offline for ${netConfig.network}.`
+        : "Cryptographically verified client-side signing verified.",
     },
 
     // -------------------------------------------------------------------------
@@ -329,52 +420,79 @@ export function getStandardNistControls(
         "The information system generates audit records containing information that establishes what type of event occurred, when the event occurred, where the event occurred, the source of the event, the outcome of the event, and the identity of any individuals or subjects associated with the event.",
       platformImplementation:
         "Platform audit trail is immutably committed to the Stellar blockchain ledger. Every audit event records: 1) deterministic timestamp, 2) unique 256-bit transaction hash, 3) ledger sequence height, 4) caller public key, 5) contract ID, 6) method invoked, 7) event topics, and 8) resource fee ledger receipt.",
-      status: "PASS",
+      status: au3Status,
       verificationMethod: "Stellar Ledger Sequence & Horizon Audit Record Ingestion Test",
       lastEvaluated: evaluatedDate,
       metrics: [
         {
           name: "Mandatory Audit Fields Captured",
-          value: "8 of 8 Fields",
+          value: !isOnline
+            ? "Unverified (Offline)"
+            : hasContractTxs || isStaticExample
+              ? "8 of 8 Fields"
+              : "0 Contract Txs",
           threshold: "8/8",
-          status: "PASS",
+          status: !isOnline ? "WARN" : hasContractTxs || isStaticExample ? "PASS" : "WARN",
           description:
             "Timestamp, TxHash, LedgerSeq, Caller, Contract, Method, Topics, Fee captured.",
         },
         {
           name: "Audit Trail Immutability",
-          value: "100% On-Chain",
+          value: !isOnline ? "Ledger Unreachable" : "100% On-Chain",
           threshold: "100%",
-          status: "PASS",
+          status: !isOnline ? "WARN" : "PASS",
           description: "Stellar Consensus Protocol (SCP) guarantees mathematical non-repudiation.",
         },
         {
           name: "Unrecorded State Mutations",
-          value: 0,
+          value: !isOnline ? "Unknown" : 0,
           threshold: "0",
-          status: "PASS",
+          status: !isOnline ? "WARN" : "PASS",
           description: "Zero off-chain state deviations without corresponding ledger transaction.",
         },
       ],
-      evidenceLinks: [
-        {
-          label: "Audit Trail Transaction",
-          type: "transaction",
-          identifier: sampleTxAu3,
-          url: `${explorerUrl}/tx/${sampleTxAu3}`,
-          description:
-            "Verifiable on-chain audit record featuring full event payload and metadata.",
-        },
-        {
-          label: "Ledger Horizon RPC API",
-          type: "ledger",
-          identifier: STELLAR_CONFIG.horizonUrl,
-          url: `${STELLAR_CONFIG.horizonUrl}/accounts/${escrowContract}/transactions`,
-          description:
-            "Public Horizon API endpoint verifying immutable historical transaction log.",
-        },
-      ],
-      notes: "Full cryptographic auditability guaranteed by Stellar SCP consensus.",
+      evidenceLinks: sampleTxAu3
+        ? [
+            {
+              label: isStaticExample
+                ? "Audit Trail Transaction (Static Example)"
+                : "Audit Trail Transaction",
+              type: "transaction",
+              identifier: sampleTxAu3,
+              url: `${explorerUrl}/tx/${sampleTxAu3}`,
+              description: isStaticExample
+                ? "Static testnet example transaction featuring full audit metadata."
+                : "Verifiable on-chain audit record featuring full event payload and metadata.",
+            },
+            {
+              label: "Ledger Contract Audit Trail",
+              type: "contract",
+              identifier: escrowContract,
+              url: `${explorerUrl}/contract/${escrowContract}`,
+              description: `Verifiable on-chain smart contract audit history and event records on ${netConfig.network}.`,
+            },
+          ]
+        : [
+            {
+              label: "Ledger Contract Audit Trail",
+              type: "contract",
+              identifier: escrowContract,
+              url: `${explorerUrl}/contract/${escrowContract}`,
+              description: `Verifiable on-chain smart contract audit history and event records on ${netConfig.network}.`,
+            },
+            {
+              label: "Soroban RPC Endpoint",
+              type: "ledger",
+              identifier: netConfig.rpcUrl,
+              url: netConfig.rpcUrl,
+              description: `Soroban RPC endpoint verifying immutable ledger state for ${netConfig.network}.`,
+            },
+          ],
+      notes: !isOnline
+        ? `Ledger audit records unreachable on ${netConfig.network}. Manual review required.`
+        : !hasContractTxs && hasTelemetry
+          ? `No contract audit transactions recorded in current retention window on ${netConfig.network}.`
+          : "Full cryptographic auditability guaranteed by Stellar SCP consensus.",
     },
     {
       id: "AU-6",
@@ -385,16 +503,18 @@ export function getStandardNistControls(
         "The organization reviews and analyzes information system audit records for indications of unusual or suspicious activity and reports findings to designated personnel.",
       platformImplementation:
         "Real-time Automated Compliance Scorecard engine ingests on-chain contract state, parses access grant receipts, monitors unauthorized access attempts, and generates compliance telemetry.",
-      status: "PASS",
+      status: au6Status,
       verificationMethod: "Automated Real-Time Telemetry Ingestion & Scorecard Engine",
       lastEvaluated: evaluatedDate,
       metrics: [
         {
           name: "Audit Processing Latency",
-          value: "< 500 ms",
+          value: !isOnline ? "Offline / Stalled" : "< 500 ms",
           threshold: "< 2000 ms",
-          status: "PASS",
-          description: "Sub-second evaluation of on-chain audit records into compliance scorecard.",
+          status: !isOnline ? "WARN" : "PASS",
+          description: !isOnline
+            ? "Live RPC queries offline. Evaluation engine operating on local cached telemetry."
+            : "Sub-second evaluation of on-chain audit records into compliance scorecard.",
         },
         {
           name: "Discrepancy Detection Rate",
@@ -413,7 +533,9 @@ export function getStandardNistControls(
           description: "Auditor enterprise dashboard rendering automated compliance telemetry.",
         },
       ],
-      notes: "Continuous real-time compliance scorecard integration active.",
+      notes: !isOnline
+        ? `Real-time telemetry offline for ${netConfig.network}. Review required.`
+        : "Continuous real-time compliance scorecard integration active.",
     },
     {
       id: "AU-12",
@@ -424,15 +546,15 @@ export function getStandardNistControls(
         "The information system provides audit record generation capability for the auditable events defined in the organization audit policy across all relevant system components.",
       platformImplementation:
         "Soroban event emission subsystem fires structured diagnostic and operational events across every lifecycle function: campaign initialization, conversion logging, affiliate escrow clearing, and auditor access grants.",
-      status: "PASS",
+      status: au12Status,
       verificationMethod: "Contract Event Topic Emission & RPC Event Polling Test",
       lastEvaluated: evaluatedDate,
       metrics: [
         {
           name: "Lifecycle Event Coverage",
-          value: "100%",
+          value: !isOnline ? "Unverified (Offline)" : "100%",
           threshold: "100%",
-          status: "PASS",
+          status: !isOnline ? "WARN" : "PASS",
           description: "Every contract entrypoint emits an auditable Soroban event topic.",
         },
         {
@@ -451,7 +573,9 @@ export function getStandardNistControls(
           description: "Live contract event log capturing affiliate clearing and audit events.",
         },
       ],
-      notes: "Standard Soroban event schema conforms to NIST AU-12 requirements.",
+      notes: !isOnline
+        ? `Event emission verification offline for ${netConfig.network}.`
+        : "Standard Soroban event schema conforms to NIST AU-12 requirements.",
     },
 
     // -------------------------------------------------------------------------
@@ -466,7 +590,7 @@ export function getStandardNistControls(
         "The information system protects the confidentiality and integrity of transmitted information.",
       platformImplementation:
         "Sale data payloads, customer conversion details, and affiliate tracking records are protected using authenticated AES-256-GCM encryption with 128-bit authentication tags prior to network broadcast. Transport layer uses enforced TLS 1.3.",
-      status: "PASS",
+      status: sc8Status,
       verificationMethod: "AES-256-GCM Authenticated Encryption & Cipher Suite Audit",
       lastEvaluated: evaluatedDate,
       metrics: [
@@ -483,25 +607,40 @@ export function getStandardNistControls(
           value: "TLS 1.3 Enforced",
           threshold: "TLS 1.3",
           status: "PASS",
-          description: "All RPC and Horizon traffic encrypted using modern cipher suites.",
+          description: "All RPC traffic encrypted using modern cipher suites.",
         },
         {
-          name: "Cleartext Leakage Found",
-          value: "0 bytes",
-          threshold: "0",
-          status: "PASS",
-          description:
-            "Zero unencrypted customer identifiers transmitted across network boundaries.",
+          name: "On-Chain Payload Storage",
+          value: hasContractTxs
+            ? "Verified On-Chain"
+            : isStaticExample
+              ? "Static Testnet Record"
+              : "0 Recent Payloads",
+          threshold: ">= 1 Verified",
+          status: hasContractTxs || isStaticExample ? "PASS" : "WARN",
+          description: "Encrypted ciphertext payload records confirmed on target ledger.",
         },
       ],
       evidenceLinks: [
-        {
-          label: "Encrypted Sale Payload Tx",
-          type: "transaction",
-          identifier: sampleTxSc8,
-          url: `${explorerUrl}/tx/${sampleTxSc8}`,
-          description: "On-chain record confirming encrypted ciphertext payload storage.",
-        },
+        sampleTxSc8
+          ? {
+              label: isStaticExample
+                ? "Encrypted Sale Payload Tx (Static Example)"
+                : "Encrypted Sale Payload Tx",
+              type: "transaction",
+              identifier: sampleTxSc8,
+              url: `${explorerUrl}/tx/${sampleTxSc8}`,
+              description: isStaticExample
+                ? "Static testnet example transaction confirming encrypted ciphertext payload storage."
+                : "On-chain record confirming encrypted ciphertext payload storage.",
+            }
+          : {
+              label: "Soroban Escrow State",
+              type: "contract",
+              identifier: escrowContract,
+              url: `${explorerUrl}/contract/${escrowContract}`,
+              description: `Contract payload storage awaiting live transactions on ${netConfig.network}.`,
+            },
         {
           label: "Cryptographic Utility",
           type: "source",
@@ -510,7 +649,11 @@ export function getStandardNistControls(
           description: "Client-side cryptographic routines for AES key derivation and encryption.",
         },
       ],
-      notes: "FIPS 197 compliant symmetric cipher implementation.",
+      notes: !isOnline
+        ? `On-chain encrypted payload inspection offline for ${netConfig.network}.`
+        : !hasContractTxs && hasTelemetry
+          ? `No recent contract encrypted payload transactions on ${netConfig.network}.`
+          : "FIPS 197 compliant symmetric cipher implementation.",
     },
     {
       id: "SC-13",

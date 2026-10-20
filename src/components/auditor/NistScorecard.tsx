@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -37,7 +37,7 @@ export const NistScorecard: React.FC = () => {
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
 
-  const [controls, setControls] = useState<NistControl[]>(() => getStandardNistControls());
+  const [controls, setControls] = useState<NistControl[]>(() => getStandardNistControls(network));
   const [isAuditing, setIsAuditing] = useState(false);
   const [selectedFamily, setSelectedFamily] = useState<"ALL" | NistControlFamily>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -47,31 +47,72 @@ export const NistScorecard: React.FC = () => {
   const summary = useMemo(() => calculateScorecardSummary(controls), [controls]);
 
   // Handle re-running live compliance verification against Stellar Horizon / Soroban
-  const handleRunAudit = async () => {
-    setIsAuditing(true);
-    try {
-      const { controls: freshControls, telemetry } = await fetchLiveNistControls(network);
-      setControls(freshControls);
-      showNotification({
-        type: "success",
-        title: "On-Chain Audit Completed",
-        message: telemetry.isOnline
-          ? `Live Stellar ${network || "Testnet"} ledger #${telemetry.latestLedger ?? "latest"} queried. Verified contract authorization proofs and recent transactions.`
-          : "Live telemetry queried; verified protocol contract configuration and cryptographic parameters.",
+  const handleRunAudit = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      setIsAuditing(true);
+      try {
+        const { controls: freshControls, telemetry } = await fetchLiveNistControls(network);
+        setControls(freshControls);
+        if (!options.silent) {
+          const hasTxs = (telemetry.recentTransactions?.length ?? 0) > 0;
+          if (!telemetry.isOnline) {
+            showNotification({
+              type: "warning",
+              title: "Audit Completed with Warnings",
+              message: `Soroban RPC endpoint unreachable for ${network || "Testnet"}. Dependent controls flagged for REVIEW.`,
+            });
+          } else if (!hasTxs) {
+            showNotification({
+              type: "warning",
+              title: "Audit Completed - Review Required",
+              message: `Ledger #${telemetry.latestLedger ?? "latest"} queried. No contract transactions found in current retention window on ${network || "Testnet"}. Dependent controls flagged for REVIEW.`,
+            });
+          } else {
+            showNotification({
+              type: "success",
+              title: "On-Chain Audit Completed",
+              message: `Live Stellar ${network || "Testnet"} ledger #${telemetry.latestLedger ?? "latest"} queried. Verified ${telemetry.recentTransactions!.length} contract authorization proofs and transactions.`,
+            });
+          }
+        }
+      } catch (err: unknown) {
+        if (!options.silent) {
+          showNotification({
+            type: "error",
+            title: "Audit Verification Failed",
+            message:
+              err instanceof Error
+                ? err.message
+                : "Failed to query Soroban ledger state for compliance re-evaluation.",
+          });
+        }
+      } finally {
+        setIsAuditing(false);
+      }
+    },
+    [network, showNotification],
+  );
+
+  // Trigger live on-chain audit on mount or network change
+  useEffect(() => {
+    let isCancelled = false;
+    void fetchLiveNistControls(network)
+      .then(({ controls: freshControls }) => {
+        if (!isCancelled) {
+          setControls(freshControls);
+        }
+      })
+      .catch(() => {
+        // Fall back gracefully to standard controls for this network
+        if (!isCancelled) {
+          setControls(getStandardNistControls(network));
+        }
       });
-    } catch (err: unknown) {
-      showNotification({
-        type: "error",
-        title: "Audit Verification Failed",
-        message:
-          err instanceof Error
-            ? err.message
-            : "Failed to query Soroban ledger state for compliance re-evaluation.",
-      });
-    } finally {
-      setIsAuditing(false);
-    }
-  };
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [network]);
 
   // 1-Click Export Pack (Both PDF and JSON)
   const handleExportFullPack = async () => {
@@ -194,7 +235,7 @@ export const NistScorecard: React.FC = () => {
           <Button
             id="btn-run-live-audit"
             variant="outline"
-            onClick={handleRunAudit}
+            onClick={() => handleRunAudit()}
             disabled={isAuditing}
             className="h-11 rounded-2xl border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-200 font-semibold px-4"
           >
@@ -385,7 +426,7 @@ export const NistScorecard: React.FC = () => {
             id="tab-family-all"
             role="tab"
             aria-selected={selectedFamily === "ALL"}
-            aria-pressed={selectedFamily === "ALL"}
+            aria-controls="nist-controls-list"
             onClick={() => setSelectedFamily("ALL")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "ALL"
@@ -399,7 +440,7 @@ export const NistScorecard: React.FC = () => {
             id="tab-family-ac"
             role="tab"
             aria-selected={selectedFamily === "AC"}
-            aria-pressed={selectedFamily === "AC"}
+            aria-controls="nist-controls-list"
             onClick={() => setSelectedFamily("AC")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "AC"
@@ -413,7 +454,7 @@ export const NistScorecard: React.FC = () => {
             id="tab-family-au"
             role="tab"
             aria-selected={selectedFamily === "AU"}
-            aria-pressed={selectedFamily === "AU"}
+            aria-controls="nist-controls-list"
             onClick={() => setSelectedFamily("AU")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "AU"
@@ -427,7 +468,7 @@ export const NistScorecard: React.FC = () => {
             id="tab-family-sc"
             role="tab"
             aria-selected={selectedFamily === "SC"}
-            aria-pressed={selectedFamily === "SC"}
+            aria-controls="nist-controls-list"
             onClick={() => setSelectedFamily("SC")}
             className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
               selectedFamily === "SC"
@@ -468,7 +509,12 @@ export const NistScorecard: React.FC = () => {
       </div>
 
       {/* Control Cards List */}
-      <div className="space-y-4" id="nist-controls-list">
+      <div
+        className="space-y-4"
+        id="nist-controls-list"
+        role="tabpanel"
+        aria-labelledby={`tab-family-${selectedFamily.toLowerCase()}`}
+      >
         {filteredControls.map((control) => {
           const familyColor =
             control.family === "AC"

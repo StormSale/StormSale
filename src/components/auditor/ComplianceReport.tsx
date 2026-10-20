@@ -56,7 +56,7 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
 
 export const ComplianceReport: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<"nist" | "overview">("nist");
-  const { userAddress } = useWeb3();
+  const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
   const [isExporting, setIsExporting] = useState(false);
 
@@ -78,7 +78,7 @@ export const ComplianceReport: React.FC = () => {
       endDate,
       statusFilter,
       auditorName: "Independent Protocol Auditor",
-      auditorAddress: userAddress || "GAUDITOR_STELLAR_REGULATORY_SIGNER",
+      auditorAddress: userAddress || "Unattributed (Wallet Not Connected)",
     };
     return buildSignedAuditReport(opts, DEFAULT_COMPLIANCE_STANDARDS, DEFAULT_AUDIT_RECORDS);
   }, [startDate, endDate, statusFilter, userAddress]);
@@ -90,17 +90,17 @@ export const ComplianceReport: React.FC = () => {
     setIsExporting(true);
     try {
       const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
-      await exportFullCompliancePack(activeAuditor);
+      await exportFullCompliancePack(activeAuditor, undefined, network);
       showNotification({
         type: "success",
         title: "Compliance Pack Exported",
         message: "Generated and downloaded formal NIST SP 800-53 PDF & JSON audit pack.",
       });
-    } catch {
+    } catch (err: unknown) {
       showNotification({
         type: "error",
         title: "Export Failed",
-        message: "Failed to generate compliance export pack.",
+        message: err instanceof Error ? err.message : "Failed to generate compliance export pack.",
       });
     } finally {
       setIsExporting(false);
@@ -245,7 +245,7 @@ export const ComplianceReport: React.FC = () => {
         aria-labelledby="subtab-nist-scorecard"
         hidden={activeSubTab !== "nist"}
       >
-        {activeSubTab === "nist" && <NistScorecard />}
+        <NistScorecard />
       </div>
 
       <div
@@ -292,10 +292,14 @@ export const ComplianceReport: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {/* Start Date */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      <label
+                        htmlFor="batch-start-date"
+                        className="text-xs font-bold text-zinc-700 dark:text-zinc-300"
+                      >
                         Start Date:
                       </label>
                       <input
+                        id="batch-start-date"
                         type="date"
                         value={startDate}
                         onChange={(e) => setStartDate(e.target.value)}
@@ -305,10 +309,14 @@ export const ComplianceReport: React.FC = () => {
 
                     {/* End Date */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      <label
+                        htmlFor="batch-end-date"
+                        className="text-xs font-bold text-zinc-700 dark:text-zinc-300"
+                      >
                         End Date:
                       </label>
                       <input
+                        id="batch-end-date"
                         type="date"
                         value={endDate}
                         onChange={(e) => setEndDate(e.target.value)}
@@ -318,10 +326,14 @@ export const ComplianceReport: React.FC = () => {
 
                     {/* Status Filter */}
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      <label
+                        htmlFor="batch-status-filter"
+                        className="text-xs font-bold text-zinc-700 dark:text-zinc-300"
+                      >
                         Standards Filter:
                       </label>
                       <select
+                        id="batch-status-filter"
                         value={statusFilter}
                         onChange={(e) =>
                           setStatusFilter(e.target.value as "ALL" | "Compliant" | "Review Needed")
