@@ -22,6 +22,7 @@ import {
   QrCode,
   ShieldCheck,
 } from "lucide-react";
+import { AffiliatePerformanceCharts } from "./AffiliatePerformanceCharts";
 import { useWeb3 } from "../../context/Web3Context";
 
 const toBase64Url = (bytes: Uint8Array) => {
@@ -292,6 +293,9 @@ export const AffiliateOverview = () => {
           Quick Start Guide
         </Button>
       </div>
+
+      {/* Interactive Performance Trends & Balance Widgets (Issue #48) */}
+      <AffiliatePerformanceCharts />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

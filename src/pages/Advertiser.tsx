@@ -5,6 +5,7 @@ import { LogSaleForm } from "../components/advertiser/LogSaleForm";
 import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
 import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
+import { StorageTTLHealthIndicator } from "../components/advertiser/StorageTTLHealthIndicator";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
@@ -172,6 +173,9 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
           </Button>
         </div>
       </div>
+
+      {/* Soroban Storage TTL Real-Time Health & Automated Extension Center */}
+      <StorageTTLHealthIndicator />
 
       {/* Live Soroban Contract TTL Health & Restorer */}
       <ContractTTLRestorer
