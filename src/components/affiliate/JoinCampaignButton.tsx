@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
+import { InputField } from "../../components/ui/input-group";
 import {
   Card,
   CardContent,
@@ -11,20 +11,39 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { joinCampaignSchema, getFieldErrors } from "../../lib/validation";
 import { Users, Zap, Shield } from "lucide-react";
 
 export const JoinCampaignButton = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const { factoryContract } = useWeb3();
   const { showNotification } = useNotification();
 
   const handleJoinCampaign = async () => {
-    if (!factoryContract || !campaignAddress) return;
+    setErrors({});
+
+    const result = joinCampaignSchema.safeParse({ campaignAddress });
+
+    if (!result.success) {
+      setErrors(getFieldErrors(result.error));
+      return;
+    }
+
+    if (!factoryContract) {
+      showNotification({
+        type: "error",
+        title: "Wallet Not Connected",
+        message: "Please connect your wallet before joining a campaign.",
+      });
+      return;
+    }
 
     setIsLoading(true);
     try {
-      const tx = await factoryContract.joinCampaign(campaignAddress);
+      const tx = await factoryContract.joinCampaign(result.data.campaignAddress);
       await tx.wait();
       showNotification({
         type: "success",
@@ -72,24 +91,24 @@ export const JoinCampaignButton = () => {
           </div>
         </CardHeader>
         <CardContent className="px-8 pb-8 pt-6 space-y-6">
-          <div className="space-y-3">
-            <Label
-              htmlFor="campaignAddress"
-              className="text-sm font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider"
-            >
-              Campaign Contract Address
-            </Label>
+          <InputField
+            label="Campaign Contract Address"
+            description="Obtain the campaign address from the advertiser or StormSale marketplace."
+            error={errors.campaignAddress}
+            required
+          >
             <Input
               id="campaignAddress"
               value={campaignAddress}
-              onChange={(e) => setCampaignAddress(e.target.value)}
-              placeholder="CCAMPAIGN... (Soroban Contract Address or ID)"
+              onChange={(e) => {
+                setCampaignAddress(e.target.value);
+                setErrors({});
+              }}
+              placeholder="CCAMPAIGN... (56-char Soroban Contract Address)"
+              variant={errors.campaignAddress ? "error" : "default"}
               className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
             />
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-              Obtain the campaign address from the advertiser or StormSale marketplace.
-            </p>
-          </div>
+          </InputField>
 
           {/* Info block */}
           <div className="bg-indigo-50 dark:bg-indigo-500/10 p-5 rounded-2xl border border-indigo-100 dark:border-indigo-500/20">
@@ -109,7 +128,7 @@ export const JoinCampaignButton = () => {
 
           <Button
             onClick={handleJoinCampaign}
-            disabled={isLoading || !campaignAddress}
+            disabled={isLoading}
             className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-lg rounded-xl shadow-md transition-all"
           >
             {isLoading ? (
