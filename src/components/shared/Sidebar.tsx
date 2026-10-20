@@ -1,10 +1,20 @@
+
 import React, { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
-import { ChevronLeft, ChevronRight, Shield, LogOut, Menu, X, Layers } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Shield,
+  LogOut,
+  Menu,
+  X,
+  Layers,
+} from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { usePreference } from "../../hooks/usePreference";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface SidebarProps {
@@ -28,11 +38,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isAdmin = false,
   onEmergencyPause,
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = usePreference<boolean>(
+    "stormsale.sidebar.collapsed",
+    false,
+    (v) => typeof v === "boolean",
+  );
+
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
 
-  const activeTabObject = tabs.find((t) => t.id === activeTab) || tabs[0];
+  const activeTabObject = tabs.find((tab) => tab.id === activeTab) || tabs[0];
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
 
   const handleEmergencyPause = () => {
@@ -61,10 +76,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ChevronLeft className="w-4 h-4" />
               </Button>
             )}
+
             <div className="flex items-center space-x-2">
               <div className="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center text-white shadow-sm">
                 <ActiveIcon className="w-3.5 h-3.5" />
               </div>
+
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[140px] sm:max-w-[200px]">
                   {activeTabObject ? activeTabObject.label : "Menu"}
@@ -78,6 +95,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <div className="flex items-center space-x-2">
             <ThemeToggle />
+
             <Button
               variant="outline"
               size="sm"
@@ -99,7 +117,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Mobile Slide-Down Drawer */}
         <AnimatePresence>
           {isMobileDrawerOpen && (
             <motion.div
@@ -111,6 +128,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2 px-1">
                 Navigation Tabs
               </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {tabs.map((tab) => {
                   const IconComp = tab.icon;
@@ -171,6 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     Role Switcher
                   </Button>
                 )}
+
                 <Button
                   variant="ghost"
                   size="sm"
@@ -189,9 +208,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </AnimatePresence>
       </div>
 
-      {/* =========================================================================
-          2. DESKTOP SIDEBAR (Visible on screens >= lg / 1024px)
-         ========================================================================= */}
       <motion.div
         initial={false}
         animate={{ width: isCollapsed ? 80 : 320 }}
@@ -200,17 +216,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className,
         )}
       >
-        {/* Toggle Button */}
         <Button
           variant="ghost"
           size="icon"
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="absolute -right-3 top-20 w-6 h-6 rounded-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-sm z-50 hover:bg-slate-100 dark:hover:bg-zinc-800"
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+          {isCollapsed ? (
+            <ChevronRight className="w-3 h-3" />
+          ) : (
+            <ChevronLeft className="w-3 h-3" />
+          )}
         </Button>
 
-        {/* Header / Back */}
         <div className="p-6 border-b border-slate-200 dark:border-zinc-800">
           <AnimatePresence mode="wait">
             {!isCollapsed ? (
@@ -231,6 +250,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     Role Selector
                   </Button>
                 )}
+
                 <div className="flex items-center space-x-3 px-2">
                   <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
                     <Shield className="w-4 h-4 text-white" />
@@ -257,7 +277,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </AnimatePresence>
         </div>
 
-        {/* Navigation */}
         <div className="flex-1 p-4 overflow-y-auto overflow-x-hidden">
           <div className="space-y-1.5">
             {tabs.map((tab) => {
@@ -281,9 +300,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     className={cn(
                       "w-5 h-5 shrink-0 transition-transform duration-200",
                       !isCollapsed && "mr-3",
-                      isActive ? "opacity-100" : "opacity-70 group-hover:scale-110",
+                      isActive
+                        ? "opacity-100"
+                        : "opacity-70 group-hover:scale-110",
                     )}
                   />
+
                   {!isCollapsed && (
                     <motion.span
                       initial={{ opacity: 0, x: -10 }}
@@ -293,6 +315,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {tab.label}
                     </motion.span>
                   )}
+
                   {isActive && isCollapsed && (
                     <motion.div
                       layoutId="active-pill"
@@ -305,7 +328,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
           {isAdmin === true && (
             <Button
