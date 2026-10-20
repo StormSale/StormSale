@@ -7,9 +7,6 @@ import {
   BarChart3,
   TrendingUp,
   Eye,
-  Pause,
-  Play,
-  Settings,
   Search,
   Shield,
   AlertTriangle,
@@ -17,11 +14,21 @@ import {
   CheckCircle2,
   Coins,
   Wallet,
+  Clock,
+  Sparkles,
+  AlertCircle,
+  Sliders,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { formatStellarAddress } from "../../lib/stellar";
+import { EscrowReserveIndicator } from "./EscrowReserveIndicator";
+import { AutoRefillConfigModal } from "./AutoRefillConfigModal";
+import {
+  calculateEscrowReserveStatus,
+  depositEscrowRefillContractCall,
+} from "../../lib/escrowAutoRefill";
 import type { MultiSigRefundProposal } from "../../lib/multiSigSafe";
 import {
   isLargeRefund,
@@ -29,6 +36,12 @@ import {
   initiateMultiSigRefund,
 } from "../../lib/multiSigSafe";
 import { MultiSigRefundModal } from "./MultiSigRefundModal";
+import { ContractTTLBadge } from "./ContractTTLBadge";
+import {
+  calculateTTLHealth,
+  formatLedgerDuration,
+  extendContractInstanceTTL,
+} from "../../lib/contractTTL";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -47,6 +60,10 @@ export interface Campaign {
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
   isRefunded?: boolean;
+  currentBalanceXlm?: number;
+  initialBudgetXlm?: number;
+  refillThresholdPercent?: number;
+  ttlRemainingLedgers?: number;
 }
 
 export const initialMockCampaigns: Campaign[] = [
@@ -64,6 +81,11 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CA7Q...1234",
     escrowInitial: 5000,
     escrowBalance: 3250, // 65.0% - Healthy
+    initialBudgetXlm: 5000,
+    currentBalanceXlm: 3250,
+    refillThresholdPercent: 15,
+    isRefunded: false,
+    ttlRemainingLedgers: 7850, // Low TTL (< 10k ledgers) - requires restoration!
   },
   {
     id: "2",
@@ -79,6 +101,11 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CB9E...5678",
     escrowInitial: 10000,
     escrowBalance: 750, // 7.5% - LOW ESCROW ALERT (< 10%)
+    initialBudgetXlm: 10000,
+    currentBalanceXlm: 750,
+    refillThresholdPercent: 15,
+    isRefunded: false,
+    ttlRemainingLedgers: 420000, // Healthy
   },
   {
     id: "3",
@@ -94,6 +121,11 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CC2K...9012",
     escrowInitial: 8000,
     escrowBalance: 680, // 8.5% - LOW ESCROW ALERT (< 10%)
+    initialBudgetXlm: 8000,
+    currentBalanceXlm: 680,
+    refillThresholdPercent: 20,
+    isRefunded: false,
+    ttlRemainingLedgers: 38000, // Warning
   },
   {
     id: "4",
@@ -109,7 +141,11 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CD4M...3456",
     escrowInitial: 3000,
     escrowBalance: 1200, // Ended campaign with 1,200 XLM unused escrow - REFUNDABLE
+    initialBudgetXlm: 3000,
+    currentBalanceXlm: 1200,
+    refillThresholdPercent: 10,
     isRefunded: false,
+    ttlRemainingLedgers: 12000,
   },
   {
     id: "5",
@@ -125,7 +161,11 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CE1P...7890",
     escrowInitial: 4000,
     escrowBalance: 0,
+    initialBudgetXlm: 4000,
+    currentBalanceXlm: 0,
+    refillThresholdPercent: 15,
     isRefunded: true, // Already refunded
+    ttlRemainingLedgers: 0, // Archived
   },
   {
     id: "6",
@@ -141,9 +181,15 @@ export const initialMockCampaigns: Campaign[] = [
     contractAddress: "CF8R...4321",
     escrowInitial: 30000,
     escrowBalance: 18500, // Ended campaign with 18,500 XLM unused escrow (> $10k Threshold)
+    initialBudgetXlm: 30000,
+    currentBalanceXlm: 18500,
+    refillThresholdPercent: 15,
     isRefunded: false,
+    ttlRemainingLedgers: 420000,
   },
 ];
+
+export const mockCampaigns = initialMockCampaigns;
 
 const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
   Active: {
@@ -170,13 +216,136 @@ export const MyCampaignsList = () => {
   const [isMultiSigModalOpen, setIsMultiSigModalOpen] = useState(false);
   const [, setMultiSigVersion] = useState(0);
 
-  const { refundCampaignEscrow, isConnected, userAddress } = useWeb3();
+  const { refundCampaignEscrow, isConnected, userAddress, connectorType } = useWeb3();
   const { showNotification } = useNotification();
 
   // Low balance threshold: < 10%
   const isCampaignLowEscrow = (c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;
     return c.escrowBalance / c.escrowInitial < 0.1 && c.escrowBalance > 0;
+  };
+
+  const [extendingId, setExtendingId] = useState<string | null>(null);
+
+  const lowTTLCount = campaigns.filter(
+    (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 10000,
+  ).length;
+
+  const handleExtendCampaignTTL = async (campaignId: string, contractAddress: string) => {
+    try {
+      setExtendingId(campaignId);
+      showNotification({
+        type: "info",
+        title: "Submitting State Rent Extension",
+        message: `Extending contract ${contractAddress} by 500,000 ledgers...`,
+      });
+
+      const res = await extendContractInstanceTTL({
+        contractId: contractAddress,
+        callerAddress: userAddress || "GDX7...MOCK",
+        extendToLedgers: 500000,
+        walletType: (connectorType as any) || "freighter",
+      });
+
+      if (res.success) {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaignId
+              ? {
+                  ...c,
+                  ttlRemainingLedgers: (c.ttlRemainingLedgers ?? 0) + 500000,
+                }
+              : c,
+          ),
+        );
+
+        showNotification({
+          type: "success",
+          title: "State Rent Extended",
+          message: `Successfully extended ${contractAddress} by 500,000 ledgers.`,
+        });
+      } else {
+        showNotification({
+          type: "error",
+          title: "Extension Failed",
+          message: res.message || "Failed to extend contract state rent",
+        });
+      }
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Extension Error",
+        message: err.message || "An unexpected error occurred",
+      });
+    } finally {
+      setExtendingId(null);
+    }
+  };
+
+  const [selectedCampaignForConfig, setSelectedCampaignForConfig] = useState<Campaign | null>(null);
+  const [refillingId, setRefillingId] = useState<string | null>(null);
+
+  const lowReserveCampaigns = campaigns.filter(
+    (c) =>
+      c.status === "Active" &&
+      calculateEscrowReserveStatus(
+        c.currentBalanceXlm ?? c.escrowBalance,
+        c.initialBudgetXlm ?? c.escrowInitial,
+        c.refillThresholdPercent ?? 15,
+        c.id,
+      ).isLowReserve,
+  );
+
+  const handleQuickRefill = async (campaign: Campaign, amountXlm: number = 500) => {
+    setRefillingId(campaign.id);
+    try {
+      showNotification({
+        type: "info",
+        title: "Submitting Escrow Refill",
+        message: `Depositing ${amountXlm.toLocaleString()} XLM to campaign escrow...`,
+      });
+
+      const result = await depositEscrowRefillContractCall({
+        campaignId: campaign.id,
+        amountXlm,
+        callerAddress: userAddress || "GDX7...MOCK",
+        walletType: (connectorType as any) || "freighter",
+      });
+
+      if (result.success) {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaign.id
+              ? {
+                  ...c,
+                  currentBalanceXlm: result.newBalanceXlm,
+                  escrowBalance: result.newBalanceXlm,
+                }
+              : c,
+          ),
+        );
+
+        showNotification({
+          type: "success",
+          title: "Escrow Refilled",
+          message: `Deposited ${amountXlm.toLocaleString()} XLM. New Balance: ${result.newBalanceXlm.toLocaleString()} XLM`,
+        });
+      } else {
+        showNotification({
+          type: "error",
+          title: "Refill Failed",
+          message: result.message || "Failed to submit on-chain deposit",
+        });
+      }
+    } catch (err: any) {
+      showNotification({
+        type: "error",
+        title: "Refill Error",
+        message: err.message || "An unexpected error occurred",
+      });
+    } finally {
+      setRefillingId(null);
+    }
   };
 
   const handleRefund = async (campaign: Campaign) => {
@@ -286,6 +455,93 @@ export const MyCampaignsList = () => {
 
   return (
     <div className="space-y-8">
+      {/* Automatic Warning Banner when any campaign has low TTL (< 10,000 ledgers) */}
+      {lowTTLCount > 0 && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="relative overflow-hidden bg-rose-500/10 border border-rose-500/30 rounded-3xl p-6 text-rose-700 dark:text-rose-300 backdrop-blur-md shadow-lg shadow-rose-500/5"
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-rose-500/20 text-rose-600 dark:text-rose-400 mt-0.5">
+                <AlertCircle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>
+                    Critical State Rent Alert: {lowTTLCount} Campaign(s) Nearing Archival
+                  </span>
+                </h3>
+                <p className="text-sm text-rose-600/90 dark:text-rose-300/90 mt-1 max-w-2xl">
+                  One or more active campaigns have dropped below the safe persistent instance TTL
+                  threshold (&lt; 10,000 ledgers). Extend their contract rent to prevent smart
+                  contract archival and maintain active tracking.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                const urgentCampaign = campaigns.find(
+                  (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 10000,
+                );
+                if (urgentCampaign) {
+                  handleExtendCampaignTTL(urgentCampaign.id, urgentCampaign.contractAddress);
+                }
+              }}
+              disabled={extendingId !== null}
+              className="w-full md:w-auto bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-rose-600/20 flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Restore Urgent Contract (+500k)</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Low-Reserve Warning Alert Banner */}
+      {lowReserveCampaigns.length > 0 && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="relative overflow-hidden bg-amber-500/10 border border-amber-500/30 rounded-3xl p-6 text-amber-700 dark:text-amber-300 backdrop-blur-md shadow-lg shadow-amber-500/5"
+        >
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2.5 rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400 mt-0.5">
+                <AlertCircle className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <span>
+                    Escrow Low-Balance Alert: {lowReserveCampaigns.length} Campaign(s) Below
+                    Threshold
+                  </span>
+                </h3>
+                <p className="text-sm text-amber-600/90 dark:text-amber-300/90 mt-1 max-w-2xl">
+                  One or more active campaigns have fallen below their configured escrow reserve
+                  threshold. Top up now to guarantee uninterrupted affiliate commission payouts.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={() => {
+                if (lowReserveCampaigns[0]) {
+                  handleQuickRefill(lowReserveCampaigns[0], 500);
+                }
+              }}
+              disabled={refillingId !== null}
+              className="w-full md:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-amber-600/20 flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>1-Click Refill (+500 XLM)</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
@@ -591,6 +847,53 @@ export const MyCampaignsList = () => {
                     )}
                   </div>
 
+                  {/* Soroban Contract TTL Health Row */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-100 dark:border-zinc-800/60 mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                      <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                        State Rent:
+                      </span>
+                      <ContractTTLBadge
+                        status={calculateTTLHealth(campaign.ttlRemainingLedgers ?? 500000)}
+                        remainingLedgers={campaign.ttlRemainingLedgers ?? 500000}
+                        durationText={formatLedgerDuration(campaign.ttlRemainingLedgers ?? 500000)}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant={(campaign.ttlRemainingLedgers ?? 500000) < 10000 ? "default" : "outline"}
+                      disabled={extendingId === campaign.id}
+                      onClick={() => handleExtendCampaignTTL(campaign.id, campaign.contractAddress)}
+                      className={`h-7 text-xs rounded-xl font-bold px-3 py-1 flex items-center gap-1 ${
+                        (campaign.ttlRemainingLedgers ?? 500000) < 10000
+                          ? "bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-600/30 animate-pulse"
+                          : "border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20"
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>
+                        {(campaign.ttlRemainingLedgers ?? 500000) < 10000 ? "Restore (+500k)" : "Extend"}
+                      </span>
+                    </Button>
+                  </div>
+
+                  {/* Escrow Reserve Level & Threshold Indicator for Auto-Refill */}
+                  {campaign.status !== "Completed" && (
+                    <EscrowReserveIndicator
+                      status={calculateEscrowReserveStatus(
+                        campaign.currentBalanceXlm ?? campaign.escrowBalance,
+                        campaign.initialBudgetXlm ?? campaign.escrowInitial,
+                        campaign.refillThresholdPercent ?? 15,
+                        campaign.id,
+                      )}
+                      onOpenSettings={() => setSelectedCampaignForConfig(campaign)}
+                      onQuickRefill={() => handleQuickRefill(campaign, 500)}
+                      isRefilling={refillingId === campaign.id}
+                      className="mb-3"
+                    />
+                  )}
+
                   {/* Metrics grid */}
                   <div className="grid grid-cols-3 gap-3">
                     {[
@@ -617,7 +920,7 @@ export const MyCampaignsList = () => {
                   </div>
 
                   {/* Details row */}
-                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  <div className="flex items-center gap-4 text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
                     <span className="flex items-center gap-1">
                       <TrendingUp className="w-3.5 h-3.5" />
                       {campaign.commissionRate}% commission
@@ -628,7 +931,7 @@ export const MyCampaignsList = () => {
                     <span>Since {campaign.createdAt}</span>
                   </div>
 
-                  {/* ACTIONS: Standard Actions + "Refund" Action for Ended Campaigns */}
+                  {/* ACTIONS */}
                   <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/50">
                     {campaign.status === "Completed" ? (
                       /* Ended / Completed Campaign: Refund Action Area */
@@ -731,7 +1034,7 @@ export const MyCampaignsList = () => {
                         </div>
                       </div>
                     ) : (
-                      /* Active / Paused Campaigns: Standard Operational Actions */
+                      /* Active / Paused Campaigns: Standard Operational Actions + Auto-Refill Settings */
                       <div className="flex gap-3">
                         <Button
                           variant="outline"
@@ -744,15 +1047,11 @@ export const MyCampaignsList = () => {
                         <Button
                           variant="outline"
                           size="sm"
+                          onClick={() => setSelectedCampaignForConfig(campaign)}
                           className="h-10 w-10 rounded-xl border border-slate-200 dark:border-zinc-800 p-0 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                          title="Configure Auto-Refill Trigger"
                         >
-                          {campaign.status === "Active" ? (
-                            <Pause className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                          ) : campaign.status === "Paused" ? (
-                            <Play className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                          ) : (
-                            <Settings className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                          )}
+                          <Sliders className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
                         </Button>
                         <Button
                           size="sm"
@@ -771,16 +1070,41 @@ export const MyCampaignsList = () => {
         </div>
       )}
 
+      {/* Issue #139: Auto-Refill Configuration Modal */}
+      {selectedCampaignForConfig && (
+        <AutoRefillConfigModal
+          isOpen={selectedCampaignForConfig !== null}
+          onClose={() => setSelectedCampaignForConfig(null)}
+          campaignId={selectedCampaignForConfig.id}
+          campaignName={selectedCampaignForConfig.name}
+          currentBalanceXlm={
+            selectedCampaignForConfig.currentBalanceXlm ?? selectedCampaignForConfig.escrowBalance
+          }
+          initialBudgetXlm={
+            selectedCampaignForConfig.initialBudgetXlm ?? selectedCampaignForConfig.escrowInitial
+          }
+          onRefillComplete={(newBalanceXlm: number) => {
+            setCampaigns((prev) =>
+              prev.map((c) =>
+                c.id === selectedCampaignForConfig.id
+                  ? { ...c, currentBalanceXlm: newBalanceXlm, escrowBalance: newBalanceXlm }
+                  : c,
+              ),
+            );
+          }}
+        />
+      )}
+
       {/* Issue #104: Multi-Sig Refund Modal */}
       <MultiSigRefundModal
         isOpen={isMultiSigModalOpen}
         onClose={() => setIsMultiSigModalOpen(false)}
         proposal={activeMultiSigProposal}
-        onProposalUpdated={(updated) => {
+        onProposalUpdated={(updated: MultiSigRefundProposal) => {
           setActiveMultiSigProposal(updated);
           setMultiSigVersion((v) => v + 1);
         }}
-        onRefundExecuted={(campaignId) => {
+        onRefundExecuted={(campaignId: string) => {
           setCampaigns((prev) =>
             prev.map((c) =>
               c.id === campaignId ? { ...c, escrowBalance: 0, isRefunded: true } : c,
