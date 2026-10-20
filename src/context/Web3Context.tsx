@@ -21,7 +21,9 @@ import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
+import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
+import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 
@@ -99,7 +101,10 @@ export interface Web3ContextType {
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
 
-  batchClaimPayoutsOnChain: (campaigns: ClaimableCampaignItem[]) => Promise<BatchClaimReceipt>;
+  batchClaimPayoutsOnChain: (
+    campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
+  ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
 
@@ -532,6 +537,22 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         connectorType,
         assetCode,
       );
+      if (res.success) {
+        void dispatchWebhookEvent("campaign.created", {
+          id: `campaign_${res.campaignId}`,
+          event: "campaign.created",
+          created_at: new Date().toISOString(),
+          campaign_id: res.campaignId,
+          campaign_name: name,
+          advertiser_address: userAddress,
+          budget: budgetAmount,
+          currency: assetCode || "XLM",
+          commission_rate_percent: commissionRatePercent,
+          clearing_period_seconds: clearingPeriodSecs,
+          tx_hash: res.txHash,
+          status: "created",
+        });
+      }
       setTimeout(() => {
         refreshBalance(userAddress);
         refreshTokenAllowance(undefined, assetCode);
@@ -543,10 +564,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
       setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
       if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`);
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
         if (stored) {
           const updated = Math.max(0, parseFloat(stored) - budgetAmount);
-          window.localStorage.setItem(`mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`, updated.toString());
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
         }
       }
       return {
@@ -568,10 +594,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   // Soroban: Claim Affiliate Commission
-  const claimPayoutOnChain = async (
-    campaignId: number,
-    assetCode?: SupportedEscrowAssetCode,
-  ) => {
+  const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
     console.log(
@@ -580,6 +603,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      if (res.success) {
+        void dispatchWebhookEvent("payout.created", {
+          id: `payout_${res.txHash}`,
+          event: "payout.created",
+          created_at: new Date().toISOString(),
+          payout_id: res.txHash,
+          campaign_id: campaignId,
+          affiliate_address: userAddress,
+          currency: (res.asset as string) || (assetCode as string) || "XLM",
+          tx_hash: res.txHash,
+          status: "claimed",
+        });
+      }
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
@@ -597,12 +633,22 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return refundCampaignEscrowContractCall(userAddress, campaignId);
   };
 
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
+    splitPlan?: SplitPlan | null,
   ): Promise<BatchClaimReceipt> => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const { batchClaimPayouts } = await import("../lib/batchClaim");
-    return batchClaimPayouts(userAddress, campaigns);
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
+      splitPlan,
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
   };
 
   // Passkey Smart Account Registration
