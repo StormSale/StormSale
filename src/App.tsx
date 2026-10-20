@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useRef, useMemo, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -91,8 +91,9 @@ const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
-  const { isConnected, role, isRoleLoading } = useWeb3();
+  const { isConnected, role, isLoading: roleLoading } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [roleResolved, setRoleResolved] = useState(false);
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
     "stormsale.app.currentPage",
@@ -103,6 +104,24 @@ function Router() {
   const prevConnectedRef = useRef(isConnected);
 
   useEffect(() => {
+    // Wait for the wallet connection AND the DB-backed role to settle before
+    // rendering routes. This prevents a flicker between Landing, the default
+    // dashboard, and the correct role dashboard on first paint.
+    // When disconnected, there is no role to resolve and we can render the
+    // Landing view immediately. When connected, we must wait for the DB-backed
+    // role fetch to finish so we never paint the wrong role dashboard.
+    if (!isConnected) {
+      setRoleResolved(true);
+      return;
+    }
+    if (!roleLoading) {
+      setRoleResolved(true);
+    } else {
+      setRoleResolved(false);
+    }
+  }, [isConnected, roleLoading]);
+
+  useEffect(() => {
     // Only reset to "dashboard" after isConnected transitions from true to false,
     // preserving saved page state on initial load / reload.
     if (prevConnectedRef.current && !isConnected) {
@@ -111,49 +130,39 @@ function Router() {
     prevConnectedRef.current = isConnected;
   }, [isConnected, setCurrentPage]);
 
+  useEffect(() => {
+    // Keep the persisted page in sync with the resolved DB role so a user
+    // landing on a stale/unauthorized page is routed to their role's page.
+    if (!roleResolved || !isConnected || !role) return;
+    const rolePageMap: Record<string, Page> = {
+      ADVERTISER: "advertiser",
+      AFFILIATE: "affiliate",
+      AUDITOR: "auditor",
+    };
+    const targetPage = rolePageMap[role];
+    // Redirect any non-matching role page (including a stale role page from a
+    // previous session) to the user's actual role page. The generic dashboard
+    // remains a valid landing spot for every role.
+    if (targetPage && currentPage !== targetPage && currentPage !== "dashboard") {
+      setCurrentPage(targetPage);
+    }
+  }, [role, roleResolved, isConnected, currentPage, setCurrentPage]);
+
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
 
-  // Sync role from DB to UI to prevent flicker: derive the allowed page from
-  // the persisted role and only fall back to defaults once role is resolved.
-  // Once the DB role is known it becomes the single source of truth for
-  // routing, so the UI never flickers between role-specific views.
-  const resolvedPage = useMemo(() => {
-    if (isRoleLoading) return null;
-    if (role === "advertiser" || role === "affiliate" || role === "auditor") {
-      return role;
-    }
-    return currentPage;
-  }, [role, isRoleLoading, currentPage]);
-
-  // Keep local navigation state in sync with the persisted role so that
-  // subsequent navigations (e.g. onBack) start from the resolved page.
-  // This runs only when the persisted role actually changes to avoid an
-  // extra render pass (which would reintroduce a one-frame flicker).
-  useEffect(() => {
-    if (!isRoleLoading && role && resolvedPage && resolvedPage !== currentPage) {
-      setCurrentPage(resolvedPage);
-    }
-  }, [isRoleLoading, role, resolvedPage, currentPage]);
-
-  // Unified role-based route protection: block rendering until role is known
-  // so the UI never flickers between unauthenticated and role-specific views.
-  if (isRoleLoading) {
-    return <PageLoader />;
-  }
-
-  // Unified role-based route protection: role-specific pages require an
-  // active connection; otherwise fall back to the landing view.
-  const protectedPage = isConnected || tmaMode ? resolvedPage : "dashboard";
-
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
       setCurrentPage(page as Page);
     }
   };
+
+  if (!roleResolved) {
+    return <PageLoader />;
+  }
 
   if (activeBrandSubdomain) {
     return (
@@ -179,27 +188,27 @@ function Router() {
         ) : (
           <div className="min-h-screen bg-background">
             <main>
-              {protectedPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-              {protectedPage === "advertiser" && (
+              {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
+              {currentPage === "advertiser" && (
                 <ProtectedRoute requiredRole="ADVERTISER" onNavigate={handleNavigate}>
                   <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
-                    <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                    <Advertiser onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>
               )}
-              {protectedPage === "affiliate" && (
+              {currentPage === "affiliate" && (
                 <ProtectedRoute requiredRole="AFFILIATE" onNavigate={handleNavigate}>
                   <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
                     <Affiliate
-                      onBack={() => (isConnected ? setCurrentPage("dashboard") : setTmaMode(false))}
+                      onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
                     />
                   </Suspense>
                 </ProtectedRoute>
               )}
-              {protectedPage === "auditor" && (
+              {currentPage === "auditor" && (
                 <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
                   <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
-                    <Auditor onBack={() => setCurrentPage("dashboard")} />
+                    <Auditor onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>
               )}

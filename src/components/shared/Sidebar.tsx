@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,7 +24,8 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
-  isLoading?: boolean;
+  roleId?: string;
+  isRoleLoading?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -34,7 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
-  isLoading = false,
+  roleId,
+  isRoleLoading = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = usePreference<boolean>(
     "stormsale.sidebar.collapsed",
@@ -43,45 +45,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
-  const { disconnectWallet } = useWeb3() ?? {};
+  const { disconnectWallet } = useWeb3();
 
-  const activeTabObject = tabs.find((tab) => tab.id === activeTab) || tabs[0];
+  const activeTabObject = useMemo(
+    () => tabs.find((tab) => tab.id === activeTab) || tabs[0],
+    [tabs, activeTab],
+  );
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
 
-  // Render a stable skeleton while role is being hydrated from DB to avoid
-  // flicker. The skeleton mirrors the final layout dimensions so the swap is
-  // visually seamless (0ms perceived flicker).
-  if (isLoading) {
-    return (
-      <>
-        <div className="lg:hidden w-full bg-white dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 sticky top-0 z-30 shadow-sm tma-safe-top">
-          <div className="px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center space-x-2.5">
-              <div className="w-7 h-7 bg-slate-200 dark:bg-zinc-800 rounded-lg animate-pulse" />
-              <div className="flex flex-col space-y-1">
-                <div className="h-3 w-24 bg-slate-200 dark:bg-zinc-800 rounded animate-pulse" />
-                <div className="h-2 w-16 bg-slate-200 dark:bg-zinc-800 rounded animate-pulse" />
-              </div>
-            </div>
-            <div className="w-8 h-8 bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse" />
-          </div>
-        </div>
-        <div className="hidden lg:flex flex-col w-80 bg-white dark:bg-zinc-950/50 border-r border-slate-200 dark:border-zinc-800 shadow-sm shrink-0">
-          <div className="p-6 border-b border-slate-200 dark:border-zinc-800">
-            <div className="h-10 w-full bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse" />
-          </div>
-          <div className="flex-1 p-4 space-y-2">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-12 w-full bg-slate-200 dark:bg-zinc-800 rounded-xl animate-pulse"
-              />
-            ))}
-          </div>
-        </div>
-      </>
-    );
-  }
+  // Prevent role flicker: keep a stable, fixed-height placeholder while the
+  // DB-synced role resolves so the layout never shifts (0ms flicker).
+  // If a role is already known (from cache/DB), render it immediately even
+  // while a background refresh is in-flight — this eliminates the flicker
+  // where a resolved role would briefly fall back to a skeleton.
+  const isRoleResolved = Boolean(roleName);
+  const displayRoleName = isRoleResolved ? roleName : "";
+  const roleSkeletonClass =
+    "inline-block h-3 w-16 rounded bg-slate-200 dark:bg-zinc-800 animate-pulse align-middle";
 
   return (
     <>
@@ -112,9 +92,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[140px] sm:max-w-[200px]">
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
-                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {roleName}
-                </span>
+                {isRoleResolved ? (
+                  <span
+                    className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400"
+                    data-role-id={roleId}
+                  >
+                    {displayRoleName}
+                  </span>
+                ) : (
+                  <span className={roleSkeletonClass} aria-hidden="true" />
+                )}
               </div>
             </div>
           </div>
@@ -206,7 +193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    disconnectWallet?.();
+                    disconnectWallet();
                     setIsMobileDrawerOpen(false);
                   }}
                   className="text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20"
@@ -267,9 +254,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
                     <Shield className="w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {roleName}
-                  </span>
+                  {isRoleResolved ? (
+                    <span
+                      className="font-bold text-zinc-900 dark:text-white tracking-tight"
+                      data-role-id={roleId}
+                    >
+                      {displayRoleName}
+                    </span>
+                  ) : (
+                    <span className={roleSkeletonClass} aria-hidden="true" />
+                  )}
                 </div>
               </motion.div>
             ) : (
@@ -343,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
           <Button
             variant="ghost"
-            onClick={() => disconnectWallet?.()}
+            onClick={disconnectWallet}
             className={cn(
               "w-full h-12 rounded-xl transition-all duration-200 group flex items-center border border-transparent hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/20 text-zinc-600 dark:text-zinc-400 hover:text-red-600 dark:hover:text-red-400",
               isCollapsed ? "justify-center px-0" : "justify-start px-4",

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -23,7 +23,6 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
-    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
@@ -35,20 +34,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
-  const isRoleSynced = hydrated;
+  const hasHydratedRef = useRef(false);
+  const hasNavigatedRef = useRef(false);
 
   // Reconcile cached metrics with live network data (background sync, zero layout shift)
   useEffect(() => {
     if (!hydrated) return;
     const liveMetrics = {
-      userRole: userRole ?? null,
+      userRole: metrics.userRole ?? null,
       xlmBalance,
       network,
       isConnected,
       connectorType,
     };
     persistMetrics(liveMetrics);
-  }, [hydrated, userRole, isConnected, network, xlmBalance, connectorType, persistMetrics]);
+  }, [hydrated, isConnected, network, xlmBalance, connectorType, metrics.userRole, persistMetrics]);
 
   // Invalidate cache on wallet disconnect
   useEffect(() => {
@@ -57,25 +57,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   }, [isConnected, invalidateCache]);
 
-  // Unified role-based route protection: redirect once role is synced from DB,
-  // avoiding the flicker caused by routing before the role is known.
+  // Unified role-based routing: redirect to persisted role once hydrated (prevents 0ms flicker)
   useEffect(() => {
-    if (!isRoleSynced) return;
-    if (!isConnected || !userRole) return;
-    const target = userRole.toLowerCase();
-    if (!["advertiser", "affiliate", "auditor"].includes(target)) return;
-    // Guard against redundant navigation to prevent flicker/loops once already routed.
-    if (window.location.hash.replace("#/", "") === target) return;
-    onNavigate(target);
-  }, [isRoleSynced, isConnected, userRole, onNavigate]);
+    if (!hydrated || hasNavigatedRef.current) return;
+    const persistedRole = metrics.userRole;
+    if (isConnected && persistedRole) {
+      const normalized = persistedRole.toLowerCase();
+      const validRole = ["advertiser", "affiliate", "auditor"].includes(normalized);
+      if (validRole) {
+        hasNavigatedRef.current = true;
+        onNavigate(normalized);
+      }
+    }
+  }, [hydrated, isConnected, metrics.userRole, onNavigate]);
 
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
       await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
-      // Navigation is handled by the unified role-based routing effect above,
-      // which fires once the synced role updates — avoiding a double-navigate flicker.
+      hasNavigatedRef.current = true;
+      onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
     } finally {
@@ -83,21 +85,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   };
 
+  // Block render until cache hydration completes to guarantee zero flicker on load
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans" aria-busy="true" />
+    );
+  }
+
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
-
-  // Hold render until role is synced to guarantee 0ms flicker on load.
-  if (!isRoleSynced) {
-    return (
-      <div className="min-h-screen font-sans bg-slate-50 dark:bg-[#09090b] flex items-center justify-center">
-        <div className="flex items-center space-x-3 text-zinc-500 dark:text-zinc-400">
-          <Activity className="w-5 h-5 animate-pulse text-indigo-500" />
-          <span className="text-sm font-bold uppercase tracking-wider">Syncing session…</span>
-        </div>
-      </div>
-    );
-  }
 
   const roles = [
     {
