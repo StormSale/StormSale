@@ -206,7 +206,7 @@ export async function connectLedgerDevice(
  * for user verification on the physical Ledger device screen.
  */
 export function extractLedgerVerificationDetails(
-  preparedXdrb: string,
+  preparedXdr: string,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): {
   txHash: string;
@@ -249,7 +249,7 @@ export function extractLedgerVerificationDetails(
  * Signs a prepared Stellar / Soroban transaction using a Ledger Hardware Wallet.
  */
 export async function signLedgerTransaction(
-  preparedXdrb: string,
+  preparedXdr: string,
   bipPath: string = DEFAULT_STELLAR_BIP_PATH,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): Promise<string> {

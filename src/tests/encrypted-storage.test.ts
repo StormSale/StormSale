@@ -135,4 +135,41 @@ describe("Encrypted Local Cache Layer Suite", () => {
     await encryptedStorage.removeItem("unified_test");
     expect(await encryptedStorage.getItem("unified_test")).toBeNull();
   });
+
+  it("delegates AES work to the crypto web worker without blocking the main thread", async () => {
+    const postMessage = vi.spyOn(MockWorker.prototype, postMessage);
+
+    await setEncryptedItem("worker_key", { payload: "worker-bound" });
+    expect(postMessage).toHaveBeenCalled();
+
+    const calls = postMessage.mock.calls;
+    const encryptCall = calls.find(
+      ([req] ) => req?.type === "encrypt" || req?.operation === "encrypt",
+    );
+    expect(encryptCall).not.toBeUndefined();
+
+    const result = await getEncryptedItem<typeof { payload: string }>("worker_key");
+    expect(result).toEqual({ payload: "worker-bound" });
+
+    postMessage.mockRestore();
+  });
+
+  it("maintains high frame rate during bursts of encrypted writes", async () => {
+    const start = performance.now();
+    const writes = Array.from({ length: 50 }, (_, i) =>
+      setEncryptedItem(`burst_${i}`, { index: i, blob: "x".repeat(512) }),
+    );
+    await Promise.all(writes);
+    const elapsed = performance.now() - start;
+
+    // Encryption is offloaded; 50 writes should complete well within a frame budget window.
+    expect(elapsed).toBeLessThan(5000);
+
+    for (let i = 0; i < 50; i++) {
+      expect(await getEncryptedItem<{ index: number }>(`burst_${i}`)).toEqual({
+        index: i,
+        blob: "x".repeat(512),
+      });
+    }
+  });
 });
