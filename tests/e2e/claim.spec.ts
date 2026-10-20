@@ -3,102 +3,78 @@ import type { Page } from '@playwright/test';
 
 /**
  * E2E coverage for the affiliate commission lifecycle:
- *   1. An affiliate earns commission from referred sales.
- *   2. The affiliate claims the commission and the wallet balance increases.
- *   3. Error path: claiming with insufficient gas fails gracefully and leaves the
- *      balance unchanged.
+ *   1. An affiliate earns commission from referred volume.
+ *   2. The affiliate claims the accrued commission.
+ *   3. The wallet balance is verified to increase.
+ *   4. Error path: claim fails when the wallet has insufficient gas.
  *
- * The suite drives the real app through the browser and stubs only the network
- * boundary (JSON fixtures for the affiliate dashboard API) so the tests
- * remain deterministic and run against any environment with the app running.
+ * The tests drive the real app routes and assert on the rendered
+ * commission / balance values. Wallet and chain interactions are
+ * mocked at the network boundary so the spec is deterministic and
+ * runs in CI without a funded wallet.
  */
 
-type Commission = {
-  id: string;
-  amount: string; // decimal string in token units
-  currency: string;
-  status: 'pending' | 'claimed';
-  createdAt: string;
-};
+const APP_BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 
-type WalletState = {
+const ADFRESS = '0xAffiliateAddress0000000000000000000000000000';
+const CHAIN_ID = 1;
+
+interface ClaimState {
+  claimable: string;
   balance: string;
-  currency: string;
+}
+
+const initialState: ClaimState = {
+  claimable: '125.00',
+  balance: '10.00',
 };
 
-const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
-
-const initialBalance = '125.000000';
-const commissionAmount = '42.500000';
-const expectedBalance = (
-  Number(initialBalance) + Number(commissionAmount)
-).toFixed(6);
-
-const pendingCommission: Commission = {
-  id: 'comm_e2e_001',
-  amount: commissionAmount,
-  currency: 'USDC',
-  status: 'pending',
-  createdAt: '2024-01-15T10:00:00.000Z',
-};
-
-async function mockAffiliateApi(page: Page) {
-  let claimed = false;
-  let balance = initialBalance;
-
-  await page.route('**/api/affiliate/**', async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const path = url.pathname;
-
-    if (path.endsWith('/commissions')) {
-      const commissions = claimed
-        ? [{ ...pendingCommission, status: 'claimed' as const }]
-        : [pendingCommission];
+async function mockCommissionApi(page: Page, state: ClaimState) {
+  await page.route('**/api/affiliate/*/commission*', async (route) => {
+    const req = route.request();
+    if (req.method() === 'GET') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ commissions }),
+        body: JSON.stringify({
+          address: ADFRESS,
+          chainId: CHAIN_ID,
+          claimable: state.claimable,
+          balance: state.balance,
+        }),
       });
       return;
     }
 
-    if (path.endsWith('/wallet')) {
-      const state: WalletState = { balance, currency: 'USDC' };
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(state),
-      });
-      return;
-    }
+    if (req.method() === 'POST') {
+      const payload = req.postDataJSON() ?? {};
+      const gasPrice = Number(payload.gasPrice ?? 0);
+      const gasLimit = Number(payload.gasLimit ?? 0);
 
-    if (path.endsWith('/claim') && request.method() === 'POST') {
-      const payload = request.postDataJSON() as { commissionId?: string; gasLimit?: string } | null;
-      const gasLimit = Number(payload?.gasLimit ?? '0');
-
-      // Error path: a gas limit below the required threshold is rejected by the
-      // claim endpoint and must not mutate the wallet balance.
-      if (gasLimit < 21000) {
+      // Error path: the wallet cannot afford the requested gas.
+      if (gasPrice * gasLimit > Number(state.balance)) {
         await route.fulfill({
-          status: 400,
+          status: 402,
           contentType: 'application/json',
           body: JSON.stringify({
             error: 'INSUFFICIENT_GAS',
-            message: 'Gas limit too low to complete the claim transaction.',
+            message: 'Insufficient funds to cover gas fees',
           }),
         });
         return;
       }
 
-      claimed = true;
-      balance = expectedBalance;
+      const claimed = Number(state.claimable);
+      state.claimable = '0.00';
+      state.balance = (Number(state.balance) + claimed).toFixed(2);
+
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          tx: '0xfeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedfacefeedface',
-          newBalance: expectedBalance,
+          txHash: '0x' + 'a'.repeat(64),
+          claimed,
+          balance: state.balance,
         }),
       });
       return;
@@ -108,58 +84,71 @@ async function mockAffiliateApi(page: Page) {
   });
 }
 
-async function openAffiliateDashboard(page: Page) {
-  await page.goto(`${BASE_URL}/affiliate/dashboard`);
-  await expect(page.getByTestId('affiliate-dashboard')).toBeVisible();
-  await expect(page.getByTestId('wallet-balance')).toHaveText(initialBalance);
+async function mockWallet(page: Page, balance: string) {
+  await page.addInitScript(({ address, chainId, balance }) => {
+    (window as any).ethereum = {
+      isMetaMask: true,
+      selectedAddress: address,
+      chainId: `${chainId}`,
+      request: async ({ method }: { method: string }) => {
+        if (method === 'eth_accounts') return [address];
+        if (method === 'eth_chainId') return chainId;
+        if (method === 'eth_getBalance') return balance;
+        return null;
+      },
+    };
+  }, { address: ADFRESS, chainId: CHAIN_ID, balance });
 }
 
-test.describe('Affiliate commission claim lifecycle', () => {
+test.describe('Affiliate commission claim', () => {
   test.beforeEach(async ({ page }) => {
-    await mockAffiliateApi(page);
+    await mockWallet(page, initialState.balance);
   });
 
-  test('claims pending commission and increases wallet balance', async ({ page }) => {
-    await openAffiliateDashboard(page);
+  test('happy path: claim increases wallet balance', async ({ page }) => {
+    const state: ClaimState = { ...initialState };
+    await mockCommissionApi(page, state);
 
-    const rowLocator = page.getByTestId(`commission-${pendingCommission.id}`);
-    await expect(rowLocator).toBeVisible();
-    await expect(rowLocator.getByTestId('commission-amount')).toHaveText(commissionAmount);
+    await page.goto(`${APP_BASE}/affiliate/claim`);
+
+    const claimable = page.getByTestId('claimable-amount');
+    const balance = page.getByTestId('wallet-balance');
+
+    await expect(claimable).toHaveText('125.00');
+    await expect(balance).toHaveText('10.00');
 
     await page.getByTestId('claim-button').click();
 
-    // Confirm the claim in the confirmation modal.
-    await expect(page.getByTestId('claim-confirm-modal')).toBeVisible();
-    await page.getByTestId('confirm-claim-button').click();
+    await expect(page.getByTestId('claim-success')).toBeVisible();
+    await expect(claimable).toHaveText('0.00');
+    await expect(balance).toHaveText('135.00');
 
-    // Verify the wallet balance increased by the commission amount.
-    await expect(page.getByTestId('wallet-balance')).toHaveText(expectedBalance);
-
-    // The commission is now marked as claimed and the claim button is disabled.
-    await expect(rowLocator.getByTestId('commission-status')).toHaveText('claimed');
-    await expect(page.getByTestId('claim-button')).toBeDisabled();
+    // State must persist across a reload after the claim.
+    await page.reload();
+    await expect(page.getByTestId('wallet-balance')).toHaveText('135.00');
   });
 
-  test('rejects claim with insufficient gas and keeps balance unchanged', async ({ page }) => {
-    await openAffiliateDashboard(page);
+  test('error path: low gas surfaces insufficient funds and keeps balance', async ({ page }) => {
+    const state: ClaimState = { ...initialState };
+    await mockCommissionApi(page, state);
+
+    await page.goto(`${APP_BASE}/affiliate/claim`);
+
+    const balance = page.getByTestId('wallet-balance');
+    await expect(balance).toHaveText('10.00');
+
+    // Force a gas price that exceeds the wallet balance.
+    await page.getByTestId('gas-price-input').fill('10000');
+    await page.getByTestId('gas-limit-input').fill('100000');
 
     await page.getByTestId('claim-button').click();
-    await expect(page.getByTestId('claim-confirm-modal')).toBeVisible();
 
-    // Force a low gas limit to exercise the error path.
-    const gasInput = page.getByTestId('gas-limit-input');
-    await gasInput.fill('10000');
-    await page.getByTestId('confirm-claim-button').click();
+    const error = page.getByTestId('claim-error');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText(/insufficient funds to cover gas/i);
 
-    // The claim fails with a user-facing error.
-    const errorAlert = page.getByTestId('claim-error');
-    await expect(errorAlert).toBeVisible();
-    await expect(errorAlert).toContainText('INSUFFICIENT_GAS');
-
-    // Balance must remain at the initial value and the commission stays pending.
-    await expect(page.getByTestId('wallet-balance')).toHaveText(initialBalance);
-    await expect(
-      page.getByTestId(`commission-${pendingCommission.id}`).getByTestId('commission-status'),
-    ).toHaveText('pending');
+    // No commission should be claimed and the balance must be unchanged.
+    await expect(page.getByTestId('claimable-amount')).toHaveText('125.00');
+    await expect(balance).toHaveText('10.00');
   });
 });

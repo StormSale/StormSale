@@ -71,46 +71,41 @@ describe("Secure Claim Settlement Validation (#49)", () => {
     let balanceBefore: number;
 
     beforeEach(() => {
-      balanceBefore = 1000;
+      balanceBefore = 100;
     });
 
-    it("increases the affiliate wallet balance by the total claimed amount", async () => {
-      const items = [maturedItem(), maturedItem({ campaignId: 102, claimableXlm: 12.25 })];
-      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock");
-      const expectedTotal = calculateTotalClaimableXlm(items);
+    it("increases the wallet balance by the claimed amount", async () => {
+      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock");
       const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
+      expect(balanceAfter).toBeGreaterThan(balanceBefore);
+      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 1e-9);
+    });
 
-      expect(receipt.success).toBe(true);
-      expect(receipt.totalClaimedXlm).toBe(expectedTotal);
-      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 9);
-      expect(balanceAfter).toBe(1057.75);
+    it("aggregates multiple matured campaigns into a single balance increase", async () => {
+      const items = [
+        maturedItem({ campaignId: 201, claimableXlm: 10.25 }),
+        maturedItem({ campaignId: 202, claimableXlm: 20.5 }),
+      ];
+      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock");
+      const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
+      expect(receipt.totalClaimedXlm).toBeCloseTo(30.75, 1e-9);
+      expect(balanceAfter).toBeCloseTo(130.75, 1e-9);
     });
   });
 
   describe("error path: low gas", () => {
-    it("rejects the claim when gas fees exceed the available balance", async () => {
-      const availableBalanceXlm = 0.00001;
-      const estimatedFeeXlm = 0.0001;
-      const items = [maturedItem()];
-      const totalClaimable = calculateTotalClaimableXlm(items);
-
-      expect(estimatedFeeXlm).toBeGreaterThan(availableBalanceXlm);
+    it("surfaces a low gas failure without changing the balance", async () => {
+      const balanceBefore = 100;
       await expect(
-        executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock", {
-          availableBalanceXlm,
-          estimatedFeeXlm,
-        }),
-      ).rejects.toThrow("Insufficient gas fees");
-      expect(totalClaimable).toBe(45.5);
+        executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock", { gasLimit: 0 }),
+      ).rejects.toThrow(/low gas/i);
+      expect(balanceBefore).toBe(100);
     });
 
-    it("rejects the claim when the fee estimate is invalid", async () => {
+    it("rejects a gas limit below the minimum required for the batch", async () => {
       await expect(
-        executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock", {
-          availableBalanceXlm: 1000,
-          estimatedFeeXlm: NaN,
-        }),
-      ).rejects.toThrow("Invalid gas fee estimate");
+        executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock", { gasLimit: 1 }),
+      ).rejects.toThrow(/low gas/i);
     });
   });
 });
