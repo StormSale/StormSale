@@ -33,16 +33,19 @@ jobs:
     - name: Install Dependencies
       run: npm install
 
-    - name: Run Unit Tests with Audit Export
+    - name: Run Unit Tests & Coverage Audit Export
       run: |
-        npx vitest run --reporter=default --reporter=json --outputFile=test-results.json
+        npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json
       continue-on-error: true
 
-    - name: Publish Test Audit Summary
+    - name: Publish Test Audit & Enforced Coverage Summary
       uses: actions/github-script@v7
       with:
         script: |
           const fs = require('fs');
+          const path = require('path');
+          const { evaluateCoverage, generateMarkdownReport } = require(path.resolve('scripts/check-coverage.cjs'));
+
           let summary = "### 🧪 Unit Test Execution Audit\n\n";
           try {
             if (!fs.existsSync('test-results.json')) {
@@ -73,6 +76,41 @@ jobs:
                 const duration = Math.round(suite.endTime - suite.startTime) + 'ms';
                 summary += `| \`${name}\` | **${suitePassed} / ${suiteTotal}** | ${duration} |\n`;
               }
+              summary += `\n`;
+            }
+
+            // Coverage Evaluation & File-by-File Metrics
+            let coverageFailed = false;
+            if (fs.existsSync('coverage/coverage-summary.json')) {
+              const coverageData = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+              
+              let targetFiles = [];
+              if (context.payload.pull_request) {
+                try {
+                  const { data: prFiles } = await github.rest.pulls.listFiles({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: context.payload.pull_request.number,
+                  });
+                  targetFiles = prFiles.map(f => f.filename).filter(f => (f.endsWith('.ts') || f.endsWith('.tsx')) && !f.includes('.test.') && !f.startsWith('src/tests/'));
+                } catch (e) {
+                  console.log("Could not list PR files via API: " + e.message);
+                }
+              }
+
+              const evaluation = evaluateCoverage(coverageData, {
+                threshold: 80,
+                targetFiles,
+              });
+
+              const coverageMd = generateMarkdownReport(evaluation);
+              summary += `\n---\n\n` + coverageMd;
+
+              if (evaluation.violations.length > 0) {
+                coverageFailed = true;
+              }
+            } else {
+              summary += `\n> [!WARNING]\n> Coverage summary not found. Ensure Vitest ran with --coverage.\n`;
             }
 
             // Write to GitHub Actions Step Summary (visible in Checks tab)
@@ -90,6 +128,10 @@ jobs:
 
             if (failed > 0) {
               core.setFailed(`Unit test audit failed with ${failed} test failures.`);
+            }
+
+            if (coverageFailed) {
+              core.setFailed(`Coverage threshold check failed: PR dropped below 80% threshold on modified files.`);
             }
           } catch (err) {
             core.setFailed("Error processing test audit results: " + err.message);
