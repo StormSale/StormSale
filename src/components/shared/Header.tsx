@@ -6,11 +6,13 @@ import { Wallet, Menu, X, Coins, ShieldCheck, Send } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
+import { ContractIntegrityModal } from "./ContractIntegrityModal";
 
 export const Header = () => {
   const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isIntegrityModalOpen, setIsIntegrityModalOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
@@ -64,7 +66,20 @@ export const Header = () => {
         </nav>
 
         {/* Desktop Actions */}
-        <div className="hidden sm:flex items-center space-x-4">
+        <div className="hidden sm:flex items-center space-x-3">
+          {/* Verified Contract Status Indicator */}
+          <button
+            onClick={() => setIsIntegrityModalOpen(true)}
+            title="Soroban Verified Contract - Click to inspect integrity"
+            aria-label="Soroban Verified Contract - Click to inspect integrity"
+            aria-haspopup="dialog"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-xs font-bold transition-all shadow-2xs"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+            <span className="hidden md:inline">Verified Contract</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          </button>
+
           <ThemeToggle />
 
           {isConnected ? (
@@ -202,6 +217,12 @@ export const Header = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Contract Integrity Verification & Mismatch Warning Modal */}
+      <ContractIntegrityModal
+        isOpen={isIntegrityModalOpen}
+        onClose={() => setIsIntegrityModalOpen(false)}
+      />
     </header>
   );
 };

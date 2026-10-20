@@ -123,3 +123,49 @@ export const STELLAR_NETWORKS = {
     horizonUrl: "https://horizon.stellar.org",
   },
 };
+
+/**
+ * Soroban Asset Contract (SAC) token definitions supported by StormSale
+ */
+export const SAC_TOKENS = {
+  USDC: {
+    symbol: "USDC" as const,
+    name: "USD Coin",
+    decimals: 7,
+    contractId:
+      import.meta.env.VITE_SAC_USDC_CONTRACT_ID ||
+      "CACQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQKBIFAUCQLC2U",
+  },
+  EURC: {
+    symbol: "EURC" as const,
+    name: "Euro Coin",
+    decimals: 7,
+    contractId:
+      import.meta.env.VITE_SAC_EURC_CONTRACT_ID ||
+      "CADAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMBQGAYDAMSST",
+  },
+  XLM: {
+    symbol: "XLM" as const,
+    name: "Native XLM (SAC Wrapped)",
+    decimals: 7,
+    contractId:
+      import.meta.env.VITE_SAC_XLM_CONTRACT_ID ||
+      "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+  },
+};
+
+export type SACTokenSymbol = keyof typeof SAC_TOKENS;
+
+/**
+ * Soroban State Storage TTL Configuration
+ */
+export const TTL_CONFIG = {
+  // Threshold below which a warning indicator and auto/manual extension is triggered (~2.8 days at 5s/ledger)
+  WARNING_THRESHOLD_LEDGERS: 50000,
+  // Critical threshold where contract is dangerously close to archival (~13.8 hours)
+  CRITICAL_THRESHOLD_LEDGERS: 10000,
+  // Default amount of ledgers to extend when trigger runs (~100,000 ledgers ~ 5.7 days)
+  DEFAULT_EXTEND_LEDGERS: 100000,
+  // Average seconds per Stellar ledger
+  SECONDS_PER_LEDGER: 5,
+};
