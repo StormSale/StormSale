@@ -1,0 +1,29 @@
+{
+  "name": "StormSale New Conversion to Slack",
+  "description": "Send a Slack alert when StormSale reports a confirmed conversion.",
+  "status": "ready-to-use-template",
+  "template_url": "https://zapier.com/shared/stormsale-conversion-to-slack-template",
+  "trigger": {
+    "app": "Webhooks by Zapier",
+    "event": "Catch Hook",
+    "stormsale_event": "conversion.created",
+    "stormsale_setup": "Register the Catch Hook or relay URL in StormSale Webhook Manager and subscribe to conversion.created."
+  },
+  "action": {
+    "app": "Slack",
+    "event": "Send Channel Message",
+    "field_mapping": {
+      "text": "New StormSale conversion {{conversion_id}}: {{amount}} {{currency}} for campaign {{campaign_id}} via affiliate {{affiliate_address}}. Status: {{status}}."
+    }
+  },
+  "required_fields": [
+    "conversion_id",
+    "amount",
+    "currency",
+    "campaign_id",
+    "affiliate_address",
+    "status",
+    "created_at"
+  ],
+  "note": "Ready-to-use Zapier template definition mapping StormSale webhook triggers to Slack alerts."
+}
