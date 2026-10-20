@@ -11,7 +11,7 @@ import { Button } from "../../components/ui/button";
 import { NistScorecard } from "./NistScorecard";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import { exportFullCompliancePack } from "../../utils/complianceNist";
+import { exportFullCompliancePack, fetchLiveNistControls } from "../../utils/complianceNist";
 import {
   FileCheck,
   AlertTriangle,
@@ -90,7 +90,8 @@ export const ComplianceReport: React.FC = () => {
     setIsExporting(true);
     try {
       const activeAuditor = userAddress || "Unattributed (Wallet Not Connected)";
-      await exportFullCompliancePack(activeAuditor, undefined, network);
+      const { controls } = await fetchLiveNistControls(network);
+      await exportFullCompliancePack(activeAuditor, controls, network);
       showNotification({
         type: "success",
         title: "Compliance Pack Exported",

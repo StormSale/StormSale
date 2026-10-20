@@ -97,22 +97,61 @@ export async function fetchLiveOnChainTelemetry(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(netConfig.rpcUrl, {
+    // 1. Resolve active ledger sequence height via getLatestLedger
+    const ledgerResponse = await fetch(netConfig.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
+        method: "getLatestLedger",
+      }),
+      signal: controller.signal,
+    });
+
+    if (!ledgerResponse.ok) {
+      if (throwOnError) {
+        throw new Error(
+          `Soroban RPC returned HTTP status ${ledgerResponse.status} (${ledgerResponse.statusText || "Error"}) for network ${netConfig.network}`,
+        );
+      }
+      return { isOnline: false };
+    }
+
+    const ledgerData = await ledgerResponse.json();
+    if (ledgerData.error) {
+      if (throwOnError) {
+        throw new Error(
+          `Soroban RPC getLatestLedger error (${ledgerData.error.code}): ${ledgerData.error.message}`,
+        );
+      }
+      return { isOnline: false };
+    }
+
+    const currentLedger =
+      typeof ledgerData.result?.sequence === "number" ? ledgerData.result.sequence : 0;
+    // Soroban retention window is typically 120,960 ledgers (~7 days)
+    const startLedger = Math.max(1, currentLedger - 120960 + 1);
+
+    // 2. Query getEvents within the verified retention window for the escrow contract
+    const response = await fetch(netConfig.rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
         method: "getEvents",
         params: {
-          startLedger: 1,
+          startLedger,
           filters: [
             {
               type: "contract",
               contractIds: [CONTRACT_ADDRESSES.CAMPAIGN_ESCROW],
             },
           ],
-          limit: 5,
+          pagination: {
+            limit: 100,
+          },
         },
       }),
       signal: controller.signal,
@@ -128,25 +167,29 @@ export async function fetchLiveOnChainTelemetry(
     }
 
     const data = await response.json();
+    if (data.error) {
+      if (throwOnError) {
+        throw new Error(`Soroban RPC getEvents error (${data.error.code}): ${data.error.message}`);
+      }
+      return { isOnline: false };
+    }
 
-    // Extract contract-scoped transaction hashes from Soroban RPC getEvents or Horizon mock format
-    const rpcEvents = data.result?.events || [];
-    const horizonRecords = data._embedded?.records || [];
-    const rawHashes: string[] = [
-      ...rpcEvents.map((e: { txHash?: string }) => e.txHash),
-      ...horizonRecords.map((r: { hash?: string }) => r.hash),
-    ].filter((h: unknown): h is string => typeof h === "string" && h.length === 64);
+    // Extract contract-scoped transaction hashes from Soroban RPC getEvents
+    const rpcEvents = (data.result?.events || []) as Array<{ txHash?: string }>;
+    const rawHashes: string[] = rpcEvents
+      .map((e) => e.txHash)
+      .filter((h: unknown): h is string => typeof h === "string" && h.length === 64);
 
-    const hashes = Array.from(new Set(rawHashes));
+    // getEvents returns events in ascending order from startLedger; pick latest hashes
+    const uniqueHashes = Array.from(new Set(rawHashes.reverse()));
+    const hashes = uniqueHashes.slice(0, 10);
 
     const latestLedger =
       typeof data.result?.latestLedger === "number"
         ? data.result.latestLedger
-        : typeof data.latestLedger === "number"
-          ? data.latestLedger
-          : typeof horizonRecords[0]?.ledger === "number"
-            ? horizonRecords[0].ledger
-            : undefined;
+        : currentLedger > 0
+          ? currentLedger
+          : undefined;
 
     return {
       latestLedger,
@@ -192,7 +235,7 @@ export function getStandardNistControls(
 
   const isTestnet = netConfig.network === "TESTNET";
   const hasTelemetry = telemetry !== undefined;
-  const isOnline = telemetry?.isOnline ?? true;
+  const isOnline = telemetry?.isOnline ?? false;
   const liveTxs = (telemetry?.recentTransactions || []).filter(
     (h): h is string => typeof h === "string" && h.length === 64,
   );
@@ -222,16 +265,13 @@ export function getStandardNistControls(
 
   const evaluatedDate = new Date().toISOString().split("T")[0];
 
-  // Dynamic status evaluation
-  const ac3Status: ComplianceStatus =
-    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
-  const ac17Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
-  const au3Status: ComplianceStatus =
-    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
-  const au6Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
-  const au12Status: ComplianceStatus = !isOnline ? "REVIEW" : "PASS";
-  const sc8Status: ComplianceStatus =
-    !isOnline || (!hasContractTxs && (hasTelemetry || !isTestnet)) ? "REVIEW" : "PASS";
+  // Dynamic status evaluation: missing telemetry is treated as unverified (REVIEW)
+  const ac3Status: ComplianceStatus = isOnline && hasContractTxs ? "PASS" : "REVIEW";
+  const ac17Status: ComplianceStatus = isOnline ? "PASS" : "REVIEW";
+  const au3Status: ComplianceStatus = isOnline && hasContractTxs ? "PASS" : "REVIEW";
+  const au6Status: ComplianceStatus = isOnline ? "PASS" : "REVIEW";
+  const au12Status: ComplianceStatus = isOnline ? "PASS" : "REVIEW";
+  const sc8Status: ComplianceStatus = isOnline && hasContractTxs ? "PASS" : "REVIEW";
 
   return [
     // -------------------------------------------------------------------------
@@ -269,10 +309,10 @@ export function getStandardNistControls(
           value: hasContractTxs
             ? `${liveTxs.length} Confirmed Txs`
             : isStaticExample
-              ? "Static Testnet Baseline"
+              ? "Static Testnet Baseline (Unverified)"
               : "0 Confirmed Txs",
           threshold: ">= 1",
-          status: hasContractTxs || isStaticExample ? "PASS" : "WARN",
+          status: hasContractTxs ? "PASS" : "WARN",
           description: "Verifiable contract-scoped authorization transactions on target network.",
         },
       ],
@@ -388,9 +428,11 @@ export function getStandardNistControls(
         },
         {
           name: "Remote Ledger Connectivity",
-          value: !isOnline ? "Offline / Unreachable" : `Connected (${netConfig.network})`,
+          value: !isOnline
+            ? "Unverified (Offline / Missing Telemetry)"
+            : `Connected (${netConfig.network})`,
           threshold: "Active",
-          status: !isOnline ? "WARN" : "PASS",
+          status: isOnline ? "PASS" : "WARN",
           description: "Connection status to remote Stellar network RPC nodes.",
         },
       ],
@@ -427,12 +469,12 @@ export function getStandardNistControls(
         {
           name: "Mandatory Audit Fields Captured",
           value: !isOnline
-            ? "Unverified (Offline)"
-            : hasContractTxs || isStaticExample
+            ? "Unverified (Offline / Missing Telemetry)"
+            : hasContractTxs
               ? "8 of 8 Fields"
               : "0 Contract Txs",
           threshold: "8/8",
-          status: !isOnline ? "WARN" : hasContractTxs || isStaticExample ? "PASS" : "WARN",
+          status: hasContractTxs ? "PASS" : "WARN",
           description:
             "Timestamp, TxHash, LedgerSeq, Caller, Contract, Method, Topics, Fee captured.",
         },
@@ -614,10 +656,10 @@ export function getStandardNistControls(
           value: hasContractTxs
             ? "Verified On-Chain"
             : isStaticExample
-              ? "Static Testnet Record"
+              ? "Static Testnet Record (Unverified)"
               : "0 Recent Payloads",
           threshold: ">= 1 Verified",
-          status: hasContractTxs || isStaticExample ? "PASS" : "WARN",
+          status: hasContractTxs ? "PASS" : "WARN",
           description: "Encrypted ciphertext payload records confirmed on target ledger.",
         },
       ],

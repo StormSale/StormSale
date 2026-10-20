@@ -103,9 +103,8 @@ export const NistScorecard: React.FC = () => {
         }
       })
       .catch(() => {
-        // Fall back gracefully to standard controls for this network
         if (!isCancelled) {
-          setControls(getStandardNistControls(network));
+          setControls(getStandardNistControls(network, { isOnline: false }));
         }
       });
 
