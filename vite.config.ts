@@ -1,10 +1,9 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig as defineVitestConfig } from "vitest/config";
 
 // https://vite.dev/config/
-export default defineVitestConfig({
+export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     dedupe: ["react", "react-dom"],
@@ -12,7 +11,7 @@ export default defineVitestConfig({
   },
   build: {
     rollupOptions: {
-      external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
+      external: ["@ledgerhq/hw-transport-webid", "@ledgerhq/hw-app-str"],
       output: {
         manualChunks: (id) => {
           if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {
@@ -28,22 +27,23 @@ export default defineVitestConfig({
       },
     },
   },
-  test: {
-    environment: "jsdom",
+  test:{
     globals: true,
+    environment: "jsdom",
     setupFiles: ["./src/tests/setup.ts"],
-    include: ["src/**/*.{test,spec}.{ts,tsx,js}x"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    exclude: ["node_modules/**", "dist/**"],
     coverage: {
       provider: "v8",
-      reporter: ["text", "html", "lconv"],
+      reporter: ["text", "json-summary", "json", "html"],
       reportsDirectory: "./coverage",
-      include: ["src/**/*.{ts,tsx,jsx,js}"],
+      include: ["src/**/*.{ts,tsx}"],
       exclude: [
-        "src/**/*.d.ts",
-        "src/**/*.{test,spec}.{ts,tsx,jsx,js}x",
+        "src/**/*.test.{ts,tsx}",
+        "src/**/*.spec.{ts,tsx}",
         "src/tests/**",
-        "src/main.tsx",
         "src/types/**",
+        "src/main.tsx",
         "src/assets/**",
       ],
     },
