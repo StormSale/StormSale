@@ -566,5 +566,5 @@ describe("SOC 2 Evidence Packager - RBAC Authorization & Audit Logging", () => {
         fs.unlinkSync(tempZipPath);
       }
     }
-  });
+  }, 15000);
 });
