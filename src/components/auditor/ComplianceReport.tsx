@@ -262,7 +262,8 @@ export const ComplianceReport: React.FC = () => {
                   Compliance Report & Export Suite
                 </h2>
                 <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-                  Security & regulatory compliance status with signed batch PDF and CSV audit exports
+                  Security & regulatory compliance status with signed batch PDF and CSV audit
+                  exports
                 </p>
               </div>
             </div>
@@ -280,7 +281,8 @@ export const ComplianceReport: React.FC = () => {
                         Regulatory Audit Export Controls
                       </CardTitle>
                       <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
-                        Configure custom audit date boundaries and cryptographic digital seal parameters
+                        Configure custom audit date boundaries and cryptographic digital seal
+                        parameters
                       </CardDescription>
                     </div>
                   </div>
@@ -321,10 +323,14 @@ export const ComplianceReport: React.FC = () => {
                       </label>
                       <select
                         value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value as "ALL" | "Compliant" | "Review Needed")}
+                        onChange={(e) =>
+                          setStatusFilter(e.target.value as "ALL" | "Compliant" | "Review Needed")
+                        }
                         className="w-full h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
-                        <option value="ALL">All Standards ({DEFAULT_COMPLIANCE_STANDARDS.length})</option>
+                        <option value="ALL">
+                          All Standards ({DEFAULT_COMPLIANCE_STANDARDS.length})
+                        </option>
                         <option value="Compliant">Compliant Only</option>
                         <option value="Review Needed">Reviews Needed Only</option>
                       </select>
@@ -448,7 +454,9 @@ export const ComplianceReport: React.FC = () => {
               <Card className="border border-slate-200 dark:border-zinc-800 rounded-2xl bg-white dark:bg-zinc-900/80 relative overflow-hidden">
                 <div className="absolute top-0 left-0 w-1 h-full bg-amber-500" />
                 <CardContent className="p-6">
-                  <div className="text-3xl font-extrabold text-zinc-900 dark:text-white">{review}</div>
+                  <div className="text-3xl font-extrabold text-zinc-900 dark:text-white">
+                    {review}
+                  </div>
                   <div className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mt-2">
                     Require Review
                   </div>
@@ -566,9 +574,9 @@ export const ComplianceReport: React.FC = () => {
                         Cryptographic Audit Immutability & Ledger Attestation
                       </p>
                       <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed max-w-2xl">
-                        Every compliance audit report and batch export is digitally hashed using SHA-256
-                        and immutably anchored to the Stellar ledger. Exported PDF/CSV certificates can be
-                        independently verified.
+                        Every compliance audit report and batch export is digitally hashed using
+                        SHA-256 and immutably anchored to the Stellar ledger. Exported PDF/CSV
+                        certificates can be independently verified.
                       </p>
                     </div>
                   </div>

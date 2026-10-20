@@ -121,11 +121,14 @@ export async function fetchLiveOnChainTelemetry(
       if (err instanceof Error && err.name === "AbortError") {
         throw new Error(
           `Horizon telemetry query timed out after ${timeoutMs}ms for network ${netConfig.network}.`,
+          { cause: err },
         );
       }
       throw err instanceof Error
         ? err
-        : new Error(`Failed to query live Horizon telemetry for network ${netConfig.network}.`);
+        : new Error(`Failed to query live Horizon telemetry for network ${netConfig.network}.`, {
+            cause: err,
+          });
     }
     return { isOnline: false };
   } finally {
