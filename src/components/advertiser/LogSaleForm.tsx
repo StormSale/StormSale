@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+
+import { useState, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -27,9 +28,19 @@ export const LogSaleForm = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [optimisticSaleId, setOptimisticSaleId] = useState<string | null>(null);
-  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Optimistic UI state: tracks an in-flight optimistic sale entry so it can
+  // be reverted if the on-chain transaction fails.
+  const [optimisticSale, setOptimisticSale] = useState<{
+    id: string;
+    affiliateAddress: string;
+    saleAmount: string;
+    campaignAddress: string;
+    customerData: string;
+    status: "pending" | "confirmed";
+  } | null>(null);
+  const revertRef = useRef<(() => void) | null>(null);
 
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
@@ -65,6 +76,32 @@ export const LogSaleForm = () => {
 
     const { data } = result;
     setIsLoading(true);
+
+    // --- Optimistic UI: apply instant (<50ms) feedback before the network
+    // round-trip. Snapshot the current form values so we can restore them if
+    // the transaction fails.
+    const snapshot = {
+      affiliateAddress,
+      saleAmount,
+      campaignAddress,
+      customerData,
+    };
+    const optimisticId = `OPT_${Date.now()}`;
+    setOptimisticSale({
+      id: optimisticId,
+      affiliateAddress: data.affiliateAddress,
+      saleAmount: data.saleAmount,
+      campaignAddress: data.campaignAddress,
+      customerData: data.customerData || "",
+      status: "pending",
+    });
+    revertRef.current = () => {
+      setOptimisticSale(null);
+      setAffiliateAddress(snapshot.affiliateAddress);
+      setSaleAmount(snapshot.saleAmount);
+      setCampaignAddress(snapshot.campaignAddress);
+      setCustomerData(snapshot.customerData);
+    };
 
     try {
       const campaignContract = getCampaignContract(data.campaignAddress);
@@ -107,29 +144,21 @@ export const LogSaleForm = () => {
         message: "Logging encrypted sale...",
       });
 
-      // Optimistic UI: reflect the sale immediately (<50ms) before mining.
-      const optimisticId = payload.saleId;
-      setOptimisticSaleId(optimisticId);
-
       const tx = await campaignContract.logEncryptedSale(
         data.affiliateAddress,
         data.saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
-        affiliateWrappedKey
+        affiliateWrappedKey,
       );
 
-      const txHash = tx?.hash || tx?.id || null;
-      setPendingTxHash(txHash);
-
-      // Optimistic success — surface instantly, revert on failure below.
-      showNotification({
-        type: "success",
-        title: "Sale Logged (Pending Confirmation)",
-        message: "Encrypted sale submitted — awaiting on-chain confirmation.",
-      });
-
       const waitResult = await tx.wait();
+
+      // Transaction confirmed — promote the optimistic entry to confirmed.
+      setOptimisticSale((prev) =>
+        prev ? { ...prev, status: "confirmed" } : prev,
+      );
+      revertRef.current = null;
 
       const postbackTxHash =
         waitResult?.txHash || tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
@@ -191,10 +220,6 @@ export const LogSaleForm = () => {
         message: "Encrypted sale data has been recorded on-chain.",
       });
 
-      // Confirmed: clear optimistic markers.
-      setOptimisticSaleId(null);
-      setPendingTxHash(null);
-
       setAffiliateAddress("");
       setSaleAmount("");
       setCampaignAddress("");
@@ -203,9 +228,11 @@ export const LogSaleForm = () => {
     } catch (error: unknown) {
       console.error("Error logging sale:", error);
 
-      // Revert optimistic state on failure.
-      setOptimisticSaleId(null);
-      setPendingTxHash(null);
+      // --- Revert optimistic state on failure so the UI reflects reality.
+      if (revertRef.current) {
+        revertRef.current();
+        revertRef.current = null;
+      }
 
       showNotification({
         type: "error",
@@ -214,14 +241,22 @@ export const LogSaleForm = () => {
           error instanceof Error ? error.message : "Failed to log sale.",
       });
     } finally {
+      revertRef.current = null;
       setIsLoading(false);
     }
   };
 
-  const revertOptimistic = useCallback(() => {
-    setOptimisticSaleId(null);
-    setPendingTxHash(null);
-  }, []);
+  const handleCancelOptimistic = () => {
+    if (revertRef.current) {
+      revertRef.current();
+      revertRef.current = null;
+    }
+    showNotification({
+      type: "info",
+      title: "Sale Cancelled",
+      message: "Optimistic sale entry was reverted.",
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -234,21 +269,44 @@ export const LogSaleForm = () => {
         </p>
       </div>
 
-      {(optimisticSaleId || pendingTxHash) && (
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-5 py-3">
-          <div className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
-            Optimistic sale {optimisticSaleId ? `#${optimisticSaleId}` : ""} pending
-            {pendingTxHash ? ` (tx: ${pendingTxHash.slice(0, 10)}…)` : ""}
+      {optimisticSale && (
+        <div
+          className={`rounded-2xl border p-4 flex items-start justify-between gap-4 ${
+            optimisticSale.status === "pending"
+              ? "border-amber-300 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10"
+              : "border-emerald-300 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10"
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`mt-0.5 w-3 h-3 rounded-full ${
+                optimisticSale.status === "pending"
+                  ? "bg-amber-500 animate-pulse"
+                  : "bg-emerald-500"
+              }`}
+            />
+            <div>
+              <div className="text-sm font-bold text-zinc-900 dark:text-white">
+                {optimisticSale.status === "pending"
+                  ? "Sale pending confirmation…"
+                  : "Sale confirmed on-chain"}
+              </div>
+              <div className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 font-mono">
+                {optimisticSale.saleAmount} XLM → {optimisticSale.affiliateAddress.slice(0, 8)}…{optimisticSale.affiliateAddress.slice(-4)}
+              </div>
+            </div>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={revertOptimistic}
-            className="h-8 rounded-lg text-xs"
-          >
-            Revert
-          </Button>
+          {optimisticSale.status === "pending" && (
+            <button
+              type="button"
+              onClick={handleCancelOptimistic}
+              className="text-xs font-semibold text-amber-700 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-300 underline underline-offset-2"
+            >
+              Cancel
+            </button>
+          )}
         </div>
       )}
 

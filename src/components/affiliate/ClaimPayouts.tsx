@@ -39,8 +39,8 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
-  const [optimisticClaimedIds, setOptimisticClaimedIds] = useState<number[]>([]);
   const [pendingClaimIds, setPendingClaimIds] = useState<number[]>([]);
+  const [pendingBatchIds, setPendingBatchIds] = useState<number[]>([]);
 
   useEffect(() => {
     async function loadClaims() {
@@ -75,12 +75,13 @@ export const ClaimPayouts = () => {
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
 
-    const idsToClaim = [...selectedIds];
-    // Optimistic update: instantly reflect claimed state before mining
-    setOptimisticClaimedIds((prev) => [...prev, ...idsToClaim]);
-    setPendingClaimIds((prev) => [...prev, ...idsToClaim]);
-    setSelectedIds([]);
-
+    // Optimistic UI: instantly mark selected campaigns as claimed (<50ms feedback)
+    const idsToClaim = selectedCampaigns.map((c) => c.campaignId);
+    const previousStatuses = new Map(selectedCampaigns.map((c) => [c.campaignId, c.status]));
+    setPendingBatchIds(idsToClaim);
+    setCampaigns((prev) =>
+      prev.map((c) => (idsToClaim.includes(c.campaignId) ? { ...c, status: "claimed" } : c)),
+    );
     setIsBatchClaiming(true);
     showNotification({
       type: "info",
@@ -95,10 +96,7 @@ export const ClaimPayouts = () => {
       const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan);
       setReceipt(resultReceipt);
 
-      // Confirm claimed campaigns
-      setCampaigns((prev) =>
-        prev.map((c) => (idsToClaim.includes(c.campaignId) ? { ...c, status: "claimed" } : c)),
-      );
+      setSelectedIds([]);
 
       if (shouldDeliverAffiliateNotification("payout")) {
         showNotification({
@@ -110,7 +108,13 @@ export const ClaimPayouts = () => {
     } catch (err: any) {
       console.error("Batch claim failure:", err);
       // Revert optimistic state on failure
-      setOptimisticClaimedIds((prev) => prev.filter((id) => !idsToClaim.includes(id)));
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          idsToClaim.includes(c.campaignId)
+            ? { ...c, status: previousStatuses.get(c.campaignId) ?? "matured" }
+            : c,
+        ),
+      );
       setSelectedIds(idsToClaim);
       showNotification({
         type: "error",
@@ -119,17 +123,19 @@ export const ClaimPayouts = () => {
       });
     } finally {
       setIsBatchClaiming(false);
-      setPendingClaimIds((prev) => prev.filter((id) => !idsToClaim.includes(id)));
+      setPendingBatchIds([]);
     }
   };
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
     setClaimingId(campaignId);
-    // Optimistic update: instantly reflect claimed state before mining
-    setOptimisticClaimedIds((prev) => [...prev, campaignId]);
+    const previousStatus = campaigns.find((c) => c.campaignId === campaignId)?.status;
+    // Optimistic UI: instantly mark campaign as claimed (<50ms feedback)
     setPendingClaimIds((prev) => [...prev, campaignId]);
-
+    setCampaigns((prev) =>
+      prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
+    );
     showNotification({
       type: "info",
       title: "Claiming Commission",
@@ -139,9 +145,6 @@ export const ClaimPayouts = () => {
     try {
       const target = campaigns.find((c) => c.campaignId === campaignId);
       const res = await claimPayoutOnChain(campaignId, target?.assetCode);
-      setCampaigns((prev) =>
-        prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
-      );
       if (shouldDeliverAffiliateNotification("payout")) {
         showNotification({
           type: "success",
@@ -151,7 +154,13 @@ export const ClaimPayouts = () => {
       }
     } catch (err: any) {
       // Revert optimistic state on failure
-      setOptimisticClaimedIds((prev) => prev.filter((id) => id !== campaignId));
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.campaignId === campaignId
+            ? { ...c, status: previousStatus ?? "matured" }
+            : c,
+        ),
+      );
       showNotification({
         type: "error",
         title: "Claim Failed",
@@ -162,6 +171,7 @@ export const ClaimPayouts = () => {
       setPendingClaimIds((prev) => prev.filter((id) => id !== campaignId));
     }
   };
+
   return (
     <div className="space-y-8">
       {/* Page Title */}
@@ -276,9 +286,9 @@ export const ClaimPayouts = () => {
           <button
             type="button"
             onClick={toggleSelectAll}
-            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center space-x-1.5"
+            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors flex items-center gap-1.5"
           >
-            {selectedIds.length === maturedCount ? (
+            {selectedIds.length === maturedCount && maturedCount > 0 ? (
               <>
                 <CheckSquare className="w-4 h-4" />
                 <span>Deselect All</span>
@@ -286,273 +296,194 @@ export const ClaimPayouts = () => {
             ) : (
               <>
                 <Square className="w-4 h-4" />
-                <span>Select All ({maturedCount})</span>
+                <span>Select All Matured</span>
               </>
             )}
           </button>
         </CardHeader>
 
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-b border-slate-100 dark:border-zinc-800/60">
-                  <TableHead className="w-12"></TableHead>
-                  <TableHead>Campaign</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Matured</TableHead>
-                  <TableHead className="text-right">Commission</TableHead>
-                  <TableHead className="text-right">Action</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <AnimatePresence initial={false}>
-                  {campaigns.map((campaign) => {
-                    const isOptimisticClaimed = optimisticClaimedIds.includes(campaign.campaignId);
-                    const isPending = pendingClaimIds.includes(campaign.campaignId);
-                    const effectiveStatus = isOptimisticClaimed ? "claimed" : campaign.status;
-                    const isClaimed = effectiveStatus === "claimed";
-                    const isMatured = effectiveStatus === "matured";
-                    const isSelected = selectedIds.includes(campaign.campaignId);
-                    const isSingleClaiming = claimingId === campaign.campaignId;
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12"></TableHead>
+                <TableHead>Campaign</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Amount</TableHead>
+                <TableHead>Maturity</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <AnimatePresence>
+                {campaigns.map((campaign) => {
+                  const isSelected = selectedIds.includes(campaign.campaignId);
+                  const isPending =
+                    pendingClaimIds.includes(campaign.campaignId) ||
+                    pendingBatchIds.includes(campaign.campaignId);
+                  const isClaimed = campaign.status === "claimed";
+                  const isMatured = campaign.status === "matured";
 
-                    return (
-                      <motion.tr
-                        key={campaign.campaignId}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="border-b border-slate-100 dark:border-zinc-800/60 transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800/30"
-                      >
-                        <TableCell className="w-12">
-                          {isMatured ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleSelectCampaign(campaign.campaignId)}
-                              className="text-indigo-600 dark:text-indigo-400 hover:opacity-80"
-                              aria-label={isSelected ? "Deselect campaign" : "Select campaign"}
-                            >
-                              {isSelected ? (
-                                <CheckSquare className="w-5 h-5" />
-                              ) : (
-                                <Square className="w-5 h-5" />
-                              )}
-                            </button>
+                  return (
+                    <motion.tr
+                      key={campaign.campaignId}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="border-b border-slate-100 dark:border-zinc-800/60 transition-colors hover:bg-slate-50/90 dark:hover:bg-zinc-800/30"
+                    >
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectCampaign(campaign.campaignId)}
+                          disabled={!isMatured || isPending}
+                          className="text-indigo-600 disabled:opacity-40"
+                          aria-label={isSelected ? "Deselect campaign" : "Select campaign"}
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-5 h-5" />
                           ) : (
-                            <span className="inline-block w-5 h-5" />
+                            <Square className="w-5 h-5" />
                           )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center space-x-2">
-                            <span className="font-semibold text-zinc-900 dark:text-white">
-                              {campaign.campaignName || `Campaign #${campaign.campaignId}`}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {isPending ? (
-                            <span className="inline-flex items-center space-x-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              <span>Pending</span>
-                            </span>
-                          ) : isClaimed ? (
-                            <span className="inline-flex items-center space-x-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              <span>Claimed</span>
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center space-x-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>Matured</span>
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-xs text-zinc-500 dark:text-zinc-400">
-                          {campaign.maturedAtLedger
-                            ? new Date(campaign.maturedAtLedger).toLocaleDateString()
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-semibold text-zinc-900 dark:text-white">
+                          {campaign.campaignName}
+                        </div>
+                        <div className="text-xs text-zinc-500">
+                          Campaign #{campaign.campaignId}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {isPending ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Settling
+                          </span>
+                        ) : isClaimed ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Claimed
+                          </span>
+                        ) : isMatured ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                            <Zap className="w-3.5 h-3.5" />
+                            Matured
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-zinc-500">
+                            <Clock className="w-3.5 h-3.5" />
+                            Locked
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-mono font-semibold text-zinc-900 dark:text-white">
+                          {campaign.claimableXlm.toFixed(2)} <span className="text-xs text-zinc-500">XLM</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-xs text-zinc-500">
+                          {campaign.maturesAt
+                            ? new Date(campaign.maturesAt).toLocaleDateString()
                             : "—"}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-zinc-900 dark:text-white">
-                          {campaign.commissionAmount.toFixed(2)} XLM
-                        </TableCell>
-                        <TableCell className="text-right">
-                          {isMatured ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleSingleClaim(campaign.campaignId)}
-                              disabled={isSingleClaiming || isBatchClaiming}
-                              className="rounded-xl text-xs font-bold"
-                            >
-                              {isSingleClaiming ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                                  <span>Claiming...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Zap className="w-3.5 h-3.5 mr-1.5" />
-                                  <span>Claim</span>
-                                </>
-                              )}
-                            </Button>
-                          ) : isClaimed ? (
-                            <span className="inline-flex items-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                              <CheckCircle2 className="w-4 h-4 mr-1" />
-                              Settled
-                            </span>
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSingleClaim(campaign.campaignId)}
+                          disabled={!isMatured || isPending || isClaimed}
+                          className="rounded-xl text-xs font-bold"
+                        >
+                          {isPending ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
-                            <span className="text-xs text-zinc-400">—</span>
+                            <>
+                              <Zap className="w-3.5 h-3.5 mr-1" />
+                              Claim
+                            </>
                           )}
-                        </TableCell>
-                      </motion.tr>
-                    );
-                  })}
-                </AnimatePresence>
-              </TableBody>
-            </Table>
-          </div>
+                        </Button>
+                      </TableCell>
+                    </motion.tr>
+                  );
+                })}
+              </AnimatePresence>
+            </TableBody>
+          </Table>
+
+          {campaigns.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-12 h-12 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center mb-4">
+                <Layers className="w-6 h-6 text-zinc-400" />
+              </div>
+              <p className="text-sm font-medium text-zinc-500">
+                No claimable commissions yet. Keep referring to earn more.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Batch Receipt Drawer */}
+      {/* Settlement Receipt */}
       <AnimatePresence>
         {receipt && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="rounded-3xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-900/20 p-6 sm:p-8 space-y-4"
+            exit={{ opacity: 0, y: 10 }}
+            className="relative rounded-3xl border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/50 dark:bg-emerald-900/10 p-6 sm:p-8"
           >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                <h4 className="font-bold text-emerald-900 dark:text-emerald-200">
-                  Batch Claim Receipt
-                </h4>
-              </div>
-              <button
-                type="button"
-                onClick={() => setReceipt(null)}
-                className="text-emerald-700 dark:text-emerald-300 hover:opacity-70"
-                aria-label="Dismiss receipt"
-              >
-                <X className="w-4 h-4" />
-              </button>
+            <button
+              type="button"
+              onClick={() => setReceipt(null)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-600"
+              aria-label="Dismiss receipt"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-center space-x-3 mb-4">
+              <CheckCircle2 className="w-6 h-6 text-emerald-600" />
+              <h3 className="text-lg font-bold text-emerald-900 dark:text-emerald-300">
+                Batch Claim Settled
+              </h3>
             </div>
-            <div className="text-sm text-emerald-800 dark:text-emerald-300">
-              Total claimed: <strong>{receipt.totalClaimedXlm} XLM</strong> across {
-                receipt.itemizedClaims.length
-              } campaigns.
-            </div>
-            {receipt.txHash && (
-              <a
-                href={`https://stellarexpert.org/tx/${receipt.txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center space-x-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline"
-              >
-                <span>View transaction on Stellar Expert</span>
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            )}
-
-              {/* Total Summary */}
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-2xl text-center space-y-1">
-                <div className="text-xs uppercase font-extrabold text-emerald-700 dark:text-emerald-400">
-                  Total Commission Received
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <div className="text-xs uppercase font-bold text-emerald-700 dark:text-emerald-400">
+                  Total Claimed
                 </div>
-                <div className="text-3xl font-black text-emerald-900 dark:text-emerald-200">
-                  +{receipt.totalClaimedXlm.toFixed(2)} XLM
-                </div>
-                <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
-                  Transaction: {receipt.txHash.slice(0, 12)}...{receipt.txHash.slice(-8)}
+                <div className="font-mono font-bold text-zinc-900 dark:text-white">
+                  {receipt.totalClaimedXlm} XLM
                 </div>
               </div>
-
-              {/* Itemized Breakdown Table */}
-              <div className="space-y-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-                  Itemized Campaign Breakdown ({receipt.itemizedClaims.length} Campaigns)
+              <div>
+                <div className="text-xs uppercase font-bold text-emerald-700 dark:text-emerald-400">
+                  Campaigns
                 </div>
-                <div className="rounded-2xl border border-slate-100 dark:border-zinc-800 overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800">
-                  {receipt.itemizedClaims.map((item) => (
-                    <div
-                      key={item.campaignId}
-                      className="p-3.5 flex items-center justify-between text-xs bg-slate-50/50 dark:bg-zinc-900/50"
-                    >
-                      <div>
-                        <div className="font-bold text-zinc-900 dark:text-white">
-                          {item.campaignName}
-                        </div>
-                        <div className="text-[11px] font-mono text-zinc-500">
-                          Campaign #{item.campaignId}
-                        </div>
-                      </div>
-                      <div className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">
-                        +{item.claimedXlm.toFixed(2)} XLM
-                      </div>
-                    </div>
-                  ))}
+                <div className="font-mono font-bold text-zinc-900 dark:text-white">
+                  {receipt.itemizedClaims.length}
                 </div>
               </div>
-
-              {/* Auto-Split Payment Operations Breakdown (#167) */}
-              {receipt.splitAllocations && receipt.splitAllocations.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
-                    Auto-Split Payment Operations ({receipt.paymentOperationCount} ops • same
-                    transaction)
-                  </div>
-                  <div className="rounded-2xl border border-sky-100 dark:border-sky-900/50 overflow-hidden divide-y divide-sky-100 dark:divide-sky-900/40 bg-sky-50/40 dark:bg-sky-950/10">
-                    {receipt.splitAllocations.map((alloc, i) => (
-                      <div
-                        key={`${alloc.address}-${i}`}
-                        className="p-3.5 flex items-center justify-between text-xs"
-                      >
-                        <div className="min-w-0">
-                          <div className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
-                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
-                              Op #{receipt.itemizedClaims.length + i + 1}
-                            </span>
-                            <span className="truncate">{alloc.label || "Destination"}</span>
-                          </div>
-                          <div className="text-[11px] font-mono text-zinc-500 mt-1">
-                            {alloc.address.slice(0, 6)}...{alloc.address.slice(-4)} •{" "}
-                            {alloc.percentage}% • balance after payout:{" "}
-                            {formatStroopsAsXlm(BigInt(alloc.amountStroops))} XLM
-                          </div>
-                        </div>
-                        <div className="font-mono font-black text-sm text-sky-700 dark:text-sky-300 ml-3 shrink-0">
-                          +{alloc.amountXlm.toFixed(2)} XLM
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+              <div>
+                <div className="text-xs uppercase font-bold text-emerald-700 dark:text-emerald-400">
+                  Transaction
                 </div>
-              )}
-
-              {/* Explorer Link & Close Button */}
-              <div className="pt-2 flex items-center justify-between">
                 <a
-                  href={`https://stellar.expert/explorer/testnet/tx/${receipt.txHash}`}
+                  href={receipt.txHash ? `https://stellarchain.org/tx/${receipt.txHash}` : "#"}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center"
+                  className="inline-flex items-center gap-1 font-mono font-bold text-indigo-600 hover:underline"
                 >
-                  <span>Verify on Stellar Expert</span>
-                  <ExternalLink className="w-3.5 h-3.5 ml-1" />
+                  {receipt.txHash ? `${receipt.txHash.slice(0, 10)}...` : "Confirmed"}
+                  <ExternalLink className="w-3 h-3" />
                 </a>
-
-                <Button
-                  onClick={() => setReceipt(null)}
-                  className="rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-xs font-bold px-5 h-9"
-                >
-                  Done
-                </Button>
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
