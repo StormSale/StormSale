@@ -23,8 +23,12 @@ import {
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
+import {
+  loadAffiliatePreferences,
+  shouldDeliverAffiliateNotification,
+} from "./AffiliateSettings";
+import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
 import { motion, AnimatePresence } from "framer-motion";
-import { shouldDeliverAffiliateNotification } from "./AffiliateSettings";
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
@@ -85,7 +89,10 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns);
+      // Apply the affiliate's auto-split plan (if enabled & valid) so the claimed
+      // total is routed across vault destinations inside the same atomic envelope.
+      const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
+      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan);
       setReceipt(resultReceipt);
 
       // Confirm claimed campaigns
@@ -449,7 +456,103 @@ export const ClaimPayouts = () => {
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
             )}
-          </motion.div>
+
+              {/* Total Summary */}
+              <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/40 rounded-2xl text-center space-y-1">
+                <div className="text-xs uppercase font-extrabold text-emerald-700 dark:text-emerald-400">
+                  Total Commission Received
+                </div>
+                <div className="text-3xl font-black text-emerald-900 dark:text-emerald-200">
+                  +{receipt.totalClaimedXlm.toFixed(2)} XLM
+                </div>
+                <div className="text-[11px] font-mono text-emerald-600 dark:text-emerald-400">
+                  Transaction: {receipt.txHash.slice(0, 12)}...{receipt.txHash.slice(-8)}
+                </div>
+              </div>
+
+              {/* Itemized Breakdown Table */}
+              <div className="space-y-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                  Itemized Campaign Breakdown ({receipt.itemizedClaims.length} Campaigns)
+                </div>
+                <div className="rounded-2xl border border-slate-100 dark:border-zinc-800 overflow-hidden divide-y divide-slate-100 dark:divide-zinc-800">
+                  {receipt.itemizedClaims.map((item) => (
+                    <div
+                      key={item.campaignId}
+                      className="p-3.5 flex items-center justify-between text-xs bg-slate-50/50 dark:bg-zinc-900/50"
+                    >
+                      <div>
+                        <div className="font-bold text-zinc-900 dark:text-white">
+                          {item.campaignName}
+                        </div>
+                        <div className="text-[11px] font-mono text-zinc-500">
+                          Campaign #{item.campaignId}
+                        </div>
+                      </div>
+                      <div className="font-mono font-black text-sm text-indigo-600 dark:text-indigo-400">
+                        +{item.claimedXlm.toFixed(2)} XLM
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Auto-Split Payment Operations Breakdown (#167) */}
+              {receipt.splitAllocations && receipt.splitAllocations.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    Auto-Split Payment Operations ({receipt.paymentOperationCount} ops • same
+                    transaction)
+                  </div>
+                  <div className="rounded-2xl border border-sky-100 dark:border-sky-900/50 overflow-hidden divide-y divide-sky-100 dark:divide-sky-900/40 bg-sky-50/40 dark:bg-sky-950/10">
+                    {receipt.splitAllocations.map((alloc, i) => (
+                      <div
+                        key={`${alloc.address}-${i}`}
+                        className="p-3.5 flex items-center justify-between text-xs"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-300">
+                              Op #{receipt.itemizedClaims.length + i + 1}
+                            </span>
+                            <span className="truncate">{alloc.label || "Destination"}</span>
+                          </div>
+                          <div className="text-[11px] font-mono text-zinc-500 mt-1">
+                            {alloc.address.slice(0, 6)}...{alloc.address.slice(-4)} •{" "}
+                            {alloc.percentage}% • balance after payout:{" "}
+                            {formatStroopsAsXlm(BigInt(alloc.amountStroops))} XLM
+                          </div>
+                        </div>
+                        <div className="font-mono font-black text-sm text-sky-700 dark:text-sky-300 ml-3 shrink-0">
+                          +{alloc.amountXlm.toFixed(2)} XLM
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Explorer Link & Close Button */}
+              <div className="pt-2 flex items-center justify-between">
+                <a
+                  href={`https://stellar.expert/explorer/testnet/tx/${receipt.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center"
+                >
+                  <span>Verify on Stellar Expert</span>
+                  <ExternalLink className="w-3.5 h-3.5 ml-1" />
+                </a>
+
+                <Button
+                  onClick={() => setReceipt(null)}
+                  className="rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-xs font-bold px-5 h-9"
+                >
+                  Done
+                </Button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
