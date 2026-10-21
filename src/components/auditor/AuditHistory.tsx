@@ -7,9 +7,26 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { CheckCircle2, AlertTriangle, Clock, FileText, Download, Filter } from "lucide-react";
+import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
+import { recordsScopedToOrg } from "../../lib/auditorTenancy";
+import {
+  CheckCircle2,
+  AlertTriangle,
+  Clock,
+  FileText,
+  Download,
+  Filter,
+  Eye,
+  GitFork,
+} from "lucide-react";
+import { getExportAuditHistory } from "../../lib/auditor/exportService";
 
 type AuditStatus = "Verified" | "Denied" | "Pending";
+
+interface AuditHistoryProps {
+  onTabChange?: (tab: string) => void;
+  onViewMerkleProof?: (saleId: string, campaign: string) => void;
+}
 
 interface AuditRecord {
   saleId: string;
@@ -20,7 +37,7 @@ interface AuditRecord {
   notes: string;
 }
 
-const auditRecords: AuditRecord[] = [
+const ALL_AUDIT_RECORDS: AuditRecord[] = [
   {
     saleId: "1042",
     campaign: "Tech Gadgets Pro",
@@ -92,10 +109,28 @@ const statusConfig: Record<
   },
 };
 
-export const AuditHistory = () => {
-  const verified = auditRecords.filter((r) => r.status === "Verified").length;
-  const denied = auditRecords.filter((r) => r.status === "Denied").length;
-  const pending = auditRecords.filter((r) => r.status === "Pending").length;
+export const AuditHistory: React.FC<AuditHistoryProps> = ({
+  onTabChange,
+  onViewMerkleProof,
+}) => {
+  const { org } = useAuditorTenancy();
+  // Tenant boundary: the trail only ever shows this organization's sales.
+  const auditRecords = recordsScopedToOrg(org.id, ALL_AUDIT_RECORDS);
+  const dynamicRecords: AuditRecord[] = [
+    ...getExportAuditHistory().map((evt) => ({
+      saleId: `SOC2-${evt.id.slice(0, 6)}`,
+      campaign: `SOC 2 Evidence Pack (${evt.filename})`,
+      campaignAddress: evt.exporterAddress,
+      status: "Verified" as AuditStatus,
+      timestamp: evt.timestamp.slice(0, 16).replace("T", " "),
+      notes: `Root: ${evt.rootDigest.slice(0, 12)}... (${evt.totalFiles} files bundled)`,
+    })),
+    ...auditRecords,
+  ];
+
+  const verified = dynamicRecords.filter((r) => r.status === "Verified").length;
+  const denied = dynamicRecords.filter((r) => r.status === "Denied").length;
+  const pending = dynamicRecords.filter((r) => r.status === "Pending").length;
 
   return (
     <div className="space-y-6">
@@ -105,10 +140,17 @@ export const AuditHistory = () => {
             Audit History
           </h2>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Full log of your on-chain audit activities
+            Read-only trail for{" "}
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+              {org.name}
+            </span>
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 items-center">
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 text-[11px] font-bold text-amber-700 dark:text-amber-400">
+            <Eye className="w-3.5 h-3.5" />
+            Scoped: {auditRecords.length} of {ALL_AUDIT_RECORDS.length} records
+          </span>
           <Button
             variant="outline"
             className="h-10 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 font-semibold"
@@ -150,12 +192,18 @@ export const AuditHistory = () => {
             All Audit Records
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            {auditRecords.length} total entries logged on-chain
+            {dynamicRecords.length} total entries logged on-chain for this
+            organization
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-            {auditRecords.map((record, i) => {
+            {auditRecords.length === 0 && (
+              <p className="px-8 py-10 text-sm font-medium text-zinc-400 dark:text-zinc-500 text-center">
+                No audit records exist within the {org.shortName} scope.
+              </p>
+            )}
+            {dynamicRecords.map((record, i) => {
               const cfg = statusConfig[record.status];
               const StatusIcon = cfg.icon;
               return (
@@ -196,7 +244,7 @@ export const AuditHistory = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 sm:flex-col sm:items-end">
+                  <div className="flex items-center gap-3 sm:flex-col sm:items-end">
                     <span
                       className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${cfg.badge}`}
                     >
@@ -205,6 +253,23 @@ export const AuditHistory = () => {
                     <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500">
                       {record.timestamp}
                     </div>
+                    {record.status === "Verified" && (onViewMerkleProof || onTabChange) && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          if (onViewMerkleProof) {
+                            onViewMerkleProof(record.saleId, record.campaign);
+                          } else if (onTabChange) {
+                            onTabChange("merkle");
+                          }
+                        }}
+                        className="h-6 px-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 flex items-center gap-1"
+                      >
+                        <GitFork className="w-3 h-3" />
+                        Merkle Proof
+                      </Button>
+                    )}
                   </div>
                 </div>
               );

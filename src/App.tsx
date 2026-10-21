@@ -1,4 +1,4 @@
-import React, { Suspense, useState, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import {
@@ -10,7 +10,14 @@ import { useWeb3 } from "./hooks/useWeb3";
 import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
+import { usePreference } from "./hooks/usePreference";
+import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
+import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
+import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -90,10 +97,34 @@ class ErrorBoundary extends React.Component<
   }
 }
 
+const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
+
+type Page = (typeof VALID_PAGES)[number];
+
 function Router() {
   const { isConnected, disconnectWallet } = useWeb3();
   const { showNotification } = useNotification();
   const [currentPage, setCurrentPage] = useState("dashboard");
+  const { isConnected } = useWeb3();
+  const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+
+  const [currentPage, setCurrentPage] = usePreference<Page>(
+    "stormsale.app.currentPage",
+    isTelegramMiniApp() ? "affiliate" : "dashboard",
+    (value) => VALID_PAGES.includes(value as Page),
+  );
+
+  const prevConnectedRef = useRef(isConnected);
+
+  useEffect(() => {
+    // Only reset to "dashboard" after isConnected transitions from true to false,
+    // preserving saved page state on initial load / reload.
+    if (prevConnectedRef.current && !isConnected) {
+      setCurrentPage("dashboard");
+    }
+    prevConnectedRef.current = isConnected;
+  }, [isConnected, setCurrentPage]);
+
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -186,18 +217,88 @@ function Router() {
           </Suspense>
         </>
       )}
+  const handleNavigate = (page: string) => {
+    if (VALID_PAGES.includes(page as Page)) {
+      setCurrentPage(page as Page);
+    }
+  };
+
+  if (activeBrandSubdomain) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <BrandedCampaignView
+          brandConfig={loadBrandConfig(activeBrandSubdomain)}
+          onClose={() => {
+            setActiveBrandSubdomain(null);
+            window.history.pushState({}, "", window.location.pathname);
+          }}
+          isStandalone
+        />
+      </Suspense>
+    );
+  }
+
+  return (
+    <>
+      <ConnectWalletModal />
+      <MultiSigApprovalModal />
+      <RpcStatusModal />
+      <Suspense fallback={<PageLoader />}>
+        {!isConnected && !tmaMode ? (
+          <Landing />
+        ) : (
+          <div className="min-h-screen bg-background">
+            <main>
+              {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
+              {currentPage === "advertiser" && (
+                <ProtectedRoute requiredRole="ADVERTISER" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                    <Advertiser onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
+              {currentPage === "affiliate" && (
+                <ProtectedRoute requiredRole="AFFILIATE" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                    <Affiliate
+                      onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
+                    />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
+              {currentPage === "auditor" && (
+                <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                    <Auditor onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
+            </main>
+          </div>
+        )}
+      </Suspense>
     </>
   );
 }
 
 function App() {
+  useEffect(() => {
+    initTelegramWebApp();
+    const cleanup = syncTelegramTheme();
+    return () => {
+      cleanup();
+    };
+  }, []);
+
   return (
     <NotificationWrapper>
       <ErrorBoundary>
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
-              <Router />
+              <TooltipProvider delayDuration={300}>
+                <Router />
+              </TooltipProvider>
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>

@@ -1,13 +1,27 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
-import { Wallet, Menu, X, Coins, ShieldCheck } from "lucide-react";
+import { TerminologyTooltip, TerminologyGuideButton } from "../ui/tooltip";
+import { Wallet, Menu, X, Coins, ShieldCheck, Send, Activity } from "lucide-react";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 
 export const Header = () => {
-  const { userAddress, openWalletModal, disconnectWallet, isConnected, xlmBalance } = useWeb3();
+  const {
+    userAddress,
+    openWalletModal,
+    disconnectWallet,
+    isConnected,
+    xlmBalance,
+    isMultiSigAccount,
+    multiSigInfo,
+    openMultiSigModal,
+    activeRpcEndpoint,
+    openRpcModal,
+  } = useWeb3();
+  const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
@@ -25,10 +39,10 @@ export const Header = () => {
   ];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm">
+    <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
       <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
-        {/* Logo */}
-        <div className="flex items-center">
+        {/* Logo & TMA Badge */}
+        <div className="flex items-center gap-3">
           <a href="/" className="block group">
             <img
               src={logo}
@@ -36,6 +50,16 @@ export const Header = () => {
               className="h-10 sm:h-12 md:h-14 w-auto object-contain group-hover:scale-105 transition-transform duration-300"
             />
           </a>
+          {isTelegram && (
+            <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50">
+              <Send className="w-3 h-3 text-sky-500" />
+              {user
+                ? user.username
+                  ? `@${user.username}`
+                  : user.first_name
+                : `TMA (${platform})`}
+            </span>
+          )}
         </div>
 
         {/* Desktop Nav Links */}
@@ -52,7 +76,40 @@ export const Header = () => {
         </nav>
 
         {/* Desktop Actions */}
-        <div className="hidden sm:flex items-center space-x-4">
+        <div className="hidden sm:flex items-center space-x-3">
+          <TerminologyGuideButton />
+          {/* RPC Status Indicator Pill */}
+          <button
+            type="button"
+            onClick={openRpcModal}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-100/70 dark:bg-zinc-900/70 hover:bg-slate-200/60 dark:hover:bg-zinc-800 transition-colors text-xs font-semibold cursor-pointer"
+            title={`Active Soroban & BlockDAG RPC: ${activeRpcEndpoint?.name || "Primary"} (${activeRpcEndpoint?.status || "healthy"}). Click to inspect fallbacks.`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                activeRpcEndpoint?.status === "healthy"
+                  ? "bg-emerald-500 animate-pulse"
+                  : activeRpcEndpoint?.status === "degraded"
+                    ? "bg-amber-500"
+                    : activeRpcEndpoint?.status === "unreachable"
+                      ? "bg-rose-500"
+                      : "bg-indigo-500"
+              }`}
+            />
+            <Activity className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
+            <span className="font-mono text-[11px] text-zinc-700 dark:text-zinc-300">
+              {activeRpcEndpoint?.type === "local"
+                ? "Local Node"
+                : activeRpcEndpoint?.type === "blockdag"
+                  ? "BlockDAG"
+                  : "RPC"}
+            </span>
+            {activeRpcEndpoint?.latencyMs !== null && (
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono hidden md:inline">
+                {activeRpcEndpoint?.latencyMs}ms
+              </span>
+            )}
+          </button>
           <ThemeToggle />
 
           {isConnected ? (
@@ -62,10 +119,26 @@ export const Header = () => {
                 <span className="text-xs font-mono font-semibold text-zinc-900 dark:text-white">
                   {userAddress && formatAddress(userAddress)}
                 </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded">
-                  {xlmBalance} XLM
-                </span>
+                <TerminologyTooltip term="xlm" side="bottom">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded cursor-help">
+                    {xlmBalance} XLM
+                  </span>
+                </TerminologyTooltip>
               </div>
+
+              {isMultiSigAccount && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => openMultiSigModal()}
+                  className="h-9 px-3 rounded-xl border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs transition-all flex items-center space-x-1.5"
+                  title="Stellar SEP-0030 Multi-Signature Escrow Coordination"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Multi-Sig ({multiSigInfo?.signers.length || 2})</span>
+                </Button>
+              )}
+
               <Button
                 variant="outline"
                 size="sm"
@@ -88,6 +161,28 @@ export const Header = () => {
 
         {/* Mobile / Tablet Controls (Right) */}
         <div className="flex sm:hidden items-center space-x-2">
+          {/* Mobile RPC Status Button */}
+          <button
+            type="button"
+            onClick={openRpcModal}
+            className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 relative"
+            title="Soroban & BlockDAG RPC Health"
+            aria-label="RPC Status"
+          >
+            <span
+              className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+                activeRpcEndpoint?.status === "healthy"
+                  ? "bg-emerald-500"
+                  : activeRpcEndpoint?.status === "degraded"
+                    ? "bg-amber-500"
+                    : activeRpcEndpoint?.status === "unreachable"
+                      ? "bg-rose-500"
+                      : "bg-indigo-500"
+              }`}
+            />
+            <Activity className="w-4 h-4" />
+          </button>
+
           <ThemeToggle />
           {!isConnected ? (
             <Button
@@ -141,12 +236,36 @@ export const Header = () => {
                 </div>
                 <div className="text-right">
                   <div className="text-[11px] font-bold text-zinc-400">BALANCE</div>
-                  <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center">
-                    <Coins className="w-3 h-3 mr-1" />
-                    {xlmBalance} XLM
-                  </div>
+                  <TerminologyTooltip term="xlm" side="bottom">
+                    <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center cursor-help">
+                      <Coins className="w-3 h-3 mr-1" />
+                      {xlmBalance} XLM
+                    </div>
+                  </TerminologyTooltip>
                 </div>
               </div>
+            )}
+
+            <div className="pb-1">
+              <TerminologyGuideButton className="w-full justify-center" />
+            </div>
+
+            {isConnected && isMultiSigAccount && (
+              <button
+                onClick={() => {
+                  openMultiSigModal();
+                  setIsMobileMenuOpen(false);
+                }}
+                className="w-full flex items-center justify-between p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-xs font-semibold mb-2"
+              >
+                <span className="flex items-center space-x-2">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Multi-Sig Escrow Approvals</span>
+                </span>
+                <span className="text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">
+                  SEP-0030
+                </span>
+              </button>
             )}
 
             <div className="grid grid-cols-2 gap-2">

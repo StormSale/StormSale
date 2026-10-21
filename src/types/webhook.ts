@@ -1,4 +1,7 @@
 export type WebhookEventType =
+  | "campaign.created"
+  | "conversion.created"
+  | "payout.created"
   | "conversion.confirmed"
   | "campaign.funded"
   | "commission.escrowed"

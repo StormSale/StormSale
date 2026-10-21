@@ -96,6 +96,7 @@ StormSale organizes platform features into dedicated personas:
 - **In-Page Payload Decryption:** Decrypt and inspect authorized sale records using verified auditor keys.
 - **Immutable Audit Trail:** Review chronological verification history and download tamper-proof audit certificates.
 - **Compliance Reporting:** Live scorecard covering NIST SP 800-53, ISO/IEC 27001, SOC 2 Type II, and FIPS 140-2.
+- **Automated SOC 2 Evidence Packager:** One-click compilation of signed evidence bundles (contract state, CI logs, test run receipts, and SHA-256 Merkle root receipts) with Ed25519 auditor signatures and in-browser verification. See [docs/SOC2_EVIDENCE_PACKAGER.md](docs/SOC2_EVIDENCE_PACKAGER.md).
 
 ---
 
@@ -162,6 +163,13 @@ npm run build
 npm run lint
 npm run format
 ```
+
+## 🔌 No-Code Webhook Integrations
+
+The Webhook Manager supports browser-based event delivery to Zapier and
+Make.com custom webhook triggers. See the
+[Zapier and Make.com setup guide](docs/integrations/zapier-make.md) for
+configuration steps, sample payloads, retry behavior, and current limitations.
 
 ---
 
