@@ -9,6 +9,9 @@ import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
+import { ZKProofVerifierModal } from "./components/affiliate/ZKProofVerifierModal";
+import { parseProofFromUrl } from "./lib/zkProofEngine";
+import type { ZKRevenueProof } from "./types/zkProof";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -98,6 +101,11 @@ function Router() {
     return params.get("brand") || params.get("c") || null;
   });
 
+  const [proofToVerify, setProofToVerify] = useState<ZKRevenueProof | null>(() => {
+    if (typeof window === "undefined") return null;
+    return parseProofFromUrl(window.location.href);
+  });
+
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
       setCurrentPage(page as Page);
@@ -124,6 +132,20 @@ function Router() {
       <ConnectWalletModal />
       <MultiSigApprovalModal />
       <RpcStatusModal />
+      <ZKProofVerifierModal
+        isOpen={Boolean(proofToVerify)}
+        onClose={() => {
+          setProofToVerify(null);
+          if (typeof window !== "undefined") {
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete("verify_proof");
+            cleanUrl.searchParams.delete("proof");
+            cleanUrl.searchParams.delete("zk");
+            window.history.pushState({}, "", cleanUrl.toString());
+          }
+        }}
+        proof={proofToVerify}
+      />
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
           <Landing />
