@@ -26,10 +26,12 @@ import {
   Settings,
   Pause,
   Play,
+  Lock,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import { formatStellarAddress } from "../../lib/stellar";
 import {
   type AutoTopUpConfig,
@@ -278,6 +280,7 @@ export const MyCampaignsList = () => {
     connectorType,
   } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
 
   /**
    * Determines whether a campaign's escrow balance has fallen below 10% of initial escrow.
@@ -370,6 +373,14 @@ export const MyCampaignsList = () => {
   );
 
   const handleQuickRefill = async (campaign: Campaign, amountXlm: number = 500) => {
+    if (!hasCapability("escrow:refill")) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to refill campaign escrow. Finance or Admin role required.`,
+      });
+      return;
+    }
     setRefillingId(campaign.id);
     try {
       showNotification({
@@ -700,6 +711,15 @@ export const MyCampaignsList = () => {
 
   // Refund handler for completed campaigns
   const handleRefund = async (campaign: Campaign) => {
+    if (!hasCapability("escrow:refund")) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to execute escrow refunds. Finance or Admin role required.`,
+      });
+      return;
+    }
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -1459,18 +1479,33 @@ export const MyCampaignsList = () => {
                         ) : isLargeRefund(campaign.escrowBalance) ? (
                           (() => {
                             const proposal = getLatestProposalForCampaign(campaign.id);
+                            const canRefund = hasCapability("escrow:refund");
                             if (proposal && proposal.status === "approved") {
                               return (
                                 <Button
                                   type="button"
+                                  disabled={!canRefund}
                                   onClick={() => {
+                                    if (!canRefund) return;
                                     setActiveMultiSigProposal(proposal);
                                     setIsMultiSigModalOpen(true);
                                   }}
-                                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                  className={`w-full h-11 ${
+                                    canRefund
+                                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                  } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                                 >
-                                  <CheckCircle2 className="w-4 h-4" />
-                                  <span>Release Multi-Sig Escrow (Approved · 2/2)</span>
+                                  {canRefund ? (
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  ) : (
+                                    <Lock className="w-4 h-4 text-amber-500" />
+                                  )}
+                                  <span>
+                                    {canRefund
+                                      ? "Release Multi-Sig Escrow (Approved · 2/2)"
+                                      : `Release Multi-Sig Locked (${currentRole})`}
+                                  </span>
                                 </Button>
                               );
                             }
@@ -1478,16 +1513,27 @@ export const MyCampaignsList = () => {
                               return (
                                 <Button
                                   type="button"
+                                  disabled={!canRefund}
                                   onClick={() => {
+                                    if (!canRefund) return;
                                     setActiveMultiSigProposal(proposal);
                                     setIsMultiSigModalOpen(true);
                                   }}
-                                  className="w-full h-11 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                  className={`w-full h-11 ${
+                                    canRefund
+                                      ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                      : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                  } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                                 >
-                                  <Shield className="w-4 h-4" />
+                                  {canRefund ? (
+                                    <Shield className="w-4 h-4" />
+                                  ) : (
+                                    <Lock className="w-4 h-4 text-amber-500" />
+                                  )}
                                   <span>
-                                    Track Multi-Sig Approval (
-                                    {campaign.escrowBalance.toLocaleString()} XLM · 1/2)
+                                    {canRefund
+                                      ? `Track Multi-Sig Approval (${campaign.escrowBalance.toLocaleString()} XLM · 1/2)`
+                                      : `Track Multi-Sig Locked (${currentRole})`}
                                   </span>
                                 </Button>
                               );
@@ -1495,11 +1541,24 @@ export const MyCampaignsList = () => {
                             return (
                               <Button
                                 type="button"
+                                disabled={!canRefund}
                                 onClick={() => handleRefund(campaign)}
-                                className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                className={`w-full h-11 ${
+                                  canRefund
+                                    ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                               >
-                                <Shield className="w-4 h-4" />
-                                <span>Refund Unused Escrow (&gt; $10k Multi-Sig)</span>
+                                {canRefund ? (
+                                  <Shield className="w-4 h-4" />
+                                ) : (
+                                  <Lock className="w-4 h-4 text-amber-500" />
+                                )}
+                                <span>
+                                  {canRefund
+                                    ? "Refund Unused Escrow (> $10k Multi-Sig)"
+                                    : `Refund Locked (${currentRole})`}
+                                </span>
                               </Button>
                             );
                           })()
@@ -1508,13 +1567,23 @@ export const MyCampaignsList = () => {
                             type="button"
                             loading={isRefundingThis}
                             cooldown
+                            disabled={!hasCapability("escrow:refund") || isRefundingThis}
                             onClick={() => handleRefund(campaign)}
-                            className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                            className={`w-full h-11 ${
+                              hasCapability("escrow:refund")
+                                ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                            } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                           >
                             {isRefundingThis ? (
                               <div className="flex items-center space-x-2">
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 <span>Refunding Unused Escrow...</span>
+                              </div>
+                            ) : !hasCapability("escrow:refund") ? (
+                              <div className="flex items-center space-x-2">
+                                <Lock className="w-4 h-4 text-amber-500" />
+                                <span>Refund Locked ({currentRole})</span>
                               </div>
                             ) : (
                               <div className="flex items-center space-x-2">

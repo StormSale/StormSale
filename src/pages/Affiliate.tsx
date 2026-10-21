@@ -10,6 +10,7 @@ import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
 import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
+import { ReferralNetworkTree } from "../components/affiliate/ReferralNetworkTree";
 import {
   Users,
   TrendingUp,
@@ -22,13 +23,18 @@ import {
   Link2,
   Trophy,
   Award,
+  GitBranch,
+  ShieldCheck,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
+import { ReferralTreeProvider } from "../context/ReferralTreeContext";
+import { ZKProofProvider } from "../context/ZKProofContext";
 import { usePreference } from "../hooks/usePreference";
 import { motion, AnimatePresence } from "framer-motion";
 import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { TelegramAlertsCard } from "../components/affiliate/TelegramAlertsCard";
+import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
 import { Button } from "../components/ui/button";
 
 interface AffiliateProps {
@@ -39,6 +45,8 @@ interface AffiliateProps {
 const AFFILIATE_TABS = [
   "overview",
   "heatmap",
+  "referral-tree",
+  "zk-portfolio",
   "telegram-browser",
   "custom-links",
   "leaderboard",
@@ -66,6 +74,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
     { id: "heatmap", label: "Click Heatmap", icon: Globe2 },
+    { id: "referral-tree", label: "Referral Network (2% Override)", icon: GitBranch },
+    { id: "zk-portfolio", label: "ZK Revenue Proofs ($50K+)", icon: ShieldCheck },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "leaderboard", label: "Leaderboards", icon: Trophy },
@@ -82,6 +92,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
     switch (activeTab) {
       case "heatmap":
         return <AffiliateClickStreamHeatmap />;
+      case "referral-tree":
+        return <ReferralNetworkTree />;
+      case "zk-portfolio":
+        return <ZKProofGenerator />;
       case "telegram-browser":
         return <TelegramCampaignBrowser />;
       case "custom-links":
@@ -174,6 +188,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
 export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
-    <AffiliateContent {...props} />
+    <ReferralTreeProvider>
+      <ZKProofProvider>
+        <AffiliateContent {...props} />
+      </ZKProofProvider>
+    </ReferralTreeProvider>
   </NotificationProvider>
 );

@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import {
   generateAESKey,
   encryptPayload,
@@ -23,8 +24,13 @@ import { getAffiliateAccess } from "../../lib/campaignAccess";
 import { notifyTelegramConversion } from "../../lib/telegramClient";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
-import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
+import { Shield, Zap, Users, FileKey, FileSpreadsheet, Lock, GitBranch } from "lucide-react";
 import { BatchSaleUploader } from "./BatchSaleUploader";
+import {
+  getRecruiterForAffiliate,
+  calculateTwoTierCommission,
+  formatAffiliateAddress,
+} from "../../lib/referralTree";
 
 export const LogSaleForm = () => {
   const [mode, setMode] = useState<"single" | "batch">("single");
@@ -37,6 +43,23 @@ export const LogSaleForm = () => {
 
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
+  const canLogSale = hasCapability("sale:log");
+
+  const recruiterRelation =
+    affiliateAddress.trim().length >= 10
+      ? getRecruiterForAffiliate(affiliateAddress.trim())
+      : undefined;
+
+  const twoTierSplit = recruiterRelation
+    ? calculateTwoTierCommission(
+        parseFloat(saleAmount) || 0,
+        10,
+        recruiterRelation.overrideRatePercent,
+        recruiterRelation.parentAddress,
+        affiliateAddress.trim(),
+      )
+    : null;
 
   const clearError = (field: string) => {
     setErrors((prev) => ({ ...prev, [field]: "" }));
@@ -45,6 +68,15 @@ export const LogSaleForm = () => {
   const handleLogSale = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrors({});
+
+    if (!canLogSale) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not authorized to log sales. Requires Admin or Editor role.`,
+      });
+      return;
+    }
 
     const result = logSaleSchema.safeParse({
       campaignAddress,
@@ -328,6 +360,24 @@ export const LogSaleForm = () => {
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
+          {!canLogSale && (
+            <div
+              className="p-4 mb-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-3"
+              data-testid="log-sale-locked-banner"
+              role="alert"
+            >
+              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <div className="font-bold">Sale Logging Restricted</div>
+                <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                  Your active role is <strong>{currentRole}</strong>. Logging encrypted sales
+                  requires <strong>Admin</strong> or <strong>Editor / Marketing Manager</strong>{" "}
+                  permissions.
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleLogSale} noValidate>
             <InputGroup className="space-y-8">
               <InputField
@@ -393,6 +443,39 @@ export const LogSaleForm = () => {
                 </InputField>
               </div>
 
+              {twoTierSplit && twoTierSplit.hasRecruiter && (
+                <div
+                  className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex items-start gap-3 shadow-sm"
+                  data-testid="banner-twotier-split-active"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                    <GitBranch className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="font-black text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                      <span>Two-Tier Referral Split Active ({twoTierSplit.splitRatioLabel})</span>
+                    </div>
+                    <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                      Affiliate recruited by <strong>{recruiterRelation?.parentName}</strong> (
+                      <span className="font-mono">
+                        {formatAffiliateAddress(twoTierSplit.recruiterAddress || "")}
+                      </span>
+                      ). Commission split:{" "}
+                      <strong className="text-indigo-600 dark:text-indigo-400">
+                        {twoTierSplit.sellingAffiliateRatePercent}% (
+                        {twoTierSplit.sellingAffiliateCommissionXlm} XLM)
+                      </strong>{" "}
+                      to seller,{" "}
+                      <strong className="text-emerald-600 dark:text-emerald-400">
+                        {twoTierSplit.recruiterOverrideRatePercent}% (+
+                        {twoTierSplit.recruiterOverrideCommissionXlm} XLM)
+                      </strong>{" "}
+                      passive override to master recruiter.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <InputField
                 label="Customer Information"
                 description="Optional customer data (will be encrypted) — max 256 characters"
@@ -444,9 +527,16 @@ export const LogSaleForm = () => {
                 type="submit"
                 loading={isLoading}
                 cooldown
-                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
+                disabled={isLoading || !canLogSale}
+                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all disabled:opacity-50"
+                data-testid="btn-log-sale"
               >
-                {isLoading ? (
+                {!canLogSale ? (
+                  <div className="flex items-center space-x-2">
+                    <Lock className="w-5 h-5" />
+                    <span>Action Locked ({currentRole} Restricted)</span>
+                  </div>
+                ) : isLoading ? (
                   <div className="flex items-center space-x-3">
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     <span>Logging Encrypted Sale...</span>

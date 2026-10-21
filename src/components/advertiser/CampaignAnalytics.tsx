@@ -8,6 +8,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
+import { FraudRiskBadge } from "./FraudRiskBadge";
 
 export const CampaignAnalytics = () => {
   const campaignStats = [
@@ -61,19 +62,28 @@ export const CampaignAnalytics = () => {
   const topAffiliates = [
     {
       name: "Alex Johnson",
+      address: "GAFFILIATE_ALICE_ORGANIC_01",
       sales: 45,
       commission: "$4,500",
       performance: "Excellent",
     },
     {
       name: "Sarah Miller",
+      address: "GAFFILIATE_BOB_ORGANIC_02",
       sales: 38,
       commission: "$3,800",
       performance: "Excellent",
     },
-    { name: "Mike Chen", sales: 32, commission: "$3,200", performance: "Good" },
+    {
+      name: "Mike Chen",
+      address: "GAFFILIATE_CHARLIE_MED_03",
+      sales: 32,
+      commission: "$3,200",
+      performance: "Good",
+    },
     {
       name: "Emily Davis",
+      address: "GAFFILIATE_RAPID_HIGH_04",
       sales: 28,
       commission: "$2,800",
       performance: "Good",
@@ -222,14 +232,21 @@ export const CampaignAnalytics = () => {
                     <div className="font-bold text-sm text-zinc-900 dark:text-white mb-1">
                       {affiliate.commission}
                     </div>
-                    <div
-                      className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full inline-block ${
-                        affiliate.performance === "Excellent"
-                          ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
-                          : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300"
-                      }`}
-                    >
-                      {affiliate.performance}
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <FraudRiskBadge
+                        affiliateAddress={affiliate.address}
+                        affiliateName={affiliate.name}
+                        showActionBtn={false}
+                      />
+                      <div
+                        className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full inline-block ${
+                          affiliate.performance === "Excellent"
+                            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
+                            : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {affiliate.performance}
+                      </div>
                     </div>
                   </div>
                 </div>

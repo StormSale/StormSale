@@ -36,6 +36,8 @@ import {
   type RpcEndpointStatus,
   type RpcFailoverEvent,
 } from "../lib/rpcFallback";
+import { recordReferralSale } from "../lib/referralTree";
+import type { TwoTierCommissionSplit } from "../types/referral";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -84,7 +86,8 @@ export interface Web3ContextType {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+    recruiterAddress?: string,
+  ) => Promise<{ success: boolean; txHash?: string; split?: TwoTierCommissionSplit }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -152,12 +155,26 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-export function Web3Provider({ children }: { children: ReactNode }) {
-  const [userAddress, setUserAddress] = useState<string | null>(null);
+export function useSafeWeb3(): Web3ContextType | undefined {
+  return useContext(Web3Context);
+}
+
+export function Web3Provider({
+  children,
+  overrideAddress,
+  initialUserAddress,
+}: {
+  children: ReactNode;
+  overrideAddress?: string | null;
+  initialUserAddress?: string | null;
+}) {
+  const [userAddress, setUserAddress] = useState<string | null>(
+    overrideAddress ?? initialUserAddress ?? null,
+  );
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(Boolean(overrideAddress ?? initialUserAddress));
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [assetBalances, setAssetBalances] = useState<Record<SupportedEscrowAssetCode, string>>({
@@ -583,12 +600,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
+    recruiterAddress?: string,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
     console.log(
       `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
     );
+
+    // Record two-tier referral commission split
+    const split = recordReferralSale({
+      campaignId,
+      saleAmountXlm: amountXlm,
+      sellingAffiliateAddress: affiliateAddress,
+      totalCommissionRatePercent: 10,
+    });
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await logSaleContractCall(
@@ -597,13 +623,41 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         affiliateAddress,
         amountXlm,
         connectorType,
+        recruiterAddress || split.recruiterAddress,
       );
-      return res;
+      if (res.success) {
+        void dispatchWebhookEvent("conversion.confirmed", {
+          id: `sale_${res.txHash}`,
+          event: "conversion.confirmed",
+          created_at: new Date().toISOString(),
+          campaign_id: campaignId,
+          affiliate_address: affiliateAddress,
+          sale_amount_xlm: amountXlm,
+          commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+          recruiter_address: split.recruiterAddress,
+          recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+          tx_hash: res.txHash,
+        });
+      }
+      return { ...res, split };
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${mockTxHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: mockTxHash,
+      });
       return {
         success: true,
         txHash: mockTxHash,
+        split,
       };
     }
   };

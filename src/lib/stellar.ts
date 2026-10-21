@@ -24,6 +24,8 @@ import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { rpcFallbackManager } from "./rpcFallback";
 import { addErrorBreadcrumb } from "./errorTracking";
+import { calculateTwoTierCommission, getRecruiterForAffiliate } from "./referralTree";
+import type { TwoTierCommissionSplit } from "../types/referral";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -1056,13 +1058,24 @@ export async function logSaleContractCall(
   affiliateAddress: string,
   saleAmountXlm: number,
   walletType: WalletType = "freighter",
-): Promise<{ success: boolean; txHash: string }> {
+  recruiterAddress?: string,
+): Promise<{ success: boolean; txHash: string; split?: TwoTierCommissionSplit }> {
+  const recruiter = recruiterAddress || getRecruiterForAffiliate(affiliateAddress)?.parentAddress;
+  const split = calculateTwoTierCommission(
+    saleAmountXlm,
+    10.0,
+    2.0,
+    recruiter,
+    affiliateAddress,
+  );
+
   if (walletType === "mock" || advertiserAddress.startsWith("GASTORMSALE7")) {
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     return {
       success: true,
       txHash: mockHash,
+      split,
     };
   }
 
@@ -1075,10 +1088,17 @@ export async function logSaleContractCall(
     nativeToScVal(amountStroops, { type: "i128" }),
   ];
 
+  // If two-tier referral recruiter is bound, append recruiter address & override allocation to invoke args
+  if (split.hasRecruiter && split.recruiterAddress) {
+    args.push(new Address(split.recruiterAddress).toScVal());
+    args.push(nativeToScVal(split.recruiterOverrideStroops, { type: "i128" }));
+  }
+
   const result = await invokeSorobanMethod(advertiserAddress, "log_sale", args, walletType);
   return {
     success: true,
     txHash: result.txHash,
+    split,
   };
 }
 

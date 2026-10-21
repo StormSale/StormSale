@@ -23,9 +23,12 @@ import {
   ShieldCheck,
   Trophy,
   Award,
+  GitBranch,
+  Lock,
 } from "lucide-react";
 import { useWeb3 } from "../../context/Web3Context";
 import { getAffiliateProfile } from "../../lib/affiliateLeaderboard";
+import { VerifiedRevenueBadge } from "./VerifiedRevenueBadge";
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -338,9 +341,12 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-            Affiliate Dashboard
-          </h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+              Affiliate Dashboard
+            </h1>
+            <VerifiedRevenueBadge />
+          </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
             Track your performance and maximize your{" "}
             <TerminologyTooltip term="soroban">on-chain earnings</TerminologyTooltip>.
@@ -504,6 +510,58 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
               View All Payouts
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Two-Tier Sub-Affiliate Recruitment Highlight */}
+        <Card className="border border-indigo-200 dark:border-indigo-900/60 shadow-sm rounded-2xl bg-gradient-to-br from-indigo-50/70 via-white to-white dark:from-indigo-950/30 dark:via-zinc-900/50 dark:to-zinc-900/50 overflow-hidden">
+          <CardHeader className="border-b border-indigo-100 dark:border-zinc-800/60 pb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1.5">
+                <GitBranch className="w-3.5 h-3.5" />
+                Two-Tier Network
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                2% Override
+              </span>
+            </div>
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white mt-1">
+              Recruit Sub-Affiliates
+            </CardTitle>
+            <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
+              Earn an automated 2% passive override commission whenever your recruited marketers drive verified sales.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-3">
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              Build your marketing team with your recruiter invite link. View interactive tree hierarchies, recruited partner performance, and real-time override splits in the Referral Network dashboard.
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Zero-Knowledge Proof of Revenue Highlight (#174) */}
+        <Card className="border border-emerald-200 dark:border-emerald-900/60 shadow-sm rounded-2xl bg-gradient-to-br from-emerald-50/70 via-white to-white dark:from-emerald-950/30 dark:via-zinc-900/50 dark:to-zinc-900/50 overflow-hidden">
+          <CardHeader className="border-b border-emerald-100 dark:border-zinc-800/60 pb-4">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                <Lock className="w-3.5 h-3.5" />
+                Private Portfolio
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+                ZK Verified
+              </span>
+            </div>
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white mt-1">
+              Proof of Revenue ($50K+)
+            </CardTitle>
+            <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
+              Cryptographically prove your historic volume to exclusive brands without leaking buyer or transaction data.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="pt-4 space-y-3">
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              Compile historic on-chain conversions into blinded Merkle commitments. Generate shareable verification links that third-party brands can validate with 1 click.
+            </p>
           </CardContent>
         </Card>
 
