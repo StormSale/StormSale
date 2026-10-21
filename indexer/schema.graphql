@@ -1,0 +1,122 @@
+# StormSale indexer schema.
+# All amounts are in stroops (1 XLM = 10,000,000) serialized as strings,
+# because Soroban i128 values exceed JavaScript's safe integer range.
+
+"""
+A campaign escrow created on the StormSale Soroban contract.
+"""
+type Campaign {
+  "Unique identifier (same as campaignId, as a string)."
+  id: ID!
+  "On-chain campaign id returned by `create_campaign`."
+  campaignId: Int!
+  "The advertiser that created and funded the campaign."
+  advertiser: User!
+  "Commission rate in basis points (100 = 1%)."
+  commissionBps: Int!
+  "Seconds a sale must wait before its commission can be claimed."
+  clearingPeriodSecs: Int!
+  "Escrow budget deposited at creation, in stroops."
+  budgetStroops: String!
+  "ISO-8601 time the campaign was created on-chain."
+  createdAt: String!
+  "Hash of the creating transaction."
+  txHash: String!
+  "Number of sales logged for this campaign."
+  saleCount: Int!
+  "Sum of all sale amounts, in stroops."
+  grossVolumeStroops: String!
+  "Sum of all claimed commissions, in stroops."
+  claimedStroops: String!
+  "Full sales history, newest first."
+  sales(limit: Int = 100, offset: Int = 0): [Sale!]!
+  "Full claims history, newest first."
+  claims(limit: Int = 100, offset: Int = 0): [Claim!]!
+}
+
+"""
+A conversion logged by an advertiser for an affiliate.
+"""
+type Sale {
+  "Unique id: `<txHash>:<eventIndex>`."
+  id: ID!
+  "Campaign this sale belongs to."
+  campaign: Campaign
+  "Affiliate credited with the sale."
+  affiliate: User!
+  "Sale amount in stroops."
+  amountStroops: String!
+  "Commission earned on this sale in stroops (amount x campaign rate)."
+  commissionStroops: String!
+  "ISO-8601 time the sale was logged."
+  loggedAt: String!
+  "ISO-8601 time the commission becomes claimable."
+  maturesAt: String
+  "True once the clearing period has passed and the commission is claimable."
+  matured: Boolean!
+  "Hash of the logging transaction."
+  txHash: String!
+}
+
+"""
+A commission payout claimed by an affiliate.
+"""
+type Claim {
+  "Unique id: `<txHash>:<eventIndex>`."
+  id: ID!
+  "Campaign the payout came from."
+  campaign: Campaign
+  "Affiliate that received the payout."
+  affiliate: User!
+  "Amount paid out in stroops."
+  amountStroops: String!
+  "ISO-8601 time the claim happened."
+  claimedAt: String!
+  "Hash of the claim transaction."
+  txHash: String!
+}
+
+"""
+A Stellar account that appears in the protocol as advertiser or affiliate.
+"""
+type User {
+  "Stellar public key (G...)."
+  address: ID!
+  "Campaigns created by this account."
+  campaigns: [Campaign!]!
+  "Sales credited to this account as affiliate, newest first."
+  sales(limit: Int = 100, offset: Int = 0): [Sale!]!
+  "Claims made by this account, newest first."
+  claims(limit: Int = 100, offset: Int = 0): [Claim!]!
+  "Total commission earned across all sales, in stroops."
+  totalEarnedStroops: String!
+  "Total commission already claimed, in stroops."
+  totalClaimedStroops: String!
+}
+
+"""
+Health information about the indexer pipeline.
+"""
+type IndexerStatus {
+  "Last ledger the indexer has processed."
+  lastIndexedLedger: Int!
+  "Total number of contract events processed."
+  eventCount: Int!
+  "ISO-8601 time of the last successful poll, or null if never."
+  lastPollAt: String
+}
+
+type Query {
+  "Fetch one campaign by on-chain id."
+  campaign(campaignId: Int!): Campaign
+  "List campaigns, newest first, optionally filtered by advertiser address."
+  campaigns(advertiser: String, limit: Int = 100, offset: Int = 0): [Campaign!]!
+  "List sales, newest first, optionally filtered by campaign and/or affiliate."
+  sales(campaignId: Int, affiliate: String, limit: Int = 100, offset: Int = 0): [Sale!]!
+  "List claims, newest first, optionally filtered by campaign and/or affiliate."
+  claims(campaignId: Int, affiliate: String, limit: Int = 100, offset: Int = 0): [Claim!]!
+  "Fetch a user by Stellar address."
+  user(address: String!): User
+  "Indexer health and progress."
+  indexerStatus: IndexerStatus!
+}

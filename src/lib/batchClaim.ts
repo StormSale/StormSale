@@ -9,6 +9,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG, type SupportedEscrowAssetCode } from "../config/stellar";
 import { signWalletTransaction, getSorobanRpcServer, type WalletType } from "./stellar";
+import { fetchAffiliateClaimsFromIndexer, withRpcFallback } from "./graphqlClient";
 import {
   type SplitPlan,
   type SplitAllocationReceipt,
@@ -101,9 +102,33 @@ export interface BatchClaimReceipt {
  * Mock/Query active campaigns where the affiliate has cleared matured commission payouts.
  */
 export async function fetchAffiliateMaturedClaims(
+  affiliateAddress: string,
+): Promise<ClaimableCampaignItem[]> {
+  // Fast path: one GraphQL query to the indexer. Falls back to the direct RPC path if it is down.
+  return withRpcFallback(
+    async () => {
+      if (!affiliateAddress) return fetchMaturedClaimsViaRpc(affiliateAddress);
+      const rows = await fetchAffiliateClaimsFromIndexer(affiliateAddress);
+      return rows.map((r) => ({
+        campaignId: r.campaignId,
+        campaignName: `Campaign #${r.campaignId}`,
+        advertiserAddress: r.advertiser,
+        maturedSalesCount: r.maturedSalesCount,
+        // Net of payouts already claimed, so a paid commission is not offered again.
+        claimableXlm: Number(r.claimableStroops) / 1e7,
+        clearingPeriodDays: Math.round(r.clearingPeriodSecs / 86400),
+        lastSaleDate: r.lastSaleDate.slice(0, 10),
+        status: "matured" as const,
+      }));
+    },
+    () => fetchMaturedClaimsViaRpc(affiliateAddress),
+  );
+}
+
+/** Direct (non-indexed) path. Currently returns placeholder data until contract queries land. */
+async function fetchMaturedClaimsViaRpc(
   _affiliateAddress: string,
 ): Promise<ClaimableCampaignItem[]> {
-  // In production, queries Soroban contract and Horizon ledger events for cleared sales
   return [
     {
       campaignId: 101,

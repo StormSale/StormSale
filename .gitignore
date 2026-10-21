@@ -36,4 +36,9 @@ generate_commits.sh
 *.njsproj
 *.sln
 *.sw?
+
+indexer/node_modules
+indexer/data.json
+indexer/dist
 lens/
+test-results.json

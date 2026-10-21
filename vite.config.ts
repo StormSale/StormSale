@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -5,6 +6,25 @@ import tailwindcss from "@tailwindcss/vite";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // The indexer is a separate package with its own dependencies and test run.
+  test: {
+    globals: true,
+    testTimeout: 30000,
+    exclude: ["**/node_modules/**", "**/dist/**", "indexer/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "json", "html"],
+      reportsDirectory: "./coverage",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.test.{ts,tsx}",
+        "src/tests/**",
+        "src/types/**",
+        "src/main.tsx",
+        "src/assets/**",
+      ],
+    },
+  },
   resolve: {
     dedupe: ["react", "react-dom"],
     preserveSymlinks: true,
@@ -25,22 +45,6 @@ export default defineConfig({
           }
         },
       },
-    },
-  },
-  test: {
-    globals: true,
-    coverage: {
-      provider: "v8",
-      reporter: ["text", "json-summary", "json", "html"],
-      reportsDirectory: "./coverage",
-      include: ["src/**/*.{ts,tsx}"],
-      exclude: [
-        "src/**/*.test.{ts,tsx}",
-        "src/tests/**",
-        "src/types/**",
-        "src/main.tsx",
-        "src/assets/**",
-      ],
     },
   },
 });

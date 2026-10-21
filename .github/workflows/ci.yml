@@ -1,9 +1,9 @@
 name: Frontend CI & Test Audit
 
 on:
-  push:
-    branches: [ "main", "dev" ]
-  pull_request_target:
+    push:
+    branches: [ "main", "dev", "feat/graphql-indexer" ]
+pull_request_target:
     types: [opened, synchronize, reopened]
     branches: [ "main", "dev" ]
 
@@ -33,12 +33,29 @@ jobs:
     - name: Install Dependencies
       run: npm install
 
+<<<<<<< HEAD
     - name: Run Unit Tests & Coverage Audit Export
       run: |
         npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json
       continue-on-error: true
 
     - name: Publish Test Audit & Enforced Coverage Summary
+=======
+    # FIX: with multiple reporters, the output path must be tied to the
+    # json reporter using --outputFile.json=<path>
+    - name: Run Unit Tests with Audit Export
+      run: |
+        npx vitest run --reporter=default --reporter=json --outputFile.json=test-results.json
+      continue-on-error: true
+
+    # Temporary: shows what files exist. Delete once everything works.
+    - name: Debug results file
+      if: always()
+      run: ls -la
+
+    - name: Publish Test Audit Summary
+      if: always()
+>>>>>>> ba59018 (fix: write vitest json results with per-reporter outputFile)
       uses: actions/github-script@v7
       with:
         script: |
