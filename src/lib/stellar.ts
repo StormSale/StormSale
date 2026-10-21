@@ -21,6 +21,7 @@ import {
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
+import { rpcFallbackManager } from "./rpcFallback";
 
 export type WalletType =
   | "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -189,7 +190,7 @@ export async function connectXbullWallet(): Promise<string> {
     const address = await xbull.getPublicKey();
     return address;
   } catch (err: any) {
-    throw new Error(err.message || "xBull connection failed.");
+    throw new Error(err.message || "xBull connection failed.", { cause: err });
   }
 }
 
@@ -250,11 +251,13 @@ export async function getCurrentNetwork(): Promise<string> {
 }
 
 /**
- * Queries the Stellar Horizon API for the account's XLM balance.
+ * Queries the Stellar Horizon API for the account's XLM balance with silent multi-endpoint failover.
  */
 export async function fetchXlmBalance(address: string): Promise<string> {
   try {
-    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/accounts/${address}`);
+    const response = await rpcFallbackManager.executeHorizonFetchWithFallback(
+      (horizonBaseUrl) => `${horizonBaseUrl}/accounts/${address}`,
+    );
     if (!response.ok) {
       if (response.status === 404) {
         return "0.0000000 (Unfunded)";
@@ -428,6 +431,13 @@ export interface SorobanEvent {
   ledger: number;
   txHash?: string;
   createdAt?: string;
+}
+
+/**
+ * Returns a configured Soroban RPC Server instance from the active node in rpcFallbackManager.
+ */
+export function getSorobanRpcServer(): rpc.Server {
+  return rpcFallbackManager.getActiveRpcServer();
 }
 
 export const SOROBAN_EVENT_TOPICS = [
@@ -756,23 +766,27 @@ export async function claimPayoutContractCall(
  * Reads campaign metadata directly from Soroban contract storage.
  */
 export async function getCampaignContractQuery(campaignId: number): Promise<any> {
-  const server = getSorobanRpcServer();
-  const contract = new Contract(STELLAR_CONFIG.contractId);
-  const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
+  return rpcFallbackManager.executeWithFallback(async (server) => {
+    const contract = new Contract(STELLAR_CONFIG.contractId);
+    const dummyAccount = new Account(
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "0",
+    );
 
-  const tx = new TransactionBuilder(dummyAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  })
-    .addOperation(contract.call("get_campaign", nativeToScVal(campaignId, { type: "u32" })))
-    .setTimeout(30)
-    .build();
+    const tx = new TransactionBuilder(dummyAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+    })
+      .addOperation(contract.call("get_campaign", nativeToScVal(campaignId, { type: "u32" })))
+      .setTimeout(30)
+      .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-    return scValToNative(sim.result.retval);
-  }
-  return null;
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+      return scValToNative(sim.result.retval);
+    }
+    return null;
+  });
 }
 
 /**
@@ -791,46 +805,55 @@ export async function getTokenAllowanceQuery(
   if (
     ownerAddress.startsWith("GASTORMSALE7") ||
     ownerAddress === "mock" ||
-    (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process?.env?.NODE_ENV === "test")
+    (typeof (globalThis as any).process !== "undefined" &&
+      (globalThis as any).process?.env?.NODE_ENV === "test")
   ) {
     if (typeof window !== "undefined" && window.localStorage) {
-      const mockVal = window.localStorage.getItem(`mock_allowance_${ownerAddress}_${spenderAddress}`);
+      const mockVal = window.localStorage.getItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      );
       if (mockVal !== null) return parseFloat(mockVal) || 0;
     }
     return 0;
   }
 
   try {
-    const server = getSorobanRpcServer();
-    const contract = new Contract(tokenContractId);
-    const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
+    return await rpcFallbackManager.executeWithFallback(async (server) => {
+      const contract = new Contract(tokenContractId);
+      const dummyAccount = new Account(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "0",
+      );
 
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          "allowance",
-          new Address(ownerAddress).toScVal(),
-          new Address(spenderAddress).toScVal(),
-        ),
-      )
-      .setTimeout(30)
-      .build();
+      const tx = new TransactionBuilder(dummyAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            "allowance",
+            new Address(ownerAddress).toScVal(),
+            new Address(spenderAddress).toScVal(),
+          ),
+        )
+        .setTimeout(30)
+        .build();
 
-    const sim = await server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const nativeVal = scValToNative(sim.result.retval);
-      const divisor = Math.pow(10, decimals);
-      const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
-      return Math.max(0, stroops / divisor);
-    }
-    return 0;
+      const sim = await server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+        const nativeVal = scValToNative(sim.result.retval);
+        const divisor = Math.pow(10, decimals);
+        const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
+        return Math.max(0, stroops / divisor);
+      }
+      return 0;
+    });
   } catch (error) {
     console.warn("Failed to query token allowance:", error);
     if (typeof window !== "undefined" && window.localStorage) {
-      const fallback = window.localStorage.getItem(`mock_allowance_${ownerAddress}_${spenderAddress}`);
+      const fallback = window.localStorage.getItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      );
       if (fallback !== null) return parseFloat(fallback) || 0;
     }
     return 0;
@@ -854,7 +877,8 @@ export async function approveTokenContractCall(
   if (
     walletType === "mock" ||
     ownerAddress.startsWith("GASTORMSALE7") ||
-    (typeof (globalThis as any).process !== "undefined" && (globalThis as any).process?.env?.NODE_ENV === "test")
+    (typeof (globalThis as any).process !== "undefined" &&
+      (globalThis as any).process?.env?.NODE_ENV === "test")
   ) {
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
