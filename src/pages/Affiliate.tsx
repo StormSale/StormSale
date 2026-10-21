@@ -1,11 +1,10 @@
-import { useState } from "react";
 import { Sidebar } from "../components/shared/Sidebar";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
-import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
+import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { AffiliateAssetLibrary } from "../components/affiliate/AffiliateAssetLibrary";
 import {
   Users,
@@ -13,22 +12,44 @@ import {
   DollarSign,
   Shield,
   LayoutDashboard,
+  Send,
   Sliders,
   FolderArchive,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
+import { usePreference } from "../hooks/usePreference";
 import { motion, AnimatePresence } from "framer-motion";
+import { isTelegramMiniApp } from "../lib/telegram";
+import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { Button } from "../components/ui/button";
+
 
 interface AffiliateProps {
   onBack: () => void;
 }
 
+const AFFILIATE_TABS = [
+  "overview",
+  "telegram-browser",
+  "join-campaign",
+  "creative-assets",
+  "my-sales",
+  "claim-payouts",
+  "settings",
+  "security",
+] as const;
+type AffiliateTab = (typeof AFFILIATE_TABS)[number];
+
 const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = usePreference<AffiliateTab>(
+    "stormsale.affiliate.tab",
+    isTelegramMiniApp() ? "telegram-browser" : "overview",
+    (v) => AFFILIATE_TABS.includes(v as AffiliateTab),
+  );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "creative-assets", label: "Creative Assets & IPFS", icon: FolderArchive },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
@@ -39,6 +60,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "telegram-browser":
+        return <TelegramCampaignBrowser />;
       case "join-campaign":
         return <JoinCampaignButton />;
       case "creative-assets":
@@ -60,7 +83,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => setActiveTab(tab as AffiliateTab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Affiliate Pro"

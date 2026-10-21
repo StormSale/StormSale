@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { useWeb3 } from "../hooks/useWeb3";
+import { useDashboardCache } from "../hooks/useDashboardCache";
 import {
   Megaphone,
   Users,
@@ -22,6 +23,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
+    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
@@ -29,14 +31,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     xlmBalance,
     connectorType,
   } = useWeb3();
+  const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
+
+  // Reconcile cached metrics with live network data (background sync, zero layout shift)
+  useEffect(() => {
+    if (!hydrated) return;
+    const liveMetrics = {
+      ...(userRole ? { userRole } : {}),
+      xlmBalance,
+      network,
+      isConnected,
+      connectorType,
+    };
+    persistMetrics(liveMetrics);
+  }, [hydrated, isConnected, network, xlmBalance, connectorType, userRole, persistMetrics]);
+
+  // Invalidate cache on wallet disconnect
+  useEffect(() => {
+    if (!isConnected) {
+      invalidateCache();
+    }
+  }, [isConnected, invalidateCache]);
 
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
+      await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
       onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
@@ -159,7 +183,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                   {connectorType || "Stellar"}
                 </span>
                 <span className="hidden sm:inline-block text-[10px] font-bold px-1.5 py-0.5 bg-slate-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded">
-                  {xlmBalance} XLM
+                  {metrics.xlmBalance} XLM
                 </span>
               </div>
             )}
