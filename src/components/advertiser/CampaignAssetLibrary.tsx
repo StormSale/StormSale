@@ -20,6 +20,10 @@ export const CampaignAssetLibrary: React.FC = () => {
     setAssets(getStoredPromotionAssets());
   };
 
+  const handleAssetsChanged = () => {
+    setAssets(getStoredPromotionAssets());
+  };
+
   const totalBytes = assets.reduce((sum, a) => sum + (a.sizeBytes || 0), 0);
   const totalDownloads = assets.reduce((sum, a) => sum + (a.downloadCount || 0), 0);
 
@@ -138,6 +142,7 @@ export const CampaignAssetLibrary: React.FC = () => {
           assets={assets}
           onUploadClick={() => setActiveTab("upload")}
           onAssetDeleted={handleAssetDeleted}
+          onAssetsChanged={handleAssetsChanged}
         />
       )}
     </div>

@@ -279,6 +279,18 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       expect(list.some((a) => a.id === customAsset.id)).toBe(false);
     });
 
+    it("should reload storage and reflect updated download counts on repeated downloads", () => {
+      const asset = INITIAL_PROMOTION_ASSETS[0];
+      const initialCount = asset.downloadCount || 0;
+      incrementDownloadCount(asset.id);
+      let reloaded = getStoredPromotionAssets().find((a) => a.id === asset.id);
+      expect(reloaded?.downloadCount).toBe(initialCount + 1);
+
+      incrementDownloadCount(asset.id);
+      reloaded = getStoredPromotionAssets().find((a) => a.id === asset.id);
+      expect(reloaded?.downloadCount).toBe(initialCount + 2);
+    });
+
     it("should save and retrieve IPFS provider configuration", () => {
       const config = {
         activeProvider: "pinata" as const,

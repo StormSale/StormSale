@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Card, CardContent } from "../ui/card";
@@ -29,6 +29,7 @@ interface AssetGalleryProps {
   assets?: PromotionAsset[];
   onUploadClick?: () => void;
   onAssetDeleted?: (assetId: string) => void;
+  onAssetsChanged?: () => void;
   isAffiliateView?: boolean;
   affiliateReferralCode?: string;
 }
@@ -37,15 +38,31 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
   assets: propAssets,
   onUploadClick,
   onAssetDeleted,
+  onAssetsChanged,
   isAffiliateView = false,
   affiliateReferralCode = "AFFILIATE_TOP",
 }) => {
   const { showNotification } = useNotification();
 
   const [internalAssets, setInternalAssets] = useState<PromotionAsset[]>(() =>
-    getStoredPromotionAssets(),
+    propAssets || getStoredPromotionAssets(),
   );
-  const assets = propAssets || internalAssets;
+
+  useEffect(() => {
+    if (propAssets) {
+      setInternalAssets(propAssets);
+    }
+  }, [propAssets]);
+
+  const assets = internalAssets;
+
+  const refreshAssets = () => {
+    setInternalAssets(getStoredPromotionAssets());
+    if (onAssetsChanged) {
+      onAssetsChanged();
+    }
+  };
+
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
@@ -58,6 +75,10 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
   const [customRefUrl, setCustomRefUrl] = useState(
     `https://stormsale.io/ref/${affiliateReferralCode}`,
   );
+
+  useEffect(() => {
+    setCustomRefUrl(`https://stormsale.io/ref/${affiliateReferralCode}`);
+  }, [affiliateReferralCode]);
 
   // Preview modal state
   const [previewAsset, setPreviewAsset] = useState<PromotionAsset | null>(null);
@@ -90,7 +111,7 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
   const handleDelete = (asset: PromotionAsset) => {
     if (confirm(`Are you sure you want to delete ${asset.title}?`)) {
       deletePromotionAsset(asset.id);
-      setInternalAssets(getStoredPromotionAssets());
+      refreshAssets();
       if (onAssetDeleted) onAssetDeleted(asset.id);
       showNotification({
         type: "info",
@@ -109,7 +130,7 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
         message: `Downloading ${asset.name}...`,
       });
       // Refresh count
-      setInternalAssets(getStoredPromotionAssets());
+      refreshAssets();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Download failed";
       showNotification({
@@ -132,7 +153,7 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
         title: "Media Bundle Generated",
         message: `Packed ${filtered.length} verified creative assets into ZIP bundle!`,
       });
-      setInternalAssets(getStoredPromotionAssets());
+      refreshAssets();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "ZIP bundling failed";
       showNotification({

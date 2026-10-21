@@ -11,7 +11,11 @@ export const AffiliateAssetLibrary: React.FC = () => {
     userAddress ? `${userAddress.slice(0, 4)}...${userAddress.slice(-4)}` : "STORM_AFFILIATE",
   );
 
-  const assets = getStoredPromotionAssets();
+  const [assets, setAssets] = useState<PromotionAsset[]>(() => getStoredPromotionAssets());
+
+  const handleAssetsChanged = () => {
+    setAssets(getStoredPromotionAssets());
+  };
 
   return (
     <div className="space-y-8 pb-12">
@@ -55,7 +59,12 @@ export const AffiliateAssetLibrary: React.FC = () => {
       </div>
 
       {/* Media Gallery in Affiliate Mode */}
-      <AssetGallery assets={assets} isAffiliateView={true} affiliateReferralCode={affiliateTag} />
+      <AssetGallery
+        assets={assets}
+        isAffiliateView={true}
+        affiliateReferralCode={affiliateTag}
+        onAssetsChanged={handleAssetsChanged}
+      />
     </div>
   );
 };
