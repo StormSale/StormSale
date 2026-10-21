@@ -1,15 +1,16 @@
 import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
-import {
-  NotificationProvider,
-  NotificationWrapper,
-} from "./context/NotificationContext";
+import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
+import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
+import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
+import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -88,12 +89,7 @@ class ErrorBoundary extends React.Component<
   }
 }
 
-const VALID_PAGES = [
-  "dashboard",
-  "advertiser",
-  "affiliate",
-  "auditor",
-] as const;
+const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
 
 type Page = (typeof VALID_PAGES)[number];
 
@@ -148,6 +144,8 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
+      <MultiSigApprovalModal />
+      <RpcStatusModal />
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
           <Landing />
@@ -156,21 +154,27 @@ function Router() {
             <main>
               {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
               {currentPage === "advertiser" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
-                  <Advertiser onBack={() => handleNavigate("dashboard")} />
-                </Suspense>
+                <ProtectedRoute requiredRole="ADVERTISER" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                    <Advertiser onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
               )}
               {currentPage === "affiliate" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
-                  <Affiliate
-                    onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
-                  />
-                </Suspense>
+                <ProtectedRoute requiredRole="AFFILIATE" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                    <Affiliate
+                      onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
+                    />
+                  </Suspense>
+                </ProtectedRoute>
               )}
               {currentPage === "auditor" && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
-                  <Auditor onBack={() => handleNavigate("dashboard")} />
-                </Suspense>
+                <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                    <Auditor onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
               )}
             </main>
           </div>
@@ -195,7 +199,9 @@ function App() {
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
-              <Router />
+              <TooltipProvider delayDuration={300}>
+                <Router />
+              </TooltipProvider>
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>

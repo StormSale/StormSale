@@ -10,6 +10,66 @@ import { generateWebhookSecret, generateWebhookSignature } from "./webhookSecuri
 
 const STORAGE_ENDPOINTS_KEY = "stormsale_webhook_endpoints_v1";
 const STORAGE_DELIVERIES_KEY = "stormsale_webhook_deliveries_v1";
+const MAX_CONSECUTIVE_FAILURES = 5;
+const DEFAULT_DELIVERY_TIMEOUT_MS = 8000;
+
+export function isSafeWebhookUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname
+      .toLowerCase()
+      .replace(/^\[|\]$/g, "")
+      .replace(/\.$/, "");
+
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      hostname.endsWith(".intranet") ||
+      hostname.endsWith(".lan") ||
+      hostname.endsWith(".home.arpa") ||
+      !hostname.includes(".")
+    ) {
+      return false;
+    }
+
+    if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
+      const octets = hostname.split(".").map(Number);
+      if (octets.some((octet) => octet < 0 || octet > 255)) {
+        return false;
+      }
+
+      const [first, second] = octets;
+      return !(
+        first === 0 ||
+        first === 10 ||
+        first === 127 ||
+        (first === 192 && second === 0) ||
+        (first === 169 && second === 254) ||
+        (first === 172 && second >= 16 && second <= 31) ||
+        (first === 192 && second === 168) ||
+        (first === 192 && second === 88 && octets[2] === 99) ||
+        (first === 198 && (second === 18 || second === 19)) ||
+        (first === 198 && second === 51 && octets[2] === 100) ||
+        (first === 203 && second === 0 && octets[2] === 113) ||
+        (first === 100 && second >= 64 && second <= 127) ||
+        first >= 224
+      );
+    }
+
+    if (hostname.includes(":")) {
+      return false;
+    }
+
+    return hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -144,6 +204,14 @@ export function saveWebhookEndpoint(endpoint: WebhookEndpoint): WebhookEndpoint[
  * Delete a webhook endpoint
  */
 export function deleteWebhookEndpoint(id: string): WebhookEndpoint[] {
+  // Cancel pending retry timers for deliveries associated with this endpoint
+  const deliveries = getWebhookDeliveries();
+  for (const delivery of deliveries) {
+    if (delivery.webhookId === id) {
+      clearPendingRetryTimer(delivery.id);
+    }
+  }
+
   const current = getRegisteredEndpoints();
   const updated = current.filter((ep) => ep.id !== id);
   memoryEndpoints = updated;
@@ -157,6 +225,15 @@ export function deleteWebhookEndpoint(id: string): WebhookEndpoint[] {
  * Toggle active status of a webhook endpoint
  */
 export function toggleWebhookEndpoint(id: string, isActive: boolean): WebhookEndpoint[] {
+  if (!isActive) {
+    const deliveries = getWebhookDeliveries();
+    for (const delivery of deliveries) {
+      if (delivery.webhookId === id) {
+        clearPendingRetryTimer(delivery.id);
+      }
+    }
+  }
+
   const current = getRegisteredEndpoints();
   const updated = current.map((ep) => (ep.id === id ? { ...ep, isActive } : ep));
   memoryEndpoints = updated;
@@ -274,6 +351,7 @@ export interface DispatchExecutionResult {
   durationMs: number;
   signatureHeader: string;
   error?: string;
+  isPermanentFailure?: boolean;
 }
 
 /**
@@ -283,10 +361,24 @@ export interface DispatchExecutionResult {
 export async function executeHttpDispatch(
   delivery: WebhookDelivery,
   endpoint?: WebhookEndpoint,
+  timeoutMs = DEFAULT_DELIVERY_TIMEOUT_MS,
 ): Promise<DispatchExecutionResult> {
   const startTime = Date.now();
   const mode: SimulationMode = endpoint?.simulationMode || "live";
   const secret = endpoint?.secret || generateWebhookSecret();
+
+  if (!isSafeWebhookUrl(delivery.url)) {
+    return {
+      success: false,
+      httpStatusCode: 400,
+      statusText: "Invalid webhook URL",
+      signatureHeader: "",
+      responseBody: "",
+      durationMs: Date.now() - startTime,
+      error: "Webhook URL must use HTTPS and a public hostname.",
+      isPermanentFailure: true,
+    };
+  }
 
   // Generate fresh HMAC signature with current attempt timestamp
   const { signatureHeader, timestamp } = await generateWebhookSignature({
@@ -380,7 +472,7 @@ export async function executeHttpDispatch(
 
   // Real HTTP dispatch
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const headers: Record<string, string> = {
@@ -487,30 +579,64 @@ export async function dispatchDelivery(
     delivery.logs = [...delivery.logs, attemptLog];
     delivery.updatedAt = now;
 
+    const getFreshEndpoint = () =>
+      getRegisteredEndpoints().find((ep) => ep.id === delivery.webhookId) ?? endpoint;
+
     if (result.success) {
       delivery.status = "delivered";
       delivery.nextRetryAt = null;
 
       if (endpoint) {
+        const fresh = getFreshEndpoint()!;
         saveWebhookEndpoint({
-          ...endpoint,
-          totalDeliveries: endpoint.totalDeliveries + 1,
+          ...fresh,
+          failureCount: 0,
+          totalDeliveries: fresh.totalDeliveries + 1,
           lastDeliveryStatus: "delivered",
           lastDeliveryAt: now,
         });
       }
     } else {
-      if (delivery.attempts < delivery.maxRetries) {
+      const fresh = endpoint ? getFreshEndpoint() : undefined;
+
+      if (result.isPermanentFailure) {
+        // Permanent URL rejection or invalid destination - do not retry
+        delivery.status = "failed";
+        delivery.nextRetryAt = null;
+
+        if (fresh) {
+          saveWebhookEndpoint({
+            ...fresh,
+            lastDeliveryStatus: "failed",
+            lastDeliveryAt: now,
+          });
+        }
+      } else if (result.httpStatusCode === 410) {
+        // Destination unsubscribed (410 Gone) - immediate disable
+        delivery.status = "failed";
+        delivery.nextRetryAt = null;
+
+        if (fresh) {
+          const nextFailureCount = fresh.failureCount + 1;
+          saveWebhookEndpoint({
+            ...fresh,
+            isActive: false,
+            failureCount: nextFailureCount,
+            lastDeliveryStatus: "failed",
+            lastDeliveryAt: now,
+          });
+        }
+      } else if (delivery.attempts < delivery.maxRetries) {
+        // Retry scheduled - do not increment endpoint failureCount until retries are exhausted
         const backoffMs = calculateBackoffDelayMs(delivery.attempts);
         const nextRetryDate = new Date(Date.now() + backoffMs);
 
         delivery.status = "retrying";
         delivery.nextRetryAt = nextRetryDate.toISOString();
 
-        if (endpoint) {
+        if (fresh) {
           saveWebhookEndpoint({
-            ...endpoint,
-            failureCount: endpoint.failureCount + 1,
+            ...fresh,
             lastDeliveryStatus: "retrying",
             lastDeliveryAt: now,
           });
@@ -522,20 +648,30 @@ export async function dispatchDelivery(
           const timerId = setTimeout(() => {
             pendingRetryTimers.delete(deliveryId);
             const current = getWebhookDeliveries().find((d) => d.id === deliveryId);
-            if (current && current.status === "retrying" && current.attempts === currentAttempt) {
+            const currentEp = getRegisteredEndpoints().find((ep) => ep.id === current?.webhookId);
+            if (
+              current &&
+              current.status === "retrying" &&
+              current.attempts === currentAttempt &&
+              currentEp?.isActive === true
+            ) {
               dispatchDelivery(deliveryId);
             }
           }, backoffMs);
           pendingRetryTimers.set(deliveryId, timerId);
         }
       } else {
+        // Retries exhausted - increment failureCount and disable if consecutive threshold reached
         delivery.status = "failed";
         delivery.nextRetryAt = null;
 
-        if (endpoint) {
+        if (fresh) {
+          const nextFailureCount = fresh.failureCount + 1;
+          const shouldDisableEndpoint = nextFailureCount >= MAX_CONSECUTIVE_FAILURES;
           saveWebhookEndpoint({
-            ...endpoint,
-            failureCount: endpoint.failureCount + 1,
+            ...fresh,
+            failureCount: nextFailureCount,
+            isActive: shouldDisableEndpoint ? false : fresh.isActive,
             lastDeliveryStatus: "failed",
             lastDeliveryAt: now,
           });
@@ -592,6 +728,99 @@ export async function triggerConversionPostback(
   return dispatchedDeliveries;
 }
 
+export interface WebhookSamplePayload extends Record<string, unknown> {
+  id: string;
+  event: WebhookEventType;
+  created_at: string;
+  is_test_event: true;
+}
+
+export function getWebhookSamplePayload(event: WebhookEventType): WebhookSamplePayload {
+  const common = {
+    id: `sample_${event.replace(".", "_")}_001`,
+    event,
+    created_at: new Date().toISOString(),
+    is_test_event: true as const,
+  };
+
+  switch (event) {
+    case "campaign.created":
+      return {
+        ...common,
+        campaign_id: 42,
+        campaign_name: "Summer Launch",
+        advertiser_address: "GADVERTISER_SAMPLE_WALLET",
+        budget: 500,
+        currency: "XLM",
+        commission_rate_percent: 12,
+        clearing_period_seconds: 604800,
+        tx_hash: "sample_campaign_transaction",
+        status: "created",
+      };
+    case "conversion.created":
+      return {
+        ...common,
+        conversion_id: "SALE_SAMPLE_001",
+        campaign_id: 42,
+        campaign_address: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        affiliate_address: "GAFFILIATE_SAMPLE_WALLET",
+        advertiser_address: "GADVERTISER_SAMPLE_WALLET",
+        amount: 125,
+        currency: "XLM",
+        tx_hash: "sample_conversion_transaction",
+        status: "confirmed",
+      };
+    case "payout.created":
+      return {
+        ...common,
+        payout_id: "PAYOUT_SAMPLE_001",
+        campaign_id: 42,
+        affiliate_address: "GAFFILIATE_SAMPLE_WALLET",
+        currency: "XLM",
+        tx_hash: "sample_payout_transaction",
+        status: "claimed",
+      };
+    default:
+      return {
+        ...common,
+        campaign_id: 42,
+        affiliate_address: "GAFFILIATE_SAMPLE_WALLET",
+        amount: 125,
+        currency: "XLM",
+        tx_hash: "sample_transaction",
+        status: "sample",
+      };
+  }
+}
+
+/**
+ * Starts delivery to matching destinations without requiring the caller to wait.
+ * Delivery state and failures remain visible in the webhook manager.
+ */
+export async function dispatchWebhookEvent(
+  event: WebhookEventType,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  try {
+    const endpoints = getRegisteredEndpoints().filter(
+      (endpoint) => endpoint.isActive && endpoint.events.includes(event),
+    );
+
+    await Promise.all(
+      endpoints.map(async (endpoint) => {
+        try {
+          const delivery = await createDeliveryRecord(endpoint, event, payload);
+          await dispatchDelivery(delivery.id, endpoints);
+        } catch (error) {
+          console.error(`Webhook delivery failed for ${event} (${endpoint.id}):`, error);
+        }
+      }),
+    );
+  } catch (error) {
+    console.error(`Could not enqueue webhook event ${event}:`, error);
+  }
+}
+
 /**
  * Dispatch a test dummy payload to a specific webhook endpoint
  */
@@ -603,25 +832,30 @@ export async function dispatchTestDummyPayload(
   const endpoint = endpoints.find((ep) => ep.id === endpointId);
   if (!endpoint) return null;
 
-  const dummyPayload: Record<string, unknown> = {
-    event: eventType,
-    event_id: `test_evt_${generateUUID()}`,
-    timestamp: new Date().toISOString(),
-    is_test_event: true,
-    protocol: "StormSale Stellar Escrow Protocol",
-    data: {
-      sale_id: `TEST_SALE_${Math.floor(1000 + Math.random() * 9000)}`,
-      campaign_address: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
-      affiliate_address: "GAFFILIATE777DEMOWALLET9999STORMTESTNET1234567890",
-      advertiser_address: "GADVERTISER888DEMOWALLET9999STORMTESTNET1234567890",
-      amount: "250.00",
-      currency: "XLM",
-      stellar_tx_hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
-      ledger_timestamp: new Date().toISOString(),
-      customer_ref: "CUST_TEST_REF_42",
-      status: "CONFIRMED_ON_LEDGER",
-    },
-  };
+  const dummyPayload: Record<string, unknown> =
+    eventType === "campaign.created" ||
+    eventType === "conversion.created" ||
+    eventType === "payout.created"
+      ? getWebhookSamplePayload(eventType)
+      : {
+          event: eventType,
+          event_id: `test_evt_${generateUUID()}`,
+          timestamp: new Date().toISOString(),
+          is_test_event: true,
+          protocol: "StormSale Stellar Escrow Protocol",
+          data: {
+            sale_id: `TEST_SALE_${Math.floor(1000 + Math.random() * 9000)}`,
+            campaign_address: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+            affiliate_address: "GAFFILIATE777DEMOWALLET9999STORMTESTNET1234567890",
+            advertiser_address: "GADVERTISER888DEMOWALLET9999STORMTESTNET1234567890",
+            amount: "250.00",
+            currency: "XLM",
+            stellar_tx_hash: "0x1111111111111111111111111111111111111111111111111111111111111111",
+            ledger_timestamp: new Date().toISOString(),
+            customer_ref: "CUST_TEST_REF_42",
+            status: "CONFIRMED_ON_LEDGER",
+          },
+        };
 
   const delivery = await createDeliveryRecord(endpoint, eventType, dummyPayload);
   return await dispatchDelivery(delivery.id);
