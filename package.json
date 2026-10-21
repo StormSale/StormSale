@@ -16,12 +16,13 @@
   "type": "module",
   "main": "eslint.config.js",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node api.js && vite",
+    "build": "node api.js && tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "coverage:check": "node scripts/check-coverage.cjs",
+    "security:check": "node scripts/check-security-headers.cjs",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
