@@ -4,6 +4,7 @@ import { Link as LinkIcon, ShieldCheck } from "lucide-react";
 import { AssetGallery } from "../advertiser/AssetGallery";
 import { getStoredPromotionAssets } from "../../lib/ipfsAssetService";
 import { useWeb3 } from "../../hooks/useWeb3";
+import type { PromotionAsset } from "../../types/asset";
 
 export const AffiliateAssetLibrary: React.FC = () => {
   const { userAddress } = useWeb3();
