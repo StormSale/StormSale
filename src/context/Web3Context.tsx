@@ -22,10 +22,18 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import { dispatchWebhookEvent } from "../lib/webhookEngine";
+import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
+import type { MultiSigAccountInfo } from "../lib/multisig";
+import { inspectMultiSigAccount } from "../lib/multisig";
+import {
+  rpcFallbackManager,
+  type RpcEndpointStatus,
+  type RpcFailoverEvent,
+} from "../lib/rpcFallback";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -105,6 +113,29 @@ export interface Web3ContextType {
     assetCode?: SupportedEscrowAssetCode,
   ) => Promise<{ success: boolean; tyHash?: string; allowance?: number }>;
 
+  // Stellar SEP-0030 Multi-Signature Campaign Escrow
+  multiSigInfo: MultiSigAccountInfo | null;
+  isMultiSigAccount: boolean;
+  isMultiSigModalOpen: boolean;
+  activeMultiSigXdr: string | null;
+  activeMultiSigDescription: string | null;
+  openMultiSigModal: (initialXdr?: string, actionDescription?: string) => void;
+  closeMultiSigModal: () => void;
+  refreshMultiSigInfo: (address?: string) => Promise<MultiSigAccountInfo | null>;
+
+  // RPC Fallback & Multi-Endpoint Status (#109)
+  activeRpcEndpoint: RpcEndpointStatus;
+  rpcEndpoints: RpcEndpointStatus[];
+  rpcFailoverHistory: RpcFailoverEvent[];
+  rpcTimeoutMs: number;
+  isRpcModalOpen: boolean;
+  openRpcModal: () => void;
+  closeRpcModal: () => void;
+  switchRpcEndpoint: (idOrUrl: string) => void;
+  simulateRpcFailover: (reason?: string) => void;
+  checkRpcHealth: () => Promise<void>;
+  addCustomRpcEndpoint: (name: string, url: string, isLocal?: boolean) => void;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -137,8 +168,107 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     roleReadyRef.current = roleReady;
   }, [roleReady]);
 
+  // Stellar SEP-0030 Multi-Sig State
+  const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
+  const [isMultiSigModalOpen, setIsMultiSigModalOpen] = useState(false);
+  const [activeMultiSigXdr, setActiveMultiSigXdr] = useState<string | null>(null);
+  const [activeMultiSigDescription, setActiveMultiSigDescription] = useState<string | null>(null);
+
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
+
+  const openMultiSigModal = useCallback((initialXdr?: string, actionDescription?: string) => {
+    if (initialXdr !== undefined) setActiveMultiSigXdr(initialXdr);
+    if (actionDescription !== undefined) setActiveMultiSigDescription(actionDescription);
+    setIsMultiSigModalOpen(true);
+  }, []);
+
+  const closeMultiSigModal = useCallback(() => {
+    setIsMultiSigModalOpen(false);
+  }, []);
+
+  const refreshMultiSigInfo = useCallback(
+    async (targetAddress?: string) => {
+      const addr = targetAddress || userAddress;
+      if (!addr) {
+        setMultiSigInfo(null);
+        return null;
+      }
+      try {
+        const info = await inspectMultiSigAccount(addr);
+        setMultiSigInfo(info);
+        return info;
+      } catch (err) {
+        console.warn("Could not inspect multi-sig account info:", err);
+        return null;
+      }
+    },
+    [userAddress],
+  );
+
+  const isMultiSigAccount = !!(multiSigInfo && multiSigInfo.isMultiSig);
+
+  // RPC Fallback Management State (#109)
+  const [activeRpcEndpoint, setActiveRpcEndpoint] = useState<RpcEndpointStatus>(() =>
+    rpcFallbackManager.getActiveEndpoint(),
+  );
+  const [rpcEndpoints, setRpcEndpoints] = useState<RpcEndpointStatus[]>(() =>
+    rpcFallbackManager.getAllEndpoints(),
+  );
+  const [rpcFailoverHistory, setRpcFailoverHistory] = useState<RpcFailoverEvent[]>(() =>
+    rpcFallbackManager.getFailoverHistory(),
+  );
+  const [isRpcModalOpen, setIsRpcModalOpen] = useState(false);
+
+  const openRpcModal = useCallback(() => setIsRpcModalOpen(true), []);
+  const closeRpcModal = useCallback(() => setIsRpcModalOpen(false), []);
+
+  const switchRpcEndpoint = useCallback((idOrUrl: string) => {
+    const target = rpcFallbackManager.setActiveEndpoint(idOrUrl);
+    setActiveRpcEndpoint({ ...target });
+    setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+  }, []);
+
+  const simulateRpcFailover = useCallback((reason?: string) => {
+    const next = rpcFallbackManager.failoverToNext(reason || "Manual simulated failover");
+    setActiveRpcEndpoint({ ...next });
+    setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+    setRpcFailoverHistory(rpcFallbackManager.getFailoverHistory());
+  }, []);
+
+  const checkRpcHealth = useCallback(async () => {
+    const updated = await rpcFallbackManager.checkAllHealth();
+    setRpcEndpoints([...updated]);
+    setActiveRpcEndpoint({ ...rpcFallbackManager.getActiveEndpoint() });
+  }, []);
+
+  const addCustomRpcEndpoint = useCallback(
+    (name: string, url: string, isLocal: boolean = false) => {
+      const id = `custom-${Date.now()}`;
+      rpcFallbackManager.addEndpoint({
+        id,
+        name,
+        url,
+        type: isLocal ? "local" : "backup",
+        isLocal,
+      });
+      setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+    },
+    [],
+  );
+
+  // Subscribe to RPC Fallback Manager events for live reactive UI updates
+  useEffect(() => {
+    const unsubscribe = rpcFallbackManager.subscribe((event) => {
+      setActiveRpcEndpoint({ ...event.active });
+      setRpcEndpoints([...event.endpoints]);
+      setRpcFailoverHistory(rpcFallbackManager.getFailoverHistory());
+    });
+    void rpcFallbackManager.checkAllHealth().catch(() => {});
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -293,9 +423,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setXlmBalance("10000.00");
       }
 
+      await assertNotSanctioned(address, `wallet-connect:${type}`);
+
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
+
+      await refreshMultiSigInfo(address);
 
       if (type !== "mock") {
         await refreshBalance(address);
@@ -322,6 +456,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     });
     setTokenAllowance(0);
     setRoleReady(false);
+    setMultiSigInfo(null);
+    setIsMultiSigModalOpen(false);
+    setActiveMultiSigXdr(null);
+    setActiveMultiSigDescription(null);
     void purgeOnLogout();
   };
 
@@ -355,6 +493,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "create-campaign");
+
+    console.log(
+      `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
+    );
     const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
     const res = await createCampaignContractCall(
       userAddress,
@@ -408,6 +551,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "claim-payout");
+
+    console.log(
+      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
+    );
     const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
     const res = await claimPayoutContractCall(
       userAddress,
@@ -441,13 +589,15 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     splitPlan?: SplitPlan | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const { executeBatchClaim } = await import("../lib/batchClaim");
-    return executeBatchClaim({
-      campaignsItems: campaigns,
-      walletAddress: userAddress,
-      connectorType: connectorType || "freighter",
+    await assertNotSanctioned(userAddress, "batch-claim-payout");
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
+      campaigns,
+      connectorType || "freighter",
       splitPlan,
-    });
+    );
+    return res;
   };
 
   // Passkey: Register account
@@ -503,9 +653,28 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     approveTokenAllowance,
     factoryContract,
     getCampaignContract,
+    multiSigInfo,
+    isMultiSigAccount,
+    isMultiSigModalOpen,
+    activeMultiSigXdr,
+    activeMultiSigDescription,
+    openMultiSigModal,
+    closeMultiSigModal,
+    refreshMultiSigInfo,
     provider,
     signer,
     switchToStellarNetwork,
+    activeRpcEndpoint,
+    rpcEndpoints,
+    rpcFailoverHistory,
+    rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
+    isRpcModalOpen,
+    openRpcModal,
+    closeRpcModal,
+    switchRpcEndpoint,
+    simulateRpcFailover,
+    checkRpcHealth,
+    addCustomRpcEndpoint,
   };
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;

@@ -18,6 +18,7 @@ label_issues.js
 !scripts/verify-evidence-pack.mjs
 !scripts/generate-auditor-key.mjs
 !scripts/check-coverage.cjs
+!scripts/check-security-headers.cjs
 coverage/
 coverage-audit-report.md
 !.github/scripts/
