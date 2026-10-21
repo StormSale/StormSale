@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   validateAssetFile,
@@ -18,7 +19,13 @@ import {
   MAX_FILE_SIZE_BYTES,
   INITIAL_PROMOTION_ASSETS,
 } from "../lib/ipfsAssetService";
-import { createFullMediaZipBundle, dataUrlToBlob } from "../lib/assetZipBundle";
+import {
+  createFullMediaZipBundle,
+  dataUrlToBlob,
+  downloadSingleAsset,
+  downloadFullMediaZipBundle,
+  triggerBlobDownload,
+} from "../lib/assetZipBundle";
 import type { PromotionAsset, SwipeCopyData } from "../types/asset";
 import JSZip from "jszip";
 
@@ -347,6 +354,226 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       expect(manifest.protocol).toContain("StormSale");
       expect(manifest.totalAssets).toBe(3);
       expect(manifest.assets).toHaveLength(3);
+    });
+
+    it("should handle triggerBlobDownload creating and revoking URL", () => {
+      const createSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+      const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+      const clickSpy = vi.fn();
+      vi.spyOn(document, "createElement").mockReturnValue({
+        set href(_val: string) {},
+        set download(_val: string) {},
+        click: clickSpy,
+      } as any);
+      vi.spyOn(document.body, "appendChild").mockImplementation(() => null as any);
+      vi.spyOn(document.body, "removeChild").mockImplementation(() => null as any);
+
+      const blob = new Blob(["test"], { type: "text/plain" });
+      triggerBlobDownload(blob, "test.txt");
+
+      expect(createSpy).toHaveBeenCalledWith(blob);
+      expect(revokeSpy).toHaveBeenCalled();
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    it("should downloadSingleAsset with swipe copy or markdown text", async () => {
+      const downloadSpy = vi.fn();
+      vi.stubGlobal("document", {
+        body: { appendChild: vi.fn(), removeChild: vi.fn() },
+        createElement: () => ({ href: "", download: "", click: downloadSpy }),
+      });
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:mock", revokeObjectURL: vi.fn() });
+
+      const textAsset = INITIAL_PROMOTION_ASSETS[3]; // Swipe copy
+      await downloadSingleAsset(textAsset);
+      expect(downloadSpy).toHaveBeenCalled();
+    });
+
+    it("should downloadSingleAsset with contentDataUrl", async () => {
+      const downloadSpy = vi.fn();
+      vi.stubGlobal("document", {
+        body: { appendChild: vi.fn(), removeChild: vi.fn() },
+        createElement: () => ({ href: "", download: "", click: downloadSpy }),
+      });
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:mock", revokeObjectURL: vi.fn() });
+
+      const svgAsset = INITIAL_PROMOTION_ASSETS[0]; // Has contentDataUrl
+      await downloadSingleAsset(svgAsset);
+      expect(downloadSpy).toHaveBeenCalled();
+    });
+
+    it("should downloadSingleAsset via gateway fetch success", async () => {
+      const downloadSpy = vi.fn();
+      vi.stubGlobal("document", {
+        body: { appendChild: vi.fn(), removeChild: vi.fn() },
+        createElement: () => ({ href: "", download: "", click: downloadSpy }),
+      });
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:mock", revokeObjectURL: vi.fn() });
+
+      const remoteAsset: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        id: "remote_1",
+        textContent: undefined,
+        contentDataUrl: undefined,
+      };
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          blob: async () => new Blob(["fetched content"]),
+        }),
+      );
+
+      await downloadSingleAsset(remoteAsset);
+      expect(downloadSpy).toHaveBeenCalled();
+    });
+
+    it("should downloadSingleAsset fallback to markdown descriptor when fetch fails", async () => {
+      const downloadSpy = vi.fn();
+      vi.stubGlobal("document", {
+        body: { appendChild: vi.fn(), removeChild: vi.fn() },
+        createElement: () => ({ href: "", download: "", click: downloadSpy }),
+      });
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:mock", revokeObjectURL: vi.fn() });
+
+      const remoteAsset: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        id: "remote_2",
+        textContent: undefined,
+        contentDataUrl: undefined,
+      };
+
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network Error")));
+
+      await downloadSingleAsset(remoteAsset);
+      expect(downloadSpy).toHaveBeenCalled();
+    });
+
+    it("should support downloadFullMediaZipBundle", async () => {
+      const downloadSpy = vi.fn();
+      vi.stubGlobal("document", {
+        body: { appendChild: vi.fn(), removeChild: vi.fn() },
+        createElement: () => ({ href: "", download: "", click: downloadSpy }),
+      });
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:mock", revokeObjectURL: vi.fn() });
+
+      await downloadFullMediaZipBundle("Test Campaign", [INITIAL_PROMOTION_ASSETS[0]]);
+      expect(downloadSpy).toHaveBeenCalled();
+    });
+
+    it("should package bundles and encoded data URLs in zip archive", async () => {
+      const bundleAsset: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[4],
+        category: "bundle",
+        contentDataUrl: "data:application/octet-stream;base64,QUJDRA==",
+      };
+      const rawTextAsset: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        contentDataUrl: "plain-text-data-url",
+      };
+      const remoteFallbackAsset: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        category: "logo",
+        contentDataUrl: undefined,
+        textContent: undefined,
+      };
+
+      const zipBlob = await createFullMediaZipBundle("Mixed Bundle", [
+        bundleAsset,
+        rawTextAsset,
+        remoteFallbackAsset,
+      ]);
+      expect(zipBlob.size).toBeGreaterThan(0);
+    });
+  });
+
+  describe("IPFS Provider Pinning & Storage Fallbacks", () => {
+    it("should pin asset using web3.storage provider configuration", async () => {
+      saveIpfsProviderConfig({
+        activeProvider: "web3.storage",
+        pinataJwt: "",
+        web3StorageToken: "test_web3_token",
+        customGatewayUrl: "https://w3s.link/ipfs/",
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ cid: "bafybeihmockweb3cid" }),
+        }),
+      );
+
+      const file = new File(["<svg viewBox='0 0 100 100'></svg>"], "media.svg", {
+        type: "image/svg+xml",
+      });
+      const asset = await pinAssetToIpfs(file, {
+        campaignId: "1",
+        campaignName: "Test Web3 Campaign",
+        category: "banner",
+      });
+
+      expect(asset.provider).toBe("web3.storage");
+      expect(asset.cid).toBe("bafybeihmockweb3cid");
+    });
+
+    it("should handle pinFileToPinata network response failure by falling back to local CID", async () => {
+      saveIpfsProviderConfig({
+        activeProvider: "pinata",
+        pinataJwt: "mock_jwt_fail",
+        web3StorageToken: "",
+        customGatewayUrl: "https://custom.gateway/ipfs/",
+      });
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          statusText: "Unauthorized",
+        }),
+      );
+
+      const file = new File(["<svg viewBox='0 0 100 100'></svg>"], "banner.svg", {
+        type: "image/svg+xml",
+      });
+      const asset = await pinAssetToIpfs(file, {
+        campaignId: "1",
+        campaignName: "Fallback Campaign",
+      });
+
+      expect(asset.cid.startsWith("bafybei")).toBe(true);
+      expect(asset.gatewayUrl).toContain("gateway.pinata.cloud");
+    });
+
+    it("should safely handle deletePromotionAsset and incrementDownloadCount failures", () => {
+      const notFound = deletePromotionAsset("non_existent_id");
+      expect(notFound).toBe(true);
+
+      incrementDownloadCount("non_existent_id");
+
+      // Corrupt localStorage to test try/catch branches
+      vi.stubGlobal("localStorage", {
+        getItem: () => {
+          throw new Error("Quota exceeded");
+        },
+        setItem: () => {
+          throw new Error("Quota exceeded");
+        },
+        removeItem: () => {},
+      });
+
+      expect(deletePromotionAsset("asset_1")).toBe(false);
+      expect(() => incrementDownloadCount("asset_1")).not.toThrow();
+      expect(getIpfsProviderConfig().activeProvider).toBe("pinata");
+      expect(() =>
+        saveIpfsProviderConfig({
+          activeProvider: "pinata",
+          pinataJwt: "",
+          web3StorageToken: "",
+          customGatewayUrl: "",
+        }),
+      ).not.toThrow();
     });
   });
 
