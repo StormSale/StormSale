@@ -236,6 +236,8 @@ const AffiliateLinkGenerator = () => {
   );
 };
 
+import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
+
 export const AffiliateOverview = () => {
   const stats = [
     {
@@ -284,13 +286,17 @@ export const AffiliateOverview = () => {
             Affiliate Dashboard
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Track your performance and maximize your on-chain earnings.
+            Track your performance and maximize your{" "}
+            <TerminologyTooltip term="soroban">on-chain earnings</TerminologyTooltip>.
           </p>
         </div>
-        <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
-          <Zap className="w-5 h-5 mr-2" />
-          Quick Start Guide
-        </Button>
+        <div className="mt-6 lg:mt-0 flex items-center gap-3">
+          <TerminologyGuideButton className="h-12 px-5 rounded-full" />
+          <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
+            <Zap className="w-5 h-5 mr-2" />
+            Quick Start Guide
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}
