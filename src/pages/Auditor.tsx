@@ -44,6 +44,7 @@ const AUDITOR_TABS = [
   "soc2",
   "merkle",
   "privacy",
+  "shopify",
 ] as const;
 
 type AuditorTab = (typeof AUDITOR_TABS)[number];
