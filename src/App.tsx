@@ -6,8 +6,11 @@ import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
+import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
+import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -141,6 +144,8 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
+      <MultiSigApprovalModal />
+      <RpcStatusModal />
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
           <Landing />
@@ -194,7 +199,9 @@ function App() {
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
-              <Router />
+              <TooltipProvider delayDuration={300}>
+                <Router />
+              </TooltipProvider>
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>
