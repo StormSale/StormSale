@@ -23,7 +23,6 @@ import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { Button } from "../components/ui/button";
 
-
 interface AffiliateProps {
   onBack: () => void;
 }

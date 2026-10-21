@@ -238,8 +238,37 @@ const AffiliateLinkGenerator = () => {
 
 import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
 
+const AFFILIATE_QUICK_ACTIONS = [
+  {
+    id: "custom-links",
+    label: "Custom Short Links",
+    description: "Branded cloaked URLs",
+    icon: Link2,
+  },
+  {
+    id: "join-campaign",
+    label: "Join New Campaign",
+    description: "Discover high-paying campaigns",
+    icon: Users,
+  },
+  {
+    id: "my-sales",
+    label: "Track Performance",
+    description: "View analytics and insights",
+    icon: TrendingUp,
+  },
+  {
+    id: "claim-payouts",
+    label: "Withdraw Earnings",
+    description: "Claim your commissions",
+    icon: DollarSign,
+  },
+] as const;
+
+type AffiliateQuickActionTab = (typeof AFFILIATE_QUICK_ACTIONS)[number]["id"];
+
 interface AffiliateOverviewProps {
-  onNavigate?: (tab: string) => void;
+  onNavigate?: (tab: AffiliateQuickActionTab) => void;
 }
 
 export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
@@ -452,32 +481,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate
         </CardHeader>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[
-              {
-                id: "custom-links",
-                label: "Custom Short Links",
-                description: "Branded cloaked URLs",
-                icon: Link2,
-              },
-              {
-                id: "join-campaign",
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                id: "my-sales",
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                id: "claim-payouts",
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
-            ].map((action, index) => {
+            {AFFILIATE_QUICK_ACTIONS.map((action, index) => {
               const IconComponent = action.icon;
               return (
                 <Button
