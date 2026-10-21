@@ -126,7 +126,7 @@ export const ReferralTreeProvider: React.FC<ReferralTreeProviderProps> = ({
         showNotification({
           type: "success",
           title: "Sub-Affiliate Recruited",
-          message: `${newRel.childName} (${childAddress.slice(0, 5)}...${childAddress.slice(-4)}) has been bound to recruiter network. 2% override commission active.`,
+          message: `${newRel.childName} (${childAddress.slice(0, 5)}...${childAddress.slice(-4)}) has been bound to recruiter network. ${newRel.overrideRatePercent}% override commission active.`,
           duration: 5000,
         });
 
@@ -159,7 +159,7 @@ export const ReferralTreeProvider: React.FC<ReferralTreeProviderProps> = ({
         showNotification({
           type: "info",
           title: "Second-Tier Commission Split",
-          message: `Sale of ${params.saleAmountXlm} XLM split: ${split.sellingAffiliateCommissionXlm} XLM (8%) to selling affiliate, +${split.recruiterOverrideCommissionXlm} XLM (2%) passive override to recruiter.`,
+          message: `Sale of ${params.saleAmountXlm} XLM split: ${split.sellingAffiliateCommissionXlm} XLM (${split.sellingAffiliateRatePercent}%) to selling affiliate, +${split.recruiterOverrideCommissionXlm} XLM (${split.recruiterOverrideRatePercent}%) passive override to recruiter.`,
           duration: 6000,
         });
       }

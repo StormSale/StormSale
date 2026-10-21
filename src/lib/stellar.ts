@@ -629,11 +629,13 @@ export async function logSaleContractCall(
   walletType: WalletType = "freighter",
   recruiterAddress?: string,
 ): Promise<{ success: boolean; txHash: string; split?: TwoTierCommissionSplit }> {
-  const recruiter = recruiterAddress || getRecruiterForAffiliate(affiliateAddress)?.parentAddress;
+  const rel = getRecruiterForAffiliate(affiliateAddress);
+  const recruiter = recruiterAddress || rel?.parentAddress;
+  const overrideRate = rel?.overrideRatePercent ?? 2.0;
   const split = calculateTwoTierCommission(
     saleAmountXlm,
     10.0,
-    2.0,
+    overrideRate,
     recruiter,
     affiliateAddress,
   );

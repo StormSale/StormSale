@@ -527,8 +527,9 @@ export const ReferralNetworkTree: React.FC = () => {
               </div>
             </div>
 
-            {/* Interactive Simulation Trigger */}
-            {currentNode.tier > 0 && (
+            {/* Interactive Simulation Trigger (Development only) */}
+            {currentNode.tier > 0 &&
+              (import.meta.env?.DEV || process.env.NODE_ENV !== "production") && (
               <div className="border-t border-slate-100 dark:border-zinc-800 pt-4 space-y-2">
                 <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 block">
                   Simulate Live Sale
@@ -583,7 +584,15 @@ export const ReferralNetworkTree: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
-                {relations.map((rel) => (
+                {relations
+                  .filter(
+                    (rel) =>
+                      rel.parentAddress.toLowerCase() === tree.address.toLowerCase() ||
+                      tier1Nodes.some(
+                        (t1) => t1.address.toLowerCase() === rel.parentAddress.toLowerCase(),
+                      ),
+                  )
+                  .map((rel) => (
                   <tr
                     key={rel.childAddress}
                     className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/30 transition-colors"
@@ -615,8 +624,14 @@ export const ReferralNetworkTree: React.FC = () => {
                       +{rel.totalOverrideEarnedXlm.toLocaleString()} XLM
                     </td>
                     <td className="py-4 px-6 text-right">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                        Active
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold capitalize ${
+                          rel.status === "active"
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                        }`}
+                      >
+                        {rel.status || "Active"}
                       </span>
                     </td>
                   </tr>

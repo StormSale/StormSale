@@ -11,6 +11,7 @@
  */
 
 import { sha256Hex, fallbackSha256 } from "../utils/merkle";
+import { isValidStellarAddress } from "./referralTree";
 import type {
   HistoricConversionRecord,
   ZKRevenueProof,
@@ -23,6 +24,9 @@ import { getLocalStorage } from "./storage";
 export const ZK_PROOFS_STORAGE_KEY = "stormsale.zk.revenue_proofs";
 export const ZK_CONVERSIONS_STORAGE_KEY = "stormsale.zk.conversions";
 export const ZK_ACTIVE_BADGE_KEY = "stormsale.zk.active_badge";
+
+// StormSale ZK Attestation Authority Keyed Secret
+export const ZK_AUTHORITY_SECRET = "STORMSALE_ZK_ATTESTATION_AUTHORITY_SECRET_V1";
 
 export const REVENUE_TIERS: Record<RevenueTier, RevenueTierConfig> = {
   BRONZE: {
@@ -223,7 +227,8 @@ export async function generateZKRevenueProof(options: {
   const { affiliateAddress, conversions, expiryDays = 90 } = options;
   const targetThresholdUsd = options.targetThresholdUsd ?? 50_000;
 
-  if (!affiliateAddress || affiliateAddress.trim().length < 5) {
+  const trimmedAddress = (affiliateAddress || "").trim();
+  if (!trimmedAddress || !isValidStellarAddress(trimmedAddress)) {
     throw new Error("A valid affiliate Stellar public key is required to generate a proof.");
   }
 
@@ -243,9 +248,17 @@ export async function generateZKRevenueProof(options: {
   }
 
   // High-entropy private salt for blinding leaves
-  const privateSalt =
-    options.privateSalt ||
-    `zk_salt_${Date.now()}_${Math.random().toString(36).substring(2, 12)}_${Math.random().toString(36).substring(2, 12)}`;
+  let privateSalt = options.privateSalt;
+  if (!privateSalt) {
+    if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function") {
+      const bytes = new Uint8Array(24);
+      globalThis.crypto.getRandomValues(bytes);
+      const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+      privateSalt = `zk_salt_${hex}`;
+    } else {
+      privateSalt = `zk_salt_${Date.now()}_${Math.random().toString(36).substring(2, 12)}_${Math.random().toString(36).substring(2, 12)}`;
+    }
+  }
 
   // 1. Compute blinded leaf commitments for all historic conversions
   const leafPromises = conversions.map((record) => computeBlindedLeafHash(record, privateSalt));
@@ -259,7 +272,7 @@ export async function generateZKRevenueProof(options: {
 
   // 4. Compute nullifier hash (prevents replay while allowing verification of freshness)
   const nullifierHash = await sha256Hex(
-    `${affiliateAddress}:nullifier:${privateSalt}:${conversions.length}`,
+    `${trimmedAddress}:nullifier:${privateSalt}:${conversions.length}`,
   );
 
   // 5. Determine qualified revenue tier based on threshold
@@ -273,11 +286,13 @@ export async function generateZKRevenueProof(options: {
   // 7. Compute Attestation Digest
   // Digest = SHA-256(affiliateAddress || merkleRoot || claimedThresholdUsd || totalConversionsCount || saltCommitment)
   const attestationDigest = await sha256Hex(
-    `${affiliateAddress.trim()}:${merkleRoot}:${targetThresholdUsd}:${conversions.length}:${saltCommitment}`,
+    `${trimmedAddress}:${merkleRoot}:${targetThresholdUsd}:${conversions.length}:${saltCommitment}`,
   );
 
   // 8. Sign attestation digest with StormSale ZK attestation key
-  const signature = await sha256Hex(`SIG_STORMSALE_ZK_ATTESTATION_${attestationDigest}_${affiliateAddress}`);
+  const signature = await sha256Hex(
+    `SIG_STORMSALE_ZK_ATTESTATION_${attestationDigest}_${trimmedAddress}_${ZK_AUTHORITY_SECRET}`,
+  );
 
   const createdAt = new Date().toISOString();
   const expiresAt = expiryDays
@@ -395,7 +410,7 @@ export function verifyZKRevenueProofSync(proof: ZKRevenueProof): ZKVerificationR
 
   // Step 4: Cryptographic Signature & Issuer Authenticity
   const expectedSig = sha256Sync(
-    `SIG_STORMSALE_ZK_ATTESTATION_${expectedDigest}_${proof.affiliateAddress}`,
+    `SIG_STORMSALE_ZK_ATTESTATION_${expectedDigest}_${proof.affiliateAddress.trim()}_${ZK_AUTHORITY_SECRET}`,
   );
   const sigMatches = expectedSig === proof.signature && proof.issuer === "StormSale-ZK-Engine";
 
@@ -486,7 +501,22 @@ export function deserializeProofFromUrlSafe(encoded: string): ZKRevenueProof | n
     }
 
     const parsed = JSON.parse(jsonStr) as ZKRevenueProof;
-    if (parsed.version === "1.0.0-zk" && parsed.merkleRoot && parsed.affiliateAddress) {
+    if (
+      parsed &&
+      parsed.version === "1.0.0-zk" &&
+      typeof parsed.proofId === "string" &&
+      typeof parsed.affiliateAddress === "string" &&
+      typeof parsed.merkleRoot === "string" &&
+      typeof parsed.claimedThresholdUsd === "number" &&
+      Number.isFinite(parsed.claimedThresholdUsd) &&
+      parsed.claimedThresholdUsd > 0 &&
+      typeof parsed.totalConversionsCount === "number" &&
+      Number.isFinite(parsed.totalConversionsCount) &&
+      typeof parsed.saltCommitment === "string" &&
+      typeof parsed.attestationDigest === "string" &&
+      typeof parsed.signature === "string" &&
+      ["BRONZE", "SILVER", "GOLD", "DIAMOND", "ELITE"].includes(parsed.revenueTier)
+    ) {
       return parsed;
     }
     return null;
@@ -559,10 +589,11 @@ export function saveStoredZKProof(proof: ZKRevenueProof): boolean {
     filtered.unshift(proof);
     storage.setItem(ZK_PROOFS_STORAGE_KEY, JSON.stringify(filtered));
 
-    // Also auto-activate as active badge if none exists
-    const active = getActiveBadgeProof(proof.affiliateAddress);
-    if (!active) {
-      setActiveBadgeProof(proof.affiliateAddress, proof.proofId);
+    // Also auto-activate as active badge if none exists in storage
+    const trimmedAddress = proof.affiliateAddress.trim();
+    const existingActive = storage.getItem(`${ZK_ACTIVE_BADGE_KEY}.${trimmedAddress}`);
+    if (!existingActive) {
+      setActiveBadgeProof(trimmedAddress, proof.proofId);
     }
     return true;
   } catch (err) {
@@ -577,13 +608,20 @@ export function saveStoredZKProof(proof: ZKRevenueProof): boolean {
 export function getActiveBadgeProof(affiliateAddress: string): ZKRevenueProof | null {
   const storage = getLocalStorage();
   try {
-    const activeProofId = storage.getItem(`${ZK_ACTIVE_BADGE_KEY}.${affiliateAddress.trim()}`);
-    const proofs = loadStoredZKProofs(affiliateAddress);
+    const trimmed = affiliateAddress.trim();
+    const activeProofId = storage.getItem(`${ZK_ACTIVE_BADGE_KEY}.${trimmed}`);
+    const proofs = loadStoredZKProofs(trimmed);
+    const now = Date.now();
+    const isUnexpired = (p: ZKRevenueProof) =>
+      !p.expiresAt || new Date(p.expiresAt).getTime() > now;
+
     if (activeProofId) {
-      const match = proofs.find((p) => p.proofId === activeProofId);
+      const match = proofs.find((p) => p.proofId === activeProofId && isUnexpired(p));
       if (match) return match;
     }
-    return proofs[0] || null;
+    // Fallback: first unexpired proof candidate
+    const validCandidate = proofs.find(isUnexpired);
+    return validCandidate || null;
   } catch {
     return null;
   }

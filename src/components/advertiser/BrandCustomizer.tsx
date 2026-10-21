@@ -9,6 +9,7 @@ import {
 } from "../../lib/branding";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../context/OrganizationContext";
 import { Button } from "../ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui/card";
 import {
@@ -38,6 +39,8 @@ const PRESET_COLORS = [
 export const BrandCustomizer: React.FC = () => {
   const { userAddress } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability } = useOrganization();
+  const canEditBrand = hasCapability("campaign:edit");
 
   const [config, setConfig] = useState<AdvertiserBrandConfig>(() =>
     loadBrandConfig(userAddress || undefined),
@@ -52,12 +55,21 @@ export const BrandCustomizer: React.FC = () => {
   const isSubdomainValid = isValidSubdomain(config.subdomain);
 
   useEffect(() => {
-    if (userAddress) {
+    if (userAddress && canEditBrand) {
       saveBrandConfig(userAddress, config);
     }
-  }, [config, userAddress]);
+  }, [config, userAddress, canEditBrand]);
 
   const handlePublishToIpfs = async () => {
+    if (!canEditBrand) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: "You need campaign:edit permissions to publish brand settings to IPFS.",
+      });
+      return;
+    }
+
     if (!isSubdomainValid) {
       showNotification({
         type: "error",
@@ -153,8 +165,8 @@ export const BrandCustomizer: React.FC = () => {
 
           <Button
             onClick={handlePublishToIpfs}
-            disabled={isPublishingIpfs || !isSubdomainValid}
-            className="rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-xs h-10 px-4 shadow-md"
+            disabled={isPublishingIpfs || !isSubdomainValid || !canEditBrand}
+            className="rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-xs h-10 px-4 shadow-md disabled:opacity-50"
           >
             {isPublishingIpfs ? (
               <>
@@ -170,6 +182,13 @@ export const BrandCustomizer: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {!canEditBrand && (
+        <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>Read-only preview mode. You need &quot;campaign:edit&quot; permissions to update or publish storefront settings.</span>
+        </div>
+      )}
 
       {/* Main Grid: Controls on Left, Live Preview on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

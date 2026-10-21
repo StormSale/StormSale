@@ -78,6 +78,30 @@ export function computeStatisticalMetrics(values: number[]): {
 }
 
 /**
+ * Sliding window maximum count helper:
+ * Finds the maximum number of timestamps occurring within any `windowMs` time interval
+ * using a two-pointer sliding window over sorted millisecond timestamps.
+ */
+export function maxInWindow(timestampsMs: number[], windowMs = 60000): number {
+  if (timestampsMs.length === 0) return 0;
+  const sorted = [...timestampsMs].sort((a, b) => a - b);
+  let maxCount = 0;
+  let left = 0;
+
+  for (let right = 0; right < sorted.length; right++) {
+    while (sorted[right] - sorted[left] >= windowMs) {
+      left++;
+    }
+    const count = right - left + 1;
+    if (count > maxCount) {
+      maxCount = count;
+    }
+  }
+
+  return maxCount;
+}
+
+/**
  * Calculates conversion velocities for an affiliate:
  * - Peak conversions per 1-minute sliding window
  * - Average conversions per hour
@@ -92,6 +116,7 @@ export function calculateAffiliateVelocity(records: ClickToConversionRecord[]): 
   }
 
   const minuteBuckets = new Map<number, number>();
+  const timestampsMs: number[] = [];
   let minTime = Infinity;
   let maxTime = -Infinity;
 
@@ -100,17 +125,13 @@ export function calculateAffiliateVelocity(records: ClickToConversionRecord[]): 
     if (timeMs < minTime) minTime = timeMs;
     if (timeMs > maxTime) maxTime = timeMs;
 
-    // 1-minute bucket (epoch ms / 60000)
+    timestampsMs.push(timeMs);
+    // 1-minute bucket (epoch ms / 60000) for diagnostic bucket distribution
     const bucket = Math.floor(timeMs / 60000);
     minuteBuckets.set(bucket, (minuteBuckets.get(bucket) || 0) + 1);
   });
 
-  let peakVelocityPerMinute = 0;
-  minuteBuckets.forEach((count) => {
-    if (count > peakVelocityPerMinute) {
-      peakVelocityPerMinute = count;
-    }
-  });
+  const peakVelocityPerMinute = maxInWindow(timestampsMs, 60000);
 
   const spanHours = Math.max(1, (maxTime - minTime) / 3600000);
   const averageVelocityPerHour = Number((records.length / spanHours).toFixed(1));
@@ -223,22 +244,23 @@ export function evaluateAffiliateRisk(
 
   // 3. IP Hash Burst & Concentration Analysis (e.g. 50 conversions in 1 minute from same IP hash)
   const ipCounts = new Map<string, number>();
-  const ipMinuteBuckets = new Map<string, number>();
+  const ipTimestamps = new Map<string, number[]>();
 
   affiliateRecords.forEach((r) => {
     const ip = r.ipHash || "unknown_ip";
     ipCounts.set(ip, (ipCounts.get(ip) || 0) + 1);
 
     const timeMs = new Date(r.conversionTimestamp).getTime();
-    const bucket = Math.floor(timeMs / 60000);
-    const key = `${ip}_${bucket}`;
-    ipMinuteBuckets.set(key, (ipMinuteBuckets.get(key) || 0) + 1);
+    const list = ipTimestamps.get(ip) || [];
+    list.push(timeMs);
+    ipTimestamps.set(ip, list);
   });
 
   let ipHashBurstCount = 0;
-  ipMinuteBuckets.forEach((count) => {
-    if (count > ipHashBurstCount) {
-      ipHashBurstCount = count;
+  ipTimestamps.forEach((times) => {
+    const burst = maxInWindow(times, 60000);
+    if (burst > ipHashBurstCount) {
+      ipHashBurstCount = burst;
     }
   });
 

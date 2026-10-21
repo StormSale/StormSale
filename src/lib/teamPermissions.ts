@@ -127,7 +127,12 @@ export function generateOrganizationAuthChallenge(
   if (!isValidStellarAddress(memberAddress)) {
     throw new Error("Invalid Stellar wallet address for organization authentication challenge.");
   }
-  const challengeNonce = Math.random().toString(36).substring(2, 12);
+  const challengeNonce =
+    typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function"
+      ? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (b) =>
+          b.toString(16).padStart(2, "0"),
+        ).join("")
+      : Math.random().toString(36).substring(2, 12);
   const timestamp = new Date().toISOString();
   const messageToSign = `StormSale Enterprise Organization Auth\nOrg ID: ${orgId}\nMember: ${memberAddress}\nNonce: ${challengeNonce}\nTimestamp: ${timestamp}`;
 
@@ -151,6 +156,14 @@ export function verifyMemberWalletSignature(
   if (!memberAddress || !signature || !challenge) return false;
   if (!isValidStellarAddress(memberAddress)) return false;
   if (challenge.memberAddress !== memberAddress) return false;
+
+  // Freshness check: reject challenges outside 5-minute freshness window
+  if (challenge.timestamp) {
+    const challengeTime = new Date(challenge.timestamp).getTime();
+    if (isNaN(challengeTime) || Math.abs(Date.now() - challengeTime) > 5 * 60 * 1000) {
+      return false;
+    }
+  }
 
   // 1. Simulated / mock signatures
   if (

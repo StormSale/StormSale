@@ -17,6 +17,7 @@ import {
   saveStoredZKProof,
   getActiveBadgeProof,
   setActiveBadgeProof,
+  sha256Sync,
 } from "../lib/zkProofEngine";
 import type { HistoricConversionRecord, ZKRevenueProof } from "../types/zkProof";
 import { ZKProofProvider } from "../context/ZKProofContext";
@@ -221,6 +222,38 @@ describe("Zero-Knowledge Conversion Proof Generator & Private Affiliate Portfoli
         (s) => s.step === "ATTESTATION_DIGEST",
       );
       expect(digestStep?.passed).toBe(false);
+    });
+
+    it("detects and rejects a forged proof where threshold is inflated and signature recomputed using public formulas", async () => {
+      const conversions = generateMockHistoricConversions(TEST_AFFILIATE, 60000);
+      const { proof } = await generateZKRevenueProof({
+        affiliateAddress: TEST_AFFILIATE,
+        conversions,
+        targetThresholdUsd: 50_000,
+      });
+
+      // Attacker changes claimedThresholdUsd to 250_000, recomputes both attestationDigest
+      // and signature using sha256Sync and public formulas
+      const forgedThresholdUsd = 250_000;
+      const forgedDigest = sha256Sync(
+        `${TEST_AFFILIATE}:${proof.merkleRoot}:${forgedThresholdUsd}:${proof.totalConversionsCount}:${proof.saltCommitment}`,
+      );
+      const forgedSignature = sha256Sync(
+        `SIG_STORMSALE_ZK_ATTESTATION_${forgedDigest}_${TEST_AFFILIATE}`,
+      );
+
+      const forgedProof: ZKRevenueProof = {
+        ...proof,
+        claimedThresholdUsd: forgedThresholdUsd,
+        revenueTier: "ELITE",
+        attestationDigest: forgedDigest,
+        signature: forgedSignature,
+      };
+
+      const verification = await verifyZKRevenueProof(forgedProof);
+      expect(verification.isValid).toBe(false);
+      const sigStep = verification.verificationSteps.find((s) => s.step === "ISSUER_SIGNATURE");
+      expect(sigStep?.passed).toBe(false);
     });
 
     it("detects and rejects a tampered Merkle root or affiliate address", async () => {

@@ -53,9 +53,32 @@ export const ZKProofVerifierModal: React.FC<ZKProofVerifierModalProps> = ({
   const handleManualReverify = async () => {
     if (!proof) return;
     setIsVerifying(true);
-    const res = await verifyZKRevenueProof(proof);
-    setResult(res);
-    setIsVerifying(false);
+    try {
+      const res = await verifyZKRevenueProof(proof);
+      setResult(res);
+    } catch (err) {
+      setResult({
+        isValid: false,
+        verifiedAt: new Date().toISOString(),
+        affiliateAddress: proof.affiliateAddress,
+        claimedThresholdUsd: proof.claimedThresholdUsd,
+        revenueTier: proof.revenueTier,
+        conversionsCount: 0,
+        failureReason:
+          err instanceof Error
+            ? err.message
+            : "Verification encountered an unexpected error",
+        verificationSteps: [
+          {
+            step: "PROOF_EXECUTION",
+            passed: false,
+            description: "Proof verification threw an unhandled exception.",
+          },
+        ],
+      });
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   const handleDownloadCertificate = () => {

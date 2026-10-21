@@ -96,7 +96,7 @@ export const RecruiterInviteModal: React.FC<RecruiterInviteModalProps> = ({
 
   const handleTelegramShare = () => {
     const text = encodeURIComponent(
-      `Join my StormSale marketing network! Earn 8% direct commissions on decentralized Stellar escrow sales + I earn a 2% second-tier override.\n\nSign up with my recruiter link:`,
+      `Join my StormSale marketing network! Earn ${10 - overrideRate}% direct commissions on decentralized Stellar escrow sales + I earn a ${overrideRate}% second-tier override.\n\nSign up with my recruiter link:`,
     );
     const url = encodeURIComponent(inviteUrl);
     window.open(`https://t.me/share/url?url=${url}&text=${text}`, "_blank");
@@ -139,7 +139,7 @@ export const RecruiterInviteModal: React.FC<RecruiterInviteModalProps> = ({
                 <span>Your Master Recruiter Link</span>
               </label>
               <span className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
-                2% Override Active
+                {overrideRate}% Override Active
               </span>
             </div>
 
@@ -156,10 +156,14 @@ export const RecruiterInviteModal: React.FC<RecruiterInviteModalProps> = ({
             {/* Link Customizer Options */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
               <div>
-                <label className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400 block mb-1">
+                <label
+                  htmlFor="recruiter-tag-input"
+                  className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400 block mb-1"
+                >
                   Campaign / Channel Tag
                 </label>
                 <Input
+                  id="recruiter-tag-input"
                   value={tag}
                   onChange={(e) => setTag(e.target.value)}
                   placeholder="e.g. telegram, twitter, direct"
@@ -174,6 +178,7 @@ export const RecruiterInviteModal: React.FC<RecruiterInviteModalProps> = ({
                 <div className="flex items-center gap-2 h-8">
                   <input
                     type="range"
+                    aria-label="Override Commission Rate"
                     min="1"
                     max="5"
                     step="0.5"
@@ -257,6 +262,7 @@ export const RecruiterInviteModal: React.FC<RecruiterInviteModalProps> = ({
 
             <input
               type="range"
+              aria-label="Simulated Sales Volume"
               min="1000"
               max="50000"
               step="1000"

@@ -11,6 +11,7 @@ import {
   Clock,
   Layers,
   Network,
+  HelpCircle,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../ui/tooltip";
 import { Button } from "../ui/button";
@@ -35,13 +36,21 @@ export const FraudRiskBadge: React.FC<FraudRiskBadgeProps> = ({
     useFraudRisk();
   const profile = customProfile || getRiskProfile(affiliateAddress);
 
+  const isUnscored = !profile;
   const riskLevel: RiskScoreLevel = profile?.riskLevel || "LOW";
   const riskScore = profile?.riskScore ?? 0;
   const isPaused = profile?.isPaused ?? isAffiliatePaused(affiliateAddress);
   const name = affiliateName || profile?.affiliateName || "Partner";
 
-  const getPillStyles = (level: RiskScoreLevel) => {
-    switch (level) {
+  const getPillStyles = () => {
+    if (isUnscored) {
+      return {
+        bg: "bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-300 dark:border-zinc-700",
+        icon: <HelpCircle className="w-3 h-3 text-slate-500 dark:text-zinc-400 shrink-0" />,
+        label: "Unscored",
+      };
+    }
+    switch (riskLevel) {
       case "CRITICAL":
         return {
           bg: "bg-rose-100 text-rose-800 dark:bg-rose-950/80 dark:text-rose-300 border-rose-300 dark:border-rose-800 ring-2 ring-rose-500/20",
@@ -72,7 +81,7 @@ export const FraudRiskBadge: React.FC<FraudRiskBadgeProps> = ({
     }
   };
 
-  const pill = getPillStyles(riskLevel);
+  const pill = getPillStyles();
 
   return (
     <div
@@ -82,17 +91,22 @@ export const FraudRiskBadge: React.FC<FraudRiskBadgeProps> = ({
       <TooltipProvider delayDuration={200}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <div
-              tabIndex={0}
-              role="button"
-              aria-label={`Fraud Risk: ${pill.label} (${riskScore}/100)`}
+            <button
+              type="button"
+              aria-label={
+                isUnscored
+                  ? "Fraud Risk: Unscored (No data)"
+                  : `Fraud Risk: ${pill.label} (${riskScore}/100)`
+              }
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider border cursor-pointer transition-all hover:scale-105 select-none ${pill.bg}`}
-              data-testid={`risk-pill-${riskLevel.toLowerCase()}`}
+              data-testid={isUnscored ? "risk-pill-unscored" : `risk-pill-${riskLevel.toLowerCase()}`}
             >
               {pill.icon}
               <span>{pill.label}</span>
-              <span className="font-mono text-[10px] opacity-80">{`(${riskScore})`}</span>
-            </div>
+              {!isUnscored && (
+                <span className="font-mono text-[10px] opacity-80">{`(${riskScore})`}</span>
+              )}
+            </button>
           </TooltipTrigger>
 
           <TooltipContent
@@ -203,36 +217,38 @@ export const FraudRiskBadge: React.FC<FraudRiskBadgeProps> = ({
               </span>
             </div>
 
-            {/* 1-Click Action inside tooltip */}
-            <div className="pt-2 border-t border-zinc-800">
-              {isPaused ? (
-                <Button
-                  size="sm"
-                  onClick={() => unpauseAffiliateAction(affiliateAddress)}
-                  className="w-full h-8 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center gap-1.5"
-                  data-testid="tooltip-btn-unfreeze"
-                >
-                  <PlayCircle className="w-3.5 h-3.5" />
-                  <span>Unfreeze Affiliate</span>
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    pauseAffiliateAction(
-                      affiliateAddress,
-                      `Velocity anomaly & risk review (score: ${riskScore})`,
-                      name,
-                    )
-                  }
-                  className="w-full h-8 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center gap-1.5 shadow-sm"
-                  data-testid="tooltip-btn-freeze"
-                >
-                  <PauseCircle className="w-3.5 h-3.5" />
-                  <span>Freeze Payouts Pending Review</span>
-                </Button>
-              )}
-            </div>
+            {/* 1-Click Action inside tooltip (rendered only when actionable) */}
+            {showActionBtn && (
+              <div className="pt-2 border-t border-zinc-800">
+                {isPaused ? (
+                  <Button
+                    size="sm"
+                    onClick={() => unpauseAffiliateAction(affiliateAddress)}
+                    className="w-full h-8 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white flex items-center justify-center gap-1.5"
+                    data-testid="tooltip-btn-unfreeze"
+                  >
+                    <PlayCircle className="w-3.5 h-3.5" />
+                    <span>Unfreeze Affiliate</span>
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      pauseAffiliateAction(
+                        affiliateAddress,
+                        `Velocity anomaly & risk review (score: ${riskScore})`,
+                        name,
+                      )
+                    }
+                    className="w-full h-8 text-xs font-bold rounded-lg bg-rose-600 hover:bg-rose-500 text-white flex items-center justify-center gap-1.5 shadow-sm"
+                    data-testid="tooltip-btn-freeze"
+                  >
+                    <PauseCircle className="w-3.5 h-3.5" />
+                    <span>Freeze Payouts Pending Review</span>
+                  </Button>
+                )}
+              </div>
+            )}
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>

@@ -7,21 +7,19 @@ import { CopyButton } from "../ui/copy-button";
 import { FraudRiskBadge } from "./FraudRiskBadge";
 import { useFraudRisk } from "../../hooks/useFraudRisk";
 import { formatStellarAddress } from "../../lib/stellar";
-import type { RiskScoreLevel } from "../../types/fraud";
 
 export const FraudRiskPartnerTable: React.FC = () => {
   const {
     riskProfiles,
     campaignSummary,
-    pausedAffiliates,
     pauseAffiliateAction,
     unpauseAffiliateAction,
+    filterRiskLevel,
+    setFilterRiskLevel,
+    selectedCampaignId,
   } = useFraudRisk();
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRiskFilter, setSelectedRiskFilter] = useState<RiskScoreLevel | "ALL" | "FROZEN">(
-    "ALL",
-  );
 
   const profileList = useMemo(() => {
     return Object.values(riskProfiles);
@@ -29,11 +27,20 @@ export const FraudRiskPartnerTable: React.FC = () => {
 
   const filteredProfiles = useMemo(() => {
     return profileList.filter((profile) => {
+      // Campaign filter
+      if (
+        selectedCampaignId &&
+        selectedCampaignId !== "all" &&
+        profile.campaignId !== selectedCampaignId
+      ) {
+        return false;
+      }
+
       // Risk filter
-      if (selectedRiskFilter === "FROZEN") {
+      if (filterRiskLevel === "FROZEN") {
         if (!profile.isPaused) return false;
-      } else if (selectedRiskFilter !== "ALL") {
-        if (profile.riskLevel !== selectedRiskFilter) return false;
+      } else if (filterRiskLevel !== "ALL") {
+        if (profile.riskLevel !== filterRiskLevel) return false;
       }
 
       // Search filter
@@ -47,7 +54,7 @@ export const FraudRiskPartnerTable: React.FC = () => {
 
       return true;
     });
-  }, [profileList, selectedRiskFilter, searchQuery]);
+  }, [profileList, selectedCampaignId, filterRiskLevel, searchQuery]);
 
   return (
     <div className="space-y-6" data-testid="fraud-risk-partner-table">
@@ -117,7 +124,7 @@ export const FraudRiskPartnerTable: React.FC = () => {
                 Payouts Frozen
               </p>
               <p className="text-2xl font-black text-rose-700 dark:text-rose-300 mt-1">
-                {Object.keys(pausedAffiliates).length}
+                {campaignSummary.frozenAffiliatesCount}
               </p>
               <p className="text-[11px] text-zinc-400 font-medium">1-click escrow protection</p>
             </div>
@@ -160,9 +167,9 @@ export const FraudRiskPartnerTable: React.FC = () => {
               {(["ALL", "CRITICAL", "HIGH", "MEDIUM", "LOW", "FROZEN"] as const).map((filter) => (
                 <button
                   key={filter}
-                  onClick={() => setSelectedRiskFilter(filter)}
+                  onClick={() => setFilterRiskLevel(filter)}
                   className={`px-2.5 py-1 rounded-lg transition-all capitalize ${
-                    selectedRiskFilter === filter
+                    filterRiskLevel === filter
                       ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-xs font-black"
                       : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                   }`}
@@ -178,6 +185,9 @@ export const FraudRiskPartnerTable: React.FC = () => {
         <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse" data-testid="fraud-risk-table">
+              <caption className="sr-only">
+                Partner fraud risk scores and payout controls
+              </caption>
               <thead>
                 <tr className="border-b border-slate-100 dark:border-zinc-800/60 bg-slate-50/50 dark:bg-zinc-950/40 text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                   <th className="py-4 px-6">Affiliate Partner</th>

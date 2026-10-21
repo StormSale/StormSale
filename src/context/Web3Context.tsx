@@ -600,14 +600,6 @@ export function Web3Provider({
       `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
     );
 
-    // Record two-tier referral commission split
-    const split = recordReferralSale({
-      campaignId,
-      saleAmountXlm: amountXlm,
-      sellingAffiliateAddress: affiliateAddress,
-      totalCommissionRatePercent: 10,
-    });
-
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await logSaleContractCall(
         userAddress,
@@ -615,25 +607,42 @@ export function Web3Provider({
         affiliateAddress,
         amountXlm,
         connectorType,
-        recruiterAddress || split.recruiterAddress,
+        recruiterAddress,
       );
-      if (res.success) {
-        void dispatchWebhookEvent("conversion.confirmed", {
-          id: `sale_${res.txHash}`,
-          event: "conversion.confirmed",
-          created_at: new Date().toISOString(),
-          campaign_id: campaignId,
-          affiliate_address: affiliateAddress,
-          sale_amount_xlm: amountXlm,
-          commission_earned_xlm: split.sellingAffiliateCommissionXlm,
-          recruiter_address: split.recruiterAddress,
-          recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
-          tx_hash: res.txHash,
-        });
+      if (!res.success) {
+        return res;
       }
+
+      // Record two-tier referral commission split only after successful transaction
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        txHash: res.txHash,
+      });
+
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${res.txHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: res.txHash,
+      });
+
       return { ...res, split };
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        txHash: mockTxHash,
+      });
       void dispatchWebhookEvent("conversion.confirmed", {
         id: `sale_${mockTxHash}`,
         event: "conversion.confirmed",

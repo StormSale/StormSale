@@ -187,6 +187,20 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
         return { success: false, error: "Member not found" };
       }
 
+      if (newRole !== "ADMIN") {
+        if (target.walletAddress.toUpperCase() === organization.ownerAddress.toUpperCase()) {
+          const error = "Cannot demote organization owner from ADMIN role.";
+          showNotification({ type: "error", title: "Forbidden", message: error });
+          return { success: false, error };
+        }
+        const adminCount = organization.members.filter((m) => m.role === "ADMIN").length;
+        if (target.role === "ADMIN" && adminCount <= 1) {
+          const error = "Cannot demote the sole remaining ADMIN in the organization.";
+          showNotification({ type: "error", title: "Forbidden", message: error });
+          return { success: false, error };
+        }
+      }
+
       const updated: OrganizationState = {
         ...organization,
         members: organization.members.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)),
@@ -312,23 +326,38 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
     }
   }, [userAddress, currentMember, organization.id, showNotification]);
 
+  const contextValue = useMemo<OrganizationContextType>(
+    () => ({
+      organization,
+      members: organization.members,
+      currentMember,
+      currentRole,
+      capabilities,
+      hasCapability,
+      addTeamMember,
+      updateMemberRole,
+      removeTeamMember,
+      switchActiveRole,
+      verifyCurrentMemberSignature,
+      isSigningChallenge,
+    }),
+    [
+      organization,
+      currentMember,
+      currentRole,
+      capabilities,
+      hasCapability,
+      addTeamMember,
+      updateMemberRole,
+      removeTeamMember,
+      switchActiveRole,
+      verifyCurrentMemberSignature,
+      isSigningChallenge,
+    ],
+  );
+
   return (
-    <OrganizationContext.Provider
-      value={{
-        organization,
-        members: organization.members,
-        currentMember,
-        currentRole,
-        capabilities,
-        hasCapability,
-        addTeamMember,
-        updateMemberRole,
-        removeTeamMember,
-        switchActiveRole,
-        verifyCurrentMemberSignature,
-        isSigningChallenge,
-      }}
-    >
+    <OrganizationContext.Provider value={contextValue}>
       {children}
     </OrganizationContext.Provider>
   );

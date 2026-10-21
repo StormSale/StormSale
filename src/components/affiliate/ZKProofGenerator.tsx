@@ -25,6 +25,7 @@ export const ZKProofGenerator: React.FC = () => {
   const {
     conversions,
     totalCompiledRevenueUsd,
+    qualifiedTier,
     proofs,
     activeBadgeProof,
     isGenerating,
@@ -132,7 +133,9 @@ export const ZKProofGenerator: React.FC = () => {
               <Award className="w-4 h-4 text-amber-500" />
             </div>
             <CardTitle className="text-2xl font-black tracking-tight text-amber-600 dark:text-amber-400">
-              {totalCompiledRevenueUsd >= 50_000 ? "Gold Tier ($50K+)" : "Silver Tier"}
+              {totalCompiledRevenueUsd >= REVENUE_TIERS.BRONZE.minThresholdUsd
+                ? qualifiedTier.label
+                : "Not yet qualified"}
             </CardTitle>
           </CardHeader>
           <CardContent>
