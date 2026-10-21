@@ -1,8 +1,15 @@
 import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import {
+  NotificationProvider,
+  NotificationWrapper,
+  useNotification,
+} from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
+import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
+import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
@@ -62,6 +69,7 @@ class ErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // You can log error to an external service here
     console.error("Unhandled error caught by ErrorBoundary:", error, info);
   }
 
@@ -94,6 +102,9 @@ const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
+  const { isConnected, disconnectWallet } = useWeb3();
+  const { showNotification } = useNotification();
+  const [currentPage, setCurrentPage] = useState("dashboard");
   const { isConnected } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
 
@@ -120,6 +131,92 @@ function Router() {
     return params.get("brand") || params.get("c") || null;
   });
 
+  const { isWarningOpen, remainingSeconds, extendSession, handleManualDisconnect } =
+    useIdleDisconnect({
+      isConnected,
+      onDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "warning",
+          title: "Session Expired",
+          message:
+            "Your wallet was automatically disconnected after 30 minutes of inactivity for your security.",
+          duration: 8000,
+        });
+      },
+      onExtend: () => {
+        showNotification({
+          type: "info",
+          title: "Session Extended",
+          message: "Your active session has been extended.",
+          duration: 3000,
+        });
+      },
+      onManualDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "info",
+          title: "Wallet Disconnected",
+          message: "You have disconnected your wallet.",
+          duration: 3000,
+        });
+      },
+    });
+
+  // ?timeout_preview=1 opens the warning without a real idle session, for
+  // local development only. Its buttons just close the preview, so it never
+  // extends or disconnects a real wallet.
+  const [isPreviewOpen, setIsPreviewOpen] = useState(
+    () =>
+      import.meta.env.DEV &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("timeout_preview") === "1",
+  );
+
+  return (
+    <>
+      <SessionTimeoutModal
+        isOpen={isWarningOpen || isPreviewOpen}
+        remainingSeconds={remainingSeconds}
+        onExtend={isWarningOpen ? extendSession : () => setIsPreviewOpen(false)}
+        onDisconnect={isWarningOpen ? handleManualDisconnect : () => setIsPreviewOpen(false)}
+      />
+      {activeBrandSubdomain ? (
+        <Suspense fallback={<PageLoader />}>
+          <BrandedCampaignView
+            brandConfig={loadBrandConfig(activeBrandSubdomain)}
+            onClose={() => {
+              setActiveBrandSubdomain(null);
+              window.history.pushState({}, "", window.location.pathname);
+            }}
+            isStandalone
+          />
+        </Suspense>
+      ) : (
+        <>
+          <ConnectWalletModal />
+          <Suspense fallback={<PageLoader />}>
+            {!isConnected ? (
+              <Landing />
+            ) : (
+              <div className="min-h-screen bg-background">
+                <main>
+                  {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
+                  {currentPage === "advertiser" && (
+                    <Advertiser onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                  {currentPage === "affiliate" && (
+                    <Affiliate onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                  {currentPage === "auditor" && (
+                    <Auditor onBack={() => setCurrentPage("dashboard")} />
+                  )}
+                </main>
+              </div>
+            )}
+          </Suspense>
+        </>
+      )}
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
       setCurrentPage(page as Page);
