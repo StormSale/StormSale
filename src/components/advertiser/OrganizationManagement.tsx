@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../ui
 import { CopyButton } from "../ui/copy-button";
 import { useOrganization } from "../../hooks/useOrganization";
 import { ROLE_DEFINITIONS, isValidStellarAddress } from "../../lib/teamPermissions";
-import type { OrganizationRole } from "../../types/organization";
+import type { OrganizationRole, OrganizationCapability } from "../../types/organization";
 import {
   Users,
   Shield,
@@ -27,6 +27,7 @@ export const OrganizationManagement: React.FC = () => {
   const {
     organization,
     members,
+    currentMember,
     currentRole,
     hasCapability,
     addTeamMember,
@@ -516,7 +517,7 @@ export const OrganizationManagement: React.FC = () => {
 
                       {/* Actions */}
                       <td className="py-4 px-6 text-right space-x-2">
-                        {!isVerified && (
+                        {!isVerified && member.id === currentMember?.id && (
                           <Button
                             size="sm"
                             variant="outline"
@@ -587,13 +588,15 @@ export const OrganizationManagement: React.FC = () => {
                   </div>
 
                   <div className="space-y-1.5 pt-3 border-t border-slate-100 dark:border-zinc-800/60 text-[10px] font-mono">
-                    {[
-                      { cap: "campaign:create", name: "Create Campaigns" },
-                      { cap: "sale:log", name: "Log Encrypted Sales" },
-                      { cap: "escrow:refund", name: "Refund Escrow" },
-                      { cap: "team:manage", name: "Manage Team" },
-                    ].map((item) => {
-                      const allowed = def.capabilities.includes(item.cap as any);
+                    {(
+                      [
+                        { cap: "campaign:create", name: "Create Campaigns" },
+                        { cap: "sale:log", name: "Log Encrypted Sales" },
+                        { cap: "escrow:refund", name: "Refund Escrow" },
+                        { cap: "team:manage", name: "Manage Team" },
+                      ] as { cap: OrganizationCapability; name: string }[]
+                    ).map((item) => {
+                      const allowed = def.capabilities.includes(item.cap);
                       return (
                         <div
                           key={item.cap}

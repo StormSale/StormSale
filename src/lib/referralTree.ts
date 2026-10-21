@@ -98,12 +98,14 @@ export function calculateTwoTierCommission(
     ? Number(((safeSaleAmount * overrideRate) / 100).toFixed(7))
     : 0;
 
-  const sellingAffiliateStroops = BigInt(Math.floor(sellingAffiliateCommissionXlm * 10_000_000));
+  const totalCommissionStroops = BigInt(Math.floor(totalCommissionXlm * 10_000_000));
   const recruiterOverrideStroops = BigInt(Math.floor(recruiterOverrideCommissionXlm * 10_000_000));
+  const sellingAffiliateStroops = totalCommissionStroops - recruiterOverrideStroops;
 
-  const splitRatioLabel = hasRecruiter
-    ? `${Math.round((sellingRate / safeTotalRate) * 100)}% / ${Math.round((overrideRate / safeTotalRate) * 100)}%`
-    : "100% / 0%";
+  const splitRatioLabel =
+    hasRecruiter && safeTotalRate > 0
+      ? `${Math.round((sellingRate / safeTotalRate) * 100)}% / ${Math.round((overrideRate / safeTotalRate) * 100)}%`
+      : "100% / 0%";
 
   return {
     saleAmountXlm: safeSaleAmount,
@@ -239,8 +241,17 @@ export function registerSubAffiliate(
     throw new Error(validation.error || "Failed to bind sub-affiliate.");
   }
 
-  const overrideRate = options.overrideRatePercent ?? DEFAULT_OVERRIDE_RATE_PERCENT;
+  const rawRate = options.overrideRatePercent;
+  const overrideRate =
+    rawRate !== undefined && Number.isFinite(rawRate) && rawRate >= 0 && rawRate <= DEFAULT_TOTAL_COMMISSION_PERCENT
+      ? rawRate
+      : DEFAULT_OVERRIDE_RATE_PERCENT;
   const directRate = Math.max(0, DEFAULT_TOTAL_COMMISSION_PERCENT - overrideRate);
+
+  const isParentAChild = relations.some(
+    (r) => r.childAddress.toUpperCase() === parentAddress.trim().toUpperCase(),
+  );
+  const tier: 1 | 2 = isParentAChild ? 2 : 1;
 
   const newRelation: AffiliateReferralRelation = {
     childAddress: childAddress.trim(),
@@ -248,7 +259,7 @@ export function registerSubAffiliate(
     parentAddress: parentAddress.trim(),
     parentName: options.parentName?.trim() || "Master Recruiter",
     recruitedAt: new Date().toISOString(),
-    tier: 1,
+    tier,
     overrideRatePercent: overrideRate,
     directCommissionRatePercent: directRate,
     status: "active",
@@ -418,7 +429,14 @@ export function getReferralTreeSummary(
     if (rawHistory) {
       const parsed = JSON.parse(rawHistory);
       if (Array.isArray(parsed)) {
-        recentOverrides = parsed.slice(0, 10);
+        const directAddresses = new Set(directRecruits.map((r) => r.childAddress.toLowerCase()));
+        recentOverrides = parsed
+          .filter(
+            (rec: any) =>
+              rec?.subAffiliateAddress &&
+              directAddresses.has(String(rec.subAffiliateAddress).toLowerCase()),
+          )
+          .slice(0, 10);
       }
     }
   } catch {
@@ -524,7 +542,7 @@ export function generateRecruiterInviteLink(
   if (options.tag) {
     url.searchParams.set("tag", options.tag);
   }
-  if (options.overrideRate) {
+  if (options.overrideRate !== undefined && Number.isFinite(options.overrideRate)) {
     url.searchParams.set("override", options.overrideRate.toString());
   }
   return url.toString();
@@ -541,13 +559,15 @@ export function parseRecruiterInviteFromUrl(
     const recruiter = url.searchParams.get("recruiter") || url.searchParams.get("ref");
     const tag = url.searchParams.get("tag") || undefined;
     const overrideRaw = url.searchParams.get("override");
-    const overrideRate = overrideRaw ? parseFloat(overrideRaw) : undefined;
+    const parsedOverride = overrideRaw !== null ? parseFloat(overrideRaw) : undefined;
+    const overrideRate =
+      parsedOverride !== undefined && Number.isFinite(parsedOverride) ? parsedOverride : undefined;
 
     if (recruiter && isValidStellarAddress(recruiter)) {
       return {
         recruiterAddress: recruiter.trim(),
         tag,
-        overrideRate: Number.isFinite(overrideRate) ? overrideRate : undefined,
+        overrideRate,
       };
     }
     return { recruiterAddress: null };

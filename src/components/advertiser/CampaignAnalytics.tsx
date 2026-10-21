@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -9,8 +10,10 @@ import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
 import { FraudRiskBadge } from "./FraudRiskBadge";
+import { useFraudRisk } from "../../hooks/useFraudRisk";
 
 export const CampaignAnalytics = () => {
+  const { riskProfiles } = useFraudRisk();
   const campaignStats = [
     {
       name: "Tech Gadgets Pro",
@@ -59,36 +62,53 @@ export const CampaignAnalytics = () => {
     },
   ];
 
-  const topAffiliates = [
-    {
-      name: "Alex Johnson",
-      address: "GAFFILIATE_ALICE_ORGANIC_01",
-      sales: 45,
-      commission: "$4,500",
-      performance: "Excellent",
-    },
-    {
-      name: "Sarah Miller",
-      address: "GAFFILIATE_BOB_ORGANIC_02",
-      sales: 38,
-      commission: "$3,800",
-      performance: "Excellent",
-    },
-    {
-      name: "Mike Chen",
-      address: "GAFFILIATE_CHARLIE_MED_03",
-      sales: 32,
-      commission: "$3,200",
-      performance: "Good",
-    },
-    {
-      name: "Emily Davis",
-      address: "GAFFILIATE_RAPID_HIGH_04",
-      sales: 28,
-      commission: "$2,800",
-      performance: "Good",
-    },
-  ];
+  const topAffiliates = useMemo(() => {
+    const profiles = Object.values(riskProfiles);
+    if (profiles.length > 0) {
+      return profiles.slice(0, 4).map((p) => ({
+        name: p.affiliateName,
+        address: p.affiliateAddress,
+        sales: p.totalConversions,
+        commission: `$${(p.totalConversions * 100).toLocaleString()}`,
+        performance:
+          p.riskLevel === "LOW"
+            ? "Excellent"
+            : p.riskLevel === "MEDIUM"
+              ? "Good"
+              : "Review",
+      }));
+    }
+    return [
+      {
+        name: "Alex Johnson",
+        address: "GAEM2CL7BEGW7MJ5IVJGL2GE6U7VOO7DZTOFYOUGKSINDM3IF4LLG7YS",
+        sales: 45,
+        commission: "$4,500",
+        performance: "Excellent",
+      },
+      {
+        name: "Sarah Miller",
+        address: "GBCLEANADDRESS0000000000000000000000000000000000000000000",
+        sales: 38,
+        commission: "$3,800",
+        performance: "Excellent",
+      },
+      {
+        name: "Mike Chen",
+        address: "GASTORMSALE7AFFILIATE_DEFAULT_PORTFOLIO_KEY_001",
+        sales: 32,
+        commission: "$3,200",
+        performance: "Good",
+      },
+      {
+        name: "Emily Davis",
+        address: "GASTORMSALE7ZKPROOFAFFILIATE0000000000000000000000000000001",
+        sales: 28,
+        commission: "$2,800",
+        performance: "Good",
+      },
+    ];
+  }, [riskProfiles]);
 
   return (
     <div className="space-y-8">

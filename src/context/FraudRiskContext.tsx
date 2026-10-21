@@ -35,8 +35,8 @@ export interface FraudRiskContextType {
   ) => boolean;
   unpauseAffiliateAction: (affiliateAddress: string) => boolean;
   isAffiliatePaused: (affiliateAddress: string) => boolean;
-  filterRiskLevel: RiskScoreLevel | "ALL";
-  setFilterRiskLevel: (level: RiskScoreLevel | "ALL") => void;
+  filterRiskLevel: RiskScoreLevel | "ALL" | "FROZEN";
+  setFilterRiskLevel: (level: RiskScoreLevel | "ALL" | "FROZEN") => void;
   selectedCampaignId: string;
   setSelectedCampaignId: (campaignId: string) => void;
   addCustomRecords: (newRecords: ClickToConversionRecord[]) => void;
@@ -62,7 +62,7 @@ export const FraudRiskProvider: React.FC<FraudRiskProviderProps> = ({
   });
 
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>(initialCampaignId);
-  const [filterRiskLevel, setFilterRiskLevel] = useState<RiskScoreLevel | "ALL">("ALL");
+  const [filterRiskLevel, setFilterRiskLevel] = useState<RiskScoreLevel | "ALL" | "FROZEN">("ALL");
   const [pausedAffiliates, setPausedAffiliates] = useState<Record<string, PausedAffiliateRecord>>(
     () => loadPausedAffiliates(),
   );

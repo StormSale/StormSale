@@ -1,6 +1,7 @@
 import React from "react";
 import { Shield, ShieldCheck, Award, Gem, Crown, CheckCircle2, Lock, ExternalLink } from "lucide-react";
 import { useZKProof } from "../../hooks/useZKProof";
+import { verifyZKRevenueProofSync } from "../../lib/zkProofEngine";
 import type { RevenueTier } from "../../types/zkProof";
 
 export interface VerifiedRevenueBadgeProps {
@@ -20,8 +21,17 @@ export const VerifiedRevenueBadge: React.FC<VerifiedRevenueBadgeProps> = ({
 }) => {
   const { activeBadgeProof, activeBadgeTier, openVerifierModal } = useZKProof();
 
+  const isProofValid = activeBadgeProof ? verifyZKRevenueProofSync(activeBadgeProof).isValid : true;
+
+  if (activeBadgeProof && !isProofValid) {
+    return null;
+  }
+
   const tier = customTier || activeBadgeProof?.revenueTier || activeBadgeTier?.tier || "GOLD";
-  const threshold = customThresholdUsd || activeBadgeProof?.claimedThresholdUsd || 50_000;
+  const threshold =
+    customThresholdUsd !== undefined
+      ? customThresholdUsd
+      : (activeBadgeProof?.claimedThresholdUsd ?? 50_000);
 
   const getTierIcon = () => {
     switch (tier) {

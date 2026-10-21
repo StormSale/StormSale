@@ -18,7 +18,6 @@ import {
   getActiveBadgeProof,
   setActiveBadgeProof,
   generateProofVerificationUrl,
-  parseProofFromUrl,
   REVENUE_TIERS,
   getTierForRevenue,
 } from "../lib/zkProofEngine";
@@ -97,20 +96,6 @@ export const ZKProofProvider: React.FC<ZKProofProviderProps> = ({
   useEffect(() => {
     refreshData();
   }, [refreshData]);
-
-  // Check URL query parameters for incoming verification link (e.g. ?verify_proof=...)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const parsed = parseProofFromUrl(window.location.href);
-    if (parsed) {
-      setSelectedProofForVerification(parsed);
-      setVerifierModalOpen(true);
-      // Automatically trigger 1-click verification
-      void verifyZKRevenueProof(parsed).then((res) => {
-        setLatestVerificationResult(res);
-      });
-    }
-  }, []);
 
   const totalCompiledRevenueUsd = useMemo(() => {
     return Number(
@@ -262,13 +247,11 @@ export function useZKProof(): ZKProofContextType {
   const context = useContext(ZKProofContext);
   if (!context) {
     // Return safe fallback for components rendered outside provider
-    const fallbackConversions = compileHistoricConversions("FALLBACK_AFFILIATE_ADDR");
-    const total = Number(fallbackConversions.reduce((s, c) => s + c.amountUsd, 0).toFixed(2));
-    const tier = getTierForRevenue(total);
+    const tier = getTierForRevenue(0);
 
     return {
-      conversions: fallbackConversions,
-      totalCompiledRevenueUsd: total,
+      conversions: [],
+      totalCompiledRevenueUsd: 0,
       qualifiedTier: tier,
       proofs: [],
       activeBadgeProof: null,

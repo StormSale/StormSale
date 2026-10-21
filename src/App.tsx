@@ -11,6 +11,7 @@ import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { ZKProofVerifierModal } from "./components/affiliate/ZKProofVerifierModal";
 import { parseProofFromUrl } from "./lib/zkProofEngine";
+import { parseRecruiterInviteFromUrl } from "./lib/referralTree";
 import type { ZKRevenueProof } from "./types/zkProof";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
@@ -117,6 +118,14 @@ function Router() {
     }
     prevConnectedRef.current = isConnected;
   }, [isConnected, setCurrentPage]);
+  // Handle incoming recruiter invites (e.g. ?recruiter=G...)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const invite = parseRecruiterInviteFromUrl(window.location.href);
+    if (invite.recruiterAddress) {
+      setCurrentPage("affiliate");
+    }
+  }, [setCurrentPage]);
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
