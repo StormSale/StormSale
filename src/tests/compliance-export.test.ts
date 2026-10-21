@@ -90,6 +90,8 @@ describe("Regulatory Compliance & Export Suite", () => {
     expect(html).toContain(report.reportId);
     expect(html).toContain("Cryptographic Auditor Signature & Tamper-Evident Seal");
     expect(html).toContain(report.cryptoSignature.digestHash);
-    expect(html).toContain("@page { size: A4 portrait;");
+    expect(html).toContain('<link rel="stylesheet" href="/compliance-report.css">');
+    expect(html).not.toContain("<style>");
+    expect(html).not.toContain("style=");
   });
 });

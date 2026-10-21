@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { STATIC_CSP_HEADER } from "./src/config/csp.ts";
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -8,6 +9,11 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
     preserveSymlinks: true,
+  },
+  preview: {
+    headers: {
+      "Content-Security-Policy": STATIC_CSP_HEADER,
+    },
   },
   build: {
     rollupOptions: {

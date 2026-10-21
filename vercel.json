@@ -30,6 +30,10 @@
         {
           "key": "Referrer-Policy",
           "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' https://telegram.org; connect-src 'self' https://*.stellar.org https://albedo.link https://stellar.expert; img-src 'self' data: blob: https://images.unsplash.com https://i.pravatar.cc https://stellar.expert https://albedo.link https://xbull.app; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'self' https://albedo.link;"
         }
       ]
     }
