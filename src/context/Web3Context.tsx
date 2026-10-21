@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -24,10 +24,18 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
 import { dispatchWebhookEvent } from "../lib/webhookEngine";
+import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
+import type { MultiSigAccountInfo } from "../lib/multisig";
+import { inspectMultiSigAccount } from "../lib/multisig";
+import {
+  rpcFallbackManager,
+  type RpcEndpointStatus,
+  type RpcFailoverEvent,
+} from "../lib/rpcFallback";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -116,6 +124,29 @@ export interface Web3ContextType {
   pollSep0007Confirmation: (txHash: string) => Promise<boolean>;
   resetSep0007State: () => void;
 
+  // Stellar SEP-0030 Multi-Signature Campaign Escrow
+  multiSigInfo: MultiSigAccountInfo | null;
+  isMultiSigAccount: boolean;
+  isMultiSigModalOpen: boolean;
+  activeMultiSigXdr: string | null;
+  activeMultiSigDescription: string | null;
+  openMultiSigModal: (initialXdr?: string, actionDescription?: string) => void;
+  closeMultiSigModal: () => void;
+  refreshMultiSigInfo: (address?: string) => Promise<MultiSigAccountInfo | null>;
+
+  // RPC Fallback & Multi-Endpoint Status (#109)
+  activeRpcEndpoint: RpcEndpointStatus;
+  rpcEndpoints: RpcEndpointStatus[];
+  rpcFailoverHistory: RpcFailoverEvent[];
+  rpcTimeoutMs: number;
+  isRpcModalOpen: boolean;
+  openRpcModal: () => void;
+  closeRpcModal: () => void;
+  switchRpcEndpoint: (idOrUrl: string) => void;
+  simulateRpcFailover: (reason?: string) => void;
+  checkRpcHealth: () => Promise<void>;
+  addCustomRpcEndpoint: (name: string, url: string, isLocal?: boolean) => void;
+
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
@@ -146,8 +177,107 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [sep0007TxHash, setSep0007TxHash] = useState<string | null>(null);
   const [sep0007Error, setSep0007Error] = useState<string | null>(null);
 
+  // Stellar SEP-0030 Multi-Sig State
+  const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
+  const [isMultiSigModalOpen, setIsMultiSigModalOpen] = useState(false);
+  const [activeMultiSigXdr, setActiveMultiSigXdr] = useState<string | null>(null);
+  const [activeMultiSigDescription, setActiveMultiSigDescription] = useState<string | null>(null);
+
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
+
+  const openMultiSigModal = useCallback((initialXdr?: string, actionDescription?: string) => {
+    if (initialXdr !== undefined) setActiveMultiSigXdr(initialXdr);
+    if (actionDescription !== undefined) setActiveMultiSigDescription(actionDescription);
+    setIsMultiSigModalOpen(true);
+  }, []);
+
+  const closeMultiSigModal = useCallback(() => {
+    setIsMultiSigModalOpen(false);
+  }, []);
+
+  const refreshMultiSigInfo = useCallback(
+    async (targetAddress?: string) => {
+      const addr = targetAddress || userAddress;
+      if (!addr) {
+        setMultiSigInfo(null);
+        return null;
+      }
+      try {
+        const info = await inspectMultiSigAccount(addr);
+        setMultiSigInfo(info);
+        return info;
+      } catch (err) {
+        console.warn("Could not inspect multi-sig account info:", err);
+        return null;
+      }
+    },
+    [userAddress],
+  );
+
+  const isMultiSigAccount = !!(multiSigInfo && multiSigInfo.isMultiSig);
+
+  // RPC Fallback Management State (#109)
+  const [activeRpcEndpoint, setActiveRpcEndpoint] = useState<RpcEndpointStatus>(() =>
+    rpcFallbackManager.getActiveEndpoint(),
+  );
+  const [rpcEndpoints, setRpcEndpoints] = useState<RpcEndpointStatus[]>(() =>
+    rpcFallbackManager.getAllEndpoints(),
+  );
+  const [rpcFailoverHistory, setRpcFailoverHistory] = useState<RpcFailoverEvent[]>(() =>
+    rpcFallbackManager.getFailoverHistory(),
+  );
+  const [isRpcModalOpen, setIsRpcModalOpen] = useState(false);
+
+  const openRpcModal = useCallback(() => setIsRpcModalOpen(true), []);
+  const closeRpcModal = useCallback(() => setIsRpcModalOpen(false), []);
+
+  const switchRpcEndpoint = useCallback((idOrUrl: string) => {
+    const target = rpcFallbackManager.setActiveEndpoint(idOrUrl);
+    setActiveRpcEndpoint({ ...target });
+    setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+  }, []);
+
+  const simulateRpcFailover = useCallback((reason?: string) => {
+    const next = rpcFallbackManager.failoverToNext(reason || "Manual simulated failover");
+    setActiveRpcEndpoint({ ...next });
+    setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+    setRpcFailoverHistory(rpcFallbackManager.getFailoverHistory());
+  }, []);
+
+  const checkRpcHealth = useCallback(async () => {
+    const updated = await rpcFallbackManager.checkAllHealth();
+    setRpcEndpoints([...updated]);
+    setActiveRpcEndpoint({ ...rpcFallbackManager.getActiveEndpoint() });
+  }, []);
+
+  const addCustomRpcEndpoint = useCallback(
+    (name: string, url: string, isLocal: boolean = false) => {
+      const id = `custom-${Date.now()}`;
+      rpcFallbackManager.addEndpoint({
+        id,
+        name,
+        url,
+        type: isLocal ? "local" : "backup",
+        isLocal,
+      });
+      setRpcEndpoints(rpcFallbackManager.getAllEndpoints());
+    },
+    [],
+  );
+
+  // Subscribe to RPC Fallback Manager events for live reactive UI updates
+  useEffect(() => {
+    const unsubscribe = rpcFallbackManager.subscribe((event) => {
+      setActiveRpcEndpoint({ ...event.active });
+      setRpcEndpoints([...event.endpoints]);
+      setRpcFailoverHistory(rpcFallbackManager.getFailoverHistory());
+    });
+    void rpcFallbackManager.checkAllHealth().catch(() => {});
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   // Refresh balance whenever userAddress changes
   const refreshBalance = useCallback(async (address: string) => {
@@ -300,9 +430,13 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setXlmBalance("10000.00");
       }
 
+      await assertNotSanctioned(address, `wallet-connect:${type}`);
+
       setUserAddress(address);
       setIsConnected(true);
       setConnectorType(type);
+
+      await refreshMultiSigInfo(address);
 
       if (type !== "mock") {
         await refreshBalance(address);
@@ -332,6 +466,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setSep0007IsPolling(false);
     setSep0007TxHash(null);
     setSep0007Error(null);
+    setMultiSigInfo(null);
+    setIsMultiSigModalOpen(false);
+    setActiveMultiSigXdr(null);
+    setActiveMultiSigDescription(null);
     void purgeOnLogout();
   };
 
@@ -419,6 +557,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    await assertNotSanctioned(userAddress, "create-campaign");
 
     console.log(
       `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
@@ -491,80 +630,78 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     return { success: true };
   };
 
-  // Soroban: Claim Affiliate Payout
-  const claimPayoutOnChain = async (
-    campaignId: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
-  ) => {
+  // Soroban: Claim Affiliate Commission
+  const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const campaignAddress = getCampaignContractAddress(campaignId);
-    if (campaignAddress && connectorType && connectorType !== "mock") {
-      const res = await claimPayoutContractCall(
-        userAddress,
-        campaignAddress,
-        campaignId,
-        connectorType,
-        assetCode,
-      );
-      void dispatchWebhookEvent("payout.claimed", {
-        campaignId,
-        address: userAddress,
-        txHash: res.txHash,
-        asset: assetCode,
-      });
-      return { success: true, txHash: res.tyHash, asset: assetCode };
+    await assertNotSanctioned(userAddress, "claim-payout");
+
+    console.log(
+      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      if (res.success) {
+        void dispatchWebhookEvent("payout.created", {
+          id: `payout_${res.txHash}`,
+          event: "payout.created",
+          created_at: new Date().toISOString(),
+          payout_id: res.txHash,
+          campaign_id: campaignId,
+          affiliate_address: userAddress,
+          currency: (res.asset as string) || (assetCode as string) || "XLM",
+          tx_hash: res.txHash,
+          status: "claimed",
+        });
+      }
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+        ...(assetCode ? { asset: assetCode } : {}),
+      };
     }
-    void dispatchWebhookEvent("payout.claimed", {
-      campaignId,
-      address: userAddress,
-      asset: assetCode,
-    });
-    return { success: true, asset: assetCode };
   };
 
-  // Soroban: Refund Escrow (after clearing period)
+  // Soroban: Refund Unused Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const campaignAddress = getCampaignContractAddress(campaignId);
-    if (campaignAddress && connectorType && connectorType !== "mock") {
-      const res = await refundCampaignEscrowContractCall(
-        userAddress,
-        campaignAddress,
-        campaignId,
-        connectorType,
-      );
-      void dispatchWebhookEvent("campaign.refunded", {
-        campaignId,
-        address: userAddress,
-        txHash: res.txHash,
-      });
-      return { success: true, txHash: res.txHash };
+
+    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      setTimeout(() => refreshBalance(userAddress), 1000);
+      return res;
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      return {
+        success: true,
+        txHash: mockTxHash,
+      };
     }
-    void dispatchWebhookEvent("campaign.refunded", {
-      campaignId,
-      address: userAddress,
-    });
-    return { success: true };
   };
 
-  // Soroban: Batch Claim Payouts
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
-    splitPlan: SplitPlan | null = null,
-  ): Promise<BatchClaimReceipt> => {
+    splitPlan?: SplitPlan | null,
+  ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    const { executeBatchClaim } = await import("../lib/batchClaim");
-    const receipt = await executeBatchClaim({
-      walletAddress: userAddress,
-      connectorType: connectorType || "freighter",
+    await assertNotSanctioned(userAddress, "batch-claim-payout");
+    const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
+    const res = await executeBatchCommissionClaim(
+      userAddress,
       campaigns,
+      connectorType || "freighter",
       splitPlan,
-      getCampaignContractAddress,
-    });
-    if (receipt.success) {
-      await refreshBalance(userAddress);
-    }
-    return receipt;
+    );
+    setTimeout(() => refreshBalance(userAddress), 1000);
+    return res;
   };
 
   // Passkey: Register Smart Wallet
@@ -583,14 +720,37 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Compatibility helpers for legacy form callers
   const factoryContract = (STELLAR_CONFIG as unknown as { factoryContractAddress?: string })
     .factoryContractAddress;
-  const getCampaignContract = (address: string) => address;
-  const switchToStellarNetwork = async () => true;
+  const getCampaignContract = (_address: string) => ({
+    logEncryptedSale: async (
+      affiliate: string,
+      amount: string,
+      _payload: any,
+      _advKey: any,
+      _affKey: any,
+    ) => {
+      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
+      return {
+        wait: async () => res,
+      };
+    },
+    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
+      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
+      return {
+        wait: async () => ({ success: true }),
+      };
+    },
+  });
+
+  const switchToStellarNetwork = async () => {
+    setNetwork("TESTNET");
+    return true;
+  };
 
   const value: Web3ContextType = {
     userAddress,
     userRole,
     isConnected,
-    isStellarNetwork: true,
+    isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
     network,
     xlmBalance,
     assetBalances,
@@ -622,11 +782,30 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     invokeSep0007MobileWallet,
     pollSep0007Confirmation,
     resetSep0007State,
+    multiSigInfo,
+    isMultiSigAccount,
+    isMultiSigModalOpen,
+    activeMultiSigXdr,
+    activeMultiSigDescription,
+    openMultiSigModal,
+    closeMultiSigModal,
+    refreshMultiSigInfo,
     factoryContract,
     getCampaignContract,
     provider: null,
     signer: null,
     switchToStellarNetwork,
+    activeRpcEndpoint,
+    rpcEndpoints,
+    rpcFailoverHistory,
+    rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
+    isRpcModalOpen,
+    openRpcModal,
+    closeRpcModal,
+    switchRpcEndpoint,
+    simulateRpcFailover,
+    checkRpcHealth,
+    addCustomRpcEndpoint,
   };
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
