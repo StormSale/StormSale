@@ -357,23 +357,29 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
     });
 
     it("should handle triggerBlobDownload creating and revoking URL", () => {
-      const createSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
-      const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-      const clickSpy = vi.fn();
-      vi.spyOn(document, "createElement").mockReturnValue({
-        set href(_val: string) {},
-        set download(_val: string) {},
-        click: clickSpy,
-      } as any);
-      vi.spyOn(document.body, "appendChild").mockImplementation(() => null as any);
-      vi.spyOn(document.body, "removeChild").mockImplementation(() => null as any);
+      vi.useFakeTimers();
+      try {
+        const createSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+        const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+        const clickSpy = vi.fn();
+        vi.spyOn(document, "createElement").mockReturnValue({
+          set href(_val: string) {},
+          set download(_val: string) {},
+          click: clickSpy,
+        } as any);
+        vi.spyOn(document.body, "appendChild").mockImplementation(() => null as any);
+        vi.spyOn(document.body, "removeChild").mockImplementation(() => null as any);
 
-      const blob = new Blob(["test"], { type: "text/plain" });
-      triggerBlobDownload(blob, "test.txt");
+        const blob = new Blob(["test"], { type: "text/plain" });
+        triggerBlobDownload(blob, "test.txt");
 
-      expect(createSpy).toHaveBeenCalledWith(blob);
-      expect(revokeSpy).toHaveBeenCalled();
-      expect(clickSpy).toHaveBeenCalled();
+        expect(createSpy).toHaveBeenCalledWith(blob);
+        expect(clickSpy).toHaveBeenCalled();
+        vi.advanceTimersByTime(2500);
+        expect(revokeSpy).toHaveBeenCalledWith("blob:mock-url");
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("should downloadSingleAsset with swipe copy or markdown text", async () => {

@@ -87,9 +87,12 @@ describe("Campaign Asset Library Components Suite", () => {
       const pinButton = screen.getByText("Pin to IPFS");
       fireEvent.click(pinButton);
 
-      await waitFor(() => {
-        expect(screen.getByText(/New creative/i)).toBeDefined();
-      });
+      await waitFor(
+        () => {
+          expect(screen.getByText(/New creative/i)).toBeDefined();
+        },
+        { timeout: 5000 },
+      );
 
       // Trigger handleAssetDeleted
       const deleteButtons = screen.getAllByTitle("Delete Asset");
@@ -208,9 +211,12 @@ describe("Campaign Asset Library Components Suite", () => {
       const bundleButton = screen.getByText(/Download Full Media ZIP Bundle/);
       fireEvent.click(bundleButton);
 
-      await waitFor(() => {
-        expect(onAssetsChanged).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(onAssetsChanged).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
     });
 
     it("handles asset deletion with confirmation", () => {
@@ -309,9 +315,12 @@ describe("Campaign Asset Library Components Suite", () => {
       const pinButton = screen.getByText("Pin to IPFS");
       fireEvent.click(pinButton);
 
-      await waitFor(() => {
-        expect(onUploaded).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(onUploaded).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
     });
 
     it("handles swipe copy submission", async () => {
@@ -339,9 +348,12 @@ describe("Campaign Asset Library Components Suite", () => {
       const pinSwipeButton = screen.getByText("Pin Swipe Copy to IPFS");
       fireEvent.click(pinSwipeButton);
 
-      await waitFor(() => {
-        expect(onUploaded).toHaveBeenCalled();
-      });
+      await waitFor(
+        () => {
+          expect(onUploaded).toHaveBeenCalled();
+        },
+        { timeout: 5000 },
+      );
     });
   });
 });

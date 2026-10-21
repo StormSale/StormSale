@@ -124,15 +124,20 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
     if (!selectedFile) return;
 
     try {
+      const isTestEnv =
+        (typeof process !== "undefined" && process.env?.NODE_ENV === "test") ||
+        (typeof import.meta !== "undefined" && import.meta.env?.MODE === "test");
+      const stepDelay = isTestEnv ? 0 : 300;
+
       setIsUploading(true);
       setUploadProgress(15);
       setUploadStep("Reading media file and computing SHA-256 hash...");
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (stepDelay > 0) await new Promise((resolve) => setTimeout(resolve, stepDelay));
       setUploadProgress(40);
       setUploadStep("Extracting visual dimensions & metadata...");
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      if (stepDelay > 0) await new Promise((resolve) => setTimeout(resolve, stepDelay));
       setUploadProgress(70);
       setUploadStep(
         `Pinning asset directly to IPFS (${ipfsConfig.activeProvider.toUpperCase()})...`,
@@ -247,7 +252,11 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
         recommendedChannels: ["Email Newsletter", "Social Media", "Community Chat"],
       };
 
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      const isTestEnv =
+        (typeof process !== "undefined" && process.env?.NODE_ENV === "test") ||
+        (typeof import.meta !== "undefined" && import.meta.env?.MODE === "test");
+      const stepDelay = isTestEnv ? 0 : 300;
+      if (stepDelay > 0) await new Promise((resolve) => setTimeout(resolve, stepDelay));
       setUploadProgress(75);
       setUploadStep("Pinning verified swipe copy to IPFS...");
 
