@@ -1,0 +1,35 @@
+{
+  "name": "@stormsale/next-middleware",
+  "version": "0.1.0",
+  "description": "Edge-compatible referral attribution middleware for Next.js",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "npm run build",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "peerDependencies": {
+    "next": "^13.4.0 || ^14.0.0 || ^15.0.0 || ^16.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.1"
+  },
+  "sideEffects": false
+}
