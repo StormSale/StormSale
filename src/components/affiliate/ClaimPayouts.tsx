@@ -244,7 +244,9 @@ export const ClaimPayouts = () => {
             <Button
               size="lg"
               onClick={handleBatchClaim}
-              disabled={isBatchClaiming || selectedCampaigns.length === 0}
+              disabled={selectedCampaigns.length === 0}
+              loading={isBatchClaiming}
+              cooldown
               className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 text-white font-extrabold text-sm shadow-xl shadow-indigo-500/30 h-13 px-6 transition-transform hover:scale-[1.02] border-0"
             >
               {isBatchClaiming ? (
@@ -395,7 +397,9 @@ export const ClaimPayouts = () => {
                           size="sm"
                           variant="outline"
                           onClick={() => handleSingleClaim(campaign.campaignId)}
-                          disabled={!isMatured || isPending || isClaimed}
+                          disabled={!isMatured || isPending || isClaimed || isBatchClaiming}
+                          loading={claimingId === campaign.campaignId}
+                          cooldown
                           className="rounded-xl text-xs font-bold"
                         >
                           {isPending ? (
