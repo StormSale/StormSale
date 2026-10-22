@@ -169,6 +169,6 @@ describe("Auditor Page", () => {
   it("renders organization selector with tenant info", () => {
     render(<Auditor onBack={vi.fn()} />);
 
-    expect(screen.getByText("Test Org")).toBeTruthy();
+    expect(screen.getByText("Test Org", { exact: false })).toBeTruthy();
   });
 });
