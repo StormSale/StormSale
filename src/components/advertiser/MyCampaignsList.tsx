@@ -43,7 +43,7 @@ import {
   extendContractInstanceTTL,
 } from "../../lib/contractTTL";
 
-export type CampaignStatus = "Active" | "Paused" | "Completed";
+export type CampaignStatus = "Active" | "Paused" | "Completed" | "CONCLUDED";
 
 export interface Campaign {
   id: string;
@@ -51,6 +51,10 @@ export interface Campaign {
   status: CampaignStatus;
   commissionRate: number;
   clearingPeriod: string;
+  clearingPeriodSecs?: number;
+  clearingExpiresAt?: number;
+  pendingClaims?: number;
+  outstandingLiabilities?: number;
   totalSales: number;
   totalRevenue: string;
   totalCommissions: string;
@@ -59,6 +63,7 @@ export interface Campaign {
   contractAddress: string;
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
+  balance?: number; // Normalized balance alias
   isRefunded?: boolean;
   currentBalanceXlm?: number;
   initialBudgetXlm?: number;
@@ -73,6 +78,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 10,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() + 14 * 86400 * 1000,
+    pendingClaims: 3,
+    outstandingLiabilities: 450,
     totalSales: 124,
     totalRevenue: "$24,800",
     totalCommissions: "$2,480",
@@ -93,6 +102,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 15,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() + 7 * 86400 * 1000,
+    pendingClaims: 2,
+    outstandingLiabilities: 300,
     totalSales: 89,
     totalRevenue: "$44,500",
     totalCommissions: "$6,675",
@@ -113,6 +126,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Paused",
     commissionRate: 12,
     clearingPeriod: "30 Days",
+    clearingPeriodSecs: 30 * 86400,
+    clearingExpiresAt: Date.now() + 30 * 86400 * 1000,
+    pendingClaims: 1,
+    outstandingLiabilities: 150,
     totalSales: 67,
     totalRevenue: "$33,500",
     totalCommissions: "$4,020",
@@ -133,6 +150,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 8,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() - 3600000, // Expired 1 hour ago
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
     totalSales: 45,
     totalRevenue: "$22,500",
     totalCommissions: "$1,800",
@@ -153,6 +174,10 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 5,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() - 86400000,
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
     totalSales: 110,
     totalRevenue: "$55,000",
     totalCommissions: "$2,750",
@@ -187,6 +212,27 @@ export const initialMockCampaigns: Campaign[] = [
     isRefunded: false,
     ttlRemainingLedgers: 420000,
   },
+  {
+    id: "6",
+    name: "NFT Ticket Clearing Pending",
+    status: "Completed",
+    commissionRate: 10,
+    clearingPeriod: "3 Days",
+    clearingPeriodSecs: 3 * 86400,
+    clearingExpiresAt: Date.now() + 86400000, // Active clearing period (in the future)
+    pendingClaims: 2,
+    outstandingLiabilities: 200,
+    totalSales: 30,
+    totalRevenue: "$15,000",
+    totalCommissions: "$1,500",
+    affiliates: 4,
+    createdAt: "2026-03-01",
+    contractAddress: "CF5R...4321",
+    escrowInitial: 2500,
+    escrowBalance: 800,
+    balance: 800,
+    isRefunded: false,
+  },
 ];
 
 export const mockCampaigns = initialMockCampaigns;
@@ -204,7 +250,12 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
     badge: "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400",
     dot: "bg-slate-400 dark:bg-zinc-500",
   },
+  CONCLUDED: {
+    badge: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+    dot: "bg-purple-500",
+  },
 };
+
 
 export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
@@ -348,7 +399,14 @@ export const MyCampaignsList = () => {
     }
   };
 
-  const handleRefund = async (campaign: Campaign) => {
+  const handleOpenConcludeModal = (campaign: Campaign) => {
+    setConcludeModalCampaign(campaign);
+  };
+
+  const handleConfirmConcludeRefund = async (campaignToRefund: { id: string }) => {
+    const campaign = campaigns.find((c) => c.id === campaignToRefund.id);
+    if (!campaign) return;
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -411,19 +469,22 @@ export const MyCampaignsList = () => {
         message: `Withdrawing ${refundAmount.toLocaleString()} XLM unused escrow on Soroban...`,
       });
 
+      // Invoke contract refund_escrow method with advertiser signature
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
-      // Update local campaign state to refunded
+      // Update local campaign status to CONCLUDED and balance to 0.00
       setCampaigns((prev) =>
         prev.map((c) => (c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c)),
       );
+
+      setConcludeModalCampaign(null);
 
       showNotification({
         type: "success",
         title: "Escrow Refund Confirmed!",
         message: `Successfully refunded ${refundAmount.toLocaleString()} XLM to ${
-          userAddress ? formatStellarAddress(userAddress) : "your wallet"
-        }. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+          userAddress ? formatStellarAddress(userAddress) : "treasury wallet"
+        }. Status updated to CONCLUDED. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
     } catch (error: unknown) {
       console.error("Error refunding escrow:", error);
@@ -436,6 +497,10 @@ export const MyCampaignsList = () => {
     } finally {
       setRefundingCampaignId(null);
     }
+  };
+
+  const handleRefund = async (campaign: Campaign) => {
+    handleOpenConcludeModal(campaign);
   };
 
   const filtered = campaigns.filter((c) => {
@@ -667,7 +732,7 @@ export const MyCampaignsList = () => {
           />
         </div>
         <div className="flex flex-wrap gap-2">
-          {(["All", "Active", "Paused", "Completed"] as const).map((s) => (
+          {(["All", "Active", "Paused", "Completed", "CONCLUDED"] as const).map((s) => (
             <Button
               key={s}
               size="sm"
@@ -933,8 +998,8 @@ export const MyCampaignsList = () => {
 
                   {/* ACTIONS */}
                   <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/50">
-                    {campaign.status === "Completed" ? (
-                      /* Ended / Completed Campaign: Refund Action Area */
+                    {campaign.status === "Completed" || campaign.status === "CONCLUDED" ? (
+                      /* Ended / Completed / Concluded Campaign: Refund & Clawback Action Area */
                       <div className="space-y-2">
                         {campaign.isRefunded ? (
                           <div className="w-full h-11 rounded-xl bg-slate-100 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700/60 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-400 space-x-2">
