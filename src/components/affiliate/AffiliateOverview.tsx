@@ -238,7 +238,40 @@ const AffiliateLinkGenerator = () => {
 
 import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
 
-export const AffiliateOverview = () => {
+const AFFILIATE_QUICK_ACTIONS = [
+  {
+    id: "custom-links",
+    label: "Custom Short Links",
+    description: "Branded cloaked URLs",
+    icon: Link2,
+  },
+  {
+    id: "join-campaign",
+    label: "Join New Campaign",
+    description: "Discover high-paying campaigns",
+    icon: Users,
+  },
+  {
+    id: "my-sales",
+    label: "Track Performance",
+    description: "View analytics and insights",
+    icon: TrendingUp,
+  },
+  {
+    id: "claim-payouts",
+    label: "Withdraw Earnings",
+    description: "Claim your commissions",
+    icon: DollarSign,
+  },
+] as const;
+
+type AffiliateQuickActionTab = (typeof AFFILIATE_QUICK_ACTIONS)[number]["id"];
+
+interface AffiliateOverviewProps {
+  onNavigate?: (tab: AffiliateQuickActionTab) => void;
+}
+
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
   const stats = [
     {
       title: "Total Earnings",
@@ -447,29 +480,14 @@ export const AffiliateOverview = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
-            ].map((action, index) => {
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {AFFILIATE_QUICK_ACTIONS.map((action, index) => {
               const IconComponent = action.icon;
               return (
                 <Button
                   key={index}
                   variant="outline"
+                  onClick={() => onNavigate?.(action.id)}
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

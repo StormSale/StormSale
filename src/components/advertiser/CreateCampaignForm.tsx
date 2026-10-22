@@ -320,7 +320,7 @@ export const CreateCampaignForm = () => {
             </div>
             <div>
               <CardTitle className="text-2xl font-bold text-zinc-900 dark:text-white">
-                Campaign Details & Escrow Funding
+                Create Campaign & Escrow Funding
               </CardTitle>
               <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
                 Configure affiliate rates, budget allowance, and on-chain escrow
@@ -801,7 +801,8 @@ export const CreateCampaignForm = () => {
                   <div className="space-y-3">
                     <Button
                       type="submit"
-                      disabled={isExecuting}
+                      loading={isExecuting}
+                      cooldown
                       className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white text-base md:text-lg font-bold shadow-lg shadow-indigo-600/20 rounded-xl transition-all"
                     >
                       {flowStep === "approving" ? (
@@ -843,7 +844,8 @@ export const CreateCampaignForm = () => {
                 ) : (
                   <Button
                     type="submit"
-                    disabled={isExecuting}
+                    loading={isExecuting}
+                    cooldown
                     className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
                   >
                     {flowStep === "creating" ? (

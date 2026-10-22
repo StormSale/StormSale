@@ -128,7 +128,9 @@ export const JoinCampaignButton = () => {
 
           <Button
             onClick={handleJoinCampaign}
-            disabled={isLoading}
+            disabled={!campaignAddress}
+            loading={isLoading}
+            cooldown
             className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-lg rounded-xl shadow-md transition-all"
           >
             {isLoading ? (
