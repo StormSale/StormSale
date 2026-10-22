@@ -16,8 +16,8 @@
   "type": "module",
   "main": "eslint.config.js",
   "scripts": {
-    "dev": "node api.js && vite",
-    "build": "node api.js && tsc -b && vite build",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
