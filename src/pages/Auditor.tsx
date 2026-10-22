@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
@@ -10,10 +9,7 @@ import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualiz
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { usePreference } from "../hooks/usePreference";
-import {
-  AuditorTenancyProvider,
-  useAuditorTenancy,
-} from "../context/AuditorTenancyContext";
+import { AuditorTenancyProvider, useAuditorTenancy } from "../context/AuditorTenancyContext";
 import {
   BarChart3,
   Eye,
@@ -27,6 +23,7 @@ import {
   Lock,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
+import { ZKRangeProofVerifier } from "../components/auditor/ZKRangeProofVerifier";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -42,6 +39,7 @@ const AUDITOR_TABS = [
   "soc2",
   "merkle",
   "privacy",
+  "zk-range",
 ] as const;
 
 type AuditorTab = (typeof AUDITOR_TABS)[number];
@@ -51,17 +49,14 @@ type AuditorTab = (typeof AUDITOR_TABS)[number];
  * so every tab below is visibly scoped to one read-only organization.
  */
 const TenantSelector = () => {
-  const { org, organizations, switchTenant, cachedKeyIds } =
-    useAuditorTenancy();
+  const { org, organizations, switchTenant, cachedKeyIds } = useAuditorTenancy();
 
   return (
     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-6 p-4 bg-white dark:bg-zinc-900/60 border border-slate-200 dark:border-zinc-800 rounded-2xl shadow-sm">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2 text-zinc-500 dark:text-zinc-400">
           <Building2 className="w-4 h-4" />
-          <span className="text-xs font-bold uppercase tracking-wider">
-            Organization scope
-          </span>
+          <span className="text-xs font-bold uppercase tracking-wider">Organization scope</span>
         </div>
 
         {organizations.map((candidate) => {
@@ -116,9 +111,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     (value) => AUDITOR_TABS.includes(value as AuditorTab),
   );
 
-  const [merkleTargetSaleId, setMerkleTargetSaleId] = useState<
-    string | undefined
-  >(undefined);
+  const [merkleTargetSaleId, setMerkleTargetSaleId] = useState<string | undefined>(undefined);
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
@@ -129,6 +122,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "network", label: "Transaction Network", icon: Network },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
     { id: "privacy", label: "Privacy", icon: ShieldCheck },
+    { id: "zk-range", label: "ZK Range Proof", icon: ShieldCheck },
   ];
 
   const handleTabChange = (tab: string) => {
@@ -148,22 +142,14 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
   const renderContent = () => {
     switch (activeTab) {
       case "merkle":
-        return (
-          <MerkleTreeVisualizer
-            initialSaleId={merkleTargetSaleId}
-            organizationId={org.id}
-          />
-        );
+        return <MerkleTreeVisualizer initialSaleId={merkleTargetSaleId} organizationId={org.id} />;
 
       case "verify":
         return <VerifyAccess />;
 
       case "history":
         return (
-          <AuditHistory
-            onTabChange={handleTabChange}
-            onViewMerkleProof={handleViewMerkleProof}
-          />
+          <AuditHistory onTabChange={handleTabChange} onViewMerkleProof={handleViewMerkleProof} />
         );
 
       case "compliance":
@@ -180,6 +166,10 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
       case "privacy":
         return <PrivacyVerification />;
+
+      case "zk-range":
+        return <ZKRangeProofVerifier />;
+
       default:
         return <AuditorOverview onTabChange={handleTabChange} />;
     }
