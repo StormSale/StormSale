@@ -1,4 +1,5 @@
-import { defineConfig } from "vitest/config";
+
+import { defineConfig, configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
@@ -10,17 +11,26 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
     preserveSymlinks: true,
   },
+
   build: {
     rollupOptions: {
-      external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
+      external: [
+        "@ledgerhq/hw-transport-webhid",
+        "@ledgerhq/hw-app-str",
+      ],
       output: {
         manualChunks: (id) => {
-          if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {
+          if (
+            id.includes("@stellar/stellar-sdk") ||
+            id.includes("@stellar/freighter-api")
+          ) {
             return "vendor-stellar-sdk";
           }
+
           if (id.includes("framer-motion")) {
             return "vendor-framer-motion";
           }
+
           if (id.includes("@radix-ui/")) {
             return "vendor-radix-ui";
           }
@@ -28,8 +38,11 @@ export default defineConfig({
       },
     },
   },
+
   test: {
     globals: true,
+    // Keep Playwright E2E tests out of Vitest.
+    exclude: [...configDefaults.exclude, "e2e/**"],
     testTimeout: 20000,
     hookTimeout: 20000,
     coverage: {

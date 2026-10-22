@@ -37,10 +37,15 @@ generate_commits.sh
 *.njsproj
 *.sln
 *.sw?
-lens/
 
 # Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 test-results/
 playwright-report/
 e2e-results.json
 stats.html
+
+lens/

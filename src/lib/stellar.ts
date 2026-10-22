@@ -275,9 +275,6 @@ export async function fetchXlmBalance(address: string): Promise<string> {
 }
 
 /**
- * Queries the Stellar Horizon API for all supported escrow assets (XLM, USDC, EURC).
- */
-/**
  * Helper to convert decimal amount string/number to BigInt stroops/units at given decimal precision
  * without floating-point inaccuracies.
  */
@@ -295,6 +292,9 @@ export function parseUnitsToBigInt(amount: number | string, decimals: number = 7
   return BigInt(combined);
 }
 
+/**
+ * Queries the Stellar Horizon API for all supported escrow assets (XLM, USDC, EURC).
+ */
 export async function fetchAssetBalances(
   address: string,
 ): Promise<Record<SupportedEscrowAssetCode, string>> {
@@ -310,13 +310,15 @@ export async function fetchAssetBalances(
     const usdc = balances.find(
       (b: any) =>
         b.asset_code === "USDC" &&
-        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
     );
 
     const eurc = balances.find(
       (b: any) =>
         b.asset_code === "EURC" &&
-        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
     );
 
     return {
@@ -499,7 +501,8 @@ export async function invokeSorobanMethod(
     preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
   } catch (err: any) {
     throw new Error(
-      `Soroban invocation preparation failed for ${callerAddress}: ${err?.message || err}`,
+      `Soroban invocation preparation failed for ${callerAddress}: ${err?.message || err}. ` +
+        `If the account is not funded on Testnet, use Friendbot to fund it first.`,
       { cause: err },
     );
   }
@@ -666,7 +669,9 @@ export async function claimPayoutContractCall(
   assetAddress?: string;
 }> {
   let resolvedAssetCode = assetCode;
-  let resolvedAssetAddress = assetCode ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress : undefined;
+  let resolvedAssetAddress = assetCode
+    ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress
+    : undefined;
 
   // When not explicitly provided by the caller, attempt to query the campaign's settlement asset from contract storage
   if (!resolvedAssetCode && !affiliateAddress.startsWith("GASTORMSALE7") && walletType !== "mock") {
@@ -833,7 +838,10 @@ export async function approveTokenContractCall(
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+      window.localStorage.setItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+        amount.toString(),
+      );
     }
     return {
       success: true,
@@ -863,7 +871,10 @@ export async function approveTokenContractCall(
   );
 
   if (typeof window !== "undefined" && window.localStorage) {
-    window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+    window.localStorage.setItem(
+      `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      amount.toString(),
+    );
   }
 
   return {

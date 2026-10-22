@@ -27,6 +27,7 @@
     "release": "semantic-release",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium firefox webkit",
+    "test:e2e:ui": "playwright test --ui",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
