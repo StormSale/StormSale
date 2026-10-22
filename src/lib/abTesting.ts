@@ -57,6 +57,26 @@ export interface VariantWinner {
   cvrLiftPercent: number;
 }
 
+/**
+ * Ordinal for the next landing variant, guaranteed not to collide with an
+ * existing one.
+ *
+ * The advertiser form derived this from `variants.length + 1`, which reproduces a
+ * surviving variant's id after a removal — starting from
+ * `[variant_a, variant_b, variant_3]` and deleting `variant_a` yields another
+ * `variant_3`. React then receives duplicate keys (`key={variant.id}`) so edits
+ * land on the wrong row, and `computeVariantPerformance` filters by `variantId`
+ * and merges both variants' events, making the routing and analytics data
+ * ambiguous. Non-numeric suffixes such as the default `variant_a`/`variant_b` are
+ * skipped because they can never collide with `variant_<n>`.
+ */
+export function nextVariantOrdinal(variants: Pick<LandingVariant, "id">[]): number {
+  const used = new Set(variants.map((v) => v.id));
+  let ordinal = variants.length + 1;
+  while (used.has(`variant_${ordinal}`)) ordinal += 1;
+  return ordinal;
+}
+
 export const DEFAULT_LANDING_SPLIT: LandingSplitSettings = {
   enabled: false,
   variants: [

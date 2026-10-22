@@ -8,6 +8,7 @@ import {
   computeVariantPerformance,
   determineWinningVariant,
   buildVariantReferralLink,
+  nextVariantOrdinal,
   DEFAULT_LANDING_SPLIT,
   type LandingVariant,
   type VariantEvent,
@@ -187,6 +188,33 @@ describe("A/B Testing Attribution Optimizer (#155)", () => {
       );
       expect(link).toContain("campaign=101");
       expect(link).toContain("aff=GAFFILIATE7TEST7CLICK7TRACKING7ABC7DEF7GHI7JKL7MN");
+    });
+  });
+
+  describe("Variant ids stay unique across removals", () => {
+    it("keeps the historical ordinal for a fresh default split", () => {
+      expect(nextVariantOrdinal(DEFAULT_LANDING_SPLIT.variants)).toBe(3);
+    });
+
+    it("skips an ordinal left behind by a removal instead of duplicating it", () => {
+      const afterRemoval: LandingVariant[] = [
+        { id: "variant_b", label: "Variant B", url: "https://store.example.com/b", weight: 50 },
+        { id: "variant_3", label: "Variant C", url: "https://store.example.com/c", weight: 33 },
+      ];
+      // prev.length + 1 would return 3 here and collide with variant_3.
+      expect(nextVariantOrdinal(afterRemoval)).toBe(4);
+    });
+
+    it("never returns an ordinal already in use", () => {
+      const list = [
+        { id: "variant_1" },
+        { id: "variant_2" },
+        { id: "variant_3" },
+        { id: "variant_4" },
+      ];
+      const next = nextVariantOrdinal(list);
+      expect(list.map((v) => v.id)).not.toContain(`variant_${next}`);
+      expect(next).toBe(5);
     });
   });
 });

@@ -16,7 +16,11 @@ import { getCreateCampaignSchema, getFieldErrors } from "../../lib/validation";
 import { CONTRACT_ADDRESSES } from "../../config/contracts";
 import { formatStellarAddress } from "../../lib/stellar";
 import { validateDailyPayoutCap } from "../../lib/payoutCap";
-import { validateLandingSplit, DEFAULT_LANDING_SPLIT } from "../../lib/abTesting";
+import {
+  validateLandingSplit,
+  DEFAULT_LANDING_SPLIT,
+  nextVariantOrdinal,
+} from "../../lib/abTesting";
 import type { LandingVariant, LandingSplitSettings } from "../../lib/abTesting";
 import type { AttributionModel } from "../../lib/attribution";
 import { VALID_ATTRIBUTION_WINDOW_DAYS } from "../../lib/attribution";
@@ -107,6 +111,15 @@ export const CreateCampaignForm = () => {
   const isAllowanceSufficient = isConnected && isValidBudget && currentAssetAllowance >= budgetNum;
   const allowanceDeficit = Math.max(0, budgetNum - currentAssetAllowance);
   const isExecuting = flowStep === "approving" || flowStep === "creating";
+
+  // Slider values are relative weights (routeLandingVariant normalises them by
+  // their total), so the editor must show the normalised traffic share rather
+  // than labelling a raw weight as a percentage.
+  const totalVariantWeight = landingVariants.reduce((sum, v) => sum + Math.max(0, v.weight), 0);
+  const variantShare = (weight: number) =>
+    totalVariantWeight > 0
+      ? `${((Math.max(0, weight) / totalVariantWeight) * 100).toFixed(1)}%`
+      : "0%";
 
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
@@ -355,15 +368,21 @@ export const CreateCampaignForm = () => {
   };
 
   const addVariant = () => {
-    setLandingVariants((prev) => [
-      ...prev,
-      {
-        id: `variant_${prev.length + 1}`,
-        label: `Variant ${String.fromCharCode(65 + prev.length)}`,
-        url: "",
-        weight: Math.floor(100 / (prev.length + 1)),
-      },
-    ]);
+    setLandingVariants((prev) => {
+      // Ordinal comes from nextVariantOrdinal, not prev.length: after a removal
+      // the length-based id collided with a surviving variant, giving React
+      // duplicate keys and merging both variants' events in analytics.
+      const ordinal = nextVariantOrdinal(prev);
+      return [
+        ...prev,
+        {
+          id: `variant_${ordinal}`,
+          label: `Variant ${String.fromCharCode(64 + ordinal)}`,
+          url: "",
+          weight: Math.floor(100 / (prev.length + 1)),
+        },
+      ];
+    });
   };
 
   const removeVariant = (index: number) => {
@@ -949,8 +968,11 @@ export const CreateCampaignForm = () => {
                               className="flex-1 accent-indigo-600"
                               aria-label={`${variant.label} traffic weight`}
                             />
-                            <span className="font-mono text-sm font-bold text-zinc-700 dark:text-zinc-300 w-14 text-right">
-                              {variant.weight}%
+                            <span
+                              className="font-mono text-sm font-bold text-zinc-700 dark:text-zinc-300 w-14 text-right"
+                              title={`Relative weight ${variant.weight} of ${totalVariantWeight}`}
+                            >
+                              {variantShare(variant.weight)}
                             </span>
                           </div>
                         </div>
@@ -968,7 +990,7 @@ export const CreateCampaignForm = () => {
                           Add Variant
                         </Button>
                         <span className="text-xs font-mono text-zinc-500">
-                          Total weight: {landingVariants.reduce((s, v) => s + v.weight, 0)}
+                          Total weight: {totalVariantWeight} (shares are normalised to this total)
                         </span>
                       </div>
                     </div>
@@ -985,7 +1007,7 @@ export const CreateCampaignForm = () => {
                   <Input
                     type="number"
                     min="0"
-                    step="1"
+                    step="0.01"
                     value={dailyPayoutCap}
                     onChange={(e) => setDailyPayoutCap(e.target.value)}
                     placeholder="e.g., 1000 (leave empty for unlimited)"
