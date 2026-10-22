@@ -21,7 +21,7 @@ import {
   REVENUE_TIERS,
   getTierForRevenue,
 } from "../lib/zkProofEngine";
-import { useWeb3 } from "../hooks/useWeb3";
+import { useSafeWeb3 } from "../hooks/useWeb3";
 import { useNotification } from "./NotificationContext";
 
 export interface ZKProofContextType {
@@ -58,7 +58,8 @@ export const ZKProofProvider: React.FC<ZKProofProviderProps> = ({
   children,
   masterAddressOverride,
 }) => {
-  const { userAddress } = useWeb3();
+  const web3 = useSafeWeb3();
+  const userAddress = web3?.userAddress || null;
   const { showNotification } = useNotification();
 
   const effectiveAddress = useMemo(() => {
