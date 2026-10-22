@@ -163,20 +163,11 @@ export const CreateCampaignForm = () => {
       return;
     }
 
-    // Verify the A/B landing split when enabled
-    const splitSettings: LandingSplitSettings = {
-      enabled: abSplitEnabled,
-      variants: landingVariants,
-    };
-    const splitCheck = validateLandingSplit(splitSettings);
-    if (!splitCheck.valid) {
-      showNotification({
-        type: "error",
-        title: "Invalid Landing Split",
-        message: splitCheck.error || "Check your landing page variant configuration.",
-      });
-      return;
-    }
+    // The A/B landing split (#155) is intentionally NOT validated here: this
+    // step only approves a token allowance and creates or saves no campaign, so
+    // an advertiser with the split toggled on but variant URLs still blank must
+    // be able to approve their allowance. The split is validated on the launch
+    // path (handleSequentialApproveAndCreate) before a campaign is created.
 
     setFlowStep("approving");
     try {
