@@ -994,7 +994,8 @@ export const MyCampaignsList = () => {
                         ) : (
                           <Button
                             type="button"
-                            disabled={isRefundingThis}
+                            loading={isRefundingThis}
+                            cooldown
                             onClick={() => handleRefund(campaign)}
                             className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
                           >

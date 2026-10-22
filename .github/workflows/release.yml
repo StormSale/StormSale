@@ -1,0 +1,43 @@
+name: Semantic Release
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+# semantic-release creates the Git tag, pushes the release commit back to the
+# release branch and publishes the GitHub Release with contributor mentions.
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          # semantic-release needs the complete history and every existing tag to
+          # work out the next version and the release notes.
+          fetch-depth: 0
+          # The checkout token must stay available to git so semantic-release can
+          # push the release commit and the tag.
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Semantic Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run release

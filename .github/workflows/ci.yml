@@ -3,14 +3,13 @@ name: Frontend CI & Test Audit
 on:
   push:
     branches: [ "main", "dev" ]
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize, reopened]
     branches: [ "main", "dev" ]
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
 
 jobs:
   build-and-test:
@@ -21,7 +20,6 @@ jobs:
       uses: actions/checkout@v7
       with:
         ref: ${{ github.event.pull_request.head.sha || github.sha }}
-        allow-unsafe-pr-checkout: true
 
     - name: Setup Node.js
       uses: actions/setup-node@v7
@@ -31,7 +29,7 @@ jobs:
         cache-dependency-path: package-lock.json
 
     - name: Install Dependencies
-      run: npm install
+      run: npm ci
 
     - name: Run Unit Tests & Coverage Audit Export
       run: |
@@ -115,16 +113,6 @@ jobs:
 
             // Write to GitHub Actions Step Summary (visible in Checks tab)
             await core.summary.addRaw(summary).write();
-
-            // Post as a comment on the Pull Request
-            if (context.payload.pull_request) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: summary
-              });
-            }
 
             if (failed > 0) {
               core.setFailed(`Unit test audit failed with ${failed} test failures.`);
