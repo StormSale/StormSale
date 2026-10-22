@@ -597,7 +597,7 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
       it("renders interactive form when user has campaign:create capability (Admin / Editor)", () => {
         const html = renderWithRole("ADMIN", <CreateCampaignForm />);
 
-        expect(html).toContain("Campaign Details &amp; Escrow Funding");
+        expect(html).toContain("Create Campaign &amp; Escrow Funding");
         expect(html).toContain("Configure affiliate rates");
         expect(html).not.toContain("Campaign Creation Locked");
       });

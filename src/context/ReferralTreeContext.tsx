@@ -20,7 +20,7 @@ import {
   recordReferralSale,
   generateMockReferralRelations,
 } from "../lib/referralTree";
-import { useWeb3 } from "./Web3Context";
+import { useSafeWeb3 } from "../hooks/useWeb3";
 import { useNotification } from "./NotificationContext";
 
 export interface ReferralTreeContextType {
@@ -62,7 +62,8 @@ export const ReferralTreeProvider: React.FC<ReferralTreeProviderProps> = ({
   initialRelations,
   masterAddressOverride,
 }) => {
-  const { userAddress } = useWeb3();
+  const web3 = useSafeWeb3();
+  const userAddress = web3?.userAddress || null;
   const { showNotification } = useNotification();
 
   const activeMasterAddress =
