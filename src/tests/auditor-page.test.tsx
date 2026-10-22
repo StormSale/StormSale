@@ -23,10 +23,11 @@ vi.mock("../context/AuditorTenancyContext", () => ({
 }));
 vi.mock("../hooks/usePreference", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/usePreference")>();
+  const React = await import("react");
   return {
     ...actual,
     usePreference: (_key: string, initialValue: unknown) =>
-      [initialValue, vi.fn()] as [unknown, (val: unknown) => void]
+      React.useState(initialValue),
   };
 });
 
