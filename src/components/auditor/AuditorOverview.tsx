@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import {
   Card,
   CardContent,
@@ -7,10 +8,7 @@ import {
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
-import {
-  ORG_DASHBOARD_METRICS,
-  recordsScopedToOrg,
-} from "../../lib/auditorTenancy";
+import { ORG_DASHBOARD_METRICS, recordsScopedToOrg } from "../../lib/auditorTenancy";
 import {
   Shield,
   TrendingUp,
@@ -22,6 +20,12 @@ import {
   KeyRound,
   Lock,
 } from "lucide-react";
+import {
+  createSettlementBatchIndex,
+  findFirstSettlementBatchOnOrAfterDate,
+  getSettlementBatchesInRange,
+} from "../../lib/auditor/auditHistorySearch";
+import { SAMPLE_SETTLEMENT_BATCHES } from "../../utils/merkle";
 
 interface AuditorOverviewProps {
   onTabChange?: (tab: string) => void;
@@ -41,8 +45,27 @@ const ALL_PENDING_REQUESTS = [
 ];
 
 export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
-  const { org, cachedKeyIds, provisionDemoKey, lockSessionKeys } =
-    useAuditorTenancy();
+  const { org, cachedKeyIds, provisionDemoKey, lockSessionKeys } = useAuditorTenancy();
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
+  const [jumpDate, setJumpDate] = useState("");
+  const settlementBatches = useMemo(() => {
+    const scoped = recordsScopedToOrg(
+      org.id,
+      SAMPLE_SETTLEMENT_BATCHES.map((batch) => ({
+        batch,
+        saleId: batch.orders[0]?.campaignId.replace(/^CAMP-/i, "") || "",
+      })),
+    );
+    return scoped.map(({ batch }) => batch);
+  }, [org.id]);
+  const settlementIndex = useMemo(
+    () => createSettlementBatchIndex(settlementBatches),
+    [settlementBatches],
+  );
+  const startSequence = rangeStart === "" ? 0 : Number(rangeStart);
+  const endSequence = rangeEnd === "" ? Number.MAX_SAFE_INTEGER : Number(rangeEnd);
+  const rangedBatches = getSettlementBatchesInRange(settlementIndex, startSequence, endSequence);
 
   // Every surface below is scoped to the selected organization (Issue #189).
   const metrics = ORG_DASHBOARD_METRICS[org.id] ?? ORG_DASHBOARD_METRICS["northwind-assurance"];
@@ -50,10 +73,30 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
   const pendingRequests = recordsScopedToOrg(org.id, ALL_PENDING_REQUESTS);
 
   const stats = [
-    { title: "Audits Completed", value: metrics.auditsCompleted, change: metrics.completedChange, icon: CheckCircle2 },
-    { title: "Active Requests", value: String(pendingRequests.length), change: "Pending review", icon: Clock },
-    { title: "Success Rate", value: metrics.successRate, change: metrics.successChange, icon: TrendingUp },
-    { title: "Avg. Response Time", value: metrics.avgResponseTime, change: metrics.responseChange, icon: BarChart3 },
+    {
+      title: "Audits Completed",
+      value: metrics.auditsCompleted,
+      change: metrics.completedChange,
+      icon: CheckCircle2,
+    },
+    {
+      title: "Active Requests",
+      value: String(pendingRequests.length),
+      change: "Pending review",
+      icon: Clock,
+    },
+    {
+      title: "Success Rate",
+      value: metrics.successRate,
+      change: metrics.successChange,
+      icon: TrendingUp,
+    },
+    {
+      title: "Avg. Response Time",
+      value: metrics.avgResponseTime,
+      change: metrics.responseChange,
+      icon: BarChart3,
+    },
   ];
 
   return (
@@ -66,10 +109,8 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
             Read-only view of{" "}
-            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-              {org.name}
-            </span>{" "}
-            — encrypted sale data access and on-chain compliance.
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{org.name}</span> —
+            encrypted sale data access and on-chain compliance.
           </p>
         </div>
         <div className="flex items-center gap-2 mt-6 lg:mt-0 px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 rounded-full">
@@ -111,6 +152,94 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           );
         })}
       </div>
+
+      <section className="border-y border-slate-200 dark:border-zinc-800 py-6">
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-5">
+          <div>
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Block-range Navigation & Search
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+              Filter this organization&apos;s settlement records by inclusive ledger block range or
+              jump to the first settlement on or after a date.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              Start block
+              <input
+                type="number"
+                min="0"
+                value={rangeStart}
+                onChange={(event) => setRangeStart(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+                placeholder="First block"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              End block
+              <input
+                type="number"
+                min="0"
+                value={rangeEnd}
+                onChange={(event) => setRangeEnd(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+                placeholder="Latest block"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              Jump to date
+              <input
+                type="date"
+                value={jumpDate}
+                onChange={(event) => {
+                  const date = event.target.value;
+                  setJumpDate(date);
+                  const match = findFirstSettlementBatchOnOrAfterDate(settlementIndex, date);
+                  if (match) {
+                    setRangeStart(String(match.ledgerSequence));
+                    setRangeEnd("");
+                  }
+                }}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-4" aria-live="polite">
+          <p className="mb-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+            {rangedBatches.length} matching settlement{" "}
+            {rangedBatches.length === 1 ? "record" : "records"}
+          </p>
+          {rangedBatches.length === 0 ? (
+            <p className="border border-dashed border-slate-300 dark:border-zinc-700 px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+              No settlement records match this block range.
+            </p>
+          ) : (
+            <ol className="divide-y divide-slate-100 dark:divide-zinc-800 border-y border-slate-100 dark:border-zinc-800">
+              {rangedBatches.slice(0, 50).map((batch) => (
+                <li
+                  key={batch.batchId}
+                  className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                    {batch.campaignName} · {batch.batchId} · {batch.orders.length} conversions
+                  </span>
+                  <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                    Block #{batch.ledgerSequence.toLocaleString()} · {batch.settledAt}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {rangedBatches.length > 50 && (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Showing 50 of {rangedBatches.length} matches. Narrow the range to inspect more.
+            </p>
+          )}
+        </div>
+      </section>
 
       {/* Merkle Tree Proof Visualizer Banner */}
       <div className="relative overflow-hidden bg-gradient-to-r from-indigo-900 via-indigo-950 to-zinc-900 border border-indigo-500/30 rounded-3xl p-6 md:p-8 text-white shadow-xl">
@@ -266,8 +395,8 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
             Session Decryption Keys
           </CardTitle>
           <CardDescription className="text-xs text-zinc-500 dark:text-zinc-400">
-            Keys are cached in memory for {org.shortName} only and wiped the
-            moment you switch organizations.
+            Keys are cached in memory for {org.shortName} only and wiped the moment you switch
+            organizations.
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
