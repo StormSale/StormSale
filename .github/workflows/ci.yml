@@ -9,8 +9,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
 
 jobs:
   build-and-test:
@@ -30,7 +29,7 @@ jobs:
         cache-dependency-path: package-lock.json
 
     - name: Install Dependencies
-      run: npm install
+      run: npm ci
 
     - name: Run Unit Tests & Coverage Audit Export
       run: |
@@ -114,16 +113,6 @@ jobs:
 
             // Write to GitHub Actions Step Summary (visible in Checks tab)
             await core.summary.addRaw(summary).write();
-
-            // Post as a comment on the Pull Request
-            if (context.payload.pull_request) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: summary
-              });
-            }
 
             if (failed > 0) {
               core.setFailed(`Unit test audit failed with ${failed} test failures.`);

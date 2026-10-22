@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
 import {
   isValidStellarAddress,
@@ -7,9 +7,40 @@ import {
   logSaleContractCall,
   claimPayoutContractCall,
 } from "../lib/stellar";
+import { createCustomShortLink, resolveShortLinkRedirect } from "../lib/customLinks";
 import { STELLAR_CONFIG } from "../config/stellar";
 
 describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeAll(() => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/custom-links/register") && init?.method === "POST") {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        const link = {
+          id: `csl_${Date.now()}_test`,
+          slug: body.slug,
+          affiliateWallet: body.affiliateWallet ?? "",
+          walletFingerprint: body.walletFingerprint ?? "",
+          campaignId: body.campaignId ?? "1",
+          campaignName: body.campaignName ?? `Campaign #${body.campaignId}`,
+          destinationUrl: body.destinationUrl ?? "",
+          trackingParams: body.trackingParams ?? {},
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          clickCount: 0,
+        };
+        return new Response(JSON.stringify(link), { status: 201 });
+      }
+      return new Response(JSON.stringify({ error: "Not Found" }), { status: 404 });
+    }) as typeof fetch;
+  });
+
+  afterAll(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   // Generate authentic, cryptographically valid Stellar keys using Keypair
   const advertiserWallet = Keypair.random().publicKey();
   const affiliateWallet = Keypair.random().publicKey();
@@ -97,6 +128,23 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
 
       expect(url.searchParams.get("ref")).toBe(affiliateWallet);
       expect(url.pathname).toBe(`/c/${activeCampaignId}`);
+    });
+
+    it("generates a cloaked custom short link with cryptographic wallet identifier", async () => {
+      const customLink = await createCustomShortLink({
+        slug: "e2e-summer-drop",
+        affiliateWallet,
+        campaignId: String(activeCampaignId),
+        destinationUrl: "https://merchant.example.com/e2e-shop",
+      });
+
+      expect(customLink.slug).toBe("e2e-summer-drop");
+      expect(customLink.affiliateWallet).toBe(affiliateWallet);
+
+      const redirect = resolveShortLinkRedirect("e2e-summer-drop");
+      expect(redirect).not.toBeNull();
+      expect(redirect?.targetUrl).toContain(`ref=${affiliateWallet}`);
+      expect(redirect?.trackingHeaders["X-StormSale-Affiliate"]).toBe(affiliateWallet);
     });
 
     it("calculates exact mathematical commission from on-chain rate", () => {
