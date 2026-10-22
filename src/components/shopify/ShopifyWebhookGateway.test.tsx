@@ -160,7 +160,7 @@ describe("ShopifyWebhookGateway", () => {
     fireEvent.click(screen.getByText("Setup Webhook"));
 
     expect(screen.getByText("Webhook Configured")).toBeTruthy();
-    expect(screen.getByText("Setup Webhook")).not.toBeInTheDocument();
+    expect(screen.queryByText("Setup Webhook")).toBeNull();
   });
 
   it("shows processing state during conversion logging", async () => {
@@ -179,7 +179,9 @@ describe("ShopifyWebhookGateway", () => {
 
     fireEvent.click(screen.getByText(/Run Test Webhook/));
 
-    expect(screen.getByText(/Processing/)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText(/Processing/)).toBeTruthy();
+    });
 
     await waitFor(() => {
       expect(screen.getByText(/conversion logged on-chain/i)).toBeTruthy();
