@@ -105,7 +105,7 @@ describe("ShopifyWebhookGateway", () => {
     fireEvent.click(screen.getByText("Setup Webhook"));
 
     await waitFor(() => {
-      expect(screen.getByText("https://my-store.myshopify.com/api/webhooks/shopify/orders-paid")).toBeTruthy();
+      expect(screen.getByDisplayValue("https://my-store.myshopify.com/api/webhooks/shopify/orders-paid")).toBeTruthy();
     });
 
     const copyButton = screen.getByRole("button", { name: /copy/i });
