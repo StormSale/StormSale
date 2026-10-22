@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Contrast, Moon, Sun } from "lucide-react";
 import { usePreference, SCHEMA_VERSION } from "../../hooks/usePreference";
 
 export function resolveEffectiveTheme(): boolean {
@@ -78,12 +78,46 @@ export function applyTheme(newDarkMode: boolean) {
   }
 }
 
+export type ThemeMode = "light" | "dark" | "high-contrast";
+const THEME_MODE_KEY = "stormsale.theme.mode";
+
+export function resolveThemeMode(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_MODE_KEY);
+    if (stored === "light" || stored === "dark" || stored === "high-contrast") {
+      return stored;
+    }
+  } catch {
+    // Storage can be unavailable in privacy-restricted environments.
+  }
+  return resolveEffectiveTheme() ? "dark" : "light";
+}
+
+export function applyThemeMode(mode: ThemeMode) {
+  const root = document.documentElement;
+  root.classList.toggle("dark", mode === "dark");
+  root.classList.toggle("high-contrast", mode === "high-contrast");
+  root.dataset.theme = mode;
+  try {
+    localStorage.setItem(THEME_MODE_KEY, mode);
+    localStorage.setItem("darkMode", String(mode === "dark"));
+  } catch {
+    // Applying the DOM theme must still work when storage is blocked.
+  }
+  window.dispatchEvent(new Event("storage"));
+}
+
 export function ThemeToggle() {
+  const [mode, setMode] = useState<ThemeMode>(() => resolveThemeMode());
   const [darkMode, setDarkMode] = usePreference<boolean>(
     "stormsale.theme.dark",
     false,
     (v) => typeof v === "boolean",
   );
+
+  useEffect(() => {
+    applyThemeMode(mode);
+  }, [mode]);
 
   useEffect(() => {
     // Prioritize versioned preference; migrate legacy darkMode only when versioned key is absent
@@ -136,20 +170,29 @@ export function ThemeToggle() {
   }, [setDarkMode]);
 
   const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    applyTheme(newDarkMode);
+    const next: ThemeMode =
+      mode === "light" ? "dark" : mode === "dark" ? "high-contrast" : "light";
+    setMode(next);
+    setDarkMode(next === "dark");
+  };
+
+  const labels: Record<ThemeMode, string> = {
+    light: "Switch to dark mode",
+    dark: "Switch to high contrast mode",
+    "high-contrast": "Switch to light mode",
   };
 
   return (
     <button
       onClick={toggleDarkMode}
       className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400 transition-colors shadow-sm bg-white dark:bg-zinc-900"
-      aria-label="Toggle dark mode"
-      title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={labels[mode]}
+      title={labels[mode]}
     >
-      {darkMode ? (
+      {mode === "dark" ? (
         <Sun className="w-4 h-4 md:w-5 md:h-5 text-amber-500" />
+      ) : mode === "high-contrast" ? (
+        <Contrast className="w-4 h-4 md:w-5 md:h-5" />
       ) : (
         <Moon className="w-4 h-4 md:w-5 md:h-5 text-indigo-500" />
       )}
