@@ -35,6 +35,7 @@ import {
   isClaimWithinCap,
   appendClaimEvent,
   loadClaimEvents,
+  claimsForAffiliate,
   formatQuotaLabel,
 } from "../../lib/payoutCap";
 import { loadCampaignSettings } from "../../lib/campaignSettings";
@@ -59,6 +60,10 @@ export const ClaimPayouts = () => {
       // Select all matured campaigns by default
       const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
       setSelectedIds(matured);
+      // Reload the rolling-window ledger for the active wallet: the cap is per
+      // affiliate, so switching accounts must not carry over the previous
+      // affiliate's quota on the same browser.
+      setClaimEvents(loadClaimEvents());
     }
     loadClaims();
   }, [userAddress]);
@@ -71,12 +76,18 @@ export const ClaimPayouts = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // #156's cap is per affiliate, so the locally persisted ledger must be read
+  // per affiliate too: claims settled by a different wallet in the same browser
+  // must not consume this affiliate's quota.
+  const claimHistoryFor = (campaignId: number) =>
+    claimsForAffiliate(claimEvents, campaignId, userAddress);
+
   // Daily payout cap (#156): campaign-declared cap per affiliate per rolling 24h
   const getQuotaForCampaign = (campaignId: number): PayoutQuotaStatus | null => {
     const settings = loadCampaignSettings(campaignId);
     const cap = settings?.dailyPayoutCapXlm ?? null;
     if (cap === null) return null;
-    const campaignClaims = claimEvents.filter((e) => e.campaignId === campaignId);
+    const campaignClaims = claimHistoryFor(campaignId);
     return evaluateRollingQuota(campaignClaims, nowSeconds, cap);
   };
 
@@ -115,7 +126,7 @@ export const ClaimPayouts = () => {
     const blocked: { campaign: ClaimableCampaignItem; quota: PayoutQuotaStatus }[] = [];
     const allowed = selectedCampaigns.filter((camp) => {
       const cap = loadCampaignSettings(camp.campaignId)?.dailyPayoutCapXlm ?? null;
-      const events = claimEvents.filter((e) => e.campaignId === camp.campaignId);
+      const events = claimHistoryFor(camp.campaignId);
       if (isClaimWithinCap(events, nowSeconds, cap, camp.claimableXlm)) return true;
       blocked.push({
         campaign: camp,
@@ -125,10 +136,20 @@ export const ClaimPayouts = () => {
     });
 
     if (blocked.length > 0) {
+      // Report each blocked campaign with its own reason and its own reset time.
+      // The previous message quoted blocked[0]'s countdown for every campaign and
+      // said "quota exhausted" even when the quota was simply too small for a
+      // claim larger than the remaining allowance.
+      const details = blocked
+        .map(
+          ({ campaign, quota }) =>
+            `${campaign.campaignName} — ${formatQuotaLabel(quota)}, claim is ${campaign.claimableXlm} XLM`,
+        )
+        .join("; ");
       showNotification({
         type: "error",
         title: "Daily Payout Cap Reached",
-        message: `${blocked.map((b) => b.campaign.campaignName).join(", ")}: ${blocked[0].quota.resetCountdownText || "quota exhausted"} until the 24-hour window resets. Held back from this batch.`,
+        message: `${details}. Held back from this batch.`,
       });
     }
     if (allowed.length === 0) return;
@@ -161,6 +182,7 @@ export const ClaimPayouts = () => {
           timestamp: Math.floor(resultReceipt.timestamp / 1000),
           amountXlm: item.claimedXlm,
           txHash: resultReceipt.txHash,
+          affiliateAddress: userAddress || undefined,
         }),
       );
       setClaimEvents(fresh.length > 0 ? fresh[fresh.length - 1] : claimEvents);
@@ -190,7 +212,7 @@ export const ClaimPayouts = () => {
     if (!camp) return;
 
     const cap = loadCampaignSettings(campaignId)?.dailyPayoutCapXlm ?? null;
-    const events = claimEvents.filter((e) => e.campaignId === campaignId);
+    const events = claimHistoryFor(campaignId);
     if (!isClaimWithinCap(events, nowSeconds, cap, camp.claimableXlm)) {
       const quota = evaluateRollingQuota(events, nowSeconds, cap);
       showNotification({
@@ -223,6 +245,7 @@ export const ClaimPayouts = () => {
           timestamp: Math.floor(Date.now() / 1000),
           amountXlm: camp.claimableXlm,
           txHash: res.txHash,
+          affiliateAddress: userAddress || undefined,
         }),
       );
       if (shouldDeliverAffiliateNotification("payout")) {

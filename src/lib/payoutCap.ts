@@ -18,6 +18,14 @@ export interface AffiliateClaimEvent {
   timestamp: number;
   amountXlm: number;
   txHash?: string;
+  /**
+   * Stellar account the claim settled for. The cap in #156 is defined per
+   * affiliate, but the ledger is a single browser-wide list, so without this key
+   * a second wallet in the same browser inherits the first wallet's usage.
+   * Events written before the ledger carried this field are left as-is and still
+   * count for whoever reads them.
+   */
+  affiliateAddress?: string;
 }
 
 export interface PayoutQuotaStatus {
@@ -37,6 +45,26 @@ export interface PayoutQuotaStatus {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * Filters the browser-wide claim ledger down to one affiliate's claims for one
+ * campaign. #156's cap is defined per affiliate, but `loadClaimEvents()` returns
+ * every claim recorded in this browser, so without this filter a second wallet
+ * inherits the first wallet's usage and is blocked incorrectly. Entries written
+ * before the ledger carried an affiliate key have no owner to attribute and are
+ * kept, so quota is never silently freed for legacy records.
+ */
+export function claimsForAffiliate(
+  events: AffiliateClaimEvent[],
+  campaignId: number,
+  affiliateAddress?: string | null,
+): AffiliateClaimEvent[] {
+  return events.filter(
+    (e) =>
+      e.campaignId === campaignId &&
+      (!e.affiliateAddress || !affiliateAddress || e.affiliateAddress === affiliateAddress),
+  );
 }
 
 /**

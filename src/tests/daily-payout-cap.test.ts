@@ -5,6 +5,7 @@ import {
   isClaimWithinCap,
   appendClaimEvent,
   loadClaimEvents,
+  claimsForAffiliate,
   formatQuotaLabel,
   ROLLING_WINDOW_SECONDS,
   type AffiliateClaimEvent,
@@ -140,6 +141,33 @@ describe("Custom Commission Payout Caps per Affiliate per 24h (#156)", () => {
     it("survives corrupted persisted ledgers", () => {
       store["stormsale_affiliate_claim_log_v1"] = "{not json";
       expect(loadClaimEvents()).toEqual([]);
+    });
+
+    it("keys claim history by affiliate so a switched wallet keeps its own quota", () => {
+      const walletA = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+      const walletB = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+      appendClaimEvent({ ...claim(1, 90), affiliateAddress: walletA });
+
+      const ledger = loadClaimEvents();
+      expect(ledger[0].affiliateAddress).toBe(walletA);
+      expect(claimsForAffiliate(ledger, 101, walletA).length).toBe(1);
+      // Wallet B shares this browser but must not inherit wallet A's usage.
+      expect(claimsForAffiliate(ledger, 101, walletB)).toEqual([]);
+      expect(
+        evaluateRollingQuota(claimsForAffiliate(ledger, 101, walletB), NOW, 100).remainingQuotaXlm,
+      ).toBe(100);
+      expect(
+        evaluateRollingQuota(claimsForAffiliate(ledger, 101, walletA), NOW, 100).remainingQuotaXlm,
+      ).toBe(10);
+
+      // Legacy entries written before the ledger carried an affiliate key have no
+      // owner to attribute, so they still count instead of freeing quota.
+      const legacy = claim(1, 20);
+      expect(claimsForAffiliate([legacy], 101, walletB)).toEqual([legacy]);
+      expect(claimsForAffiliate([legacy], 101, null)).toEqual([legacy]);
+      // Filtering is per campaign as well as per affiliate.
+      expect(claimsForAffiliate(ledger, 777, walletA)).toEqual([]);
     });
 
     it("formats affiliate-facing quota notices with reset countdown", () => {
