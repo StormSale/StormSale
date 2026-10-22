@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -35,6 +35,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
+  const hasHydratedRef = useRef(false);
+  const hasNavigatedRef = useRef(false);
 
   // Reconcile cached metrics with live network data (background sync, zero layout shift)
   useEffect(() => {
@@ -56,11 +58,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     }
   }, [isConnected, invalidateCache]);
 
+  // Unified role-based routing: redirect to persisted role once hydrated (prevents 0ms flicker)
+  useEffect(() => {
+    if (!hydrated || hasNavigatedRef.current) return;
+    const persistedRole = metrics.userRole;
+    if (isConnected && persistedRole) {
+      const normalized = persistedRole.toLowerCase();
+      const validRole = ["advertiser", "affiliate", "auditor"].includes(normalized);
+      if (validRole) {
+        hasNavigatedRef.current = true;
+        onNavigate(normalized);
+      }
+    }
+  }, [hydrated, isConnected, metrics.userRole, onNavigate]);
+
   const handleConfirmRole = async (roleId: string) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
       await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
+      hasNavigatedRef.current = true;
       onNavigate(roleId);
     } catch (error) {
       console.error("Failed to assume role:", error);
@@ -68,6 +85,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       setIsSigning(false);
     }
   };
+
+  // Block render until cache hydration completes to guarantee zero flicker on load
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans" aria-busy="true" />
+    );
+  }
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;

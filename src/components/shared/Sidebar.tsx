@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { cn } from "../../lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +24,8 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  roleId?: string;
+  isRoleLoading?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -33,6 +35,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  roleId,
+  isRoleLoading = false,
 }) => {
   const [isCollapsed, setIsCollapsed] = usePreference<boolean>(
     "stormsale.sidebar.collapsed",
@@ -43,8 +47,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
 
-  const activeTabObject = tabs.find((tab) => tab.id === activeTab) || tabs[0];
+  const activeTabObject = useMemo(
+    () => tabs.find((tab) => tab.id === activeTab) || tabs[0],
+    [tabs, activeTab],
+  );
   const ActiveIcon = activeTabObject ? activeTabObject.icon : Layers;
+
+  // Prevent role flicker: keep a stable, fixed-height placeholder while the
+  // DB-synced role resolves so the layout never shifts (0ms flicker).
+  // If a role is already known (from cache/DB), render it immediately even
+  // while a background refresh is in-flight — this eliminates the flicker
+  // where a resolved role would briefly fall back to a skeleton.
+  const isRoleResolved = Boolean(roleName);
+  const displayRoleName = isRoleResolved ? roleName : "";
+  const roleSkeletonClass =
+    "inline-block h-3 w-16 rounded bg-slate-200 dark:bg-zinc-800 animate-pulse align-middle";
 
   return (
     <>
@@ -75,9 +92,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-xs font-bold text-zinc-900 dark:text-white truncate max-w-[140px] sm:max-w-[200px]">
                   {activeTabObject ? activeTabObject.label : "Menu"}
                 </span>
-                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
-                  {roleName}
-                </span>
+                {isRoleResolved ? (
+                  <span
+                    className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400"
+                    data-role-id={roleId}
+                  >
+                    {displayRoleName}
+                  </span>
+                ) : (
+                  <span className={roleSkeletonClass} aria-hidden="true" />
+                )}
               </div>
             </div>
           </div>
@@ -230,9 +254,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center shadow-md">
                     <Shield className="w-4 h-4 text-white" />
                   </div>
-                  <span className="font-bold text-zinc-900 dark:text-white tracking-tight">
-                    {roleName}
-                  </span>
+                  {isRoleResolved ? (
+                    <span
+                      className="font-bold text-zinc-900 dark:text-white tracking-tight"
+                      data-role-id={roleId}
+                    >
+                      {displayRoleName}
+                    </span>
+                  ) : (
+                    <span className={roleSkeletonClass} aria-hidden="true" />
+                  )}
                 </div>
               </motion.div>
             ) : (

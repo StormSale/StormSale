@@ -8,7 +8,7 @@ import {
 } from "../components/ui/copy-button";
 
 describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
-  const originalNavigator = globalThis.navigator;
+  const originalNav = globalThis.navigator;
   const originalDocument = (globalThis as any).document;
 
   const setNavigator = (value: any) => {
@@ -32,7 +32,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   });
 
   afterEach(() => {
-    setNavigator(originalNavigator);
+    setNavigator(originalNav);
     setDocument(originalDocument);
   });
 
@@ -43,20 +43,20 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
     });
 
     it("uses navigator.clipboard.writeText when available", async () => {
-      const mockWriteText = vi.fn().mockResolvedValue(undefined);
+      const mockWriteText = vi.fn().mockResolved(undefined);
       setNavigator({
         clipboard: {
           writeText: mockWriteText,
         },
       });
 
-      const result = await copyToClipboard("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      const result = await copyToClipboard("GB6M6OEXAMPLESTELLARPUBLICKEY");
       expect(result).toBe(true);
-      expect(mockWriteText).toHaveBeenCalledWith("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      expect(mockWriteText).toHaveBeenCalledWith("GB6M6OEXAMPLESTELLARPUBLICKEY");
     });
 
     it("falls back to document.execCommand when navigator.clipboard throws", async () => {
-      const mockWriteText = vi.fn().mockRejectedValue(new Error("Permission denied"));
+      const mockWriteText = vi.fn().mockRejected(new Error("Permission denied"));
       const mockExecCommand = vi.fn().mockReturnValue(true);
 
       const appendChildSpy = vi.fn();
@@ -83,7 +83,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         execCommand: mockExecCommand,
       });
 
-      const result = await copyToClipboard("GB6M4OEXAMPLEFALLBACK");
+      const result = await copyToClipboard("GB6M6OEXEXAMPLETEFALLBACK");
       expect(result).toBe(true);
       expect(mockWriteText).toHaveBeenCalled();
       expect(mockExecCommand).toHaveBeenCalledWith("copy");
@@ -94,7 +94,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
     it("falls back to document.execCommand when navigator.clipboard is undefined", async () => {
       const mockExecCommand = vi.fn().mockReturnValue(true);
 
-      setNavigator({});
+      setNavigator({ });
       setDocument({
         createElement: vi.fn().mockReturnValue({
           style: {},
@@ -110,20 +110,20 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         execCommand: mockExecCommand,
       });
 
-      const result = await copyToClipboard("GB6M4OFALLBACK2");
+      const result = await copyToClipboard("GB6M6OFALLBACK2");
       expect(result).toBe(true);
       expect(mockExecCommand).toHaveBeenCalledWith("copy");
     });
 
     it("handles execCommand failure safely and returns false", async () => {
-      setNavigator({});
+      setNavigator({ });
       setDocument({
         createElement: vi.fn().mockImplementation(() => {
           throw new Error("DOM write error");
         }),
       });
 
-      const result = await copyToClipboard("GB6M4OFAIL");
+      const result = await copyToClipboard("GB6M6OFAIL");
       expect(result).toBe(false);
     });
   });
@@ -132,7 +132,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
     it("renders CopyButton with custom label and accessible attributes", () => {
       const html = renderToString(
         <CopyButton
-          text="GB6M4OEXAMPLESTELLARPUBLICKEY"
+          text="GB6M6OEXAMPLESTELLARPUBLICKEY"
           label="Copy Public Key"
           copiedLabel="Copied Address!"
         />,
@@ -146,7 +146,11 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
 
     it("renders CopyButton in icon-only mode when specified", () => {
       const html = renderToString(
-        <CopyButton text="GB6M4OEXAMPLESTELLARPUBLICKEY" iconOnly={true} size="icon" />,
+        <CopyButton
+          text="GB6M6OEXAMPLESTELLARPUBLICKEY"
+          iconOnly={true}
+          size="icon"
+        />,
       );
 
       expect(html).toContain("h-8 w-8");
@@ -155,7 +159,11 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
 
     it("applies premium indigo styling variant when requested", () => {
       const html = renderToString(
-        <CopyButton text="GB6M4OEXAMPLE" label="Copy URI" variant="indigo" />,
+        <CopyButton
+          text="GB6M6OEXEXEXAMPLE"
+          label="Copy URI"
+          variant="indigo"
+        />,
       );
 
       expect(html).toContain("bg-indigo-600");

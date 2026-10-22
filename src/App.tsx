@@ -72,8 +72,9 @@ const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
-  const { isConnected } = useWeb3();
+  const { isConnected, role, isLoading: roleLoading } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [roleResolved, setRoleResolved] = useState(false);
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
     "stormsale.app.currentPage",
@@ -84,6 +85,24 @@ function Router() {
   const prevConnectedRef = useRef(isConnected);
 
   useEffect(() => {
+    // Wait for the wallet connection AND the DB-backed role to settle before
+    // rendering routes. This prevents a flicker between Landing, the default
+    // dashboard, and the correct role dashboard on first paint.
+    // When disconnected, there is no role to resolve and we can render the
+    // Landing view immediately. When connected, we must wait for the DB-backed
+    // role fetch to finish so we never paint the wrong role dashboard.
+    if (!isConnected) {
+      setRoleResolved(true);
+      return;
+    }
+    if (!roleLoading) {
+      setRoleResolved(true);
+    } else {
+      setRoleResolved(false);
+    }
+  }, [isConnected, roleLoading]);
+
+  useEffect(() => {
     // Only reset to "dashboard" after isConnected transitions from true to false,
     // preserving saved page state on initial load / reload.
     if (prevConnectedRef.current && !isConnected) {
@@ -91,6 +110,24 @@ function Router() {
     }
     prevConnectedRef.current = isConnected;
   }, [isConnected, setCurrentPage]);
+
+  useEffect(() => {
+    // Keep the persisted page in sync with the resolved DB role so a user
+    // landing on a stale/unauthorized page is routed to their role's page.
+    if (!roleResolved || !isConnected || !role) return;
+    const rolePageMap: Record<string, Page> = {
+      ADVERTISER: "advertiser",
+      AFFILIATE: "affiliate",
+      AUDITOR: "auditor",
+    };
+    const targetPage = rolePageMap[role];
+    // Redirect any non-matching role page (including a stale role page from a
+    // previous session) to the user's actual role page. The generic dashboard
+    // remains a valid landing spot for every role.
+    if (targetPage && currentPage !== targetPage && currentPage !== "dashboard") {
+      setCurrentPage(targetPage);
+    }
+  }, [role, roleResolved, isConnected, currentPage, setCurrentPage]);
 
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -103,6 +140,10 @@ function Router() {
       setCurrentPage(page as Page);
     }
   };
+
+  if (!roleResolved) {
+    return <PageLoader />;
+  }
 
   if (activeBrandSubdomain) {
     return (
