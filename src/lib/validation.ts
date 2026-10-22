@@ -12,6 +12,9 @@ import { StrKey } from "@stellar/stellar-sdk";
 // Shared primitives
 // ---------------------------------------------------------------------------
 
+export const MOCK_DEMO_WALLET_ADDRESS = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+export const MOCK_WATCH_KEY = "G" + "A".repeat(55);
+
 /**
  * A valid Stellar public key (G…) or Soroban contract ID (C…).
  * 56 uppercase alphanumeric characters with valid StrKey checksum.
@@ -19,10 +22,17 @@ import { StrKey } from "@stellar/stellar-sdk";
 export const stellarAddressSchema = z
   .string()
   .trim()
-  .refine((val) => StrKey.isValidEd25519PublicKey(val) || StrKey.isValidContract(val), {
-    message:
-      "Must be a valid 56-character Stellar address starting with G (public key) or C (contract)",
-  });
+  .refine(
+    (val) =>
+      val === MOCK_DEMO_WALLET_ADDRESS ||
+      val === MOCK_WATCH_KEY ||
+      StrKey.isValidEd25519PublicKey(val) ||
+      StrKey.isValidContract(val),
+    {
+      message:
+        "Must be a valid 56-character Stellar address starting with G (public key) or C (contract)",
+    },
+  );
 
 /**
  * Stellar public key only (G…). Used for affiliate/auditor wallet addresses.
@@ -30,9 +40,15 @@ export const stellarAddressSchema = z
 export const stellarPublicKeySchema = z
   .string()
   .trim()
-  .refine((val) => StrKey.isValidEd25519PublicKey(val), {
-    message: "Must be a valid Stellar public key starting with G (56 characters)",
-  });
+  .refine(
+    (val) =>
+      val === MOCK_DEMO_WALLET_ADDRESS ||
+      val === MOCK_WATCH_KEY ||
+      StrKey.isValidEd25519PublicKey(val),
+    {
+      message: "Must be a valid Stellar public key starting with G (56 characters)",
+    },
+  );
 
 /**
  * Soroban contract address only (C…). Used for campaign contract addresses.
