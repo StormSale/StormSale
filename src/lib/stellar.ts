@@ -602,10 +602,24 @@ export async function createCampaignContractCall(
     args,
     walletType,
   );
+  // `create_campaign` returns a Soroban u64, which `scValToNative` decodes as a
+  // bigint. Substituting a random id when the result is missing or undecodable
+  // would anchor the campaign's extended settings (#151/#155/#156) to an id that
+  // no campaign owns, or overwrite another campaign's record, so decode safely
+  // and fail loudly instead.
+  const rawCampaignId = result.resultValue;
   const campaignId =
-    typeof result.resultValue === "number"
-      ? result.resultValue
-      : Math.floor(Math.random() * 9000) + 1000;
+    typeof rawCampaignId === "number"
+      ? rawCampaignId
+      : typeof rawCampaignId === "bigint"
+        ? Number(rawCampaignId)
+        : null;
+
+  if (campaignId === null || !Number.isSafeInteger(campaignId) || campaignId <= 0) {
+    throw new Error(
+      "create_campaign returned no usable campaign ID; refusing to guess one so campaign settings stay anchored to the real campaign",
+    );
+  }
 
   return {
     success: true,

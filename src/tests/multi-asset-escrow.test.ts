@@ -288,4 +288,41 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
       expect(scVal).toBeDefined();
     }
   });
+
+  it("decodes the u64 campaign ID returned by create_campaign instead of guessing one", async () => {
+    // scValToNative yields a bigint for a Soroban u64. The old code only accepted
+    // `number` and fell back to Math.floor(Math.random() * 9000) + 1000, which
+    // anchored the campaign's extended settings to an ID no campaign owns.
+    const invokeSpy = vi
+      .spyOn(stellarModule.stellarOperations, "invokeSorobanMethod")
+      .mockResolvedValue({ success: true, txHash: "0xbiginttxhash", resultValue: 918273645n });
+
+    const res = await createCampaignContractCall(
+      advertiserWallet,
+      10,
+      604800,
+      500,
+      "freighter",
+      "USDC",
+    );
+
+    expect(res.campaignId).toBe(918273645);
+    expect(typeof res.campaignId).toBe("number");
+
+    invokeSpy.mockRestore();
+  });
+
+  it("fails instead of returning a random campaign ID when the result is undecodable", async () => {
+    for (const resultValue of [undefined, "not-a-number", {}, -3, 0, null]) {
+      const invokeSpy = vi
+        .spyOn(stellarModule.stellarOperations, "invokeSorobanMethod")
+        .mockResolvedValue({ success: true, txHash: "0xbadtxhash", resultValue });
+
+      await expect(
+        createCampaignContractCall(advertiserWallet, 10, 604800, 500, "freighter", "USDC"),
+      ).rejects.toThrow(/no usable campaign ID/i);
+
+      invokeSpy.mockRestore();
+    }
+  });
 });
