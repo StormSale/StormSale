@@ -513,7 +513,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
           json: async () => ({
             jsonrpc: "2.0",
             id: 1,
-            result: { sequence: 200000 },
+            result: { status: "healthy", latestLedger: 200000, oldestLedger: 185000 },
           }),
         } as Response)
         .mockResolvedValueOnce({
@@ -527,7 +527,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
 
       await fetchLiveOnChainTelemetry("PUBLIC");
 
-      // Verify call 1: getLatestLedger
+      // Verify call 1: getHealth
       expect(fetchSpy).toHaveBeenNthCalledWith(
         1,
         "https://soroban-rpc.mainnet.stellar.org",
@@ -540,7 +540,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
           body: JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
-            method: "getLatestLedger",
+            method: "getHealth",
           }),
         }),
       );
@@ -560,8 +560,8 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
 
       const secondCallBody = JSON.parse(fetchSpy.mock.calls[1][1]?.body as string);
       expect(secondCallBody.method).toBe("getEvents");
-      // 200000 - 120960 + 1 = 79041
-      expect(secondCallBody.params.startLedger).toBe(79041);
+      // 200000 - 10000 = 190000 (bounded by oldestLedger 185000)
+      expect(secondCallBody.params.startLedger).toBe(190000);
       expect(secondCallBody.params.pagination.limit).toBe(100);
       expect(secondCallBody.params.filters[0].contractIds).toEqual([
         CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
@@ -571,7 +571,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
     });
 
     it("should handle JSON-RPC errors and reject or fallback based on throwOnError", async () => {
-      // 1. getLatestLedger error with throwOnError = true
+      // 1. getHealth error with throwOnError = true
       const fetchSpyError1 = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -582,11 +582,11 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
       } as Response);
 
       await expect(fetchLiveOnChainTelemetry("TESTNET", { throwOnError: true })).rejects.toThrow(
-        "Soroban RPC getLatestLedger error (-32600): Node syncing",
+        "Soroban RPC getHealth error (-32600): Node syncing",
       );
       fetchSpyError1.mockRestore();
 
-      // 2. getLatestLedger error with throwOnError = false
+      // 2. getHealth error with throwOnError = false
       const fetchSpyError2 = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -670,7 +670,7 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
           json: async () => ({
             jsonrpc: "2.0",
             id: 1,
-            result: { sequence: 99999 },
+            result: { latestLedger: 99999, oldestLedger: 90000 },
           }),
         } as Response)
         .mockResolvedValueOnce({
@@ -680,9 +680,9 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
             id: 2,
             result: {
               events: [
-                { txHash: "1".repeat(64), ledger: 99999 },
+                { txHash: "1".repeat(64), ledger: 99997 },
                 { txHash: "2".repeat(64), ledger: 99998 },
-                { txHash: "3".repeat(64), ledger: 99997 },
+                { txHash: "3".repeat(64), ledger: 99999 },
               ],
               latestLedger: 99999,
             },

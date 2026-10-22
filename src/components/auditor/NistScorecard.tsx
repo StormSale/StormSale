@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from "react";
+import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -44,14 +44,19 @@ export const NistScorecard: React.FC = () => {
   const [copiedSeal, setCopiedSeal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
+  // Request sequence ref to discard stale out-of-order audit responses
+  const requestSeqRef = useRef(0);
+
   const summary = useMemo(() => calculateScorecardSummary(controls), [controls]);
 
   // Handle re-running live compliance verification against Stellar Horizon / Soroban
   const handleRunAudit = useCallback(
     async (options: { silent?: boolean } = {}) => {
+      const currentSeq = ++requestSeqRef.current;
       setIsAuditing(true);
       try {
         const { controls: freshControls, telemetry } = await fetchLiveNistControls(network);
+        if (currentSeq !== requestSeqRef.current) return;
         setControls(freshControls);
         if (!options.silent) {
           const hasTxs = (telemetry.recentTransactions?.length ?? 0) > 0;
@@ -76,6 +81,7 @@ export const NistScorecard: React.FC = () => {
           }
         }
       } catch (err: unknown) {
+        if (currentSeq !== requestSeqRef.current) return;
         if (!options.silent) {
           showNotification({
             type: "error",
@@ -87,7 +93,9 @@ export const NistScorecard: React.FC = () => {
           });
         }
       } finally {
-        setIsAuditing(false);
+        if (currentSeq === requestSeqRef.current) {
+          setIsAuditing(false);
+        }
       }
     },
     [network, showNotification],
@@ -95,22 +103,24 @@ export const NistScorecard: React.FC = () => {
 
   // Trigger live on-chain audit on mount or network change
   useEffect(() => {
-    let isCancelled = false;
+    const currentSeq = ++requestSeqRef.current;
+    setIsAuditing(true);
     void fetchLiveNistControls(network)
       .then(({ controls: freshControls }) => {
-        if (!isCancelled) {
+        if (currentSeq === requestSeqRef.current) {
           setControls(freshControls);
         }
       })
       .catch(() => {
-        if (!isCancelled) {
+        if (currentSeq === requestSeqRef.current) {
           setControls(getStandardNistControls(network, { isOnline: false }));
         }
+      })
+      .finally(() => {
+        if (currentSeq === requestSeqRef.current) {
+          setIsAuditing(false);
+        }
       });
-
-    return () => {
-      isCancelled = true;
-    };
   }, [network]);
 
   // 1-Click Export Pack (Both PDF and JSON)

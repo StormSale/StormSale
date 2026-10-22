@@ -97,41 +97,52 @@ export async function fetchLiveOnChainTelemetry(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    // 1. Resolve active ledger sequence height via getLatestLedger
-    const ledgerResponse = await fetch(netConfig.rpcUrl, {
+    // 1. Resolve active ledger bounds via getHealth
+    const healthResponse = await fetch(netConfig.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
-        method: "getLatestLedger",
+        method: "getHealth",
       }),
       signal: controller.signal,
     });
 
-    if (!ledgerResponse.ok) {
+    if (!healthResponse.ok) {
       if (throwOnError) {
         throw new Error(
-          `Soroban RPC returned HTTP status ${ledgerResponse.status} (${ledgerResponse.statusText || "Error"}) for network ${netConfig.network}`,
+          `Soroban RPC returned HTTP status ${healthResponse.status} (${healthResponse.statusText || "Error"}) for network ${netConfig.network}`,
         );
       }
       return { isOnline: false };
     }
 
-    const ledgerData = await ledgerResponse.json();
-    if (ledgerData.error) {
+    const healthData = await healthResponse.json();
+    if (healthData.error) {
       if (throwOnError) {
         throw new Error(
-          `Soroban RPC getLatestLedger error (${ledgerData.error.code}): ${ledgerData.error.message}`,
+          `Soroban RPC getHealth error (${healthData.error.code}): ${healthData.error.message}`,
         );
       }
       return { isOnline: false };
     }
 
     const currentLedger =
-      typeof ledgerData.result?.sequence === "number" ? ledgerData.result.sequence : 0;
-    // Soroban retention window is typically 120,960 ledgers (~7 days)
-    const startLedger = Math.max(1, currentLedger - 120960 + 1);
+      typeof healthData.result?.latestLedger === "number"
+        ? healthData.result.latestLedger
+        : typeof healthData.result?.sequence === "number"
+          ? healthData.result.sequence
+          : 0;
+
+    const oldestLedger =
+      typeof healthData.result?.oldestLedger === "number"
+        ? healthData.result.oldestLedger
+        : Math.max(1, currentLedger - 120960 + 1);
+
+    // Query a recent window (up to 10,000 ledgers) bounded by the node's oldest retained ledger
+    const RECENT_LEDGER_WINDOW = 10000;
+    const startLedger = Math.max(oldestLedger, currentLedger - RECENT_LEDGER_WINDOW);
 
     // 2. Query getEvents within the verified retention window for the escrow contract
     const response = await fetch(netConfig.rpcUrl, {
@@ -1014,7 +1025,10 @@ export function generateCompliancePdf(pack: ComplianceAuditPack): jsPDF {
   doc.setFont("helvetica", "bold");
   doc.text("Auditor Key:", col1, y + 18);
   doc.setFont("helvetica", "normal");
-  const shortAuditor = `${pack.auditorAddress.slice(0, 10)}...${pack.auditorAddress.slice(-8)}`;
+  const isStellarAddress = /^G[A-Z0-9]{55}$/.test(pack.auditorAddress);
+  const shortAuditor = isStellarAddress
+    ? `${pack.auditorAddress.slice(0, 10)}...${pack.auditorAddress.slice(-8)}`
+    : pack.auditorAddress;
   doc.text(shortAuditor, col1 + 25, y + 18);
 
   doc.setFont("helvetica", "bold");
