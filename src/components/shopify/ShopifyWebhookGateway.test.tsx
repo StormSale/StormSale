@@ -73,7 +73,7 @@ describe("ShopifyWebhookGateway", () => {
 
     fireEvent.click(screen.getByText("Generate"));
 
-    const secretInput = screen.getByPlaceholderText("Auto-generated secret");
+    const secretInput = screen.getByPlaceholderText("Auto-generated secret") as HTMLInputElement;
     expect(secretInput.value).toBe("test_secret_12345678901234567890123456789012");
     expect(mocks.generateShopifySharedSecret).toHaveBeenCalled();
   });

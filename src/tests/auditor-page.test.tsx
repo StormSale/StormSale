@@ -36,13 +36,11 @@ vi.mock("../components/shared/Sidebar", () => ({
     activeTab,
     onTabChange,
     tabs,
-    onBack,
     roleName,
   }: {
     activeTab: string;
     onTabChange: (tab: string) => void;
     tabs: Array<{ id: string; label: string; icon: React.ComponentType }>;
-    onBack?: () => void;
     roleName?: string;
   }) => (
     <div data-testid="auditor-sidebar">

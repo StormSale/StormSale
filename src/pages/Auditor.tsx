@@ -206,7 +206,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
         <div className="max-w-6xl mx-auto">
           <TenantSelector />
 
-          <AnimatePresence mode="popper">
+          <AnimatePresence mode="popLayout">
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}

@@ -123,7 +123,7 @@ describe("Affiliate Referral Extraction", () => {
       order_number: 1004,
       total_price: "75.50",
       currency: "USD",
-      landing_site: "https://example.com?camp=7",
+      landing_site: "https://example.com?affiliate=aff_abc123&camp=7",
     } as any;
 
     const referral = extractAffiliateReferral(order);
