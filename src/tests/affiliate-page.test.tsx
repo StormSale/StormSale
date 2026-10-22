@@ -52,6 +52,7 @@ vi.mock("../components/affiliate/AffiliateSettings", () => ({
 }));
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: () => "", dismissNotification: () => {} }),
 }));
 vi.mock("../lib/telegram", () => ({ isTelegramMiniApp: () => false }));
 

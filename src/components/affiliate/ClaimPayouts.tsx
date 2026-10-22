@@ -16,6 +16,7 @@ import {
   Sparkles,
   Loader2,
   X,
+  Lock,
 } from "lucide-react";
 import {
   type ClaimableCampaignItem,
@@ -23,11 +24,9 @@ import {
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
-import {
-  loadAffiliatePreferences,
-  shouldDeliverAffiliateNotification,
-} from "./AffiliateSettings";
+import { loadAffiliatePreferences, shouldDeliverAffiliateNotification } from "./AffiliateSettings";
 import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
+import { isAffiliatePaused } from "../../lib/fraudRiskEngine";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const ClaimPayouts = () => {
@@ -39,6 +38,8 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
+
+  const isFrozen = userAddress ? isAffiliatePaused(userAddress) : false;
 
   useEffect(() => {
     async function loadClaims() {
@@ -72,6 +73,15 @@ export const ClaimPayouts = () => {
   // 1-Click Automated Batch Claim Dispatcher
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
+
+    if (isFrozen) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Frozen",
+        message: "Your affiliate account is paused pending fraud risk review by the advertiser.",
+      });
+      return;
+    }
 
     setIsBatchClaiming(true);
     showNotification({
@@ -114,6 +124,15 @@ export const ClaimPayouts = () => {
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
+    if (isFrozen) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Frozen",
+        message: "Your affiliate account is paused pending fraud risk review by the advertiser.",
+      });
+      return;
+    }
+
     setClaimingId(campaignId);
     showNotification({
       type: "info",
@@ -144,8 +163,9 @@ export const ClaimPayouts = () => {
       setClaimingId(null);
     }
   };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-12" data-testid="claim-payouts-view">
       {/* Page Title */}
       <div>
         <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
@@ -155,6 +175,27 @@ export const ClaimPayouts = () => {
           Matured commissions cleared by Soroban smart contract escrow are ready to withdraw.
         </p>
       </div>
+
+      {/* Frozen Alert Banner (#152) */}
+      {isFrozen && (
+        <div
+          role="alert"
+          className="p-5 rounded-3xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-100 flex items-start gap-3 shadow-md"
+          data-testid="banner-affiliate-frozen"
+        >
+          <div className="w-9 h-9 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+            <Lock className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="font-extrabold text-sm">Commission Payouts Frozen Pending Review</h4>
+            <p className="text-xs text-rose-700 dark:text-rose-300 mt-1 leading-relaxed">
+              Your wallet has been paused from withdrawing or claiming commission payouts by the
+              advertiser due to statistical conversion velocity anomalies or click injection flags.
+              Please reach out to campaign compliance to request an unfreeze review.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Hero Dispatcher Card: Automated Batch Claim Dispatcher */}
       <motion.div
@@ -216,15 +257,25 @@ export const ClaimPayouts = () => {
             <Button
               size="lg"
               onClick={handleBatchClaim}
-              disabled={selectedCampaigns.length === 0}
               loading={isBatchClaiming}
               cooldown
-              className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 text-white font-extrabold text-sm shadow-xl shadow-indigo-500/30 h-13 px-6 transition-transform hover:scale-[1.02] border-0"
+              disabled={isBatchClaiming || selectedCampaigns.length === 0 || isFrozen}
+              className={`w-full rounded-2xl text-white font-extrabold text-sm h-13 px-6 transition-transform border-0 ${
+                isFrozen
+                  ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
+                  : "bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 shadow-xl shadow-indigo-500/30 hover:scale-[1.02]"
+              }`}
+              data-testid="btn-batch-claim"
             >
               {isBatchClaiming ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   <span>Signing Single Envelope...</span>
+                </>
+              ) : isFrozen ? (
+                <>
+                  <Lock className="w-4 h-4 mr-2 text-rose-400" />
+                  <span>Payouts Frozen (Review Pending)</span>
                 </>
               ) : (
                 <>
@@ -380,18 +431,37 @@ export const ClaimPayouts = () => {
                       <TableCell className="py-4 pr-6 text-right">
                         <Button
                           size="sm"
-                          disabled={!isMatured || isBatchClaiming}
                           loading={claimingId === camp.campaignId}
                           cooldown
+                          disabled={
+                            !isMatured ||
+                            claimingId === camp.campaignId ||
+                            isBatchClaiming ||
+                            isFrozen
+                          }
                           onClick={() => handleSingleClaim(camp.campaignId)}
                           className={`rounded-xl text-xs font-semibold h-8 px-3 transition-colors ${
-                            isMatured
-                              ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white"
-                              : "bg-slate-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
+                            isFrozen
+                              ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
+                              : isMatured
+                                ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white"
+                                : "bg-slate-100 dark:bg-zinc-800 text-zinc-400 cursor-not-allowed"
                           }`}
+                          data-testid={`btn-claim-single-${camp.campaignId}`}
                         >
-                          <Zap className="w-3 h-3 mr-1" />
-                          {claimingId === camp.campaignId ? "Claiming..." : "Claim Single"}
+                          {isFrozen ? (
+                            <>
+                              <Lock className="w-3 h-3 mr-1 text-rose-400" />
+                              <span>Frozen</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="w-3 h-3 mr-1" />
+                              <span>
+                                {claimingId === camp.campaignId ? "Claiming..." : "Claim Single"}
+                              </span>
+                            </>
+                          )}
                         </Button>
                       </TableCell>
                     </TableRow>

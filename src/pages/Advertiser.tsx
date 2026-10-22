@@ -9,7 +9,11 @@ import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
+import { OrganizationManagement } from "../components/advertiser/OrganizationManagement";
+import { FraudRiskPartnerTable } from "../components/advertiser/FraudRiskPartnerTable";
+import { FraudRiskProvider } from "../context/FraudRiskContext";
 import { NotificationProvider } from "../context/NotificationContext";
+import { OrganizationProvider } from "../context/OrganizationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -28,6 +32,8 @@ import {
   FileSearch,
   Layers,
   Coins,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -39,6 +45,8 @@ const ADVERTISER_TABS = [
   "overview",
   "create-campaign",
   "my-campaigns",
+  "team-management",
+  "fraud-risk",
   "brand-customizer",
   "log-sale",
   "cohort-analysis",
@@ -60,6 +68,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
+    { id: "team-management", label: "Team & Permissions", icon: ShieldCheck },
+    { id: "fraud-risk", label: "Fraud & Partner Risk", icon: ShieldAlert },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
@@ -75,6 +85,10 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CreateCampaignForm />;
       case "brand-customizer":
         return <BrandCustomizer />;
+      case "team-management":
+        return <OrganizationManagement />;
+      case "fraud-risk":
+        return <FraudRiskPartnerTable />;
       case "log-sale":
         return <LogSaleForm />;
       case "cohort-analysis":
@@ -128,7 +142,11 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
 
 export const Advertiser: React.FC<AdvertiserProps> = (props) => (
   <NotificationProvider>
-    <AdvertiserContent {...props} />
+    <OrganizationProvider>
+      <FraudRiskProvider>
+        <AdvertiserContent {...props} />
+      </FraudRiskProvider>
+    </OrganizationProvider>
   </NotificationProvider>
 );
 
@@ -424,6 +442,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-amber-500/10",
                   hoverText: "group-hover:text-amber-500",
                   hoverBorder: "hover:border-amber-500/30",
+                },
+                {
+                  label: "Team Permissions",
+                  icon: Users,
+                  action: "team-management",
+                  hoverBg: "group-hover:bg-purple-500/10",
+                  hoverText: "group-hover:text-purple-500",
+                  hoverBorder: "hover:border-purple-500/30",
                 },
               ].map((action, index) => {
                 const IconComponent = action.icon;

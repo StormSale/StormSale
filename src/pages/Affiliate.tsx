@@ -6,6 +6,7 @@ import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
+import { ReferralNetworkTree } from "../components/affiliate/ReferralNetworkTree";
 import {
   Users,
   TrendingUp,
@@ -15,12 +16,17 @@ import {
   Send,
   Sliders,
   Link2,
+  GitBranch,
+  ShieldCheck,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
+import { ReferralTreeProvider } from "../context/ReferralTreeContext";
+import { ZKProofProvider } from "../context/ZKProofContext";
 import { usePreference } from "../hooks/usePreference";
 import { motion, AnimatePresence } from "framer-motion";
 import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
+import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
 import { Button } from "../components/ui/button";
 
 interface AffiliateProps {
@@ -29,6 +35,8 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "referral-tree",
+  "zk-portfolio",
   "telegram-browser",
   "custom-links",
   "join-campaign",
@@ -48,6 +56,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "referral-tree", label: "Referral Network (2% Override)", icon: GitBranch },
+    { id: "zk-portfolio", label: "ZK Revenue Proofs ($50K+)", icon: ShieldCheck },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
@@ -59,6 +69,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "referral-tree":
+        return <ReferralNetworkTree />;
+      case "zk-portfolio":
+        return <ZKProofGenerator />;
       case "telegram-browser":
         return <TelegramCampaignBrowser />;
       case "custom-links":
@@ -135,6 +149,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
 export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
-    <AffiliateContent {...props} />
+    <ReferralTreeProvider>
+      <ZKProofProvider>
+        <AffiliateContent {...props} />
+      </ZKProofProvider>
+    </ReferralTreeProvider>
   </NotificationProvider>
 );
