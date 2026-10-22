@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
@@ -42,6 +42,7 @@ import {
   formatLedgerDuration,
   extendContractInstanceTTL,
 } from "../../lib/contractTTL";
+import { watchCampaignEscrowLevels } from "../../lib/slackNotifier";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -218,6 +219,12 @@ export const MyCampaignsList = () => {
 
   const { refundCampaignEscrow, isConnected, userAddress, connectorType } = useWeb3();
   const { showNotification } = useNotification();
+
+  // Escrow monitor: pushes formatted Slack alerts for depleted campaigns.
+  // Dispatch is rate limited, and the audit trail shows in Slack integration settings.
+  useEffect(() => {
+    watchCampaignEscrowLevels(campaigns);
+  }, [campaigns]);
 
   // Low balance threshold: < 10%
   const isCampaignLowEscrow = (c: Campaign) => {

@@ -7,6 +7,7 @@ import type {
   SimulationMode,
 } from "../types/webhook";
 import { generateWebhookSecret, generateWebhookSignature } from "./webhookSecurity";
+import { maybeDispatchHighValueConversionAlert } from "./slackNotifier";
 
 const STORAGE_ENDPOINTS_KEY = "stormsale_webhook_endpoints_v1";
 const STORAGE_DELIVERIES_KEY = "stormsale_webhook_deliveries_v1";
@@ -724,6 +725,13 @@ export async function triggerConversionPostback(
       dispatchedDeliveries.push(updated);
     }
   }
+
+  await maybeDispatchHighValueConversionAlert({
+    campaignName: data.campaignAddress,
+    affiliateAddress: data.affiliateAddress,
+    amountXlm: Number(data.saleAmount),
+    stellarTxHash: data.stellarTxHash,
+  });
 
   return dispatchedDeliveries;
 }
