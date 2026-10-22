@@ -271,7 +271,7 @@ export const ShopifyWebhookGateway = () => {
 
             <Button
               onClick={setupWebhook}
-              disabled={!shopDomain || isWebhookSetup}
+              disabled={isWebhookSetup}
               className="w-full h-12 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-semibold rounded-xl transition-all"
             >
               {isWebhookSetup ? (
@@ -385,7 +385,7 @@ export const ShopifyWebhookGateway = () => {
                     }`}>
                       {testResult.message}
                     </p>
-                    {testResult.details && testResult.status === "success" && (
+                    {testResult.details && testResult.status === "success" && testResult.details.referral && (
                       <div className="mt-3 p-3 bg-white dark:bg-zinc-900 rounded-lg border border-slate-200 dark:border-zinc-800 text-xs">
                         <p className="font-bold text-zinc-900 dark:text-white mb-1">Conversion Logged</p>
                         <p className="text-zinc-500 dark:text-zinc-400">
