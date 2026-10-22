@@ -80,7 +80,7 @@ vi.mock("../components/auditor/Soc2EvidenceExport", () => ({
 }));
 vi.mock("../components/auditor/NetworkRiskVisualizer", () => ({
   NetworkRiskVisualizer: () => (
-    <div data-testid="network-risk">Network Risk Visualizer</div>,
+    <div data-testid="network-risk">Network Risk Visualizer</div>
   ),
 }));
 vi.mock("../components/auditor/PrivacyVerification", () => ({

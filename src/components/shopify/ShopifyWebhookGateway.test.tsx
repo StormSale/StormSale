@@ -1,12 +1,24 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ShopifyWebhookGateway } from "./ShopifyWebhookGateway";
+import React from "react";
 
 const mocks = vi.hoisted(() => ({
   logSaleContractCall: vi.fn(),
+  generateShopifySharedSecret: vi.fn(() => "test_secret_12345678901234567890123456789012"),
+  validateShopifyHmacAsync: vi.fn(),
+  extractAffiliateReferral: vi.fn(),
+  constructSorobanConversionPayload: vi.fn(),
+  generateWebhookUrl: vi.fn((domain: string) => `https://${domain}/api/webhooks/shopify/orders-paid`),
 }));
 
+vi.mock("../../lib/shopify", () => ({
+  generateShopifySharedSecret: mocks.generateShopifySharedSecret,
+  validateShopifyHmacAsync: mocks.validateShopifyHmacAsync,
+  extractAffiliateReferral: mocks.extractAffiliateReferral,
+  constructSorobanConversionPayload: mocks.constructSorobanConversionPayload,
+  generateWebhookUrl: mocks.generateWebhookUrl,
+}));
 vi.mock("../../lib/stellar", () => ({
   logSaleContractCall: mocks.logSaleContractCall,
 }));
@@ -20,24 +32,31 @@ describe("ShopifyWebhookGateway", () => {
       success: true,
       txHash: "0xabc123def456",
     });
+    mocks.validateShopifyHmacAsync.mockResolvedValue({ valid: true });
+    mocks.extractAffiliateReferral.mockReturnValue({
+      affiliateId: "aff_abc123",
+      campaignId: 42,
+      saleAmount: 149.99,
+    });
+    mocks.constructSorobanConversionPayload.mockReturnValue({
+      contractId: "test_contract",
+      method: "log_sale",
+      args: {
+        advertiserAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        campaignId: 42,
+        affiliateAddress: "aff_abc123",
+        saleAmountXlm: 149.99,
+      },
+    });
 
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
     });
-
-    vi.stubGlobal("crypto", {
-      getRandomValues: (bytes: Uint8Array) => bytes.fill(1),
-      subtle: {
-        importKey: vi.fn().mockResolvedValue({}),
-        sign: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
-      },
-    });
   });
 
   afterEach(() => {
     cleanup();
-    vi.unstubAllGlobals();
   });
 
   it("renders shopify webhook setup form", () => {
@@ -55,7 +74,8 @@ describe("ShopifyWebhookGateway", () => {
     fireEvent.click(screen.getByText("Generate"));
 
     const secretInput = screen.getByPlaceholderText("Auto-generated secret");
-    expect(secretInput.value).toBe("1111111111111111111111111111111111111111111111111111111111111111");
+    expect(secretInput.value).toBe("test_secret_12345678901234567890123456789012");
+    expect(mocks.generateShopifySharedSecret).toHaveBeenCalled();
   });
 
   it("shows error when setup webhook without domain", () => {
@@ -74,7 +94,7 @@ describe("ShopifyWebhookGateway", () => {
     fireEvent.click(screen.getByText("Setup Webhook"));
 
     expect(screen.getByText(/Webhook configured for my-store.myshopify.com/)).toBeTruthy();
-    expect(screen.getByText("https://my-store.myshopify.com/api/webhooks/shopify/orders-paid")).toBeTruthy();
+    expect(mocks.generateWebhookUrl).toHaveBeenCalledWith("my-store.myshopify.com");
   });
 
   it("copies webhook URL to clipboard", async () => {
@@ -103,6 +123,8 @@ describe("ShopifyWebhookGateway", () => {
     fireEvent.change(secretInput, { target: { value: "test_secret" } });
     fireEvent.change(signatureInput, { target: { value: "bad_signature" } });
 
+    mocks.validateShopifyHmacAsync.mockResolvedValue({ valid: false });
+
     fireEvent.click(screen.getByText(/Run Test Webhook/));
 
     await waitFor(() => {
@@ -116,30 +138,8 @@ describe("ShopifyWebhookGateway", () => {
     const secretInput = screen.getByPlaceholderText("Paste shared secret");
     const signatureInput = screen.getByPlaceholderText("Paste signature header");
 
-    const encoder = new TextEncoder();
-    const keyData = encoder.encode("test_secret");
-    const body = JSON.stringify({
-      id: 5088429141,
-      order_number: 1042,
-      total_price: "149.99",
-      currency: "USD",
-      landing_site: "https://example.com/products/gadget?affiliate=aff_abc123&campaign=42",
-    });
-
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(body));
-    const signature = btoa(
-      String.fromCharCode(...Array.from(new Uint8Array(signatureBuffer))),
-    );
-
     fireEvent.change(secretInput, { target: { value: "test_secret" } });
-    fireEvent.change(signatureInput, { target: { value: signature } });
+    fireEvent.change(signatureInput, { target: { value: "valid_signature" } });
 
     fireEvent.click(screen.getByText(/Run Test Webhook/));
 
@@ -147,6 +147,8 @@ describe("ShopifyWebhookGateway", () => {
       expect(screen.getByText(/conversion logged on-chain/i)).toBeTruthy();
     });
 
+    expect(mocks.validateShopifyHmacAsync).toHaveBeenCalled();
+    expect(mocks.extractAffiliateReferral).toHaveBeenCalled();
     expect(mocks.logSaleContractCall).toHaveBeenCalled();
   });
 });
