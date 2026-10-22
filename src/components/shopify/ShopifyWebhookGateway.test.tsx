@@ -3,14 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShopifyWebhookGateway } from "./ShopifyWebhookGateway";
 
-const mocks = {
+const mocks = vi.hoisted(() => ({
   logSaleContractCall: vi.fn(),
   generateShopifySharedSecret: vi.fn(() => "test_secret_12345678901234567890123456789012"),
   validateShopifyHmacAsync: vi.fn(),
   extractAffiliateReferral: vi.fn(),
   constructSorobanConversionPayload: vi.fn(),
   generateWebhookUrl: vi.fn((domain: string) => `https://${domain}/api/webhooks/shopify/orders-paid`),
-};
+}));
 
 vi.mock("../../lib/shopify", () => ({
   generateShopifySharedSecret: mocks.generateShopifySharedSecret,
