@@ -22,6 +22,7 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { rpcFallbackManager } from "./rpcFallback";
+import { addErrorBreadcrumb } from "./errorTracking";
 
 export type WalletType =
   | "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -563,7 +564,7 @@ export function startSorobanEventStream(
       }
 
       attempt = 0;
-      setStatus(thidden ? "polling" : "connected");
+      setStatus(hidden ? "polling" : "connected");
       schedule(poll);
     } catch (err) {
       if (stopped) return;
