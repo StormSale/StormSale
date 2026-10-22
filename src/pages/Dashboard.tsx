@@ -23,6 +23,7 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const {
     userAddress,
+    userRole,
     updateUserRole,
     isConnected,
     disconnectWallet,
@@ -41,14 +42,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   useEffect(() => {
     if (!hydrated) return;
     const liveMetrics = {
-      userRole: metrics.userRole ?? null,
+      ...(userRole ? { userRole } : {}),
       xlmBalance,
       network,
       isConnected,
       connectorType,
     };
     persistMetrics(liveMetrics);
-  }, [hydrated, isConnected, network, xlmBalance, connectorType, metrics.userRole, persistMetrics]);
+  }, [hydrated, isConnected, network, xlmBalance, connectorType, userRole, persistMetrics]);
 
   // Invalidate cache on wallet disconnect
   useEffect(() => {

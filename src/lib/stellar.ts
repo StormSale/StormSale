@@ -22,6 +22,7 @@ import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { rpcFallbackManager } from "./rpcFallback";
+import { addErrorBreadcrumb } from "./errorTracking";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -463,6 +464,12 @@ export async function invokeSorobanMethod(
   }
 
   const targetContractId = contractIdOverride || STELLAR_CONFIG.contractId;
+
+  addErrorBreadcrumb("contract.invoke", `Invoking ${methodName}`, {
+    method: methodName,
+    contractId: targetContractId,
+    walletType,
+  });
 
   // 1-5. Fetch account, simulate and assemble transaction with silent RPC failover
   let preparedTx: any;
