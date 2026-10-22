@@ -145,7 +145,7 @@ export function extractAffiliateReferral(order: ShopifyOrder): AffiliateReferral
   let affiliateId = "";
   let campaignId = 1;
 
-  const affiliateMatch = combined.match(/(?:affiliate|ref|partner|utm_source|ref_id)[=:]([a-z0-9-]+)/i);
+  const affiliateMatch = combined.match(/(?:affiliate|ref|partner|utm_source|ref_id)[=:]([a-z0-9_-]+)/i);
   if (affiliateMatch) {
     affiliateId = affiliateMatch[1];
   }
@@ -194,5 +194,6 @@ export function constructSorobanConversionPayload(
  * Generates the Shopify webhook URL for a given deployment domain.
  */
 export function generateWebhookUrl(domain: string): string {
-  return `https://${domain}/api/webhooks/shopify/orders-paid`;
+  const cleanDomain = domain.replace(/^https?:\/\//, "");
+  return `https://${cleanDomain}/api/webhooks/shopify/orders-paid`;
 }

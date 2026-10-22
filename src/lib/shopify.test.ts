@@ -109,7 +109,7 @@ describe("Affiliate Referral Extraction", () => {
       total_price: "200.00",
       currency: "USD",
       landing_site: "https://example.com/",
-      note_attributes: [{ name: "affiliate_id", value: "partner_xyz" }],
+      note_attributes: [{ name: "affiliate_id", value: "partner=partner_xyz" }],
     } as any;
 
     const referral = extractAffiliateReferral(order);

@@ -26,7 +26,7 @@ vi.mock("../hooks/usePreference", async (importOriginal) => {
   return {
     ...actual,
     usePreference: (_key: string, initialValue: unknown) =>
-      [initialValue, vi.fn()] as [unknown, (val: unknown) => void],
+      [initialValue, vi.fn()] as [unknown, (val: unknown) => void]
   };
 });
 
