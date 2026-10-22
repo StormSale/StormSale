@@ -18,9 +18,10 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
-import { logSaleSchema, getFieldErrors } from "../../lib/validation";
+import { logSaleSchema, positiveIntSchema, getFieldErrors } from "../../lib/validation";
+import { isValidStellarAddress } from "../../lib/stellar";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
-import { loadCampaignSettings, parseCampaignId } from "../../lib/campaignSettings";
+import { loadCampaignSettings, resolveSettingsCampaignId } from "../../lib/campaignSettings";
 import { attributeConversion } from "../../lib/attribution";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
@@ -28,6 +29,7 @@ export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
+  const [campaignId, setCampaignId] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -65,6 +67,39 @@ export const LogSaleForm = () => {
     }
 
     const { data } = result;
+
+    // The attribution/settings store is keyed by the numeric campaign id returned
+    // by `create_campaign`, not by the campaign's contract address: a Soroban `C…`
+    // id is base-32 and routinely contains digit runs, so deriving the id from the
+    // address resolved the wrong campaign's rules (or none at all) and silently
+    // defeated #151's attribution window. Require it explicitly.
+    const campaignIdCheck = positiveIntSchema.safeParse(campaignId);
+    if (!campaignIdCheck.success) {
+      setErrors((prev) => ({
+        ...prev,
+        campaignId: campaignIdCheck.error.issues[0]?.message || "Campaign ID is required",
+      }));
+      return;
+    }
+
+    // Pre-flight every key handed to the contract: the affiliate must be a `G…`
+    // public key and the campaign a `G…`/`C…` address before any signing attempt.
+    if (!isValidStellarAddress(data.campaignAddress)) {
+      setErrors((prev) => ({
+        ...prev,
+        campaignAddress:
+          "Must be a valid 56-character Stellar account (G…) or contract (C…) address.",
+      }));
+      return;
+    }
+    if (!isValidStellarAddress(data.affiliateAddress)) {
+      setErrors((prev) => ({
+        ...prev,
+        affiliateAddress: "Must be a valid 56-character Stellar public key (G…).",
+      }));
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -72,8 +107,9 @@ export const LogSaleForm = () => {
       // attribution model/window, the affiliate click must still be inside the
       // window (read from the encrypted localStorage/cookie vault) before this
       // sale can be commissioned. Expired conversions are direct sales.
-      const campaignId = parseCampaignId(data.campaignAddress);
-      const campaignSettings = campaignId !== null ? loadCampaignSettings(campaignId) : null;
+      const settingsCampaignId = resolveSettingsCampaignId(campaignIdCheck.data);
+      const campaignSettings =
+        settingsCampaignId !== null ? loadCampaignSettings(settingsCampaignId) : null;
       if (campaignSettings) {
         const nowSeconds = Math.floor(Date.now() / 1000);
         const attribution = await attributeConversion(
@@ -214,6 +250,7 @@ export const LogSaleForm = () => {
       setAffiliateAddress("");
       setSaleAmount("");
       setCampaignAddress("");
+      setCampaignId("");
       setCustomerData("");
       setErrors({});
     } catch (error: unknown) {
@@ -275,6 +312,25 @@ export const LogSaleForm = () => {
                   }}
                   placeholder="CCAMPAIGN... (56-char Soroban Contract Address)"
                   variant={errors.campaignAddress ? "error" : "default"}
+                  className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
+                />
+              </InputField>
+
+              <InputField
+                label="Campaign ID"
+                description="Numeric campaign ID returned when the campaign was created — selects its attribution window and payout rules"
+                error={errors.campaignId}
+                required
+              >
+                <Input
+                  value={campaignId}
+                  onChange={(e) => {
+                    setCampaignId(e.target.value);
+                    clearError("campaignId");
+                  }}
+                  placeholder="e.g., 1234"
+                  inputMode="numeric"
+                  variant={errors.campaignId ? "error" : "default"}
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
                 />
               </InputField>

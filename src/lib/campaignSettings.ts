@@ -112,11 +112,38 @@ export function loadCampaignSettings(campaignId: number): ExtendedCampaignSettin
 /**
  * Extracts a numeric campaign id from the free-form campaign identifiers used
  * across the advertiser forms (e.g. "Campaign #1234", "1234", or a raw id).
+ *
+ * Anchored on purpose: a Soroban contract ID (`C…`) or Stellar public key (`G…`)
+ * is base-32 and routinely contains digit runs, so an unanchored "first digits
+ * anywhere" match silently resolved `CAB3…` to campaign `3` and applied an
+ * unrelated campaign's attribution rules. Anything that is not a bare numeric id
+ * or the `Campaign #N` form now returns `null`.
  */
 export function parseCampaignId(identifier: string): number | null {
   if (!identifier) return null;
-  const match = identifier.match(/#?(\d{1,9})/);
+  const match = identifier.trim().match(/^(?:campaign\s*)?#?(\d{1,9})$/i);
   if (!match) return null;
   const id = parseInt(match[1], 10);
   return Number.isFinite(id) ? id : null;
+}
+
+/**
+ * Resolves which campaign's persisted settings must gate an operation from the
+ * numeric campaign id the advertiser entered explicitly.
+ *
+ * `create_campaign` returns a `u64` id inside the shared platform contract —
+ * there is no per-campaign contract address — and settings are keyed by that
+ * number (`stormsale_campaign_settings_v1_<campaignId>`), so an address can never
+ * be used to look settings up. Accepts only a bare positive integer id.
+ *
+ * Returns `null` for missing/invalid input, which callers treat as "no settings
+ * record": the sale still logs without the attribution gate, exactly as before,
+ * because an absent client-side settings store must never block a ledger sale.
+ */
+export function resolveSettingsCampaignId(campaignIdInput: string | undefined): number | null {
+  if (!campaignIdInput) return null;
+  const trimmed = campaignIdInput.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const id = Number(trimmed);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
