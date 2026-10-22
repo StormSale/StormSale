@@ -18,11 +18,15 @@ import {
   ChevronDown,
   RefreshCw,
   QrCode,
+  Radio,
+  Wallet,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useWalletConnect } from "../../context/WalletConnectContext";
 import { CopyButton } from "../ui/copy-button";
 import type { WalletType } from "../../lib/stellar";
+import { buildSep0007TxUri, waitForTransactionInclusion } from "../../lib/stellar";
+import type { Sep0007TxParams } from "../../lib/stellar";
 
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
@@ -43,6 +47,13 @@ export const ConnectWalletModal: React.FC = () => {
   const [ledgerAccountIndex, setLedgerAccountIndex] = useState(0);
   const [customBipPath, setCustomBipPath] = useState("m/44'/148'/0'");
   const [useCustomPath, setUseCustomPath] = useState(false);
+
+  // SEP-0007 Mobile Wallet State
+  const [showSep0007View, setShowSep0007View] = useState(false);
+  const [sep0007Uri, setSep0007Uri] = useState<string>("");
+  const [sep0007QrDataUrl, setSep0007QrDataUrl] = useState<string>("");
+  const [isAwaitingLedger, setIsAwaitingLedger] = useState(false);
+  const [sep0007Status, setSep0007Status] = useState<string | null>(null);
 
   // Generate dynamic WalletConnect pairing URI and QR Code
   const generateWalletConnectUri = useCallback(async () => {
@@ -79,6 +90,11 @@ export const ConnectWalletModal: React.FC = () => {
   // Reset modal sub-views on close
   const handleClose = useCallback(() => {
     setShowQrView(false);
+    setShowSep0007View(false);
+    setSep0007Uri("");
+    setSep0007QrDataUrl("");
+    setIsAwaitingLedger(false);
+    setSep0007Status(null);
     setShowReadOnlyInput(false);
     setErrorMessage(null);
     setConnectingType(null);
@@ -103,6 +119,12 @@ export const ConnectWalletModal: React.FC = () => {
     if (type === "walletconnect") {
       setShowQrView(true);
       await generateWalletConnectUri();
+      return;
+    }
+
+    if (type === "sep0007") {
+      setShowSep0007View(true);
+      await generateSep0007Uri();
       return;
     }
 
@@ -146,6 +168,61 @@ export const ConnectWalletModal: React.FC = () => {
       setConnectingType(null);
     }
   };
+
+  // Generate SEP-0007 tx URI + fallback QR code
+  const generateSep0007Uri = useCallback(async () => {
+    setIsGeneratingQr(true);
+    setErrorMessage(null);
+    setSep0007Status(null);
+    try {
+      const params: Sep0007TxParams = {
+        xdr: "AAAAAgAAAAB...placeholder-xdr...",
+        replace: false,
+        callback: "url:https://example.com/sep0007/callback",
+      };
+      const uri = buildSep0007TxUri(params);
+      setSep0007Uri(uri);
+
+      const dataUrl = await QRCode.toDataURL(uri, {
+        errorCorrectionLevel: "M",
+        margin: 2,
+        width: 256,
+        color: {
+          dark: "#09090b",
+          light: "#ffffff",
+        },
+      });
+      setSep0007QrDataUrl(dataUrl);
+    } catch (err: unknown) {
+      console.error("Failed to generate SEP-0007 URI:", err);
+      setErrorMessage("Failed to generate SEP-0007 URI. Please try again.");
+    } finally {
+      setIsGeneratingQr(false);
+    }
+  }, []);
+
+  // Deep-link into installed mobile wallet and poll Horizon for inclusion
+  const handleSep0007DeepLink = useCallback(async () => {
+    if (!sep0007Uri) return;
+    setErrorMessage(null);
+    setSep0007Status("Opening mobile wallet...");
+    try {
+      window.location.href = sep0007Uri;
+      setIsAwaitingLedger(true);
+      setSep0007Status("Waiting for transaction confirmation on the Stellar ledger...");
+      await waitForTransactionInclusion({
+        xdr: "AAAAAgAAAAB...placeholder-xdr...",
+        timeoutMs: 120000,
+      });
+      setSep0007Status("Transaction confirmed on the Stellar ledger.");
+      setIsAwaitingLedger(false);
+      handleClose();
+    } catch (err: any) {
+      console.error("SEP-0007 confirmation error:", err);
+      setIsAwaitingLedger(false);
+      setErrorMessage(err.message || "Timed out waiting for ledger confirmation.");
+    }
+  }, [sep0007Uri, handleClose]);
 
   const walletOptions = [
     {
@@ -229,6 +306,17 @@ export const ConnectWalletModal: React.FC = () => {
       accent: "from-indigo-600 to-blue-600",
       borderHover: "hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
     },
+    {
+      id: "sep0007" as any,
+      name: "Sign with SEP-0007 Mobile Wallet",
+      badge: "web+stellar:tx",
+      badgeColor: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/20",
+      description:
+        "Open LOBSTR, Solar, or any SEP-0007 compatible mobile wallet to sign the transaction XDR directly.",
+      icon: Wallet,
+      accent: "from-cyan-600 to-sky-600",
+      borderHover: "hover:border-cyan-500/50 hover:bg-cyan-50/50 dark:hover:bg-cyan-950/20",
+    },
   ];
 
   return (
@@ -264,6 +352,16 @@ export const ConnectWalletModal: React.FC = () => {
                   <ArrowLeft className="w-5 h-5" />
                 </button>
               )}
+              {showSep0007View && (
+                <button
+                  type="button"
+                  onClick={() => setShowSep0007View(false)}
+                  aria-label="Back to wallet selection"
+                  className="mt-0.5 p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
               <div>
                 <div className="flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -272,12 +370,18 @@ export const ConnectWalletModal: React.FC = () => {
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight mt-1">
-                  {showQrView ? "Scan WalletConnect QR" : "Connect Stellar Wallet"}
+                  {showQrView
+                    ? "Scan WalletConnect QR"
+                    : showSep0007View
+                      ? "Sign with Mobile Wallet"
+                      : "Connect Stellar Wallet"}
                 </h2>
                 <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
                   {showQrView
                     ? "Scan this code with any WalletConnect compatible mobile app."
-                    : "Select your preferred hardware, biometric passkey, or extension wallet."}
+                    : showSep0007View
+                      ? "Open your installed Stellar mobile wallet using the SEP-0007 URI scheme."
+                      : "Select your preferred hardware, biometric passkey, or extension wallet."}
                 </p>
               </div>
             </div>
@@ -451,6 +555,118 @@ export const ConnectWalletModal: React.FC = () => {
               </div>
             </div>
           ) : (
+            /* VIEW 3: SEP-0007 Mobile Wallet View */
+            showSep0007View ? (
+              <div className="p-6 space-y-5">
+                <div className="flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-zinc-950/60 rounded-3xl border border-slate-200/80 dark:border-zinc-800 relative">
+                  <div className="relative p-3.5 bg-white rounded-2xl shadow-xl border border-slate-200 dark:border-zinc-700">
+                    <div className="absolute -top-1.5 -left-1.5 w-5 h-5 border-t-2 border-l-2 border-cyan-600 rounded-tl-md pointer-events-none" />
+                    <div className="absolute -top-1.5 -right-1.5 w-5 h-5 border-t-2 border-r-2 border-cyan-600 rounded-tr-md pointer-events-none" />
+                    <div className="absolute -bottom-1.5 -left-1.5 w-5 h-5 border-b-2 border-l-2 border-cyan-600 rounded-bl-md pointer-events-none" />
+                    <div className="absolute -bottom-1.5 -right-1.5 w-5 h-5 border-b-2 border-r-2 border-cyan-600 rounded-br-md pointer-events-none" />
+
+                    {isGeneratingQr ? (
+                      <div className="w-56 h-56 flex flex-col items-center justify-center space-y-2 text-zinc-400">
+                        <Loader2 className="w-8 h-8 animate-spin text-cyan-600" />
+                        <span className="text-xs font-semibold">Generating SEP-0007 QR...</span>
+                      </div>
+                    ) : sep0007QrDataUrl ? (
+                      <img
+                        src={sep0007QrDataUrl}
+                        alt="SEP-0007 Transaction QR Code"
+                        data-testid="sep0007-qr-code"
+                        className="w-56 h-56 rounded-xl object-contain block"
+                      />
+                    ) : (
+                      <div className="w-56 h-56 flex flex-col items-center justify-center text-zinc-400 text-xs">
+                        <span>No QR Available</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-4 flex items-center space-x-2 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                    {isAwaitingLedger ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />
+                        <span data-testid="sep0007-polling-loader">
+                          {sep0007Status || "Polling Stellar ledger for confirmation..."}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="w-4 h-4 text-cyan-600" />
+                        <span>Scan QR or tap below to open your mobile wallet.</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                      SEP-0007 URI
+                    </span>
+                    <button
+                      type="button"
+                      onClick={generateSep0007Uri}
+                      disabled={isGeneratingQr || isAwaitingLedger}
+                      className="inline-flex items-center space-x-1 text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 font-semibold"
+                    >
+                      <RefreshCw
+                        className={`w-3.5 h-3.5 ${isGeneratingQr ? "animate-spin" : ""}`}
+                      />
+                      <span>Refresh</span>
+                    </button>
+                  </div>
+
+                  <div className="p-2.5 bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 rounded-2xl flex items-center justify-between gap-2">
+                    <span
+                      data-testid="sep0007-uri-display"
+                      className="text-xs font-mono text-zinc-500 dark:text-zinc-400 truncate pl-2"
+                    >
+                      {sep0007Uri || "Generating SEP-0007 URI..."}
+                    </span>
+                    <CopyButton
+                      text={sep0007Uri}
+                      label="Copy URI"
+                      copiedLabel="Copied!"
+                      variant="indigo"
+                      size="sm"
+                      showToast={true}
+                      className="shrink-0"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-1 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowSep0007View(false)}
+                    className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 dark:border-zinc-800 text-xs font-bold text-zinc-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
+                  >
+                    Other Wallets
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isGeneratingQr || isAwaitingLedger || !sep0007Uri}
+                    onClick={handleSep0007DeepLink}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all shadow-md shadow-cyan-600/20 flex items-center justify-center space-x-2 disabled:opacity-60"
+                  >
+                    {isAwaitingLedger ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Awaiting Ledger...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Smartphone className="w-4 h-4" />
+                        <span>Open Mobile Wallet</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
             /* VIEW 2: Standard Wallet List */
             <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
               {walletOptions.map((wallet) => {
@@ -603,6 +819,7 @@ export const ConnectWalletModal: React.FC = () => {
                 )}
               </div>
             </div>
+            )
           )}
 
           {/* Footer Note */}

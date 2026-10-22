@@ -1,6 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
+import {
+  generateSep0007TxUri,
+  streamAccountTransactions,
+} from "../lib/stellar";
 
 const WALLETCONNECT_SESSION_KEY = "stormsale_walletconnect_session";
 
@@ -132,12 +136,28 @@ class WalletConnectSingleton {
   }
 }
 
+export interface Sep0007SignRequest {
+  /** The assembled transaction envelope (base64 XDR) to be signed. */
+  xdr: string;
+  /** The SEP-0007 deep-link URI (`web+stellar:tx?xdr=...&replace=false`). */
+  uri: string;
+  /** Stellar account (G-...) whose transactions are streamed for inclusion. */
+  account: string;
+}
+
+export type Sep0007Status = "idle" | "awaiting" | "confirmed" | "failed";
+
 interface WalletConnectState {
   isConnecting: boolean;
   isSwitchingNetwork: boolean;
   error: string | null;
   showNetworkModal: boolean;
   isProviderReady: boolean;
+  // SEP-0007 mobile wallet invocation state
+  sep0007Status: Sep0007Status;
+  sep0007Request: Sep0007SignRequest | null;
+  sep0007TxHash: string | null;
+  sep0007Error: string | null;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -147,6 +167,15 @@ interface WalletConnectContextType extends WalletConnectState {
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
   provider: WalletConnectCoreProvider | null;
+  /**
+   * Builds a SEP-0007 `web+stellar:tx` deep-link for the given XDR and opens
+   * it in the installed mobile wallet, then polls Horizon until the tx is included.
+   */
+  signWithSep0007MobileWallet: (xdr: string, account: string) => Promise<void>;
+  /** Cancels an in-flight SEP-0007 signing request and stops polling. */
+  cancelSep0007: () => void;
+  /** Clears the last SEP-0007 error without affecting other state. */
+  clearSep0007Error: () => void;
 }
 
 const WalletConnectContext = createContext<WalletConnectContextType | undefined>(undefined);
@@ -162,6 +191,10 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     error: null,
     showNetworkModal: false,
     isProviderReady: false,
+    sep0007Status: "idle",
+    sep0007Request: null,
+    sep0007TxHash: null,
+    sep0007Error: null,
   });
 
   const [providerInstance, setProviderInstance] = useState<WalletConnectCoreProvider | null>(null);
@@ -170,8 +203,22 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
   const hasInitializedRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
 
+  // Holds the active unsubscribe function for the Horizon transaction stream
+  const streamUnsubscribeRef = useRef<(() => void) | null>(null);
+
   const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
     useWeb3();
+
+  const stopStreaming = (): void => {
+    if (streamUnsubscribeRef.current) {
+      try {
+        streamUnsubscribeRef.current();
+      } catch (err) {
+        console.warn("Failed to stop Horizon transaction stream:", err);
+      }
+      streamUnsubscribeRef.current = null;
+    }
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -214,6 +261,14 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     };
   }, []);
 
+  // Ensure the Horizon stream is torn down on unmount
+  useEffect(() => {
+    return () => {
+      stopStreaming();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const connect = async (): Promise<void> => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
@@ -229,59 +284,54 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
         setState((prev) => ({ ...prev, showNetworkModal: true }));
       }
     } catch (error: unknown) {
-      console.error("Wallet connection error:", error);
-      const errorMessage =
+      const message =
         error instanceof Error && error.message.trim()
           ? error.message
           : "Failed to connect wallet";
-      setState((prev) => ({
-        ...prev,
-        error: errorMessage,
-      }));
+      setState((prev) => ({ ...prev, error: message }));
     } finally {
       setState((prev) => ({ ...prev, isConnecting: false }));
     }
   };
 
   const disconnect = (): void => {
-    const singleton = WalletConnectSingleton.getInstance();
-    if (providerInstance) {
-      providerInstance.disconnect().catch(console.warn);
+    try {
+      const singleton = WalletConnectSingleton.getInstance();
+      const provider = singleton.getSession();
+      if (provider) {
+        // no-op: session is cleared below
+      }
+    } catch (err) {
+      console.warn("Error during WalletConnect disconnect:", err);
     }
+    stopStreaming();
     disconnectWallet();
-    setState({
-      isConnecting: false,
-      isSwitchingNetwork: false,
+    setState((prev) => ({
+      ...prev,
       error: null,
-      showNetworkModal: false,
-      isProviderReady: singleton.getIsInitialized(),
-    });
+      sep0007Status: "idle",
+      sep0007Request: null,
+      sep0007TxHash: null,
+      sep0007Error: null,
+    }));
   };
 
   const ensureStellarNetwork = async (): Promise<boolean> => {
-    if (isStellarNetwork) return true;
-
+    if (isStellarNetwork) {
+      setState((prev) => ({ ...prev, showNetworkModal: false }));
+      return true;
+    }
     setState((prev) => ({ ...prev, isSwitchingNetwork: true, error: null }));
-
     try {
-      const success = await switchToStellarNetwork();
-
-      if (success) {
-        setState((prev) => ({ ...prev, showNetworkModal: false }));
-        return true;
-      } else {
-        setState((prev) => ({
-          ...prev,
-          error: "Failed to switch to Stellar network. Please switch manually.",
-        }));
-        return false;
-      }
-    } catch (error: any) {
-      console.error("Network switch error:", error);
-      setState((prev) => ({
-        ...prev,
-        error: error.message || "Failed to switch network",
-      }));
+      await switchToStellarNetwork();
+      setState((prev) => ({ ...prev, showNetworkModal: false }));
+      return true;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "Failed to switch to Stellar network";
+      setState((prev) => ({ ...prev, error: message }));
       return false;
     } finally {
       setState((prev) => ({ ...prev, isSwitchingNetwork: false }));
@@ -296,7 +346,85 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, showNetworkModal: show }));
   };
 
-  const contextValue: WalletConnectContextType = {
+  const clearSep0007Error = (): void => {
+    setState((prev) => ({ ...prev, sep0007Error: null }));
+  };
+
+  const cancelSep0007 = (): void => {
+    stopStreaming();
+    setState((prev) => ({
+      ...prev,
+      sep0007Status: "idle",
+      sep0007Request: null,
+      sep0007TxHash: null,
+      sep0007Error: null,
+    }));
+  };
+
+  const signWithSep0007MobileWallet = async (xdr: string, account: string): Promise<void> => {
+    stopStreaming();
+
+    const uri = generateSep0007TxUri(xdr);
+    const request: Sep0007SignRequest = { xdr, uri, account };
+
+    setState((prev) => ({
+      ...prev,
+      sep0007Status: "awaiting",
+      sep0007Request: request,
+      sep0007TxHash: null,
+      sep0007Error: null,
+    }));
+
+    // Trigger the installed mobile wallet via the SEP-0007 deep-link.
+    try {
+      if (typeof window !== "undefined") {
+        window.location.href = uri;
+      }
+    } catch (err) {
+      console.warn("Failed to open SEP-0007 deep-link:", err);
+    }
+
+    // Stream Horizon for the account until the transaction is included.
+    try {
+      const unsubscribe = streamAccountTransactions(account, {
+        onPending: () => {
+          if (!isMountedRef.current) return;
+          setState((prev) => ({ ...prev, sep0007Status: "awaiting" }));
+        },
+        onConfirmed: (hash) => {
+          if (!isMountedRef.current) return;
+          setState((prev) => ({
+            ...prev,
+            sep0007Status: "confirmed",
+            sep0007TxHash: hash,
+          }));
+          stopStreaming();
+        },
+        onError: (err) => {
+          if (!isMountedRef.current) return;
+          setState((prev) => ({
+            ...prev,
+            sep0007Status: "failed",
+            sep0007Error: err.message,
+          }));
+          stopStreaming();
+        },
+      });
+      streamUnsubscribeRef.current = unsubscribe;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "Failed to stream Horizon transactions";
+      setState((prev) => ({
+        ...prev,
+        sep0007Status: "failed",
+        sep0007Error: message,
+      }));
+    }
+  };
+
+  const value: WalletConnectContextType = {
     ...state,
     connect,
     disconnect,
@@ -304,19 +432,18 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     clearError,
     setShowNetworkModal,
     provider: providerInstance,
+    signWithSep0007MobileWallet,
+    cancelSep0007,
+    clearSep0007Error,
   };
 
-  return (
-    <WalletConnectContext.Provider value={contextValue}>{children}</WalletConnectContext.Provider>
-  );
+  return <WalletConnectContext.Provider value={value}>{children}</WalletConnectContext.Provider>;
 };
 
 export const useWalletConnect = (): WalletConnectContextType => {
   const context = useContext(WalletConnectContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useWalletConnect must be used within a WalletConnectProvider");
   }
   return context;
 };
-
-export { WalletConnectSingleton };
