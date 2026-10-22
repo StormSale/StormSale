@@ -216,7 +216,9 @@ export const ClaimPayouts = () => {
             <Button
               size="lg"
               onClick={handleBatchClaim}
-              disabled={isBatchClaiming || selectedCampaigns.length === 0}
+              disabled={selectedCampaigns.length === 0}
+              loading={isBatchClaiming}
+              cooldown
               className="w-full rounded-2xl bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 text-white font-extrabold text-sm shadow-xl shadow-indigo-500/30 h-13 px-6 transition-transform hover:scale-[1.02] border-0"
             >
               {isBatchClaiming ? (
@@ -378,7 +380,9 @@ export const ClaimPayouts = () => {
                       <TableCell className="py-4 pr-6 text-right">
                         <Button
                           size="sm"
-                          disabled={!isMatured || claimingId === camp.campaignId || isBatchClaiming}
+                          disabled={!isMatured || isBatchClaiming}
+                          loading={claimingId === camp.campaignId}
+                          cooldown
                           onClick={() => handleSingleClaim(camp.campaignId)}
                           className={`rounded-xl text-xs font-semibold h-8 px-3 transition-colors ${
                             isMatured
