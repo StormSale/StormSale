@@ -88,6 +88,29 @@ export async function generateAESKey(): Promise<CryptoKey> {
   ]);
 }
 
+/**
+ * In-memory registry of per-sale AES keys, so a sale's key stays stable for the
+ * lifetime of the session (needed to wrap the same key for multiple auditors).
+ */
+const saleKeyStore = new Map<string, CryptoKey>();
+
+/**
+ * Retrieves or generates the AES encryption key for a given saleId.
+ */
+export async function getSaleEncryptionKey(saleId: string): Promise<CryptoKey> {
+  const existing = saleKeyStore.get(saleId);
+  if (existing) {
+    return existing;
+  }
+  const newKey = await generateAESKey();
+  saleKeyStore.set(saleId, newKey);
+  return newKey;
+}
+
+export function storeSaleEncryptionKey(saleId: string, key: CryptoKey): void {
+  saleKeyStore.set(saleId, key);
+}
+
 export async function encryptPayload(payload: object, aesKey: CryptoKey): Promise<string> {
   assertAesGcmKey(aesKey);
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

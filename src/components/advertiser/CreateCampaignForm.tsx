@@ -87,11 +87,18 @@ export const CreateCampaignForm = () => {
 
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
+    let isCurrent = true;
+
     if (isConnected && userAddress) {
       refreshTokenAllowance(undefined, selectedAsset).then((val) => {
+        if (!isCurrent) return;
         setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
       });
     }
+
+    return () => {
+      isCurrent = false;
+    };
   }, [isConnected, userAddress, selectedAsset, refreshTokenAllowance]);
 
   const handleManualRefreshAllowance = async () => {
@@ -151,12 +158,12 @@ export const CreateCampaignForm = () => {
         }`,
       });
       setFlowStep("approved");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error approving allowance:", error);
       showNotification({
         type: "error",
         title: "Approval Failed",
-        message: error.message || "Failed to approve token allowance",
+        message: error instanceof Error ? error.message : "Failed to approve token allowance",
       });
       setFlowStep("error");
     }
@@ -213,12 +220,15 @@ export const CreateCampaignForm = () => {
           message: "Token allowance granted. Automatically proceeding to create campaign escrow...",
         });
         setFlowStep("approved");
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Error during sequential approval step:", error);
         showNotification({
           type: "error",
           title: "Step 1 Failed (Approval)",
-          message: error.message || "Failed to approve token allowance. Sequence aborted.",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Failed to approve token allowance. Sequence aborted.",
         });
         setFlowStep("error");
         return;
@@ -261,12 +271,15 @@ export const CreateCampaignForm = () => {
       setCampaignName("");
       setBudget("");
       setErrors({});
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error creating campaign:", error);
       showNotification({
         type: "error",
         title: "Failed to Create Campaign",
-        message: error.message || "An error occurred while creating the campaign on Stellar",
+        message:
+          error instanceof Error
+            ? error.message
+            : "An error occurred while creating the campaign on Stellar",
       });
       setFlowStep("error");
     }

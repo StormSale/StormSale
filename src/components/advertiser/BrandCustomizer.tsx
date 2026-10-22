@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   type AdvertiserBrandConfig,
   evaluateWcagCompliance,
@@ -39,6 +39,7 @@ export const BrandCustomizer: React.FC = () => {
   const { userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
+  const loadedAddressRef = useRef<string | null>(userAddress || null);
   const [config, setConfig] = useState<AdvertiserBrandConfig>(() =>
     loadBrandConfig(userAddress || undefined),
   );
@@ -51,8 +52,16 @@ export const BrandCustomizer: React.FC = () => {
   const contrast = evaluateWcagCompliance(config.primaryColor);
   const isSubdomainValid = isValidSubdomain(config.subdomain);
 
+  // Reload config when userAddress changes and update loadedAddressRef
   useEffect(() => {
-    if (userAddress) {
+    const loaded = loadBrandConfig(userAddress || undefined);
+    setConfig(loaded);
+    loadedAddressRef.current = userAddress || null;
+  }, [userAddress]);
+
+  // Persist config only if it matches current active userAddress to avoid race conditions
+  useEffect(() => {
+    if (userAddress && loadedAddressRef.current === userAddress) {
       saveBrandConfig(userAddress, config);
     }
   }, [config, userAddress]);
@@ -508,7 +517,7 @@ export const BrandCustomizer: React.FC = () => {
                   <input
                     type="text"
                     readOnly
-                    value={config.ipfsHash || "ipfs://bafybeic..."}
+                    value={config.ipfsHash || "Unpublished"}
                     className="w-full px-3 py-2 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs font-mono text-zinc-500"
                   />
                 </div>

@@ -52,6 +52,14 @@ export function getBipPathForAccount(accountIndex: number): string {
  * - Stellar app not opened on device (0x6d00)
  */
 export function parseLedgerError(err: any): LedgerErrorDetails {
+  if (err === null || err === undefined) {
+    return {
+      code: "UNKNOWN_LEDGER_ERROR",
+      friendlyMessage: "Failed to communicate with Ledger hardware wallet.",
+      originalError: err,
+    };
+  }
+
   const errMsg = String(err?.message || err?.name || err || "").toLowerCase();
   const statusCode = err?.statusCode || err?.statusText || err?.errorCode;
 
@@ -150,18 +158,18 @@ export async function connectLedgerDevice(
 ): Promise<LedgerDeviceInfo> {
   const normalizedPath = formatBipPath(bipPath);
 
-  // If in non-browser or mock test environment, return deterministic mock hardware info
+  const isMockMode = typeof window !== "undefined" && (window as any).__MOCK_LEDGER__ === true;
+  if (isMockMode) {
+    const mockKeypair = Keypair.random();
+    return {
+      address: mockKeypair.publicKey(),
+      bipPath: normalizedPath,
+      appVersion: "2.5.0",
+    };
+  }
+
   const hidSupported = await isWebHIDSupported();
   if (!hidSupported) {
-    // If WebHID is unavailable, check if we're in automated testing or mock mode
-    if (typeof window === "undefined" || (window as any).__MOCK_LEDGER__) {
-      const mockKeypair = Keypair.random();
-      return {
-        address: mockKeypair.publicKey(),
-        bipPath: normalizedPath,
-        appVersion: "2.5.0",
-      };
-    }
     throw new Error(
       "WebHID is not supported on this browser. Please use Chrome, Brave, or Edge on Desktop.",
     );
@@ -254,14 +262,20 @@ export async function signLedgerTransaction(
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
 ): Promise<string> {
   const normalizedPath = formatBipPath(bipPath);
-  const hidSupported = await isWebHIDSupported();
 
-  // Test / sandbox fallback
-  if (!hidSupported || (typeof window !== "undefined" && (window as any).__MOCK_LEDGER__)) {
+  const isMockMode = typeof window !== "undefined" && (window as any).__MOCK_LEDGER__ === true;
+  if (isMockMode) {
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const mockSigner = Keypair.random();
     tx.sign(mockSigner);
     return tx.toXDR();
+  }
+
+  const hidSupported = await isWebHIDSupported();
+  if (!hidSupported) {
+    throw new Error(
+      "WebHID is not supported on this browser. Please use Chrome, Brave, or Edge on Desktop.",
+    );
   }
 
   let transport: any = null;

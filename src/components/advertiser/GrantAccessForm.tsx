@@ -11,7 +11,7 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import { wrapAESKey, getPublicKeyForAddress } from "../../lib/crypto";
+import { wrapAESKey, getPublicKeyForAddress, getSaleEncryptionKey } from "../../lib/crypto";
 import { grantAccessSchema, getFieldErrors } from "../../lib/validation";
 import { Eye, Shield, UserCheck } from "lucide-react";
 
@@ -51,7 +51,8 @@ export const GrantAccessForm = () => {
       });
 
       const auditorPublicKey = await getPublicKeyForAddress(data.auditorAddress);
-      const auditorWrappedKey = await wrapAESKey({} as CryptoKey, auditorPublicKey);
+      const encryptionKey = await getSaleEncryptionKey(data.saleId);
+      const auditorWrappedKey = await wrapAESKey(encryptionKey, auditorPublicKey);
 
       showNotification({
         type: "info",
@@ -76,12 +77,12 @@ export const GrantAccessForm = () => {
       setSaleId("");
       setAuditorAddress("");
       setCampaignAddress("");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error granting audit access:", error);
       showNotification({
         type: "error",
         title: "Access Grant Failed",
-        message: error.message || "Failed to grant audit access",
+        message: error instanceof Error ? error.message : "Failed to grant audit access",
       });
     } finally {
       setIsLoading(false);
