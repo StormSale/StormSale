@@ -257,6 +257,7 @@ export const ShopifyWebhookGateway = () => {
                 />
                 <Button
                   size="sm"
+                  aria-label="Copy"
                   onClick={() => copyToClipboard(webhookUrl)}
                   disabled={!webhookUrl}
                   className="text-xs px-3"
