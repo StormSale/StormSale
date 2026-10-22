@@ -70,6 +70,27 @@ describe("Shopify HMAC Validation", () => {
     const result = await validateShopifyHmacAsync(testBody, "wrong_secret", signature);
     expect(result.valid).toBe(false);
   });
+
+  it("validates HMAC synchronously", async () => {
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(testSecret);
+    const messageData = encoder.encode(testBody);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, messageData);
+    const signature = btoa(
+      String.fromCharCode(...Array.from(new Uint8Array(signatureBuffer))),
+    );
+
+    const result = await validateShopifyHmac(testBody, testSecret, signature);
+    expect(result.valid).toBe(true);
+  });
 });
 
 describe("Affiliate Referral Extraction", () => {

@@ -151,4 +151,55 @@ describe("ShopifyWebhookGateway", () => {
     expect(mocks.extractAffiliateReferral).toHaveBeenCalled();
     expect(mocks.logSaleContractCall).toHaveBeenCalled();
   });
+
+  it("shows Webhook Configured button after setup", () => {
+    render(<ShopifyWebhookGateway />);
+
+    const domainInput = screen.getByPlaceholderText("your-store.myshopify.com");
+    fireEvent.change(domainInput, { target: { value: "my-store.myshopify.com" } });
+    fireEvent.click(screen.getByText("Setup Webhook"));
+
+    expect(screen.getByText("Webhook Configured")).toBeTruthy();
+    expect(screen.getByText("Setup Webhook")).not.toBeInTheDocument();
+  });
+
+  it("shows processing state during conversion logging", async () => {
+    render(<ShopifyWebhookGateway />);
+
+    mocks.logSaleContractCall.mockImplementation(() =>
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ success: true, txHash: "0xabc123" }), 50),
+      ),
+    );
+
+    const testSecretInput = screen.getByPlaceholderText("Paste shared secret");
+    const testSignatureInput = screen.getByPlaceholderText("Paste signature header");
+    fireEvent.change(testSecretInput, { target: { value: "test_secret" } });
+    fireEvent.change(testSignatureInput, { target: { value: "valid_signature" } });
+
+    fireEvent.click(screen.getByText(/Run Test Webhook/));
+
+    expect(screen.getByText(/Processing/)).toBeTruthy();
+
+    await waitFor(() => {
+      expect(screen.getByText(/conversion logged on-chain/i)).toBeTruthy();
+    });
+  });
+
+  it("shows error when conversion logging fails", async () => {
+    render(<ShopifyWebhookGateway />);
+
+    mocks.logSaleContractCall.mockRejectedValue(new Error("Network error"));
+
+    const testSecretInput = screen.getByPlaceholderText("Paste shared secret");
+    const testSignatureInput = screen.getByPlaceholderText("Paste signature header");
+    fireEvent.change(testSecretInput, { target: { value: "test_secret" } });
+    fireEvent.change(testSignatureInput, { target: { value: "valid_signature" } });
+
+    fireEvent.click(screen.getByText(/Run Test Webhook/));
+
+    await waitFor(() => {
+      expect(screen.getByText(/On-chain logging failed/)).toBeTruthy();
+    });
+  });
 });
