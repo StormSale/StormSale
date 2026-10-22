@@ -1,4 +1,5 @@
-import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
+import { Suspense, useState, useEffect, useRef, lazy } from "react";
+import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
@@ -6,8 +7,12 @@ import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
+import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
+import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -154,6 +159,23 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 }
 
+const ErrorFallback = () => (
+  <div className="min-h-screen flex items-center justify-center p-4">
+    <div className="max-w-lg text-center">
+      <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
+      <p className="text-sm text-muted-foreground mb-4">
+        An unexpected error occurred. Please refresh the page or try again later.
+      </p>
+      <button
+        onClick={() => window.location.reload()}
+        className="px-4 py-2 bg-indigo-600 text-white rounded"
+      >
+        Reload
+      </button>
+    </div>
+  </div>
+);
+
 const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
 
 type Page = (typeof VALID_PAGES)[number];
@@ -209,6 +231,8 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
+      <MultiSigApprovalModal />
+      <RpcStatusModal />
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
           <Landing />
@@ -256,17 +280,30 @@ function App() {
     };
   }, []);
 
+  const isShortLinkRoute =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
+
+  if (isShortLinkRoute) {
+    return (
+      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+        <ShortLinkRedirect />
+      </Sentry.ErrorBoundary>
+    );
+  }
+
   return (
     <NotificationWrapper>
-      <ErrorBoundary>
+      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
-              <Router />
+              <TooltipProvider delayDuration={300}>
+                <Router />
+              </TooltipProvider>
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>
-      </ErrorBoundary>
+      </Sentry.ErrorBoundary>
     </NotificationWrapper>
   );
 }

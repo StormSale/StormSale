@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.tsx";
+import { initErrorTracking } from "./lib/errorTracking";
 import "./index.css";
 
 interface ErrorBoundaryProps {
@@ -22,6 +23,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error("Uncaught application error:", error, info.componentStack);
   }
+
+  handleReport = () => {
+    // Placeholder for reporting the error to the tracking service.
+    console.error("Reported error:", this.state.error);
+  };
+
+  handleReload = () => {
+    window.location.reload();
+  };
 
   render() {
     if (this.state.hasError) {
@@ -73,6 +83,11 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     return this.props.children;
   }
 }
+
+// Error tracking has to be initialised before the tree is rendered so the
+// React error boundary can report uncaught exceptions. Without a DSN this is a
+// no-op and nothing is ever sent.
+initErrorTracking();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
