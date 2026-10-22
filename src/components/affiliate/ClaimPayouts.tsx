@@ -28,6 +28,17 @@ import {
   shouldDeliverAffiliateNotification,
 } from "./AffiliateSettings";
 import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
+import {
+  type AffiliateClaimEvent,
+  type PayoutQuotaStatus,
+  evaluateRollingQuota,
+  isClaimWithinCap,
+  appendClaimEvent,
+  loadClaimEvents,
+  claimsForAffiliate,
+  formatQuotaLabel,
+} from "../../lib/payoutCap";
+import { loadCampaignSettings } from "../../lib/campaignSettings";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const ClaimPayouts = () => {
@@ -39,6 +50,8 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
+  const [claimEvents, setClaimEvents] = useState<AffiliateClaimEvent[]>(() => loadClaimEvents());
+  const [nowSeconds, setNowSeconds] = useState<number>(() => Math.floor(Date.now() / 1000));
 
   useEffect(() => {
     async function loadClaims() {
@@ -47,9 +60,44 @@ export const ClaimPayouts = () => {
       // Select all matured campaigns by default
       const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
       setSelectedIds(matured);
+      // Reload the rolling-window ledger for the active wallet: the cap is per
+      // affiliate, so switching accounts must not carry over the previous
+      // affiliate's quota on the same browser.
+      setClaimEvents(loadClaimEvents());
     }
     loadClaims();
   }, [userAddress]);
+
+  // Live ticking clock so the rolling-24h quota countdowns stay real-time
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowSeconds(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // #156's cap is per affiliate, so the locally persisted ledger must be read
+  // per affiliate too: claims settled by a different wallet in the same browser
+  // must not consume this affiliate's quota.
+  const claimHistoryFor = (campaignId: number) =>
+    claimsForAffiliate(claimEvents, campaignId, userAddress);
+
+  // Daily payout cap (#156): campaign-declared cap per affiliate per rolling 24h
+  const getQuotaForCampaign = (campaignId: number): PayoutQuotaStatus | null => {
+    const settings = loadCampaignSettings(campaignId);
+    const cap = settings?.dailyPayoutCapXlm ?? null;
+    if (cap === null) return null;
+    const campaignClaims = claimHistoryFor(campaignId);
+    return evaluateRollingQuota(campaignClaims, nowSeconds, cap);
+  };
+
+  const cappedCampaigns = campaigns
+    .filter((c) => c.status === "matured")
+    .map((c) => ({ campaign: c, quota: getQuotaForCampaign(c.campaignId) }))
+    .filter(
+      (entry): entry is { campaign: ClaimableCampaignItem; quota: PayoutQuotaStatus } =>
+        entry.quota !== null,
+    );
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
@@ -73,25 +121,71 @@ export const ClaimPayouts = () => {
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
 
+    // Verify rolling 24-hour claim volume against each campaign's payout cap
+    // before signing (#156); over-cap campaigns are held back from the envelope.
+    const blocked: { campaign: ClaimableCampaignItem; quota: PayoutQuotaStatus }[] = [];
+    const allowed = selectedCampaigns.filter((camp) => {
+      const cap = loadCampaignSettings(camp.campaignId)?.dailyPayoutCapXlm ?? null;
+      const events = claimHistoryFor(camp.campaignId);
+      if (isClaimWithinCap(events, nowSeconds, cap, camp.claimableXlm)) return true;
+      blocked.push({
+        campaign: camp,
+        quota: evaluateRollingQuota(events, nowSeconds, cap),
+      });
+      return false;
+    });
+
+    if (blocked.length > 0) {
+      // Report each blocked campaign with its own reason and its own reset time.
+      // The previous message quoted blocked[0]'s countdown for every campaign and
+      // said "quota exhausted" even when the quota was simply too small for a
+      // claim larger than the remaining allowance.
+      const details = blocked
+        .map(
+          ({ campaign, quota }) =>
+            `${campaign.campaignName} — ${formatQuotaLabel(quota)}, claim is ${campaign.claimableXlm} XLM`,
+        )
+        .join("; ");
+      showNotification({
+        type: "error",
+        title: "Daily Payout Cap Reached",
+        message: `${details}. Held back from this batch.`,
+      });
+    }
+    if (allowed.length === 0) return;
+
     setIsBatchClaiming(true);
     showNotification({
       type: "info",
       title: "Assembling Batch Claim",
-      message: `Bundling ${selectedCampaigns.length} Soroban invocations into a single Stellar transaction...`,
+      message: `Bundling ${allowed.length} Soroban invocations into a single Stellar transaction...`,
     });
 
     try {
       // Apply the affiliate's auto-split plan (if enabled & valid) so the claimed
       // total is routed across vault destinations inside the same atomic envelope.
       const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
-      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan);
+      const resultReceipt = await batchClaimPayoutsOnChain(allowed, splitPlan);
       setReceipt(resultReceipt);
 
       // Mark claimed campaigns
+      const claimedIds = allowed.map((c) => c.campaignId);
       setCampaigns((prev) =>
-        prev.map((c) => (selectedIds.includes(c.campaignId) ? { ...c, status: "claimed" } : c)),
+        prev.map((c) => (claimedIds.includes(c.campaignId) ? { ...c, status: "claimed" } : c)),
       );
       setSelectedIds([]);
+
+      // Record settled claims in the rolling-window ledger for cap verification
+      const fresh = resultReceipt.itemizedClaims.map((item) =>
+        appendClaimEvent({
+          campaignId: item.campaignId,
+          timestamp: Math.floor(resultReceipt.timestamp / 1000),
+          amountXlm: item.claimedXlm,
+          txHash: resultReceipt.txHash,
+          affiliateAddress: userAddress || undefined,
+        }),
+      );
+      setClaimEvents(fresh.length > 0 ? fresh[fresh.length - 1] : claimEvents);
 
       if (shouldDeliverAffiliateNotification("payout")) {
         showNotification({
@@ -114,6 +208,24 @@ export const ClaimPayouts = () => {
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
+    const camp = campaigns.find((c) => c.campaignId === campaignId);
+    if (!camp) return;
+
+    const cap = loadCampaignSettings(campaignId)?.dailyPayoutCapXlm ?? null;
+    const events = claimHistoryFor(campaignId);
+    if (!isClaimWithinCap(events, nowSeconds, cap, camp.claimableXlm)) {
+      const quota = evaluateRollingQuota(events, nowSeconds, cap);
+      showNotification({
+        type: "error",
+        title: "Daily Payout Cap Reached",
+        message:
+          cap !== null
+            ? `Claim of ${camp.claimableXlm.toFixed(2)} XLM exceeds your remaining quota (${quota.remainingQuotaXlm.toFixed(2)} of ${cap} XLM). Window resets in ${quota.resetCountdownText || "less than a minute"}.`
+            : "This claim exceeds the campaign payout cap.",
+      });
+      return;
+    }
+
     setClaimingId(campaignId);
     showNotification({
       type: "info",
@@ -126,6 +238,15 @@ export const ClaimPayouts = () => {
       const res = await claimPayoutOnChain(campaignId, target?.assetCode);
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
+      );
+      setClaimEvents(
+        appendClaimEvent({
+          campaignId,
+          timestamp: Math.floor(Date.now() / 1000),
+          amountXlm: camp.claimableXlm,
+          txHash: res.txHash,
+          affiliateAddress: userAddress || undefined,
+        }),
       );
       if (shouldDeliverAffiliateNotification("payout")) {
         showNotification({
@@ -239,6 +360,47 @@ export const ClaimPayouts = () => {
           </div>
         </div>
       </motion.div>
+
+      {/* Daily Payout Cap Quota Banner (#156) */}
+      {cappedCampaigns.length > 0 && (
+        <Card
+          className={`border rounded-3xl shadow-sm ${
+            cappedCampaigns.some((e) => e.quota.capped)
+              ? "border-amber-200 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10"
+              : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50"
+          }`}
+        >
+          <CardContent className="p-6 space-y-3">
+            <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+              <ShieldCheck className="w-4 h-4 text-indigo-500" />
+              <span>Daily Payout Cap Protection</span>
+            </div>
+            {cappedCampaigns.map(({ campaign, quota }) => (
+              <div
+                key={campaign.campaignId}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
+              >
+                <span className="font-bold text-zinc-900 dark:text-white">
+                  {campaign.campaignName}
+                </span>
+                <span
+                  className={`font-mono text-xs font-semibold ${
+                    quota.capped
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {formatQuotaLabel(quota)}
+                </span>
+              </div>
+            ))}
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              Caps are set by advertisers per affiliate per rolling 24-hour window. Blocked claims
+              unlock automatically as earlier payouts age out of the window.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Campaigns Table */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl overflow-hidden">

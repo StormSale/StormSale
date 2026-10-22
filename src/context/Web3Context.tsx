@@ -34,6 +34,8 @@ import {
   type RpcEndpointStatus,
   type RpcFailoverEvent,
 } from "../lib/rpcFallback";
+import type { CampaignSettingsInput } from "../lib/campaignSettings";
+import { buildCampaignSettings, saveCampaignSettings } from "../lib/campaignSettings";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -71,6 +73,7 @@ export interface Web3ContextType {
     commissionRatePercent: number,
     clearingPeriodSecs: number,
     assetCode?: SupportedEscrowAssetCode,
+    extendedSettings?: CampaignSettingsInput,
   ) => Promise<{
     success: boolean;
     campaignId: number;
@@ -482,6 +485,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     commissionRatePercent: number,
     clearingPeriodSecs: number,
     assetCode: SupportedEscrowAssetCode = "XLM",
+    extendedSettings?: CampaignSettingsInput,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
     await assertNotSanctioned(userAddress, "create-campaign");
@@ -514,8 +518,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       }
     }
 
+    let result: {
+      success: boolean;
+      campaignId: number;
+      txHash?: string;
+      asset?: SupportedEscrowAssetCode;
+    };
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
+      result = await createCampaignContractCall(
         userAddress,
         commissionRatePercent,
         clearingPeriodSecs,
@@ -523,19 +533,19 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         connectorType,
         assetCode,
       );
-      if (res.success) {
+      if (result.success) {
         void dispatchWebhookEvent("campaign.created", {
-          id: `campaign_${res.campaignId}`,
+          id: `campaign_${result.campaignId}`,
           event: "campaign.created",
           created_at: new Date().toISOString(),
-          campaign_id: res.campaignId,
+          campaign_id: result.campaignId,
           campaign_name: name,
           advertiser_address: userAddress,
           budget: budgetAmount,
           currency: assetCode || "XLM",
           commission_rate_percent: commissionRatePercent,
           clearing_period_seconds: clearingPeriodSecs,
-          tx_hash: res.txHash,
+          tx_hash: result.txHash,
           status: "created",
         });
       }
@@ -543,7 +553,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         refreshBalance(userAddress);
         refreshTokenAllowance(undefined, assetCode);
       }, 1000);
-      return res;
     } else {
       // Mock fallback for UI preview without extension
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
@@ -561,13 +570,21 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           );
         }
       }
-      return {
+      result = {
         success: true,
         campaignId: newCampaignId,
         txHash: mockTxHash,
         asset: assetCode,
       };
     }
+
+    // Persist the extended advertiser parameters (#151 attribution model/window,
+    // #155 A/B landing split, #156 daily payout cap) anchored to the campaign id.
+    if (extendedSettings) {
+      saveCampaignSettings(buildCampaignSettings(result.campaignId, extendedSettings));
+    }
+
+    return result;
   };
 
   // Soroban: Log Verified Sale
