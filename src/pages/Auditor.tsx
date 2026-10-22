@@ -26,6 +26,7 @@ import {
   KeyRound,
   Lock,
 } from "lucide-react";
+import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -40,6 +41,7 @@ const AUDITOR_TABS = [
   "network",
   "soc2",
   "merkle",
+  "privacy",
 ] as const;
 
 type AuditorTab = (typeof AUDITOR_TABS)[number];
@@ -126,6 +128,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
     { id: "network", label: "Transaction Network", icon: Network },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
+    { id: "privacy", label: "Privacy", icon: ShieldCheck },
   ];
 
   const handleTabChange = (tab: string) => {
@@ -175,6 +178,8 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
       case "overview":
         return <AuditorOverview onTabChange={handleTabChange} />;
 
+      case "privacy":
+        return <PrivacyVerification />;
       default:
         return <AuditorOverview onTabChange={handleTabChange} />;
     }

@@ -10,7 +10,7 @@ export const InputGroup: React.FC<InputGroupProps> = ({ children, className }) =
 };
 
 interface InputFieldProps {
-  label: string;
+  label: React.ReactNode;
   description?: string;
   error?: string;
   required?: boolean;

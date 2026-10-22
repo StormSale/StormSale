@@ -51,7 +51,11 @@ function validateClaimItems(items: ClaimableCampaignItem[]): void {
       throw new Error(`Duplicate campaignId in batch claim: ${c.campaignId}.`);
     }
     seen.add(c.campaignId);
-    if (typeof c.claimableXlm !== "number" || !Number.isFinite(c.claimableXlm) || c.claimableXlm <= 0) {
+    if (
+      typeof c.claimableXlm !== "number" ||
+      !Number.isFinite(c.claimableXlm) ||
+      c.claimableXlm <= 0
+    ) {
       throw new Error(`Invalid claimable amount for campaign #${c.campaignId}.`);
     }
     if (c.claimableXlm > 1_000_000_000) {
@@ -208,10 +212,7 @@ export async function executeBatchCommissionClaim(
 
   // Pre-compute the atomic split across destinations (exact stroop accounting).
   const activeDestinations = splitPlan?.enabled ? splitPlan.destinations : [];
-  const allocations = computeSplitAllocations(
-    xlmToStroops(totalClaimedXlm),
-    activeDestinations,
-  );
+  const allocations = computeSplitAllocations(xlmToStroops(totalClaimedXlm), activeDestinations);
   const splitAllocations = toSplitAllocationReceipts(allocations);
   const paymentOperationCount = splitAllocations.length;
 
@@ -221,10 +222,7 @@ export async function executeBatchCommissionClaim(
   if (walletType === "readonly") {
     throw new Error("Readonly wallet cannot sign a batch claim transaction.");
   }
-  if (
-    walletType === "mock" ||
-    (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)
-  ) {
+  if (walletType === "mock" || (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)) {
     const mockHash = "0x" + randomHex64();
 
     return {
@@ -251,6 +249,7 @@ export async function executeBatchCommissionClaim(
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Batch claim settlement failed: affiliate account is not available on the ledger (${reason}). Fund it and retry.`,
+      { cause: err },
     );
   }
 
