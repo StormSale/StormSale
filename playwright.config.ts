@@ -16,6 +16,7 @@ export default defineConfig({
   outputDir: "test-results/e2e",
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
+    serviceWorkers: "block",
     // Acceptance criteria: keep a video of every failing test.
     video: "retain-on-failure",
     screenshot: "only-on-failure",

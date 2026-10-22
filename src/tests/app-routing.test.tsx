@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   initTelegramWebApp: vi.fn(),
   syncTelegramTheme: vi.fn(() => vi.fn()),
   loadBrandConfig: vi.fn(() => ({ name: "Campaign" })),
+  showNotification: vi.fn(),
 }));
 
 vi.mock("../context/Web3Context", () => ({
@@ -22,6 +23,7 @@ vi.mock("../context/WalletConnectContext", () => ({
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
   NotificationWrapper: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: mocks.showNotification }),
 }));
 vi.mock("../hooks/usePreference", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/usePreference")>();

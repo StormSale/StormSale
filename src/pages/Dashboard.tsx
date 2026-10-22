@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { useWeb3 } from "../hooks/useWeb3";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { useDashboardCache } from "../hooks/useDashboardCache";
 import {
   Megaphone,
@@ -31,6 +32,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     xlmBalance,
     connectorType,
   } = useWeb3();
+  const isOnline = useOnlineStatus();
   const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
@@ -167,6 +169,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 Stellar {network || "Testnet"}
               </div>
             </div>
+            {!isOnline && (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                <span className="w-2 h-2 rounded-full bg-amber-500 mr-1.5 animate-pulse"></span>
+                Offline Mode
+              </span>
+            )}
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-4">
