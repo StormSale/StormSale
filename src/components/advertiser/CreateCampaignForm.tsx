@@ -279,6 +279,10 @@ export const CreateCampaignForm = () => {
     { label: "30 Days", value: "2592000" },
   ];
 
+  const sortedTiers = [...tiers].sort((a, b) => a.minSales - b.minSales);
+  const minTierRate = sortedTiers[0]?.commissionRate ?? 10;
+  const maxTierRate = sortedTiers[sortedTiers.length - 1]?.commissionRate ?? 10;
+
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Success Notification Banner for Newly Created Campaign */}
@@ -458,7 +462,9 @@ export const CreateCampaignForm = () => {
                     </div>
                   </div>
                 </InputField>
+              )}
 
+              <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label={
                     <span className="inline-flex items-center gap-1.5">
@@ -502,7 +508,6 @@ export const CreateCampaignForm = () => {
                       )}
                   </div>
                 </InputField>
-              </div>
 
               <InputField
                 label={
@@ -555,8 +560,8 @@ export const CreateCampaignForm = () => {
                       seconds
                     </div>
                   </div>
-                </div>
-              </InputField>
+                </InputField>
+              </div>
 
               {/* REAL-TIME TOKEN ALLOWANCE & ESCROW FLOW PANEL */}
               <div className="bg-slate-50 dark:bg-zinc-950/70 p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-6">
@@ -742,23 +747,25 @@ export const CreateCampaignForm = () => {
               </div>
 
               {/* Summary Card */}
-              <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
-                <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs mb-4">
+              <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50 space-y-4">
+                <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs">
                   Campaign Summary
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
                   <div className="space-y-2">
                     <div className="flex items-center text-zinc-500 dark:text-zinc-400 font-medium">
-                      <Target className="w-4 h-4 mr-2" />
-                      Commission Rate
+                      <Target className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
+                      Commission Structure
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
-                      {commissionRate || "0"}%
+                      {commissionType === "tiered"
+                        ? `${minTierRate}% - ${maxTierRate}% (${sortedTiers.length} Tiers)`
+                        : `${commissionRate || "0"}% Flat`}
                     </div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center text-zinc-500 dark:text-zinc-400 font-medium">
-                      <Clock className="w-4 h-4 mr-2" />
+                      <Clock className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
                       Clearing Period
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
@@ -775,6 +782,27 @@ export const CreateCampaignForm = () => {
                     </div>
                   </div>
                 </div>
+
+                {commissionType === "tiered" && (
+                  <div className="pt-3 border-t border-slate-200/60 dark:border-zinc-800/60 flex items-center gap-2 flex-wrap text-xs">
+                    <span className="text-zinc-400 font-semibold">Tier Ladder:</span>
+                    {sortedTiers.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium"
+                      >
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                          {t.name}:
+                        </span>
+                        <span>{t.minSales === 0 ? "Base" : `>${t.minSales} sales`}</span>
+                        <span className="text-zinc-400">→</span>
+                        <strong className="text-zinc-900 dark:text-white">
+                          {t.commissionRate}%
+                        </strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* ACTION BUTTONS: Sequential 1-Click vs Step-by-Step */}
