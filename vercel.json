@@ -1,4 +1,17 @@
 {
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@5"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/custom-links/register", "destination": "/api/custom-links/register" },
+    { "source": "/api/custom-links/availability", "destination": "/api/custom-links/availability" },
+    { "source": "/api/custom-links/resolve", "destination": "/api/custom-links/resolve" },
+    { "source": "/api/custom-links/list", "destination": "/api/custom-links/list" },
+    { "source": "/api/custom-links/delete", "destination": "/api/custom-links/delete" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
