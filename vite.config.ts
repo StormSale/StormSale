@@ -4,6 +4,8 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * Options for Subresource Integrity (SRI) plugin.
@@ -186,6 +188,49 @@ export function subresourceIntegrity(options?: SubresourceIntegrityOptions): Plu
             // Silently fallback if manifest parsing fails
           }
         }
+      }
+    },
+
+    /**
+     * Chunk code can still change after transformIndexHtml runs (for example
+     * when the bundler finalises preload helpers or hashes), which left the
+     * injected digests stale and made browsers block every script. Recompute
+     * each integrity attribute from the bytes actually written to disk.
+     */
+    writeBundle(outputOptions, bundle) {
+      const outDir = outputOptions.dir;
+      if (!outDir) return;
+
+      const resolveLocal = (url: string): string | undefined => {
+        if (/^(https?:)?\/\//i.test(url) || url.startsWith("data:")) return undefined;
+        let normalized = url.split(/[?#]/)[0];
+        if (base !== "/" && normalized.startsWith(base)) {
+          normalized = normalized.slice(base.length);
+        }
+        normalized = normalized.replace(/^\.?\//, "");
+        const filePath = path.resolve(outDir, normalized);
+        if (!filePath.startsWith(path.resolve(outDir) + path.sep)) return undefined;
+        return fs.existsSync(filePath) ? filePath : undefined;
+      };
+
+      const refresh = (tag: string, urlAttr: "src" | "href") => {
+        if (!/\bintegrity=["'][^"']*["']/i.test(tag)) return tag;
+        const urlMatch = tag.match(new RegExp(`\\b${urlAttr}=["']([^"']+)["']`, "i"));
+        const filePath = urlMatch ? resolveLocal(urlMatch[1]) : undefined;
+        if (!filePath) return tag;
+        const integrity = computeIntegrity(fs.readFileSync(filePath), algorithms);
+        return tag.replace(/\bintegrity=["'][^"']*["']/i, `integrity="${integrity}"`);
+      };
+
+      for (const fileName of Object.keys(bundle)) {
+        if (!fileName.endsWith(".html")) continue;
+        const htmlPath = path.join(outDir, fileName);
+        if (!fs.existsSync(htmlPath)) continue;
+        const html = fs.readFileSync(htmlPath, "utf8");
+        const updated = html
+          .replace(/<script\b[^>]*>/gi, (tag) => refresh(tag, "src"))
+          .replace(/<link\b[^>]*>/gi, (tag) => refresh(tag, "href"));
+        if (updated !== html) fs.writeFileSync(htmlPath, updated);
       }
     },
   };

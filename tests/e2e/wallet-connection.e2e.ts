@@ -19,7 +19,9 @@ test.describe("Journey: wallet connection", () => {
 
   test("visitor connects with the demo account and disconnects", async ({ page }) => {
     await connectWithDemoAccount(page);
-    await expect(page.getByText("GASTOR...7777")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Account menu for GASTOR...7777" }),
+    ).toBeVisible();
 
     await page.getByRole("button", { name: "Disconnect" }).click();
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeHidden();
@@ -46,6 +48,8 @@ test.describe("Journey: wallet connection", () => {
     await page.getByRole("button", { name: "Connect Watch Key" }).click();
 
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeVisible();
-    await expect(page.getByText("GAAAAA...AAAA")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Account menu for GAAAAA...AAAA" }),
+    ).toBeVisible();
   });
 });
