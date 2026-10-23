@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Card, CardContent } from "../ui/card";
@@ -21,9 +21,16 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import type { PromotionAsset } from "../../types/asset";
-import { deletePromotionAsset, getStoredPromotionAssets } from "../../lib/ipfsAssetService";
+import {
+  deletePromotionAsset,
+  generateEmbedCodes,
+  getStoredPromotionAssets,
+} from "../../lib/ipfsAssetService";
 import { downloadSingleAsset, downloadFullMediaZipBundle } from "../../lib/assetZipBundle";
 import { useNotification } from "../../context/NotificationContext";
+
+const buildReferralUrl = (code: string) =>
+  `https://stormsale.io/ref/${encodeURIComponent(code.trim() || "YOUR_AFFILIATE_ID")}`;
 
 interface AssetGalleryProps {
   assets?: PromotionAsset[];
@@ -44,15 +51,16 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
 }) => {
   const { showNotification } = useNotification();
 
-  const [internalAssets, setInternalAssets] = useState<PromotionAsset[]>(() =>
-    propAssets || getStoredPromotionAssets(),
+  const [internalAssets, setInternalAssets] = useState<PromotionAsset[]>(
+    () => propAssets || getStoredPromotionAssets(),
   );
 
-  useEffect(() => {
-    if (propAssets) {
-      setInternalAssets(propAssets);
-    }
-  }, [propAssets]);
+  // Adopt new asset lists from the parent as they arrive
+  const [prevPropAssets, setPrevPropAssets] = useState(propAssets);
+  if (propAssets !== prevPropAssets) {
+    setPrevPropAssets(propAssets);
+    if (propAssets) setInternalAssets(propAssets);
+  }
 
   const assets = internalAssets;
 
@@ -72,13 +80,14 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
   // Single asset embed modal state
   const [selectedAssetForEmbed, setSelectedAssetForEmbed] = useState<PromotionAsset | null>(null);
   const [embedTab, setEmbedTab] = useState<"html" | "markdown" | "react" | "direct">("html");
-  const [customRefUrl, setCustomRefUrl] = useState(
-    `https://stormsale.io/ref/${affiliateReferralCode}`,
-  );
+  const [customRefUrl, setCustomRefUrl] = useState(() => buildReferralUrl(affiliateReferralCode));
 
-  useEffect(() => {
-    setCustomRefUrl(`https://stormsale.io/ref/${affiliateReferralCode}`);
-  }, [affiliateReferralCode]);
+  // Re-derive the referral link when the affiliate edits their tracking ID
+  const [prevReferralCode, setPrevReferralCode] = useState(affiliateReferralCode);
+  if (affiliateReferralCode !== prevReferralCode) {
+    setPrevReferralCode(affiliateReferralCode);
+    setCustomRefUrl(buildReferralUrl(affiliateReferralCode));
+  }
 
   // Preview modal state
   const [previewAsset, setPreviewAsset] = useState<PromotionAsset | null>(null);
@@ -195,6 +204,16 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
   };
 
   const filteredAssets = getFilteredAssets();
+
+  const selectedEmbedCodes = selectedAssetForEmbed
+    ? generateEmbedCodes(
+        selectedAssetForEmbed.cid,
+        selectedAssetForEmbed.gatewayUrl,
+        selectedAssetForEmbed.title,
+        selectedAssetForEmbed.dimensions,
+        customRefUrl,
+      )
+    : null;
 
   // Campaign list for filter dropdown
   const uniqueCampaigns = Array.from(new Set(assets.map((a) => a.campaignName)));
@@ -593,12 +612,9 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
             {/* Code Box */}
             <div className="relative">
               <pre className="p-4 bg-slate-900 text-zinc-200 rounded-2xl text-xs font-mono overflow-x-auto max-h-48 whitespace-pre-wrap">
-                {embedTab === "html" &&
-                  `<a href="${customRefUrl}" target="_blank" rel="noopener noreferrer">\n  <img src="${selectedAssetForEmbed.gatewayUrl}" alt="${selectedAssetForEmbed.title}" width="${selectedAssetForEmbed.dimensions?.width || 728}" height="${selectedAssetForEmbed.dimensions?.height || 90}" style="max-width:100%;height:auto;border:0;display:block;" />\n</a>`}
-                {embedTab === "markdown" &&
-                  `[![${selectedAssetForEmbed.title}](${selectedAssetForEmbed.gatewayUrl})](${customRefUrl})`}
-                {embedTab === "react" &&
-                  `<a href="${customRefUrl}" target="_blank" rel="noopener noreferrer">\n  <img src="${selectedAssetForEmbed.gatewayUrl}" alt="${selectedAssetForEmbed.title}" width={${selectedAssetForEmbed.dimensions?.width || 728}} height={${selectedAssetForEmbed.dimensions?.height || 90}} className="max-w-full h-auto rounded-lg" />\n</a>`}
+                {embedTab === "html" && selectedEmbedCodes?.html}
+                {embedTab === "markdown" && selectedEmbedCodes?.markdown}
+                {embedTab === "react" && selectedEmbedCodes?.react}
                 {embedTab === "direct" &&
                   `IPFS URI:    ipfs://${selectedAssetForEmbed.cid}\nGateway URL: ${selectedAssetForEmbed.gatewayUrl}\nSHA-256:     ${selectedAssetForEmbed.checksumSha256}`}
               </pre>
@@ -606,16 +622,15 @@ export const AssetGallery: React.FC<AssetGalleryProps> = ({
               <Button
                 size="sm"
                 onClick={() => {
-                  let textToCopy: string;
-                  if (embedTab === "html") {
-                    textToCopy = `<a href="${customRefUrl}" target="_blank" rel="noopener noreferrer"><img src="${selectedAssetForEmbed.gatewayUrl}" alt="${selectedAssetForEmbed.title}" width="${selectedAssetForEmbed.dimensions?.width || 728}" height="${selectedAssetForEmbed.dimensions?.height || 90}" style="max-width:100%;height:auto;border:0;display:block;" /></a>`;
-                  } else if (embedTab === "markdown") {
-                    textToCopy = `[![${selectedAssetForEmbed.title}](${selectedAssetForEmbed.gatewayUrl})](${customRefUrl})`;
-                  } else if (embedTab === "react") {
-                    textToCopy = `<a href="${customRefUrl}" target="_blank" rel="noopener noreferrer"><img src="${selectedAssetForEmbed.gatewayUrl}" alt="${selectedAssetForEmbed.title}" width={${selectedAssetForEmbed.dimensions?.width || 728}} height={${selectedAssetForEmbed.dimensions?.height || 90}} className="max-w-full h-auto rounded-lg" /></a>`;
-                  } else {
-                    textToCopy = `ipfs://${selectedAssetForEmbed.cid}`;
-                  }
+                  const codes = selectedEmbedCodes!;
+                  const textToCopy =
+                    embedTab === "html"
+                      ? codes.html
+                      : embedTab === "markdown"
+                        ? codes.markdown
+                        : embedTab === "react"
+                          ? codes.react
+                          : codes.ipfsUri;
                   copyToClipboard(textToCopy, "Embed Code", "embed_code_copied");
                 }}
                 className="absolute top-3 right-3 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold h-8 px-3"

@@ -26,6 +26,9 @@ export const CampaignAssetLibrary: React.FC = () => {
 
   const totalBytes = assets.reduce((sum, a) => sum + (a.sizeBytes || 0), 0);
   const totalDownloads = assets.reduce((sum, a) => sum + (a.downloadCount || 0), 0);
+  const pinnedPct = assets.length
+    ? Math.round((assets.filter((a) => a.pinProvider !== "simulated").length / assets.length) * 100)
+    : 0;
 
   return (
     <div className="space-y-8 pb-12">
@@ -98,7 +101,7 @@ export const CampaignAssetLibrary: React.FC = () => {
               <p className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
                 IPFS Pinned
               </p>
-              <p className="text-2xl font-black text-zinc-900 dark:text-white">100%</p>
+              <p className="text-2xl font-black text-zinc-900 dark:text-white">{pinnedPct}%</p>
             </div>
           </div>
         </Card>

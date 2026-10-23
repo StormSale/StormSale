@@ -11,6 +11,19 @@ import type {
 
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB Acceptance Criteria
 
+/**
+ * Allowed upload extensions mapped to the MIME types that are consistent with them.
+ */
+const EXTENSION_MIME_TYPES: Record<string, string[]> = {
+  ".png": ["image/png"],
+  ".jpeg": ["image/jpeg", "image/jpg"],
+  ".jpg": ["image/jpeg", "image/jpg"],
+  ".svg": ["image/svg+xml"],
+  ".zip": ["application/zip", "application/x-zip-compressed", "application/x-zip"],
+};
+
+export const ALLOWED_EXTENSIONS = Object.keys(EXTENSION_MIME_TYPES);
+
 export const ALLOWED_MIME_TYPES: Record<string, AssetFileFormat> = {
   "image/png": "png",
   "image/jpeg": "jpeg",
@@ -19,11 +32,9 @@ export const ALLOWED_MIME_TYPES: Record<string, AssetFileFormat> = {
   "application/zip": "zip",
   "application/x-zip-compressed": "zip",
   "application/x-zip": "zip",
-  "text/plain": "txt",
-  "text/markdown": "md",
 };
 
-export const ALLOWED_EXTENSIONS = [".png", ".jpeg", ".jpg", ".svg", ".zip", ".txt", ".md"];
+export const DEFAULT_IPFS_GATEWAY = "https://gateway.pinata.cloud/ipfs/";
 
 const ASSET_STORAGE_KEY = "stormsale_promotion_assets";
 const IPFS_CONFIG_STORAGE_KEY = "stormsale_ipfs_provider_config";
@@ -40,11 +51,14 @@ export function validateAssetFile(file: File): { valid: boolean; error?: string 
     };
   }
 
+  // The extension must be allowed, and a browser-supplied MIME type (client-controlled)
+  // must agree with it rather than being accepted on its own.
   const nameLower = file.name.toLowerCase();
-  const hasValidExtension = ALLOWED_EXTENSIONS.some((ext) => nameLower.endsWith(ext));
-  const hasValidMime = Boolean(ALLOWED_MIME_TYPES[file.type]);
+  const extension = ALLOWED_EXTENSIONS.find((ext) => nameLower.endsWith(ext));
+  const mimeMatchesExtension =
+    !file.type || Boolean(extension && EXTENSION_MIME_TYPES[extension].includes(file.type));
 
-  if (!hasValidExtension && !hasValidMime) {
+  if (!extension || !mimeMatchesExtension) {
     return {
       valid: false,
       error:
@@ -229,6 +243,26 @@ export function generateIpfsCid(sha256Hex: string): string {
 }
 
 /**
+ * Escapes a value for safe interpolation into an HTML/JSX attribute.
+ */
+export function escapeHtmlAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * Normalizes a gateway base URL so a CID can be appended directly.
+ */
+export function buildGatewayUrl(cid: string, gatewayBase?: string): string {
+  const base = (gatewayBase?.trim() || DEFAULT_IPFS_GATEWAY).replace(/\/?$/, "/");
+  return `${base}${cid}`;
+}
+
+/**
  * Generates affiliate embed codes for banners and creative assets.
  */
 export function generateEmbedCodes(
@@ -241,15 +275,18 @@ export function generateEmbedCodes(
   const width = dimensions?.width || 728;
   const height = dimensions?.height || 90;
   const ipfsUri = `ipfs://${cid}`;
+  const safeTitle = escapeHtmlAttr(title);
+  const safeSrc = escapeHtmlAttr(gatewayUrl);
+  const safeHref = escapeHtmlAttr(affiliateRefUrl);
 
-  const html = `<a href="${affiliateRefUrl}" target="_blank" rel="noopener noreferrer" title="${title}">
-  <img src="${gatewayUrl}" alt="${title}" width="${width}" height="${height}" style="max-width:100%;height:auto;border:0;display:block;" />
+  const html = `<a href="${safeHref}" target="_blank" rel="noopener noreferrer" title="${safeTitle}">
+  <img src="${safeSrc}" alt="${safeTitle}" width="${width}" height="${height}" style="max-width:100%;height:auto;border:0;display:block;" />
 </a>`;
 
   const markdown = `[![${title}](${gatewayUrl})](${affiliateRefUrl})`;
 
-  const react = `<a href="${affiliateRefUrl}" target="_blank" rel="noopener noreferrer">
-  <img src="${gatewayUrl}" alt="${title}" width={${width}} height={${height}} className="max-w-full h-auto rounded-lg shadow-sm" />
+  const react = `<a href="${safeHref}" target="_blank" rel="noopener noreferrer">
+  <img src="${safeSrc}" alt="${safeTitle}" width={${width}} height={${height}} className="max-w-full h-auto rounded-lg shadow-sm" />
 </a>`;
 
   const bbcode = `[url=${affiliateRefUrl}][img]${gatewayUrl}[/img][/url]`;
@@ -353,7 +390,7 @@ export async function pinAssetToIpfs(
   }
 
   const ipfsUri = `ipfs://${pinnedCid}`;
-  const gatewayUrl = `https://gateway.pinata.cloud/ipfs/${pinnedCid}`;
+  const gatewayUrl = buildGatewayUrl(pinnedCid, config.customGatewayUrl);
 
   return {
     cid: pinnedCid,
@@ -639,22 +676,24 @@ export function getStoredPromotionAssets(): PromotionAsset[] {
 
 /**
  * Saves a new or updated asset to localStorage.
+ * Throws if the asset could not be persisted (e.g. storage quota exceeded).
  */
 export function savePromotionAsset(asset: PromotionAsset): void {
   if (typeof window === "undefined") return;
+  const current = getStoredPromotionAssets();
+  const existingIndex = current.findIndex((a) => a.id === asset.id);
+  let updated: PromotionAsset[];
+  if (existingIndex >= 0) {
+    updated = [...current];
+    updated[existingIndex] = asset;
+  } else {
+    updated = [asset, ...current];
+  }
   try {
-    const current = getStoredPromotionAssets();
-    const existingIndex = current.findIndex((a) => a.id === asset.id);
-    let updated: PromotionAsset[];
-    if (existingIndex >= 0) {
-      updated = [...current];
-      updated[existingIndex] = asset;
-    } else {
-      updated = [asset, ...current];
-    }
     localStorage.setItem(ASSET_STORAGE_KEY, JSON.stringify(updated));
   } catch (err) {
-    console.error("Failed to save promotion asset to storage:", err);
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to save asset to the library storage: ${reason}`, { cause: err });
   }
 }
 
@@ -674,20 +713,33 @@ export function deletePromotionAsset(assetId: string): boolean {
 }
 
 /**
- * Increments download count for an asset.
+ * Increments download counts for a batch of assets with a single storage read/write.
  */
-export function incrementDownloadCount(assetId: string): void {
-  if (typeof window === "undefined") return;
+export function incrementDownloadCounts(assetIds: string[]): void {
+  if (typeof window === "undefined" || assetIds.length === 0) return;
   try {
+    const ids = new Set(assetIds);
     const current = getStoredPromotionAssets();
-    const asset = current.find((a) => a.id === assetId);
-    if (asset) {
-      asset.downloadCount = (asset.downloadCount || 0) + 1;
+    let changed = false;
+    for (const asset of current) {
+      if (ids.has(asset.id)) {
+        asset.downloadCount = (asset.downloadCount || 0) + 1;
+        changed = true;
+      }
+    }
+    if (changed) {
       localStorage.setItem(ASSET_STORAGE_KEY, JSON.stringify(current));
     }
   } catch {
     // Ignore storage increment failures
   }
+}
+
+/**
+ * Increments download count for an asset.
+ */
+export function incrementDownloadCount(assetId: string): void {
+  incrementDownloadCounts([assetId]);
 }
 
 /**
@@ -698,7 +750,7 @@ export function getIpfsProviderConfig(): IpfsProviderConfig {
     activeProvider: "pinata",
     pinataJwt: "",
     web3StorageToken: "",
-    customGatewayUrl: "https://gateway.pinata.cloud/ipfs/",
+    customGatewayUrl: DEFAULT_IPFS_GATEWAY,
   };
 
   if (typeof window === "undefined") return defaultConfig;

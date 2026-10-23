@@ -33,6 +33,16 @@ import type {
   PinProvider,
 } from "../../types/asset";
 import { useNotification } from "../../context/NotificationContext";
+import { initialMockCampaigns } from "./MyCampaignsList";
+
+/**
+ * Only small images get an inline base64 preview cached in localStorage. Base64 adds ~33%,
+ * so larger previews would quickly exhaust the ~5 MB storage quota.
+ */
+const MAX_INLINE_PREVIEW_BYTES = 512 * 1024;
+
+/** Campaigns the advertiser can attach assets to (shared with the My Campaigns list). */
+const campaignOptions = initialMockCampaigns.map((c) => ({ id: c.id, name: c.name }));
 
 interface AssetUploaderProps {
   campaignId?: string;
@@ -41,8 +51,8 @@ interface AssetUploaderProps {
 }
 
 export const AssetUploader: React.FC<AssetUploaderProps> = ({
-  campaignId = "1",
-  campaignName = "Tech Gadgets Pro",
+  campaignId = campaignOptions[0]?.id ?? "",
+  campaignName = campaignOptions.find((c) => c.id === campaignId)?.name ?? "",
   onAssetUploaded,
 }) => {
   const { showNotification } = useNotification();
@@ -71,6 +81,12 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
   // IPFS Settings modal
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [ipfsConfig, setIpfsConfig] = useState(getIpfsProviderConfig());
+
+  const closeConfigModal = () => {
+    // Discard unsaved edits so the badge and uploads keep using the saved settings
+    setIpfsConfig(getIpfsProviderConfig());
+    setShowConfigModal(false);
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -148,6 +164,7 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
         campaignName: selectedCampaignName,
         category,
         title: title || selectedFile.name,
+        provider: ipfsConfig.activeProvider,
         pinataJwt: ipfsConfig.pinataJwt,
         web3StorageToken: ipfsConfig.web3StorageToken,
       });
@@ -157,7 +174,7 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
 
       // Cache data URL for instant in-browser previews
       let contentDataUrl: string | undefined = undefined;
-      if (selectedFile.type.startsWith("image/") && selectedFile.size < 5 * 1024 * 1024) {
+      if (selectedFile.type.startsWith("image/") && selectedFile.size <= MAX_INLINE_PREVIEW_BYTES) {
         try {
           contentDataUrl = await new Promise<string>((resolve) => {
             const reader = new FileReader();
@@ -200,7 +217,14 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
         downloadCount: 0,
       };
 
-      savePromotionAsset(newAsset);
+      try {
+        savePromotionAsset(newAsset);
+      } catch (saveErr) {
+        // The inline preview is only a cache; retry without it before giving up
+        if (!newAsset.contentDataUrl) throw saveErr;
+        newAsset.contentDataUrl = undefined;
+        savePromotionAsset(newAsset);
+      }
       setUploadProgress(100);
       setUploadStep("Pinned successfully!");
 
@@ -264,6 +288,7 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
         campaignId: selectedCampaignId,
         campaignName: selectedCampaignName,
         title: swipeHeadline,
+        provider: ipfsConfig.activeProvider,
         pinataJwt: ipfsConfig.pinataJwt,
         web3StorageToken: ipfsConfig.web3StorageToken,
       });
@@ -383,21 +408,21 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
             Target Campaign
           </Label>
           <select
+            aria-label="Target Campaign"
             value={selectedCampaignId}
             onChange={(e) => {
               setSelectedCampaignId(e.target.value);
-              const names: Record<string, string> = {
-                "1": "Tech Gadgets Pro",
-                "2": "DeFi Summer Launch",
-                "3": "Stellar Commerce Hub",
-              };
-              setSelectedCampaignName(names[e.target.value] || "Custom Campaign");
+              setSelectedCampaignName(
+                campaignOptions.find((c) => c.id === e.target.value)?.name ?? "",
+              );
             }}
             className="w-full h-11 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-sm font-semibold text-zinc-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="1">Tech Gadgets Pro (ID: 1)</option>
-            <option value="2">DeFi Summer Launch (ID: 2)</option>
-            <option value="3">Stellar Commerce Hub (ID: 3)</option>
+            {campaignOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} (ID: {c.id})
+              </option>
+            ))}
           </select>
         </div>
 
@@ -660,7 +685,7 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setShowConfigModal(false)}
+                onClick={closeConfigModal}
                 className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-bold"
               >
                 ✕
@@ -743,7 +768,7 @@ export const AssetUploader: React.FC<AssetUploaderProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowConfigModal(false)}
+                onClick={closeConfigModal}
                 className="rounded-xl text-xs"
               >
                 Cancel

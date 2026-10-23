@@ -1,6 +1,44 @@
 import JSZip from "jszip";
 import type { PromotionAsset } from "../types/asset";
-import { incrementDownloadCount } from "./ipfsAssetService";
+import { incrementDownloadCount, incrementDownloadCounts } from "./ipfsAssetService";
+
+/** Max time to wait for an IPFS gateway when pulling uncached files into a bundle. */
+export const GATEWAY_FETCH_TIMEOUT_MS = 15000;
+
+/**
+ * Fetches a remote file from an IPFS gateway, giving up after `timeoutMs`.
+ * Resolves to null when the gateway is unreachable, slow, or returns an error.
+ */
+export async function fetchGatewayBlob(
+  url: string,
+  timeoutMs = GATEWAY_FETCH_TIMEOUT_MS,
+): Promise<Blob | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res.ok ? await res.blob() : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Returns a file name that is unique within `usedNames`, disambiguating collisions
+ * (e.g. two campaigns both shipping `banner.png`) with the asset id.
+ */
+function uniqueFileName(name: string, assetId: string, usedNames: Set<string>): string {
+  let candidate = name;
+  if (usedNames.has(candidate)) {
+    const dot = name.lastIndexOf(".");
+    candidate =
+      dot > 0 ? `${name.slice(0, dot)}-${assetId}${name.slice(dot)}` : `${name}-${assetId}`;
+  }
+  usedNames.add(candidate);
+  return candidate;
+}
 
 /**
  * Triggers a browser file download using a Blob.
@@ -71,16 +109,12 @@ export async function downloadSingleAsset(asset: PromotionAsset): Promise<void> 
     return;
   }
 
-  // Fallback: Fetch from IPFS Gateway
-  try {
-    const res = await fetch(asset.gatewayUrl);
-    if (res.ok) {
-      const blob = await res.blob();
-      triggerBlobDownload(blob, asset.name);
-      return;
-    }
-  } catch {
-    // If fetch fails (CORS or offline), create a verified link descriptor file
+  // Fallback: Fetch from IPFS Gateway. If that fails (CORS, offline, or timeout),
+  // create a verified link descriptor file instead.
+  const remoteBlob = await fetchGatewayBlob(asset.gatewayUrl);
+  if (remoteBlob) {
+    triggerBlobDownload(remoteBlob, asset.name);
+    return;
   }
 
   // Offline / fallback descriptor with IPFS CID link
@@ -119,10 +153,11 @@ export async function createFullMediaZipBundle(
   const bundlesFolder = zip.folder("archives");
 
   const manifestEntries: Array<Record<string, unknown>> = [];
+  const usedNamesByFolder = new Map<JSZip, Set<string>>();
+
+  incrementDownloadCounts(assets.map((a) => a.id));
 
   for (const asset of assets) {
-    incrementDownloadCount(asset.id);
-
     manifestEntries.push({
       id: asset.id,
       title: asset.title,
@@ -142,8 +177,11 @@ export async function createFullMediaZipBundle(
     else if (asset.category === "bundle") targetFolder = bundlesFolder;
 
     if (targetFolder) {
+      if (!usedNamesByFolder.has(targetFolder)) usedNamesByFolder.set(targetFolder, new Set());
+      const fileName = uniqueFileName(asset.name, asset.id, usedNamesByFolder.get(targetFolder)!);
+
       if (asset.textContent) {
-        targetFolder.file(asset.name, asset.textContent);
+        targetFolder.file(fileName, asset.textContent);
       } else if (asset.contentDataUrl) {
         if (asset.contentDataUrl.startsWith("data:image/svg+xml;utf8,")) {
           const raw = asset.contentDataUrl.replace("data:image/svg+xml;utf8,", "");
@@ -153,17 +191,23 @@ export async function createFullMediaZipBundle(
           } catch {
             rawSvg = raw;
           }
-          targetFolder.file(asset.name, rawSvg);
+          targetFolder.file(fileName, rawSvg);
         } else if (asset.contentDataUrl.startsWith("data:")) {
           const base64Data = asset.contentDataUrl.split(",")[1];
-          targetFolder.file(asset.name, base64Data, { base64: true });
+          targetFolder.file(fileName, base64Data, { base64: true });
         } else {
-          targetFolder.file(asset.name, asset.contentDataUrl);
+          targetFolder.file(fileName, asset.contentDataUrl);
         }
       } else {
-        // Descriptive reference file for remote IPFS pinned files
-        const refContent = `Decentralized Asset: ${asset.title}\nIPFS CID: ${asset.cid}\nURI: ${asset.ipfsUri}\nGateway: ${asset.gatewayUrl}\nSHA-256: ${asset.checksumSha256}\n`;
-        targetFolder.file(`${asset.name}.ipfs.txt`, refContent);
+        // No cached copy: pull the pinned file from the IPFS gateway
+        const remoteBlob = await fetchGatewayBlob(asset.gatewayUrl);
+        if (remoteBlob) {
+          targetFolder.file(fileName, remoteBlob);
+        } else {
+          // Gateway unreachable: ship a reference file so the asset can be fetched later
+          const refContent = `Decentralized Asset: ${asset.title}\nIPFS CID: ${asset.cid}\nURI: ${asset.ipfsUri}\nGateway: ${asset.gatewayUrl}\nSHA-256: ${asset.checksumSha256}\n`;
+          targetFolder.file(`${fileName}.ipfs.txt`, refContent);
+        }
       }
     }
   }
@@ -193,7 +237,7 @@ ${assets
 3. **Embed Code Example**:
 \`\`\`html
 <a href="${refUrl}" target="_blank" rel="noopener noreferrer">
-  <img src="https://gateway.pinata.cloud/ipfs/${assets[0]?.cid || "CID"}" alt="${assets[0]?.title || "StormSale"}" />
+  <img src="${assets[0]?.gatewayUrl || "https://gateway.pinata.cloud/ipfs/CID"}" alt="${assets[0]?.title || "StormSale"}" />
 </a>
 \`\`\`
 

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { StrKey } from "@stellar/stellar-sdk";
 import { Input } from "../ui/input";
 import { Link as LinkIcon, ShieldCheck } from "lucide-react";
 import { AssetGallery } from "../advertiser/AssetGallery";
@@ -6,11 +7,20 @@ import { getStoredPromotionAssets } from "../../lib/ipfsAssetService";
 import { useWeb3 } from "../../hooks/useWeb3";
 import type { PromotionAsset } from "../../types/asset";
 
+/** Uses the connected Stellar public key as the tracking ID when it is valid. */
+const defaultAffiliateTag = (address?: string | null) =>
+  address && StrKey.isValidEd25519PublicKey(address) ? address : "STORM_AFFILIATE";
+
 export const AffiliateAssetLibrary: React.FC = () => {
   const { userAddress } = useWeb3();
-  const [affiliateTag, setAffiliateTag] = useState(
-    userAddress ? `${userAddress.slice(0, 4)}...${userAddress.slice(-4)}` : "STORM_AFFILIATE",
-  );
+  const [affiliateTag, setAffiliateTag] = useState(() => defaultAffiliateTag(userAddress));
+
+  // Follow wallet connects and account switches
+  const [prevUserAddress, setPrevUserAddress] = useState(userAddress);
+  if (userAddress !== prevUserAddress) {
+    setPrevUserAddress(userAddress);
+    setAffiliateTag(defaultAffiliateTag(userAddress));
+  }
 
   const [assets, setAssets] = useState<PromotionAsset[]>(() => getStoredPromotionAssets());
 

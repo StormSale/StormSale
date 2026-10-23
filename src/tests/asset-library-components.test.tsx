@@ -6,11 +6,18 @@ import { AssetUploader } from "../components/advertiser/AssetUploader";
 import { CampaignAssetLibrary } from "../components/advertiser/CampaignAssetLibrary";
 import { AffiliateAssetLibrary } from "../components/affiliate/AffiliateAssetLibrary";
 import { NotificationProvider } from "../context/NotificationContext";
+import { Keypair } from "@stellar/stellar-sdk";
+import { initialMockCampaigns } from "../components/advertiser/MyCampaignsList";
+import { getIpfsProviderConfig, saveIpfsProviderConfig } from "../lib/ipfsAssetService";
+
+const web3State = vi.hoisted(() => ({
+  userAddress: "GASTORM1234567890TESTNETADDRESS1234567890" as string | null,
+}));
 
 // Mock Web3 hook
 vi.mock("../hooks/useWeb3", () => ({
   useWeb3: () => ({
-    userAddress: "GASTORM1234567890TESTNETADDRESS1234567890",
+    userAddress: web3State.userAddress,
   }),
 }));
 
@@ -42,6 +49,9 @@ describe("Campaign Asset Library Components Suite", () => {
       createObjectURL: vi.fn().mockReturnValue("blob:mock-url"),
       revokeObjectURL: vi.fn(),
     });
+    // Keep ZIP bundling and gateway downloads off the network
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    web3State.userAddress = "GASTORM1234567890TESTNETADDRESS1234567890";
   });
 
   afterEach(() => {
@@ -102,6 +112,29 @@ describe("Campaign Asset Library Components Suite", () => {
       const downloadButtons = screen.getAllByText("Download");
       fireEvent.click(downloadButtons[0]);
     });
+
+    it("computes the IPFS Pinned share from real provider pins", () => {
+      render(
+        <NotificationProvider>
+          <CampaignAssetLibrary />
+        </NotificationProvider>,
+      );
+      // All seed assets are pinned via a real provider
+      expect(screen.getByText("100%")).toBeDefined();
+      cleanup();
+
+      const stored = JSON.parse(store["stormsale_promotion_assets"]);
+      stored[0].pinProvider = "simulated";
+      store["stormsale_promotion_assets"] = JSON.stringify(stored);
+
+      render(
+        <NotificationProvider>
+          <CampaignAssetLibrary />
+        </NotificationProvider>,
+      );
+      const expected = Math.round(((stored.length - 1) / stored.length) * 100);
+      expect(screen.getByText(`${expected}%`)).toBeDefined();
+    });
   });
 
   describe("AffiliateAssetLibrary Component", () => {
@@ -118,6 +151,37 @@ describe("Campaign Asset Library Components Suite", () => {
 
       fireEvent.change(input, { target: { value: "CUSTOM_PARTNER_99" } });
       expect(input.value).toBe("CUSTOM_PARTNER_99");
+    });
+
+    it("uses the full valid wallet address as the tracking ID and follows account switches", () => {
+      const first = Keypair.random().publicKey();
+      web3State.userAddress = first;
+      const { rerender } = render(
+        <NotificationProvider>
+          <AffiliateAssetLibrary />
+        </NotificationProvider>,
+      );
+      const input = screen.getByPlaceholderText("Your Affiliate ID") as HTMLInputElement;
+      expect(input.value).toBe(first);
+
+      const second = Keypair.random().publicKey();
+      web3State.userAddress = second;
+      rerender(
+        <NotificationProvider>
+          <AffiliateAssetLibrary />
+        </NotificationProvider>,
+      );
+      expect(input.value).toBe(second);
+    });
+
+    it("falls back to the default tag for an invalid wallet address", () => {
+      render(
+        <NotificationProvider>
+          <AffiliateAssetLibrary />
+        </NotificationProvider>,
+      );
+      const input = screen.getByPlaceholderText("Your Affiliate ID") as HTMLInputElement;
+      expect(input.value).toBe("STORM_AFFILIATE");
     });
   });
 
@@ -219,6 +283,27 @@ describe("Campaign Asset Library Components Suite", () => {
       );
     });
 
+    it("encodes the referral code and copies escaped embed code", async () => {
+      render(
+        <NotificationProvider>
+          <AssetGallery isAffiliateView={true} affiliateReferralCode={' my id/?#"x '} />
+        </NotificationProvider>,
+      );
+
+      fireEvent.click(screen.getAllByText("Embed Code")[0]);
+      const refInput = screen.getByPlaceholderText(
+        "https://stormsale.io/ref/YOUR_ID",
+      ) as HTMLInputElement;
+      expect(refInput.value).toBe(`https://stormsale.io/ref/${encodeURIComponent('my id/?#"x')}`);
+
+      // Shown and copied snippets come from the same generator output
+      fireEvent.click(screen.getByText("Copy Code"));
+      await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+      const copied = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+      expect(copied).toContain(`href="${refInput.value.replace(/"/g, "&quot;")}"`);
+      expect(document.querySelector("pre")?.textContent).toBe(copied);
+    });
+
     it("handles asset deletion with confirmation", () => {
       const onDeleted = vi.fn();
       render(
@@ -286,6 +371,35 @@ describe("Campaign Asset Library Components Suite", () => {
       fireEvent.click(saveButton);
     });
 
+    it("discards unsaved IPFS settings on Cancel", () => {
+      saveIpfsProviderConfig({ ...getIpfsProviderConfig(), activeProvider: "pinata" });
+      render(
+        <NotificationProvider>
+          <AssetUploader />
+        </NotificationProvider>,
+      );
+
+      fireEvent.click(screen.getByText(/Node:/));
+      fireEvent.click(screen.getByText("web3.storage"));
+      fireEvent.click(screen.getByText("Cancel"));
+
+      expect(screen.getByText(/Node:/).textContent).toContain("pinata");
+      expect(getIpfsProviderConfig().activeProvider).toBe("pinata");
+    });
+
+    it("lists the advertiser's campaigns in the target campaign selector", () => {
+      render(
+        <NotificationProvider>
+          <AssetUploader />
+        </NotificationProvider>,
+      );
+
+      const select = screen.getByLabelText("Target Campaign") as HTMLSelectElement;
+      expect(Array.from(select.options).map((o) => o.value)).toEqual(
+        initialMockCampaigns.map((c) => c.id),
+      );
+    });
+
     it("handles file selection, drag events, and upload submission", async () => {
       const onUploaded = vi.fn();
       const { container } = render(
@@ -334,7 +448,9 @@ describe("Campaign Asset Library Components Suite", () => {
       // Switch to swipe copy
       fireEvent.click(screen.getByText("Swipe Copy Studio"));
 
-      const headline = screen.getByPlaceholderText("e.g. The #1 Stellar Affiliate Protocol of 2026");
+      const headline = screen.getByPlaceholderText(
+        "e.g. The #1 Stellar Affiliate Protocol of 2026",
+      );
       fireEvent.change(headline, { target: { value: "Smart Contract Escrow Advantage" } });
 
       const body = screen.getByPlaceholderText(/Check out the newest campaign/);

@@ -13,6 +13,8 @@ import {
   savePromotionAsset,
   deletePromotionAsset,
   incrementDownloadCount,
+  incrementDownloadCounts,
+  escapeHtmlAttr,
   getIpfsProviderConfig,
   saveIpfsProviderConfig,
   formatBytes,
@@ -84,6 +86,32 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       const result = validateAssetFile(validFile);
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
+
+      const exactFile = new File([new Uint8Array(MAX_FILE_SIZE_BYTES)], "exact-banner.png", {
+        type: "image/png",
+      });
+      expect(validateAssetFile(exactFile).valid).toBe(true);
+    });
+
+    it("should require an allowed extension with a consistent MIME type", () => {
+      const cases = [
+        // Allowed MIME but disallowed extension
+        { name: "payload.html", type: "image/png" },
+        // Allowed extension but mismatched MIME
+        { name: "banner.png", type: "text/html" },
+        { name: "logo.svg", type: "image/png" },
+        // Text formats are outside the PNG/JPEG/SVG/ZIP upload scope
+        { name: "notes.txt", type: "text/plain" },
+        { name: "readme.md", type: "text/markdown" },
+      ];
+
+      for (const item of cases) {
+        const file = new File(["dummy"], item.name, { type: item.type });
+        expect(validateAssetFile(file).valid).toBe(false);
+      }
+
+      // Missing MIME type falls back to the extension check
+      expect(validateAssetFile(new File(["dummy"], "banner.PNG", { type: "" })).valid).toBe(true);
     });
 
     it("should accept valid creative file formats (PNG, JPEG, SVG, ZIP)", () => {
@@ -187,6 +215,28 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       expect(codes.ipfsUri).toBe(`ipfs://${cid}`);
       expect(codes.directUrl).toBe(gateway);
     });
+
+    it("should escape titles and URLs in HTML and React embed codes", () => {
+      const maliciousTitle = `x" onerror="alert(1)`;
+      const maliciousRef = `https://stormsale.io/ref/a"><script>alert(1)</script>`;
+      const codes = generateEmbedCodes(
+        "cid",
+        "https://gw/ipfs/cid",
+        maliciousTitle,
+        undefined,
+        maliciousRef,
+      );
+
+      for (const snippet of [codes.html, codes.react]) {
+        expect(snippet).not.toContain(`" onerror="`);
+        expect(snippet).not.toContain("<script>");
+        expect(snippet).toContain(escapeHtmlAttr(maliciousTitle));
+        expect(snippet).toContain(escapeHtmlAttr(maliciousRef));
+      }
+      expect(escapeHtmlAttr(`<a href="x">'&'</a>`)).toBe(
+        "&lt;a href=&quot;x&quot;&gt;&#39;&amp;&#39;&lt;/a&gt;",
+      );
+    });
   });
 
   describe("Direct IPFS Pinning Service", () => {
@@ -208,6 +258,66 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       expect(result.sizeBytes).toBe(file.size);
       expect(result.checksumSha256).toBeDefined();
       expect(result.pinnedAt).toBeDefined();
+    });
+
+    it("should send the file to Pinata and use the returned IpfsHash as the CID", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ IpfsHash: "bafkreipinatareturnedcid" }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const file = new File(["<svg viewBox='0 0 300 250'></svg>"], "sidebar.svg", {
+        type: "image/svg+xml",
+      });
+      const result = await pinAssetToIpfs(file, {
+        campaignId: "7",
+        campaignName: "Pinata Campaign",
+        category: "logo",
+        provider: "pinata",
+        pinataJwt: "jwt.for.test",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("https://api.pinata.cloud/pinning/pinFileToIPFS");
+      expect(init.method).toBe("POST");
+      expect(init.headers.Authorization).toBe("Bearer jwt.for.test");
+
+      const body = init.body as FormData;
+      expect((body.get("file") as File).name).toBe("sidebar.svg");
+      const metadata = JSON.parse(body.get("pinataMetadata") as string);
+      expect(metadata.name).toBe("sidebar.svg");
+      expect(metadata.keyvalues).toMatchObject({
+        campaignId: "7",
+        campaignName: "Pinata Campaign",
+        category: "logo",
+        checksum: result.checksumSha256,
+      });
+      expect(JSON.parse(body.get("pinataOptions") as string)).toEqual({ cidVersion: 1 });
+
+      expect(result.provider).toBe("pinata");
+      expect(result.cid).toBe("bafkreipinatareturnedcid");
+      expect(result.gatewayUrl).toBe("https://gateway.pinata.cloud/ipfs/bafkreipinatareturnedcid");
+    });
+
+    it("should build the gateway URL from the configured custom gateway", async () => {
+      saveIpfsProviderConfig({
+        activeProvider: "pinata",
+        pinataJwt: "jwt",
+        web3StorageToken: "",
+        customGatewayUrl: "https://ipfs.io/ipfs",
+      });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({ ok: true, json: async () => ({ IpfsHash: "bafkreicustom" }) }),
+      );
+
+      const file = new File(["<svg viewBox='0 0 10 10'></svg>"], "a.svg", {
+        type: "image/svg+xml",
+      });
+      const result = await pinAssetToIpfs(file, { campaignId: "1", campaignName: "C" });
+      expect(result.gatewayUrl).toBe("https://ipfs.io/ipfs/bafkreicustom");
     });
 
     it("should package and pin swipe copy as a decentralized markdown asset", async () => {
@@ -278,6 +388,14 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       list = getStoredPromotionAssets();
       const updated = list.find((a) => a.id === customAsset.id);
       expect(updated?.downloadCount).toBe(1);
+
+      // Batched increments touch every listed asset once
+      incrementDownloadCounts([customAsset.id, INITIAL_PROMOTION_ASSETS[0].id]);
+      list = getStoredPromotionAssets();
+      expect(list.find((a) => a.id === customAsset.id)?.downloadCount).toBe(2);
+      expect(list.find((a) => a.id === INITIAL_PROMOTION_ASSETS[0].id)?.downloadCount).toBe(
+        (INITIAL_PROMOTION_ASSETS[0].downloadCount || 0) + 1,
+      );
 
       // Delete
       const deleted = deletePromotionAsset(customAsset.id);
@@ -468,7 +586,73 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       expect(downloadSpy).toHaveBeenCalled();
     });
 
+    it("should pull uncached creative files from the IPFS gateway into the ZIP", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: async () => new Blob(["REMOTE_PNG_BYTES"]),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const uncachedBanner: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[1],
+        id: "uncached_banner",
+        name: "uncached-banner.png",
+        contentDataUrl: undefined,
+        textContent: undefined,
+      };
+
+      const zip = await JSZip.loadAsync(
+        await createFullMediaZipBundle("Remote Pack", [uncachedBanner]),
+      );
+
+      expect(fetchMock).toHaveBeenCalledWith(uncachedBanner.gatewayUrl, expect.anything());
+      expect(await zip.file("banners/uncached-banner.png")?.async("string")).toBe(
+        "REMOTE_PNG_BYTES",
+      );
+      expect(zip.file("banners/uncached-banner.png.ipfs.txt")).toBeNull();
+    });
+
+    it("should fall back to an IPFS reference file when the gateway fetch fails", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false }));
+
+      const uncachedBanner: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[1],
+        name: "offline-banner.png",
+        contentDataUrl: undefined,
+        textContent: undefined,
+      };
+
+      const zip = await JSZip.loadAsync(
+        await createFullMediaZipBundle("Offline Pack", [uncachedBanner]),
+      );
+
+      expect(zip.file("banners/offline-banner.png")).toBeNull();
+      const ref = await zip.file("banners/offline-banner.png.ipfs.txt")?.async("string");
+      expect(ref).toContain(uncachedBanner.cid);
+    });
+
+    it("should keep both files when two assets share a file name", async () => {
+      const first: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        id: "dup_a",
+        name: "banner.svg",
+      };
+      const second: PromotionAsset = {
+        ...INITIAL_PROMOTION_ASSETS[0],
+        id: "dup_b",
+        name: "banner.svg",
+      };
+
+      const zip = await JSZip.loadAsync(
+        await createFullMediaZipBundle("Dup Pack", [first, second]),
+      );
+
+      expect(zip.file("banners/banner.svg")).not.toBeNull();
+      expect(zip.file("banners/banner-dup_b.svg")).not.toBeNull();
+    });
+
     it("should package bundles and encoded data URLs in zip archive", async () => {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
       const bundleAsset: PromotionAsset = {
         ...INITIAL_PROMOTION_ASSETS[4],
         category: "bundle",
@@ -549,7 +733,22 @@ describe("Campaign Promotion Asset Library & IPFS Media Upload Suite", () => {
       });
 
       expect(asset.cid.startsWith("bafybei")).toBe(true);
-      expect(asset.gatewayUrl).toContain("gateway.pinata.cloud");
+      expect(asset.provider).toBe("simulated");
+      expect(asset.gatewayUrl).toBe(`https://custom.gateway/ipfs/${asset.cid}`);
+    });
+
+    it("should throw when an asset cannot be persisted", () => {
+      vi.stubGlobal("localStorage", {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error("QuotaExceededError");
+        },
+        removeItem: () => {},
+      });
+
+      expect(() => savePromotionAsset({ ...INITIAL_PROMOTION_ASSETS[0], id: "too_big" })).toThrow(
+        /Failed to save asset.*QuotaExceededError/,
+      );
     });
 
     it("should safely handle deletePromotionAsset and incrementDownloadCount failures", () => {

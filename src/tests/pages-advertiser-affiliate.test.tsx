@@ -30,7 +30,9 @@ vi.mock("../components/advertiser/WebhookManager", () => ({
 vi.mock("../components/advertiser/CampaignAnalytics", () => ({
   CampaignAnalytics: () => <div data-testid="campaign-analytics" />,
 }));
-vi.mock("../components/advertiser/MyCampaignsList", () => ({
+vi.mock("../components/advertiser/MyCampaignsList", async (importOriginal) => ({
+  // Keep the campaign data exports (used by AssetUploader); stub only the component
+  ...(await importOriginal<typeof import("../components/advertiser/MyCampaignsList")>()),
   MyCampaignsList: () => <div data-testid="my-campaigns-list" />,
 }));
 vi.mock("../components/affiliate/TelegramCampaignBrowser", () => ({
