@@ -7,6 +7,7 @@ import { ComplianceChecklist } from "../components/auditor/ComplianceChecklist";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
+import { FraudScoreDashboard } from "../components/auditor/FraudScoreDashboard";
 import PlatformVolumeWidget from "../components/auditor/PlatformVolumeWidget";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -24,6 +25,7 @@ import {
   Building2,
   KeyRound,
   Lock,
+  Gauge,
   TrendingUp,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
