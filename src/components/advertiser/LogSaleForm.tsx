@@ -17,12 +17,16 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
+import { triggerConversionPostback } from "../../lib/webhookEngine";
+import { Shield, Zap, Users, FileKey, Layers } from "lucide-react";
+import { BulkSaleLogModal } from "./BulkSaleLogModal";
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
+  const [loggingMode, setLoggingMode] = useState<"single" | "bulk">("single");
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -202,16 +206,49 @@ export const LogSaleForm = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-          Log Encrypted Sale
-        </h2>
-        <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-          Record a new sale with military-grade encryption and commission escrow
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+            Log Encrypted Sale
+          </h2>
+          <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
+            Record sales on-chain with military-grade encryption and Soroban batch optimization
+          </p>
+        </div>
+
+        {/* Mode Switcher */}
+        <div className="flex items-center p-1.5 rounded-2xl bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setLoggingMode("single")}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              loggingMode === "single"
+                ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm"
+                : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            <Shield className="w-4 h-4" />
+            <span>Single Sale</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setLoggingMode("bulk")}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              loggingMode === "bulk"
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Bulk Batch (up to 15/tx)</span>
+          </button>
+        </div>
       </div>
 
-      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
+      {loggingMode === "bulk" ? (
+        <BulkSaleLogModal />
+      ) : (
+        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="pb-6 pt-8 px-8">
           <div className="flex items-center space-x-4">
             <div className="w-14 h-14 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
@@ -364,6 +401,7 @@ export const LogSaleForm = () => {
           </form>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 };
