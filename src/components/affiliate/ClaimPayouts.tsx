@@ -16,6 +16,7 @@ import {
   Sparkles,
   Loader2,
   X,
+  Repeat,
 } from "lucide-react";
 import {
   type ClaimableCampaignItem,
@@ -28,7 +29,17 @@ import {
   shouldDeliverAffiliateNotification,
 } from "./AffiliateSettings";
 import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
+import {
+  type AutoSwapConfig,
+  type SwapToken,
+  quoteSwap,
+  toBaseUnits,
+  formatBaseUnits,
+} from "../../lib/sorobanDex";
 import { motion, AnimatePresence } from "framer-motion";
+
+const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
+const SLIPPAGE_PRESETS = [50, 100, 300];
 
 export const ClaimPayouts = () => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
@@ -39,6 +50,11 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
+
+  // Auto-Swap on Claim (Issue #127)
+  const [autoSwapEnabled, setAutoSwapEnabled] = useState(false);
+  const [targetToken, setTargetToken] = useState<SwapToken>("USDC");
+  const [maxSlippageBps, setMaxSlippageBps] = useState(100);
 
   useEffect(() => {
     async function loadClaims() {
@@ -54,6 +70,28 @@ export const ClaimPayouts = () => {
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
+
+  // Build the auto-swap config from current selections. Disabled when the
+  // affiliate targets XLM (their native payout) or has the toggle off.
+  const autoSwapConfig: AutoSwapConfig | null =
+    autoSwapEnabled && targetToken !== "XLM"
+      ? { enabled: true, tokenIn: "XLM", targetToken, maxSlippageBps }
+      : null;
+
+  // Live quote preview for the currently selected claim total.
+  const swapQuote = (() => {
+    if (!autoSwapConfig || totalWithdrawableXlm <= 0) return null;
+    try {
+      return quoteSwap(
+        toBaseUnits(totalWithdrawableXlm, "XLM"),
+        "XLM",
+        targetToken,
+        maxSlippageBps,
+      );
+    } catch {
+      return null;
+    }
+  })();
 
   const toggleSelectAll = () => {
     if (selectedIds.length === maturedCount) {
@@ -84,7 +122,7 @@ export const ClaimPayouts = () => {
       // Apply the affiliate's auto-split plan (if enabled & valid) so the claimed
       // total is routed across vault destinations inside the same atomic envelope.
       const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
-      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan);
+      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan, autoSwapConfig);
       setReceipt(resultReceipt);
 
       // Mark claimed campaigns
@@ -94,10 +132,13 @@ export const ClaimPayouts = () => {
       setSelectedIds([]);
 
       if (shouldDeliverAffiliateNotification("payout")) {
+        const swapNote = resultReceipt.autoSwap
+          ? ` Auto-swapped ≈ ${resultReceipt.autoSwap.expectedOut} ${resultReceipt.autoSwap.tokenOut} via ${resultReceipt.autoSwap.routerName}.`
+          : "";
         showNotification({
           type: "success",
           title: "Batch Commission Claim Settled!",
-          message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.`,
+          message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.${swapNote}`,
         });
       }
     } catch (err: any) {
@@ -239,6 +280,163 @@ export const ClaimPayouts = () => {
           </div>
         </div>
       </motion.div>
+
+      {/* Auto-Swap on Claim configuration (#127) */}
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl overflow-hidden">
+        <CardContent className="p-6 sm:p-8 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/10 dark:bg-sky-600/20 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
+                <Repeat className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-zinc-900 dark:text-white">
+                  Auto-Swap on Claim
+                </h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 max-w-md">
+                  Route claimed XLM through Soroban DEX pools (Soroswap / Phoenix) into your target
+                  token atomically — the swap settles in the same transaction as the claim.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoSwapEnabled}
+              data-testid="auto-swap-toggle"
+              onClick={() => setAutoSwapEnabled((v) => !v)}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors ${
+                autoSwapEnabled ? "bg-sky-600" : "bg-slate-200 dark:bg-zinc-700"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                  autoSwapEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {autoSwapEnabled && (
+            <div className="grid md:grid-cols-2 gap-5 pt-2 border-t border-slate-100 dark:border-zinc-800">
+              {/* Target token */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                  Target token
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {SWAP_TARGET_TOKENS.map((token) => {
+                    const isActive = targetToken === token;
+                    return (
+                      <button
+                        key={token}
+                        type="button"
+                        onClick={() => setTargetToken(token)}
+                        aria-pressed={isActive}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                          isActive
+                            ? "bg-sky-600 border-sky-600 text-white"
+                            : "bg-slate-50 dark:bg-zinc-950/50 border-slate-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-sky-300"
+                        }`}
+                      >
+                        {token}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Slippage tolerance */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">
+                  Max slippage tolerance
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {SLIPPAGE_PRESETS.map((bps) => {
+                    const isActive = maxSlippageBps === bps;
+                    return (
+                      <button
+                        key={bps}
+                        type="button"
+                        onClick={() => setMaxSlippageBps(bps)}
+                        aria-pressed={isActive}
+                        className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                          isActive
+                            ? "bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-transparent"
+                            : "bg-slate-50 dark:bg-zinc-950/50 border-slate-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400"
+                        }`}
+                      >
+                        {(bps / 100).toFixed(2)}%
+                      </button>
+                    );
+                  })}
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={0.01}
+                    aria-label="Custom slippage percent"
+                    value={(maxSlippageBps / 100).toFixed(2)}
+                    onChange={(e) => {
+                      const pct = parseFloat(e.target.value);
+                      if (Number.isFinite(pct)) {
+                        setMaxSlippageBps(Math.max(0, Math.min(10000, Math.round(pct * 100))));
+                      }
+                    }}
+                    className="w-24 h-8 rounded-lg border-2 border-slate-200 dark:border-zinc-800 bg-background px-2 text-xs font-mono text-right"
+                  />
+                </div>
+              </div>
+
+              {/* Quote preview */}
+              <div className="md:col-span-2 rounded-2xl border border-sky-100 dark:border-sky-900/50 bg-sky-50/50 dark:bg-sky-950/10 p-4">
+                {targetToken === "XLM" ? (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Targeting XLM means no swap — commissions settle in their native payout asset.
+                  </p>
+                ) : swapQuote ? (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                    <div>
+                      <div className="text-[11px] uppercase font-bold tracking-wider text-sky-700 dark:text-sky-300">
+                        You will receive (estimated)
+                      </div>
+                      <div className="text-lg font-black text-zinc-900 dark:text-white mt-0.5">
+                        {formatBaseUnits(swapQuote.expectedOut, swapQuote.to)} {swapQuote.to}
+                      </div>
+                      <div className="text-[11px] text-zinc-500 mt-0.5">
+                        Min. out after {maxSlippageBps} bps slippage:{" "}
+                        <span className="font-mono font-bold">
+                          {formatBaseUnits(swapQuote.minimumOut, swapQuote.to)} {swapQuote.to}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-left sm:text-right text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <div>
+                        Router:{" "}
+                        <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                          {swapQuote.routerName}
+                        </span>
+                      </div>
+                      <div>Hops: {swapQuote.route.hops.length}</div>
+                      <div>
+                        Price impact:{" "}
+                        <span className="font-mono font-bold">
+                          {(swapQuote.priceImpactBps / 100).toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Select at least one matured campaign to preview a swap quote.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Campaigns Table */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl overflow-hidden">
@@ -518,6 +716,41 @@ export const ClaimPayouts = () => {
                         </div>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Auto-Swap on Claim settlement breakdown (#127) */}
+              {receipt.autoSwap && (
+                <div className="space-y-2">
+                  <div className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+                    Atomic Cross-DEX Swap ({receipt.autoSwap.routerName} •{" "}
+                    {receipt.autoSwap.hopCount} hop{receipt.autoSwap.hopCount === 1 ? "" : "s"})
+                  </div>
+                  <div className="rounded-2xl border border-sky-100 dark:border-sky-900/50 bg-sky-50/40 dark:bg-sky-950/10 p-4 space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-500 dark:text-zinc-400">Swapped in</span>
+                      <span className="font-mono font-bold text-zinc-900 dark:text-white">
+                        {receipt.autoSwap.amountIn} {receipt.autoSwap.tokenIn}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-500 dark:text-zinc-400">Received (est.)</span>
+                      <span className="font-mono font-black text-sky-700 dark:text-sky-300">
+                        {receipt.autoSwap.expectedOut} {receipt.autoSwap.tokenOut}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-zinc-500 dark:text-zinc-400">
+                        Minimum out ({(receipt.autoSwap.maxSlippageBps / 100).toFixed(2)}% slippage)
+                      </span>
+                      <span className="font-mono font-bold text-zinc-700 dark:text-zinc-300">
+                        {receipt.autoSwap.minimumOut} {receipt.autoSwap.tokenOut}
+                      </span>
+                    </div>
+                    <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 pt-1 border-t border-sky-100 dark:border-sky-900/40">
+                      Path: {receipt.autoSwap.footprint.join(" → ")}
+                    </div>
                   </div>
                 </div>
               )}

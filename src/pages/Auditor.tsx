@@ -7,6 +7,7 @@ import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
+import { FraudScoreDashboard } from "../components/auditor/FraudScoreDashboard";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { usePreference } from "../hooks/usePreference";
@@ -25,6 +26,7 @@ import {
   Building2,
   KeyRound,
   Lock,
+  Gauge,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,6 +41,7 @@ const AUDITOR_TABS = [
   "history",
   "compliance",
   "network",
+  "fraud",
   "soc2",
   "merkle",
   "privacy",
@@ -127,6 +130,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "history", label: "Audit History", icon: ClipboardList },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
     { id: "network", label: "Transaction Network", icon: Network },
+    { id: "fraud", label: "Platform Health Score", icon: Gauge },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
     { id: "privacy", label: "Privacy", icon: ShieldCheck },
   ];
@@ -171,6 +175,9 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
       case "network":
         return <NetworkRiskVisualizer />;
+
+      case "fraud":
+        return <FraudScoreDashboard />;
 
       case "soc2":
         return <Soc2EvidenceExport />;
