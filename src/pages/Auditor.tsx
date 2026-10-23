@@ -3,6 +3,7 @@ import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { ComplianceChecklist } from "../components/auditor/ComplianceChecklist";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
@@ -15,6 +16,7 @@ import {
   BarChart3,
   Eye,
   ClipboardList,
+  ClipboardCheck,
   FileCheck,
   GitFork,
   ShieldCheck,
@@ -36,8 +38,10 @@ const AUDITOR_TABS = [
   "volume",
   "verify",
   "history",
+  "checklist",
   "compliance",
   "network",
+  "fraud",
   "soc2",
   "merkle",
   "privacy",
@@ -120,8 +124,10 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
     { id: "merkle", label: "Merkle Tree Proofs", icon: GitFork },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
+    { id: "checklist", label: "Audit Checklist", icon: ClipboardCheck },
     { id: "compliance", label: "Compliance Report", icon: FileCheck },
     { id: "network", label: "Transaction Network", icon: Network },
+    { id: "fraud", label: "Platform Health Score", icon: Gauge },
     { id: "soc2", label: "SOC 2 Evidence", icon: ShieldCheck },
     { id: "privacy", label: "Privacy", icon: ShieldCheck },
   ];
@@ -156,11 +162,17 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
           <AuditHistory onTabChange={handleTabChange} onViewMerkleProof={handleViewMerkleProof} />
         );
 
+      case "checklist":
+        return <ComplianceChecklist />;
+
       case "compliance":
         return <ComplianceReport />;
 
       case "network":
         return <NetworkRiskVisualizer />;
+
+      case "fraud":
+        return <FraudScoreDashboard />;
 
       case "soc2":
         return <Soc2EvidenceExport />;
