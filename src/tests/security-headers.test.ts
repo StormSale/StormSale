@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 
 // Import CommonJS module functions
 // @ts-expect-error CJS module import
@@ -49,6 +50,34 @@ describe("Strict Security Headers (#215)", () => {
 
       expect(headers["X-Frame-Options"].value).toBe("DENY");
       expect(headers["Content-Security-Policy"].value).toContain("frame-ancestors 'none'");
+    });
+
+    it("blocks inline scripts and limits network connections to approved services", () => {
+      const policy = readVercelHeaders(VERCEL_CONFIG_PATH)["Content-Security-Policy"].value;
+      const scriptPolicy = policy
+        .split(";")
+        .find((directive: string) => directive.trim().startsWith("script-src "));
+      const connectPolicy = policy
+        .split(";")
+        .find((directive: string) => directive.trim().startsWith("connect-src "));
+
+      expect(scriptPolicy).toContain("'self'");
+      expect(scriptPolicy).toContain("https://telegram.org");
+      expect(scriptPolicy).not.toContain("'unsafe-inline'");
+      expect(scriptPolicy).not.toContain("'unsafe-eval'");
+      expect(connectPolicy).toContain("https://soroban-testnet.stellar.org");
+      expect(connectPolicy).toContain("https://soroban-rpc.mainnet.stellar.org");
+      expect(connectPolicy.split(/\s+/)).not.toContain("https:");
+    });
+
+    it("keeps the application entry point on external scripts", () => {
+      const html = readFileSync("index.html", "utf8");
+      const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
+
+      expect(scripts.length).toBeGreaterThan(0);
+      expect(scripts.every((script) => /\bsrc\s*=/.test(script[1]) && !script[2].trim())).toBe(
+        true,
+      );
     });
 
     it("disables the legacy XSS auditor instead of enabling it", () => {
