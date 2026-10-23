@@ -43,7 +43,9 @@ vi.mock("../components/advertiser/GrantAccessForm", () => ({ GrantAccessForm: st
 vi.mock("../components/advertiser/CampaignAnalytics", () => ({
   CampaignAnalytics: stub("Analytics"),
 }));
-vi.mock("../components/advertiser/MyCampaignsList", () => ({
+vi.mock("../components/advertiser/MyCampaignsList", async (importOriginal) => ({
+  // Keep the campaign data exports (used by AssetUploader); stub only the component
+  ...(await importOriginal<typeof import("../components/advertiser/MyCampaignsList")>()),
   MyCampaignsList: stub("My campaigns"),
 }));
 vi.mock("../components/advertiser/WebhookManager", () => ({ WebhookManager: stub("Webhooks") }));
