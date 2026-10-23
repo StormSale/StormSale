@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/shared/Sidebar";
 import { CreateCampaignForm } from "../components/advertiser/CreateCampaignForm";
@@ -9,10 +8,14 @@ import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
+import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
+import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
+import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
 import { NotificationProvider } from "../context/NotificationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import { usePreference } from "../hooks/usePreference";
 import {
   ArrowRight,
   Plus,
@@ -25,6 +28,10 @@ import {
   Radio,
   Palette,
   FileSpreadsheet,
+  FileSearch,
+  Layers,
+  Coins,
+  ClipboardList,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -32,16 +39,38 @@ interface AdvertiserProps {
   onBack: () => void;
 }
 
+const ADVERTISER_TABS = [
+  "overview",
+  "create-campaign",
+  "my-campaigns",
+  "brand-customizer",
+  "log-sale",
+  "batch-sales",
+  "cohort-analysis",
+  "webhooks",
+  "grant-access",
+  "audit-logs",
+  "analytics",
+  "affiliate-applications",
+] as const;
+type AdvertiserTab = (typeof ADVERTISER_TABS)[number];
+
 const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = usePreference<AdvertiserTab>(
+    "stormsale.advertiser.tab",
+    "overview",
+    (v) => ADVERTISER_TABS.includes(v as AdvertiserTab),
+  );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
+    { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
+    { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
     { id: "audit-logs", label: "Audit Access Logs", icon: FileSearch },
@@ -58,6 +87,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <LogSaleForm />;
       case "batch-sales":
         return <BatchSaleUploader />;
+      case "cohort-analysis":
+        return <CohortVisualizer />;
       case "webhooks":
         return <WebhookManager />;
       case "grant-access":
@@ -67,11 +98,13 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
       case "analytics":
         return <CampaignAnalytics />;
       case "overview":
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
       case "my-campaigns":
         return <MyCampaignsList />;
+      case "affiliate-applications":
+        return <AffiliateApplicationsQueue />;
       default:
-        return <AdvertiserOverview onTabChange={setActiveTab} />;
+        return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
     }
   };
 
@@ -79,7 +112,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Advertiser Pro"

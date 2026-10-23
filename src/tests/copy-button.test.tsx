@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
-import { CopyButton, copyToClipboard } from "../components/ui/copy-button";
+import {
+  CopyButton,
+  CopyableAddress,
+  CopyBadge,
+  copyToClipboard,
+} from "../components/ui/copy-button";
 
 describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   const originalNavigator = globalThis.navigator;
@@ -141,11 +146,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
 
     it("renders CopyButton in icon-only mode when specified", () => {
       const html = renderToString(
-        <CopyButton
-          text="GB6M4OEXAMPLESTELLARPUBLICKEY"
-          iconOnly={true}
-          size="icon"
-        />,
+        <CopyButton text="GB6M4OEXAMPLESTELLARPUBLICKEY" iconOnly={true} size="icon" />,
       );
 
       expect(html).toContain("h-8 w-8");
@@ -154,15 +155,38 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
 
     it("applies premium indigo styling variant when requested", () => {
       const html = renderToString(
-        <CopyButton
-          text="GB6M4OEXAMPLE"
-          label="Copy URI"
-          variant="indigo"
-        />,
+        <CopyButton text="GB6M4OEXAMPLE" label="Copy URI" variant="indigo" />,
       );
 
       expect(html).toContain("bg-indigo-600");
       expect(html).toContain("text-white");
+    });
+  });
+
+  describe("CopyableAddress & CopyBadge Components (#16)", () => {
+    it("renders CopyableAddress with truncated Stellar address and role button", () => {
+      const fullAddress = "GBBD47IF6LWK7P7MDEV6GL4C5S4UON3PFFVHG4Z377V5GLR7BGBFLA5";
+      const html = renderToString(<CopyableAddress address={fullAddress} />);
+
+      expect(html).toContain("GBBD47...FLA5");
+      expect(html).toContain('role="button"');
+      expect(html).toContain(`aria-label="Copy Stellar address ${fullAddress}"`);
+      expect(html).toContain("cursor-pointer");
+    });
+
+    it("renders CopyableAddress without truncation when truncate is false", () => {
+      const fullAddress = "GBBD47IF6LWK7P7MDEV6GL4C5S4UON3PFFVHG4Z377V5GLR7BGBFLA5";
+      const html = renderToString(<CopyableAddress address={fullAddress} truncate={false} />);
+
+      expect(html).toContain(fullAddress);
+    });
+
+    it("renders CopyBadge with hash icon and label", () => {
+      const html = renderToString(<CopyBadge text="tx_123456789" label="tx_1234..." />);
+
+      expect(html).toContain("tx_1234...");
+      expect(html).toContain('role="button"');
+      expect(html).toContain('aria-label="Copy tx_1234..."');
     });
   });
 });

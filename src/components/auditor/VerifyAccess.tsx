@@ -18,6 +18,7 @@ import {
 } from "../../components/ui/dialog";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { verifyAccessSchema, getFieldErrors } from "../../lib/validation";
 import {
   appendAuditAccessEvent,
   isAuditorRevoked,
@@ -57,6 +58,7 @@ export const VerifyAccess: React.FC = () => {
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptedData, setDecryptedData] = useState<Record<string, string> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastLedgerEntry, setLastLedgerEntry] = useState<AuditAccessEvent | null>(null);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
@@ -100,14 +102,24 @@ export const VerifyAccess: React.FC = () => {
   };
 
   const checkAccess = async () => {
-    if (!saleId || !campaignAddress) {
-      showNotification({
-        type: "warning",
-        title: "Missing Information",
-        message: "Please enter both Campaign Address and Sale ID",
-      });
+    setErrors({});
+
+    const result = verifyAccessSchema.safeParse({ campaignAddress, saleId });
+    if (!result.success) {
+      const fieldErrors = getFieldErrors(result.error);
+      setErrors(fieldErrors);
+      // Show a single toast only if both fields are empty (UX shortcut)
+      const messages = Object.values(fieldErrors);
+      if (messages.length > 0) {
+        showNotification({
+          type: "warning",
+          title: "Invalid Input",
+          message: messages[0],
+        });
+      }
       return;
     }
+
     setIsChecking(true);
     setHasAccess(null);
     setDecryptedData(null);
@@ -317,27 +329,37 @@ export const VerifyAccess: React.FC = () => {
               <InputGroup className="space-y-5">
                 <InputField
                   label="Campaign Contract Address"
-                  description="Stellar/Soroban contract address starting with C..."
+                  description="Soroban contract address starting with C… (56 characters)"
+                  error={errors.campaignAddress}
                   required
                 >
                   <Input
                     value={campaignAddress}
-                    onChange={(e) => setCampaignAddress(e.target.value)}
+                    onChange={(e) => {
+                      setCampaignAddress(e.target.value);
+                      setErrors((prev) => ({ ...prev, campaignAddress: "" }));
+                    }}
                     placeholder="CA7QW5KXGPTR4N2K9J2L77XLMESCROW..."
+                    variant={errors.campaignAddress ? "error" : "default"}
                     className="h-12 border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono text-xs sm:text-sm"
                   />
                 </InputField>
 
                 <InputField
                   label="Sale ID / Transaction Index"
-                  description="Numeric ledger identifier for the sale record"
+                  description="Positive integer ledger identifier for the sale record"
+                  error={errors.saleId}
                   required
                 >
                   <Input
                     type="number"
                     value={saleId}
-                    onChange={(e) => setSaleId(e.target.value)}
+                    onChange={(e) => {
+                      setSaleId(e.target.value);
+                      setErrors((prev) => ({ ...prev, saleId: "" }));
+                    }}
                     placeholder="e.g. 1042"
+                    variant={errors.saleId ? "error" : "default"}
                     className="h-12 border-slate-200 dark:border-zinc-800 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono text-sm"
                   />
                 </InputField>

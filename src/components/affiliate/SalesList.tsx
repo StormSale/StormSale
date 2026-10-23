@@ -219,7 +219,9 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
     } catch (error) {
       console.error("Error decrypting data:", error);
       // Generic message: WebCrypto failures must not leak padding/key detail.
-      setDecryptError("Unable to decrypt this sale. The payload may be tampered or the key is invalid.");
+      setDecryptError(
+        "Unable to decrypt this sale. The payload may be tampered or the key is invalid.",
+      );
       setIsDialogOpen(true);
     } finally {
       setIsDecrypting(false);

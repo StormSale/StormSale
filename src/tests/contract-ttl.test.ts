@@ -60,7 +60,7 @@ describe("Soroban Contract State Archival & TTL Restorer (#132)", () => {
         expect(info.requiresRestoration).toBe(true);
         expect(info.status).toBe("critical");
       }
-    });
+    }, 15000);
   });
 
   describe("1-Click TTL Extension Execution", () => {

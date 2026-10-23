@@ -279,7 +279,8 @@ export async function signLedgerTransaction(
     const publicKey = StrKey.encodeEd25519PublicKey(pubKeyResult.rawPublicKey);
 
     // Attach signature to Stellar transaction envelope
-    tx.addSignature(publicKey, signatureBuffer.signature.toString("base64"));
+    const signatureBase64 = Buffer.from(signatureBuffer.signature).toString("base64");
+    tx.addSignature(publicKey, signatureBase64);
     return tx.toXDR();
   } catch (err: unknown) {
     const parsed = parseLedgerError(err);

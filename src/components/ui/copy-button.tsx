@@ -1,9 +1,10 @@
 import * as React from "react";
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Check } from "lucide-react";
+import { useState, useCallback, useRef, useEffect, useContext } from "react";
+import { Copy, Check, Wallet, Hash } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
+import { NotificationContext } from "../../context/NotificationContext";
 
 /**
  * Universal clipboard copy utility with fallback for non-secure contexts,
@@ -55,8 +56,8 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   return false;
 }
 
-const copyButtonVariants = cva(
-  "inline-flex items-center justify-center font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:pointer-events-none disabled:opacity-50",
+export const copyButtonVariants = cva(
+  "inline-flex items-center justify-center font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:pointer-events-none disabled:opacity-50 select-none cursor-pointer",
   {
     variants: {
       variant: {
@@ -70,6 +71,10 @@ const copyButtonVariants = cva(
           "bg-slate-100 text-slate-900 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700",
         indigo:
           "bg-indigo-600 text-white hover:bg-indigo-500 shadow-md shadow-indigo-500/20 active:scale-[0.98]",
+        stellar:
+          "bg-gradient-to-r from-indigo-600 to-sky-500 text-white hover:from-indigo-500 hover:to-sky-400 shadow-md shadow-indigo-500/25 active:scale-[0.98]",
+        brand:
+          "border border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40",
       },
       size: {
         default: "h-9 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm gap-2",
@@ -86,8 +91,7 @@ const copyButtonVariants = cva(
 );
 
 export interface CopyButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof copyButtonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof copyButtonVariants> {
   text: string;
   label?: string;
   copiedLabel?: string;
@@ -122,6 +126,7 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ) => {
     const [copied, setCopied] = useState(false);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const notificationContext = useContext(NotificationContext);
 
     useEffect(() => {
       return () => {
@@ -145,6 +150,16 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
               setCopied(false);
             }, resetDelay);
 
+            // Integrated with NotificationContext toast system
+            if (showToast && notificationContext?.showNotification) {
+              notificationContext.showNotification({
+                type: "success",
+                title: "Copied to Clipboard",
+                message: toastMessage || (label ? `${label} copied!` : "Text copied to clipboard"),
+                duration: 3000,
+              });
+            }
+
             if (onCopySuccess) onCopySuccess(text);
           } else {
             throw new Error("Unable to copy text to clipboard");
@@ -154,7 +169,18 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
           if (onCopyError) onCopyError(err);
         }
       },
-      [text, disabled, onClick, resetDelay, onCopySuccess, onCopyError],
+      [
+        text,
+        disabled,
+        onClick,
+        resetDelay,
+        showToast,
+        toastMessage,
+        label,
+        notificationContext,
+        onCopySuccess,
+        onCopyError,
+      ],
     );
 
     const isIconOnly = iconOnly || size === "icon" || (!label && !copiedLabel);
@@ -209,3 +235,180 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
 );
 
 CopyButton.displayName = "CopyButton";
+
+// ---------------------------------------------------------------------------
+// Interactive Branded Address Component (CopyableAddress)
+// ---------------------------------------------------------------------------
+
+export interface CopyableAddressProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "onCopy"> {
+  address: string;
+  truncate?: boolean;
+  startChars?: number;
+  endChars?: number;
+  showIcon?: boolean;
+  showToast?: boolean;
+  toastMessage?: string;
+  copyButtonVariant?: VariantProps<typeof copyButtonVariants>["variant"];
+  copyButtonSize?: VariantProps<typeof copyButtonVariants>["size"];
+  onCopySuccess?: (address: string) => void;
+}
+
+/**
+ * Branded Stellar Address Display with one-click copy, responsive truncation,
+ * animated feedback, and toast notification integration.
+ */
+export function CopyableAddress({
+  address,
+  truncate = true,
+  startChars = 6,
+  endChars = 4,
+  showIcon = true,
+  showToast = true,
+  toastMessage,
+  copyButtonVariant: _copyButtonVariant = "ghost",
+  copyButtonSize: _copyButtonSize = "icon",
+  onCopySuccess,
+  className,
+  ...props
+}: CopyableAddressProps) {
+  const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notificationContext = useContext(NotificationContext);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const displayAddress =
+    truncate && address && address.length > startChars + endChars
+      ? `${address.slice(0, startChars)}...${address.slice(-endChars)}`
+      : address;
+
+  const handleContainerClick = async () => {
+    if (!address) return;
+    const ok = await copyToClipboard(address);
+    if (ok) {
+      setCopied(true);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => setCopied(false), 2000);
+
+      if (showToast && notificationContext?.showNotification) {
+        notificationContext.showNotification({
+          type: "success",
+          title: "Address Copied",
+          message: toastMessage || `Stellar address ${displayAddress} copied to clipboard`,
+          duration: 3000,
+        });
+      }
+
+      if (onCopySuccess) onCopySuccess(address);
+    }
+  };
+
+  return (
+    <div
+      onClick={handleContainerClick}
+      role="button"
+      tabIndex={0}
+      aria-label={`Copy Stellar address ${address}`}
+      title="Click to copy address"
+      className={cn(
+        "group inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/80 hover:bg-slate-100 dark:hover:bg-zinc-800/80 transition-all cursor-pointer font-mono text-xs select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+        copied &&
+          "border-emerald-500/50 dark:border-emerald-500/50 bg-emerald-50/50 dark:bg-emerald-950/20",
+        className,
+      )}
+      {...props}
+    >
+      {showIcon && (
+        <span className="shrink-0 text-zinc-400 group-hover:text-indigo-500 transition-colors">
+          <Wallet className="w-3.5 h-3.5" />
+        </span>
+      )}
+
+      <span className="font-semibold text-zinc-800 dark:text-zinc-200 tracking-tight">
+        {displayAddress}
+      </span>
+
+      <span className="shrink-0 ml-auto flex items-center justify-center">
+        <AnimatePresence mode="wait" initial={false}>
+          {copied ? (
+            <motion.span
+              key="check"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              className="text-emerald-500"
+            >
+              <Check className="w-3.5 h-3.5" />
+            </motion.span>
+          ) : (
+            <motion.span
+              key="copy"
+              initial={{ scale: 0.5, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.5, opacity: 0 }}
+              className="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-200"
+            >
+              <Copy className="w-3.5 h-3.5" />
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Compact Copy Badge Component (CopyBadge)
+// ---------------------------------------------------------------------------
+
+export interface CopyBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
+  text: string;
+  label?: string;
+  showHashIcon?: boolean;
+}
+
+export function CopyBadge({
+  text,
+  label,
+  showHashIcon = true,
+  className,
+  ...props
+}: CopyBadgeProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    }
+  };
+
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={handleCopy}
+      aria-label={`Copy ${label || text}`}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer select-none",
+        copied &&
+          "border-emerald-500/60 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40",
+        className,
+      )}
+      {...props}
+    >
+      {showHashIcon && <Hash className="w-3 h-3 text-zinc-400" />}
+      <span>{label || text}</span>
+      {copied ? (
+        <Check className="w-3 h-3 text-emerald-500" />
+      ) : (
+        <Copy className="w-3 h-3 text-zinc-400" />
+      )}
+    </span>
+  );
+}
