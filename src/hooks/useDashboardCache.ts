@@ -50,12 +50,10 @@ export function useDashboardCache() {
   }, []);
 
   // Persist metrics to IndexedDB whenever they change
-  const persistMetrics = useCallback(
-    async (updates: Partial<DashboardMetrics>) => {
-      const next = { ...metrics, ...updates, lastSynced: Date.now() };
-      setMetrics(next);
-
-      await Promise.all([
+  const persistMetrics = useCallback(async (updates: Partial<DashboardMetrics>) => {
+    setMetrics((prev) => {
+      const next = { ...prev, ...updates, lastSynced: Date.now() };
+      void Promise.all([
         idbCache.set(DASHBOARD_CACHE_KEYS.userRole, next.userRole),
         idbCache.set(DASHBOARD_CACHE_KEYS.xlmBalance, next.xlmBalance),
         idbCache.set(DASHBOARD_CACHE_KEYS.network, next.network),
@@ -63,9 +61,9 @@ export function useDashboardCache() {
         idbCache.set(DASHBOARD_CACHE_KEYS.connectorType, next.connectorType),
         idbCache.set(DASHBOARD_CACHE_KEYS.metrics, next),
       ]);
-    },
-    [metrics],
-  );
+      return next;
+    });
+  }, []);
 
   const invalidateCache = useCallback(async () => {
     await idbCache.clear();

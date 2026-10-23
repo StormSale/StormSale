@@ -2,6 +2,7 @@ import React from "react";
 import { type EscrowReserveStatus } from "../../lib/escrowAutoRefill";
 import { AlertCircle, AlertTriangle, CheckCircle2, Coins, Sparkles } from "lucide-react";
 import { Button } from "../ui/button";
+import { Badge } from "../ui/badge";
 
 interface EscrowReserveIndicatorProps {
   status: EscrowReserveStatus;
@@ -68,18 +69,39 @@ export const EscrowReserveIndicator: React.FC<EscrowReserveIndicatorProps> = ({
           </span>
         </div>
 
-        <div
-          role="status"
+        <Badge
+          variant={
+            warningLevel === "critical" ? "rose" : warningLevel === "warning" ? "amber" : "emerald"
+          }
+          icon={Icon}
+          role={onOpenSettings ? undefined : "status"}
           aria-label={`Escrow status: ${badge.label}`}
-          onClick={onOpenSettings}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-semibold cursor-pointer select-none transition-all ${badge.bg}`}
-          title="Click to configure refill threshold"
+          tooltip={
+            onOpenSettings
+              ? undefined
+              : `${badge.label}: ${currentBalanceXlm.toLocaleString()} XLM remaining (${remainingPercent}%).`
+          }
+          popoverContent={
+            onOpenSettings ? (
+              <div className="space-y-2">
+                <p className="font-semibold">{badge.label}</p>
+                <p>
+                  {currentBalanceXlm.toLocaleString()} XLM remaining ({remainingPercent}%).
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500"
+                >
+                  Configure refill threshold
+                </button>
+              </div>
+            ) : undefined
+          }
+          className={`px-2.5 py-0.5 text-[11px] ${badge.bg}`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`} />
-          <Icon className="w-3 h-3" />
-          <span>{badge.label}</span>
           <span className="font-mono">({remainingPercent}%)</span>
-        </div>
+        </Badge>
       </div>
 
       {/* Progress Bar with Threshold Marker */}
@@ -114,16 +136,6 @@ export const EscrowReserveIndicator: React.FC<EscrowReserveIndicatorProps> = ({
         </span>
 
         <div className="flex items-center gap-2">
-          {onOpenSettings && (
-            <button
-              type="button"
-              onClick={onOpenSettings}
-              className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-            >
-              Configure Trigger
-            </button>
-          )}
-
           {isLowReserve && onQuickRefill && (
             <Button
               size="sm"
