@@ -32,6 +32,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@hookform/resolvers": "^5.9.2",
     "@ledgerhq/hw-app-str": "^7.8.0",
     "@ledgerhq/hw-transport-webhid": "^6.36.0",
     "@sentry/react": "^11.8.0",
@@ -50,9 +51,10 @@
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-hook-form": "^7.90.0",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.1.16",
-    "zod": "3.23.8"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

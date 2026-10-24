@@ -5,6 +5,7 @@ import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
+import { BrowseCampaigns } from "../components/affiliate/BrowseCampaigns";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import {
@@ -15,6 +16,7 @@ import {
   LayoutDashboard,
   Send,
   Sliders,
+  Compass,
   Link2,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -30,6 +32,7 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "browse-campaigns",
   "telegram-browser",
   "custom-links",
   "join-campaign",
@@ -50,6 +53,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "browse-campaigns", label: "Browse Marketplace", icon: Compass },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
@@ -62,6 +66,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "browse-campaigns":
+        return <BrowseCampaigns />;
       case "telegram-browser":
         return <TelegramCampaignBrowser />;
       case "custom-links":

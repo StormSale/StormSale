@@ -32,6 +32,7 @@ export interface Notification {
   actionUrl?: string;
   onAction?: () => void;
   campaignId?: string;
+  createdAt?: number;
 }
 
 export interface NotificationContextType {
@@ -122,13 +123,17 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
     const id = Math.random().toString(36).substring(2, 11);
-    const isPersistent = notification.persistent === true || notification.duration === 0;
+    const isPersistent =
+      notification.persistent === true ||
+      notification.duration === 0 ||
+      notification.type === "pending";
 
     const newNotification: Notification = {
       ...notification,
       id,
       persistent: isPersistent,
       duration: isPersistent ? 0 : (notification.duration ?? 5000),
+      createdAt: Date.now(),
     };
 
     setNotifications((prev) => [...prev, newNotification]);
@@ -325,7 +330,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
               </span>
             ) : notification.type === "pending" ? (
               <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
-                In Progress
+                Processing...
               </span>
             ) : null}
           </div>

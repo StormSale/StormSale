@@ -50,6 +50,9 @@ vi.mock("../components/affiliate/CustomLinksManager", () => ({
 vi.mock("../components/affiliate/CampaignApplication", () => ({
   CampaignApplication: () => <div>Campaign application content</div>,
 }));
+vi.mock("../components/affiliate/BrowseCampaigns", () => ({
+  BrowseCampaigns: () => <div>Browse campaigns content</div>,
+}));
 vi.mock("../components/affiliate/AffiliateSettings", () => ({
   AffiliateSettings: () => <div>Affiliate settings content</div>,
 }));
@@ -66,6 +69,9 @@ describe("Affiliate page navigation", () => {
     const onBack = vi.fn();
     render(<Affiliate onBack={onBack} />);
     expect(screen.getByText("Overview content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Browse Marketplace" }));
+    expect(await screen.findByText("Browse campaigns content")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Telegram Campaigns" }));
     expect(await screen.findByText("Telegram campaign content")).toBeTruthy();
