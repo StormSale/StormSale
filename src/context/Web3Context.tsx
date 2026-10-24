@@ -17,6 +17,7 @@ import {
   approveTokenContractCall,
   refundCampaignEscrowContractCall,
 } from "../lib/stellar";
+import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
@@ -99,6 +100,11 @@ export interface Web3ContextType {
     asset?: SupportedEscrowAssetCode;
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  topUpCampaignEscrow: (
+    campaignId: number,
+    amount: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => Promise<{ success: boolean; txHash?: string; toppedUpAmount?: number }>;
 
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
@@ -567,7 +573,61 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     );
   };
 
-  // Soroban: Batch Claim Payouts
+  /**
+   * Tops up a campaign's escrow balance on Soroban or mock sandbox, deducting token allowance.
+   */
+  const topUpCampaignEscrow = async (
+    campaignId: number,
+    amount: number,
+    assetCode: SupportedEscrowAssetCode = "XLM",
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await topUpCampaignEscrowContractCall(
+        userAddress,
+        campaignId,
+        amount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      if (connectorType !== "mock") {
+        throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
+      }
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setTokenAllowance((prev) => Math.max(0, prev - amount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - amount);
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
+        }
+      }
+      return {
+        success: true,
+        txHash: mockTxHash,
+        toppedUpAmount: amount,
+      };
+    }
+  };
+
+  // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
+  // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
     splitPlan: SplitPlan | null = null,
@@ -647,65 +707,70 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   }, [sorobanEvents]);
 
-  const value: Web3ContextType = {
-    userAddress,
-    userRole,
-    isConnected,
-    isStellarNetwork: network === STELLAR_CONFIG.network,
-    network,
-    xlmBalance,
-    assetBalances,
-    connectorType,
-    isWalletModalOpen,
-    ledgerBipPath,
-    setLedgerBipPath,
-    openWalletModal,
-    closeWalletModal,
-    connectWallet,
-    disconnectWallet,
-    updateUserRole,
-    requestFriendbotFunding,
-    refreshBalances,
-    approveAllowance,
-    createCampaignOnChain,
-    logSaleOnChain,
-    claimPayoutOnChain,
-    refundCampaignEscrow,
-    batchClaimPayoutsOnChain,
-    registerPasskeyAccount,
-    tokenAllowance,
-    refreshTokenAllowance,
-    approveTokenAllowance,
-    factoryContract,
-    getCampaignContract,
-    provider,
-    signer,
-    switchToStellarNetwork,
-    sorobanEventStatus,
-    sorobanEvents,
-    subscribeSorobanEvents,
-    multiSigInfo,
-    isMultiSigAccount,
-    isMultiSigModalOpen,
-    activeMultiSigXdr,
-    activeMultiSigDescription,
-    openMultiSigModal,
-    closeMultiSigModal,
-    refreshMultiSigInfo,
-    activeRpcEndpoint,
-    rpcEndpoints,
-    rpcFailoverHistory,
-    rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
-    isRpcModalOpen,
-    openRpcModal,
-    closeRpcModal,
-    switchRpcEndpoint,
-    simulateRpcFailover,
-    checkRpcHealth,
-    addCustomRpcEndpoint,
-  };
-
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
+  return (
+    <Web3Context.Provider
+      value={{
+        userAddress,
+        userRole,
+        isConnected,
+        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
+        network,
+        xlmBalance,
+        assetBalances,
+        connectorType,
+        isWalletModalOpen,
+        ledgerBipPath,
+        setLedgerBipPath,
+        openWalletModal,
+        closeWalletModal,
+        connectWallet,
+        disconnectWallet,
+        updateUserRole,
+        requestFriendbotFunding,
+        refreshBalances,
+        approveAllowance,
+        createCampaignOnChain,
+        logSaleOnChain,
+        claimPayoutOnChain,
+        refundCampaignEscrow,
+        topUpCampaignEscrow,
+        batchClaimPayoutsOnChain,
+        registerPasskeyAccount,
+        tokenAllowance,
+        refreshTokenAllowance,
+        approveTokenAllowance,
+        factoryContract,
+        getCampaignContract,
+        multiSigInfo,
+        isMultiSigAccount,
+        isMultiSigModalOpen,
+        activeMultiSigXdr,
+        activeMultiSigDescription,
+        openMultiSigModal,
+        closeMultiSigModal,
+        refreshMultiSigInfo,
+        provider: null,
+        signer: null,
+        switchToStellarNetwork,
+        activeRpcEndpoint,
+        rpcEndpoints,
+        rpcFailoverHistory,
+        rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
+        isRpcModalOpen,
+        openRpcModal,
+        closeRpcModal,
+        switchRpcEndpoint,
+        simulateRpcFailover,
+        checkRpcHealth,
+        addCustomRpcEndpoint,
+        sorobanEventStatus,
+        sorobanEvents,
+        subscribeSorobanEvents,
+      }}
+    >
+      {children}
+    </Web3Context.Provider>
+  );
 }
 
 export function useWeb3() {
