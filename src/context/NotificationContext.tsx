@@ -14,6 +14,29 @@ import { motion, AnimatePresence } from "framer-motion";
 
 export type NotificationType = "success" | "error" | "warning" | "info" | "pending";
 
+export type TxQueueStatus = "idle" | "queued" | "submitting" | "resyncing" | "retrying" | "failed";
+
+export interface TxQueueState {
+  status: TxQueueStatus;
+  pendingCount: number;
+  activeSequence?: string;
+  lastError?: string;
+  lastUpdated: number;
+}
+
+export interface TxQueueStatusNotificationParams {
+  status: TxQueueStatus;
+  pendingCount: number;
+  activeSequence?: string;
+  lastError?: string;
+}
+
+export interface SequenceResyncParams {
+  previousSequence?: string;
+  newSequence?: string;
+  reason?: string;
+}
+
 export interface NotificationAction {
   label: string;
   url?: string;
@@ -48,6 +71,9 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  notifyTxQueueStatus: (params: TxQueueStatusNotificationParams) => string;
+  notifySequenceResync: (params: SequenceResyncParams) => string;
+  notifySequenceRetry: (attempt: number, maxAttempts: number) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -107,10 +133,108 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Builds a structured notification payload describing the current in-flight
+ * transaction queue status so merchants can see pending submissions at a glance.
+ */
+export function buildTxQueueStatusNotification(
+  params: TxQueueStatusNotificationParams,
+): Omit<Notification, "id"> {
+  const { status, pendingCount, activeSequence, lastError } = params;
+  const sequenceSuffix = activeSequence ? ` (seq ${activeSequence})` : "";
+
+  switch (status) {
+    case "queued":
+      return {
+        type: "info",
+        title: "Transaction Queued",
+        message: `${pendingCount} transaction${pendingCount === 1 ? "" : "s"} waiting in the in-flight queue${sequenceSuffix}.`,
+        duration: 3000,
+      };
+    case "submitting":
+      return {
+        type: "info",
+        title: "Submitting Transaction",
+        message: `Broadcasting transaction${sequenceSuffix}. ${pendingCount} remaining in queue.`,
+        duration: 2500,
+      };
+    case "resyncing":
+      return {
+        type: "warning",
+        title: "Resyncing Sequence",
+        message: `Sequence mismatch detected${lastError ? `: ${lastError}` : ""}. Fetching latest sequence from Horizon.`,
+        duration: 4000,
+      };
+    case "retrying":
+      return {
+        type: "warning",
+        title: "Retrying Transaction",
+        message: `Retrying with updated sequence${sequenceSuffix}. ${pendingCount} remaining in queue.`,
+        duration: 3500,
+      };
+    case "failed":
+      return {
+        type: "error",
+        title: "Transaction Failed",
+        message: lastError
+          ? `Transaction failed after retry: ${lastError}`
+          : "Transaction failed after retry with resynced sequence.",
+        persistent: true,
+        duration: 0,
+      };
+    case "idle":
+    default:
+      return {
+        type: "success",
+        title: "Queue Cleared",
+        message: "All in-flight transactions have been processed.",
+        duration: 3000,
+      };
+  }
+}
+
+/**
+ * Builds a notification payload for a sequence resync event triggered by a
+ * `txBAD_SEQb error returned from Horizon.
+ */
+export function buildSequenceResyncNotification(
+  params: SequenceResyncParams,
+): Omit<Notification, "id"> {
+  const { previousSequence, newSequence, reason } = params;
+  const detail =
+    previousSequence && newSequence
+      ? `Local sequence ${previousSequence} was stale; resynced to ${newSequence}.`
+      : "Local sequence was stale; resynced from Horizon.";
+
+  return {
+    type: "warning",
+    title: "Sequence Resynchronized",
+    message: reason ? `${detail} Reason: ${reason}` : detail,
+    duration: 4000,
+  };
+}
+
+/**
+ * Builds a notification payload for a single automatic retry of a failed
+ * sequence transaction.
+ */
+export function buildSequenceRetryNotification(
+  attempt: number,
+  maxAttempts: number,
+): Omit<Notification, "id"> {
+  return {
+    type: "info",
+    title: "Retrying Transaction",
+    message: `Automatic retry ${attempt} of ${maxAttempts} with updated sequence number.`,
+    duration: 3000,
+  };
+}
+
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const notificationsRef = useRef<Notification[]>([]);
 
   const dismissNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -118,6 +242,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const clearAllNotifications = useCallback(() => {
     setNotifications([]);
+    notificationsRef.current = [];
   }, []);
 
   const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
@@ -132,8 +257,17 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     };
 
     setNotifications((prev) => [...prev, newNotification]);
+    notificationsRef.current = [...notificationsRef.current, newNotification];
+
+    // Only set auto-dismiss timeout if notification is NOT persistent
+    if (!isPersistent && newNotification.duration && newNotification.duration > 0) {
+      setTimeout(() => {
+        dismissNotification(id);
+      }, newNotification.duration);
+    }
+
     return id;
-  }, []);
+  }, [dismissNotification]);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = useCallback(
@@ -149,6 +283,24 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     },
     [showNotification],
   );
+
+  // Dedicated helper to surface in-flight transaction queue status to the user
+  const notifyTxQueueStatus = useCallback(
+    (params: TxQueueStatusNotificationParams): string => {
+      return showNotification(buildTxQueueStatusNotification(params));
+    },
+    [showNotification],
+  );
+
+  // Dedicated helper to surface a sequence resync event (triggered by txBAD_SEQ)
+  const notifySequenceResync = useCallback((params: SequenceResyncParams): string => {
+    return showNotification(buildSequenceResyncNotification(params));
+  }, [showNotification]);
+
+  // Dedicated helper to surface an automatic retry of a sequence transaction
+  const notifySequenceRetry = useCallback((attempt: number, maxAttempts: number): string => {
+    return showNotification(buildSequenceRetryNotification(attempt, maxAttempts));
+  }, [showNotification]);
 
   // Automated background evaluation for low escrow balances
   const checkEscrowBalances = useCallback(
@@ -182,6 +334,9 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
+        notifyTxQueueStatus,
+        notifySequenceResync,
+        notifySequenceRetry,
       }}
     >
       {children}
@@ -434,24 +589,10 @@ const NotificationContainer: React.FC = () => {
   );
 };
 
-export const useNotification = () => {
+export const useNotification = (): NotificationContextType => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;
 };
-
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
-  return <NotificationProvider>{children}</NotificationProvider>;
-}
-
-export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
-    return (
-      <NotificationProvider>
-        <Component {...props} />
-      </NotificationProvider>
-    );
-  };
-}

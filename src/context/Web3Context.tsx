@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -115,6 +115,10 @@ export interface Web3ContextType {
     assetCode?: SupportedEscrowAssetCode,
   ) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Transaction queue status
+  txQueueStatus: TxQueueStatus;
+  pendingTxCount: number;
+
   // Stellar SEP-0030 Multi-Signature Campaign Escrow
   multiSigInfo: MultiSigAccountInfo | null;
   isMultiSigAccount: boolean;
@@ -146,6 +150,25 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
+export interface TxQueueStatus {
+  pending: number;
+  processing: boolean;
+  lastError: string | null;
+  lastResyncAt: number | null;
+}
+
+interface QueuedTx<T> {
+  run: (sequence: string) => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+  attempts: number;
+}
+
+const isBadSequenceError = (err: unknown): boolean => {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /txBAD_SEQ|bad_seq|bad sequence/i.test(msg);
+};
+
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
 export function Web3Provider({ children }: { children: ReactNode }) {
@@ -163,6 +186,90 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // In-memory sequential transaction queue with optimistic sequence tracking
+  const [txQueueStatus, setTxQueueStatus] = useState<TxQueueStatus>({
+    pending: 0,
+    processing: false,
+    lastError: null,
+    lastResyncAt: null,
+  });
+  const txQueueRef = useRef<QueuedTx<any>[]>([]);
+  const isProcessingRef = useRef(false);
+  const localSequenceRef = useRef<bigint | null>(null);
+
+  const resyncSequence = useCallback(async (address: string): Promise<string> => {
+    const { fetchAccountSequence } = await import("../lib/stellar");
+    const seq = await fetchAccountSequence(address);
+    localSequenceRef.current = BigInt(seq);
+    setTxQueueStatus((s) => ({ ...s, lastResyncAt: Date.now() }));
+    return seq;
+  }, []);
+
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
+    setTxQueueStatus((s) => ({ ...s, processing: true }));
+
+    while (txQueueRef.current.length > 0) {
+      const item = txQueueRef.current[0];
+      try {
+        if (!userAddress) throw new Error("Wallet not connected");
+        let seq: string;
+        if (localSequenceRef.current === null) {
+          seq = await resyncSequence(userAddress);
+        } else {
+          seq = localSequenceRef.current.toString();
+        }
+
+        try {
+          const result = await item.run(seq);
+          localSequenceRef.current = BigInt(seq) + 1n;
+          item.resolve(result);
+        } catch (err) {
+          if (isBadSequenceError(err) && item.attempts < 1) {
+            item.attempts += 1;
+            const freshSeq = await resyncSequence(userAddress);
+            const result = await item.run(freshSeq);
+            localSequenceRef.current = BigInt(freshSeq) + 1n;
+            item.resolve(result);
+          } else {
+            if (isBadSequenceError(err)) {
+              localSequenceRef.current = null;
+            }
+            setTxQueueStatus((s) => ({
+              ...s,
+              lastError: err instanceof Error ? err.message : String(err),
+            }));
+            item.reject(err);
+          }
+        }
+      } catch (err) {
+        setTxQueueStatus((s) => ({
+          ...s,
+          lastError: err instanceof Error ? err.message : String(err),
+        }));
+        item.reject(err);
+      } finally {
+        txQueueRef.current.shift();
+        setTxQueueStatus((s) => ({ ...s, pending: txQueueRef.current.length }));
+      }
+    }
+
+    isProcessingRef.current = false;
+    setTxQueueStatus((s) => ({ ...s, processing: false }));
+  }, [userAddress, resyncSequence]);
+
+  const enqueueTx = useCallback(
+    <T,>(run: (sequence: string) => Promise<T>): Promise<T> => {
+      return new Promise<T>((resolve, reject) => {
+        txQueueRef.current.push({ run, resolve, reject, attempts: 0 });
+        setTxQueueStatus((s) => ({ ...s, pending: txQueueRef.current.length }));
+        void processQueue();
+      });
+    },
+    [processQueue],
+  );
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -337,13 +444,16 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         return { success: true, txHash: "sim_allowance", allowance: amount };
       }
       const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-      const res = await approveTokenContractCall(
-        userAddress,
-        amount,
-        spender,
-        connectorType,
-        assetConfig.contractAddress,
-        assetConfig.decimals,
+      const res = await enqueueTx((sequence) =>
+        approveTokenContractCall(
+          userAddress,
+          amount,
+          spender,
+          connectorType,
+          assetConfig.contractAddress,
+          assetConfig.decimals,
+          sequence,
+        ),
       );
       setTokenAllowance(res.allowance);
       return res;
@@ -449,6 +559,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       EURC: "0.00",
     });
     setTokenAllowance(0);
+    localSequenceRef.current = null;
+    txQueueRef.current = [];
+    setTxQueueStatus({ pending: 0, processing: false, lastError: null, lastResyncAt: null });
     setMultiSigInfo(null);
     setIsMultiSigModalOpen(false);
     setActiveMultiSigXdr(null);
@@ -765,6 +878,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         tokenAllowance,
         refreshTokenAllowance,
         approveTokenAllowance,
+        txQueueStatus,
+        pendingTxCount: txQueueStatus.pending,
         factoryContract,
         getCampaignContract,
         multiSigInfo,

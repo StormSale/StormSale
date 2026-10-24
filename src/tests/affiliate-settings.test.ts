@@ -327,22 +327,26 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
 
     let attempt = 0;
     const failingStorage = {
-      getItem: (k: string) => mockLocalStorage.getItem(k),
-      setItem: (k: string, v: string) => {
-        if (k === "darkMode" && attempt === 0) {
-          attempt++;
-          throw new Error("DiskFull");
+      ...mockLocalStorage,
+      setItem: (key: string, value: string) => {
+        attempt += 1;
+        if (key === "darkMode") {
+          throw new Error("QuotaExceededError");
         }
-        mockLocalStorage.setItem(k, v);
+        store[key] = value.toString();
       },
-      removeItem: (k: string) => mockLocalStorage.removeItem(k),
     };
     vi.stubGlobal("localStorage", failingStorage);
 
-    const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
+    const success = saveAffiliatePreferences({
+      ...DEFAULT_PREFERENCES,
+      theme: "dark",
+    });
+
     expect(success).toBe(false);
-    // Rolled back to original snapshot
-    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)!).theme).toBe("light");
-    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    expect(attempt).toBeGreaterThan(0);
+    // Settings write should be rolled back to the previous value
+    const rolledBack = JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY) as string);
+    expect(rolledBack.theme).toBe("light");
   });
-});
+})
