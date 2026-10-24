@@ -40,6 +40,12 @@ describe("Secure Claim Settlement Validation (#49)", () => {
     ).rejects.toThrow("Duplicate campaignId");
   });
 
+  it("rejects a campaign with zero matured sales", async () => {
+    await expect(
+      executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem({ maturedSalesCount: 0 })], "mock"),
+    ).rejects.toThrow();
+  });
+
   it("rejects invalid claim amounts", async () => {
     await expect(
       executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem({ claimableXlm: NaN })], "mock"),
