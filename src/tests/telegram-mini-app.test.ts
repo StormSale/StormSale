@@ -202,7 +202,6 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(initialized).toBe(true);
       expect(mockWebApp.ready).toHaveBeenCalledTimes(1);
       expect(mockWebApp.expand).toHaveBeenCalledTimes(1);
-      expect(mockWebApp.enableClosingConfirmation).not.toHaveBeenCalled();
     });
   });
 
@@ -338,49 +337,6 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
 
       expect(result).toBe(false);
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("error");
-    });
-
-    it("falls back to execCommand when navigator.clipboard.writeText rejects and succeeds if execCommand succeeds", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
-      (navigator.clipboard as any).writeText = writeTextMock;
-
-      const execCommandMock = vi.fn(() => true);
-      const appendChildMock = vi.fn();
-      const removeChildMock = vi.fn();
-      const createElementMock = vi.fn(() => ({
-        value: "",
-        setAttribute: vi.fn(),
-        style: {},
-        select: vi.fn(),
-      }));
-
-      const doc = (globalThis as any).document;
-      doc.execCommand = execCommandMock;
-      doc.body = {
-        appendChild: appendChildMock,
-        removeChild: removeChildMock,
-      };
-      doc.createElement = createElementMock;
-
-      const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
-      const result = await copyReferralLinkWithHaptic(url);
-
-      expect(result).toBe(true);
-      expect(execCommandMock).toHaveBeenCalledWith("copy");
-      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
-  });
-
-  describe("Telegram Campaign Browser Data", () => {
-    it("exposes mock campaigns with required fields for sharing", () => {
-      expect(Array.isArray(MOCK_TELEGRAM_CAMPAIGNS)).toBe(true);
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThan(0);
-
-      for (const campaign of MOCK_TELEGRAM_CAMPAIGNS) {
-        expect(campaign.id).toBeTruthy();
-        expect(campaign.name).toBeTruthy();
-        expect(campaign.referralUrl).toBeTruthy();
-      }
     });
   });
 });

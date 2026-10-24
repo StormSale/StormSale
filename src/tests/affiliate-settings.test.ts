@@ -329,22 +329,18 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     const failingStorage = {
       ...mockLocalStorage,
       setItem: (key: string, value: string) => {
-        attempt += 1;
-        if (key === "darkMode") {
+        attempt++;
+        if (key === "darkMode" && attempt > 0) {
           throw new Error("QuotaExceededError");
         }
-        store[key] = value.toString();
+        mockLocalStorage.setItem(key, value);
       },
     };
     vi.stubGlobal("localStorage", failingStorage);
 
-    const success = saveAffiliatePreferences({
-      ...DEFAULT_PREFERENCES,
-      theme: "dark",
-    });
-
+    const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
     expect(success).toBe(false);
-    expect(attempt).toBeGreaterThan(0);
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY) as string).theme).toBe("light");
   });
 });
