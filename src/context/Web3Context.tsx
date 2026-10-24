@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useEffect } from "react";
+import { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
@@ -169,6 +169,29 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  // Optimistic UI: track in-flight optimistic mutations so they can be reverted on failure.
+  const optimisticMutationsRef = useRef<Map<string, () => void>>(new Map());
+
+  const registerOptimisticMutation = useCallback((id: string, revert: () => void) => {
+    optimisticMutationsRef.current.set(id, revert);
+  }, []);
+
+  const commitOptimisticMutation = useCallback((id: string) => {
+    optimisticMutationsRef.current.delete(id);
+  }, []);
+
+  const revertOptimisticMutation = useCallback((id: string) => {
+    const revert = optimisticMutationsRef.current.get(id);
+    if (revert) {
+      try {
+        revert();
+      } catch (err) {
+        console.warn("Optimistic revert failed:", err);
+      }
+      optimisticMutationsRef.current.delete(id);
+    }
+  }, []);
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -343,18 +366,33 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         return { success: true, txHash: "sim_allowance", allowance: amount };
       }
       const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-      const res = await approveTokenContractCall(
-        userAddress,
-        amount,
-        spender,
-        connectorType,
-        assetConfig.contractAddress,
-        assetConfig.decimals,
-      );
-      setTokenAllowance(res.allowance);
-      return res;
+
+      // Optimistic UI: apply the new allowance immediately (<50ms) before mining.
+      const mutationId = `allowance:${assetCode}:${spender ?? "default"}`;
+      const previousAllowance = tokenAllowance;
+      setTokenAllowance(amount);
+      registerOptimisticMutation(mutationId, () => setTokenAllowance(previousAllowance));
+
+      try {
+        const res = await approveTokenContractCall(
+          userAddress,
+          amount,
+          spender,
+          connectorType,
+          assetConfig.contractAddress,
+          assetConfig.decimals,
+        );
+        // Commit: reconcile with authoritative on-chain value.
+        setTokenAllowance(res.allowance);
+        commitOptimisticMutation(mutationId);
+        return res;
+      } catch (err) {
+        // Revert: restore the pre-interaction allowance on txn failure.
+        revertOptimisticMutation(mutationId);
+        throw err;
+      }
     },
-    [userAddress, connectorType],
+    [userAddress, connectorType, tokenAllowance, registerOptimisticMutation, commitOptimisticMutation, revertOptimisticMutation],
   );
 
   // Sync with backend database & persistent role

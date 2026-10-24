@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
+import { Label } from "../../components/ui/label";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { joinCampaignSchema, getFieldErrors } from "../../lib/validation";
@@ -17,6 +18,8 @@ import { Users, Zap, Shield } from "lucide-react";
 export const JoinCampaignButton = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // Optimistic state: tracks the campaign the user has optimistically joined.
+  const [optimisticCampaign, setOptimisticCampaign] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { factoryContract } = useWeb3();
@@ -41,7 +44,14 @@ export const JoinCampaignButton = () => {
       return;
     }
 
+    const previousAddress = campaignAddress;
+    const previousOptimistic = optimisticCampaign;
+
+    // Instant optimistic update (<50ms) before the transaction is mined.
+    setOptimisticCampaign(campaignAddress);
+    setCampaignAddress("");
     setIsLoading(true);
+
     try {
       const tx = await factoryContract.joinCampaign(result.data.campaignAddress);
       await tx.wait();
@@ -50,9 +60,11 @@ export const JoinCampaignButton = () => {
         title: "Campaign Joined!",
         message: "You have successfully joined the affiliate campaign.",
       });
-      setCampaignAddress("");
     } catch (error: any) {
       console.error("Error joining campaign:", error);
+      // Reliable revert on txn failure.
+      setOptimisticCampaign(previousOptimistic);
+      setCampaignAddress(previousAddress);
       showNotification({
         type: "error",
         title: "Failed to Join",
@@ -66,7 +78,7 @@ export const JoinCampaignButton = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+        <h2 className="text-4xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
           Join Campaign
         </h2>
         <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
@@ -91,6 +103,14 @@ export const JoinCampaignButton = () => {
           </div>
         </CardHeader>
         <CardContent className="px-8 pb-8 pt-6 space-y-6">
+          {optimisticCampaign && (
+            <div className="bg-emerald-50 dark:bg-emerald-500/10 p-4 rounded-2xl border border-emerald-100 dark:border-emerald-500/20">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                Joining campaign <span className="font-mono">{optimisticCampaign}</span>...
+              </p>
+            </div>
+          )}
+
           <InputField
             label="Campaign Contract Address"
             description="Obtain the campaign address from the advertiser or StormSale marketplace."
