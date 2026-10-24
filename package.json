@@ -20,6 +20,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "security:malware": "node scripts/malware-scanner.cjs",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
