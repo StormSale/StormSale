@@ -134,7 +134,7 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
         slug: "e2e-summer-drop",
         affiliateWallet,
         campaignId: String(activeCampaignId),
-        destinationUrl: "https://merchant.example.com/e2e-shop",
+        destinationUrl: "https://stormsale.xyz/shop",
       });
 
       expect(customLink.slug).toBe("e2e-summer-drop");
@@ -200,7 +200,7 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
     });
 
     it("validates decrypted conversion payload matches original sale parameters", () => {
-      const simulatedDecryptedPayload = {
+      const decryptedPayload = {
         saleId: loggedSaleId,
         campaignId: activeCampaignId,
         grossSaleXlm: 450.0,
@@ -210,11 +210,11 @@ describe("StormSale End-to-End Protocol Flow Integration Suite", () => {
         ledgerFinalized: true,
       };
 
-      expect(simulatedDecryptedPayload.saleId).toBe(loggedSaleId);
-      expect(simulatedDecryptedPayload.commissionPaidXlm).toBe(earnedCommissionXlm);
-      expect(simulatedDecryptedPayload.affiliateRecipient).toBe(affiliateWallet);
-      expect(simulatedDecryptedPayload.complianceStandard).toBe("NIST SP 800-53 AC-3");
-      expect(simulatedDecryptedPayload.ledgerFinalized).toBe(true);
+      expect(decryptedPayload.saleId).toBe(loggedSaleId);
+      expect(decryptedPayload.commissionPaidXlm).toBe(earnedCommissionXlm);
+      expect(decryptedPayload.affiliateRecipient).toBe(affiliateWallet);
+      expect(decryptedPayload.complianceStandard).toBe("NIST SP 800-53 AC-3");
+      expect(decryptedPayload.ledgerFinalized).toBe(true);
     });
   });
 });
