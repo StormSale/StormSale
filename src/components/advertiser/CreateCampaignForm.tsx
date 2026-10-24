@@ -29,10 +29,23 @@ import {
   RefreshCw,
   Lock,
   Globe,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+import {
+  getCommissionTierValidationError,
+  saveCampaignCommissionConfig,
+} from "../../lib/commissionTiers";
+
+interface CommissionTierDraft {
+  id: string;
+  name: string;
+  volumeThreshold: string;
+  commissionRate: string;
+}
 
 export type FlowStep =
   "idle" | "checking" | "approving" | "approved" | "creating" | "success" | "error";
@@ -40,6 +53,7 @@ export type FlowStep =
 export const CreateCampaignForm = () => {
   const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
   const [commissionRate, setCommissionRate] = useState("");
+  const [commissionTiers, setCommissionTiers] = useState<CommissionTierDraft[]>([]);
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
@@ -72,6 +86,13 @@ export const CreateCampaignForm = () => {
     openMultiSigModal,
   } = useWeb3();
   const { showNotification } = useNotification();
+
+  const commissionRateNum = parseFloat(commissionRate) || 10;
+  const parsedCommissionTiers = commissionTiers.map((tier) => ({
+    name: tier.name.trim(),
+    volumeThreshold: Number(tier.volumeThreshold),
+    commissionRate: Number(tier.commissionRate),
+  }));
 
   // Numeric calculations
   const parsedBudget = parseFloat(budget);
@@ -199,6 +220,19 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    const commissionError = getCommissionTierValidationError(
+      commissionRateNum,
+      parsedCommissionTiers,
+    );
+    if (commissionError) {
+      showNotification({
+        type: "error",
+        title: "Invalid Commission Tiers",
+        message: commissionError,
+      });
+      return;
+    }
+
     // Step 1: If allowance is insufficient, execute approval first
     if (!isAllowanceSufficient) {
       setFlowStep("approving");
@@ -247,6 +281,24 @@ export const CreateCampaignForm = () => {
         selectedAsset,
       );
 
+      try {
+        saveCampaignCommissionConfig(
+          String(campaignResult.campaignId),
+          commissionRateNum,
+          parsedCommissionTiers,
+        );
+      } catch (commissionConfigError) {
+        console.error(
+          "Campaign created, but its commission tiers were not saved:",
+          commissionConfigError,
+        );
+        showNotification({
+          type: "warning",
+          title: "Campaign Created — Commission Tiers Not Saved",
+          message: `Campaign #${campaignResult.campaignId} is live on-chain, but its commission tiers could not be saved locally. Do not create it again.`,
+        });
+      }
+
       // Record the access policy. This runs after the budget is already locked
       // in escrow, so a failure here must not be reported as a failed
       // creation: the campaign exists, and retrying would lock a second escrow.
@@ -287,6 +339,7 @@ export const CreateCampaignForm = () => {
 
       setFlowStep("success");
       setCommissionRate("");
+      setCommissionTiers([]);
       setClearingPeriod("");
       setCampaignName("");
       setBudget("");
@@ -533,6 +586,138 @@ export const CreateCampaignForm = () => {
                       )}
                   </div>
                 </InputField>
+              </div>
+
+              <div className="space-y-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-5">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-zinc-900 dark:text-white">
+                      Performance commission tiers
+                    </h3>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                      Set cumulative sales-volume milestones and the rate affiliates qualify for on
+                      later sales.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setCommissionTiers((current) => [
+                        ...current,
+                        {
+                          id: `${Date.now()}-${Math.random()}`,
+                          name: `Tier ${current.length + 1}`,
+                          volumeThreshold: "",
+                          commissionRate: "",
+                        },
+                      ])
+                    }
+                    className="shrink-0 rounded-xl"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add tier
+                  </Button>
+                </div>
+
+                {commissionTiers.length === 0 ? (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    No performance tiers added. Affiliates will use the base commission rate.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {commissionTiers.map((tier, index) => (
+                      <div
+                        key={tier.id}
+                        className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-3 items-end rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 p-3"
+                      >
+                        <label className="space-y-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                          Tier name
+                          <Input
+                            value={tier.name}
+                            aria-label={`Tier ${index + 1} name`}
+                            onChange={(event) =>
+                              setCommissionTiers((current) =>
+                                current.map((item) =>
+                                  item.id === tier.id
+                                    ? { ...item, name: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            placeholder="e.g. Silver"
+                            maxLength={32}
+                          />
+                        </label>
+                        <label className="space-y-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                          Sales volume threshold
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={tier.volumeThreshold}
+                            aria-label={`Tier ${index + 1} sales volume threshold`}
+                            onChange={(event) =>
+                              setCommissionTiers((current) =>
+                                current.map((item) =>
+                                  item.id === tier.id
+                                    ? { ...item, volumeThreshold: event.target.value }
+                                    : item,
+                                ),
+                              )
+                            }
+                            placeholder="e.g. 5000"
+                          />
+                        </label>
+                        <label className="space-y-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                          Commission rate
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min="1"
+                              max="50"
+                              step="0.01"
+                              value={tier.commissionRate}
+                              aria-label={`Tier ${index + 1} commission rate`}
+                              onChange={(event) =>
+                                setCommissionTiers((current) =>
+                                  current.map((item) =>
+                                    item.id === tier.id
+                                      ? { ...item, commissionRate: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              placeholder="e.g. 10"
+                            />
+                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-400">
+                              %
+                            </span>
+                          </div>
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          aria-label={`Remove ${tier.name || `tier ${index + 1}`}`}
+                          onClick={() =>
+                            setCommissionTiers((current) =>
+                              current.filter((item) => item.id !== tier.id),
+                            )
+                          }
+                          className="h-12 w-12 text-rose-600 hover:text-rose-700"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs text-amber-700 dark:text-amber-300 border-t border-slate-200 dark:border-zinc-800 pt-3">
+                  Prototype limitation: tiers and volume are stored only in this browser. The
+                  current Soroban contract still pays its fixed base rate; tier rates are estimates
+                  and are not enforced on-chain.
+                </p>
               </div>
 
               <InputField

@@ -708,7 +708,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     },
   };
 
-  const getCampaignContract = (_address: string) => ({
+  const getCampaignContract = (address: string) => ({
     logEncryptedSale: async (
       affiliate: string,
       amount: string,
@@ -716,7 +716,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       _advKey: any,
       _affKey: any,
     ) => {
-      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
+      const campaignIdMatch = address.match(/^(?:campaign\s*#\s*)?(\d+)$/i);
+      const parsedCampaignId = campaignIdMatch ? Number(campaignIdMatch[1]) : 1;
+      const campaignId =
+        Number.isSafeInteger(parsedCampaignId) && parsedCampaignId > 0 ? parsedCampaignId : 1;
+      const res = await logSaleOnChain(campaignId, affiliate, parseFloat(amount) || 0);
       return {
         wait: async () => res,
       };
