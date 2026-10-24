@@ -1,4 +1,5 @@
-﻿import { defineConfig } from "vitest/config";
+import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
@@ -17,17 +18,17 @@ export type { SubresourceIntegrityOptions } from "./src/lib/vite/subresource-int
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-    subresourceIntegrity(),
-    visualizer({ open: false, gzipSize: true, brotliSize: true }),
-  ],
+  plugins: [react(), tailwindcss(), visualizer({ open: false, gzipSize: true, brotliSize: true })],
+  worker: {
+    format: "es",
+    plugins: () => [],
+  },
   resolve: {
     dedupe: ["react", "react-dom"],
     preserveSymlinks: true,
   },
   build: {
+    target: "es2020",
     rollupOptions: {
       external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
       output: {

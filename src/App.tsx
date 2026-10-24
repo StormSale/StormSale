@@ -10,6 +10,7 @@ import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
+import { CryptoWorkerBridge } from "./lib/crypto.worker";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
@@ -166,6 +167,9 @@ function Router() {
 
 function App() {
   useEffect(() => {
+    // Initialize the background crypto worker bridge so AES tasks run off the main thread.
+    CryptoWorkerBridge.getInstance();
+
     initTelegramWebApp();
     const cleanup = syncTelegramTheme();
     return () => {

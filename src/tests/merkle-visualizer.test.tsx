@@ -145,7 +145,7 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     // Tampered leaf hash (simulating flipped bit in tamper test mode)
     const originalLeaf = proof.leafHash;
     const flippedFirstChar =
-      originalLeaf[0] === "a" ? `b${originalLeaf.slice(1)}` : `a${originalLeaf.slice(1)}`;
+      originalLeaf[0] === "0" ? `1${originalLeaf.slice(1)}` : `0${originalLeaf.slice(1)}`;
 
     const tamperedResult = await verifyMerkleProofStepByStep(
       proof,
