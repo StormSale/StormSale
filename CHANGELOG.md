@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/StormSale/StormSale/compare/v1.0.0...v1.0.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* **e2e:** stabilize role journeys, test network stubs, and production preview server ([f2f5ac7](https://github.com/StormSale/StormSale/commit/f2f5ac7a886cf16c2c0ec859d8b19289ae6dc8c8))
+
 # 1.0.0 (2026-10-21)
 
 

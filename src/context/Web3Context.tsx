@@ -25,6 +25,7 @@ import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
+import type { AutoSwapConfig } from "../lib/sorobanDex";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import { useSorobanEvents } from "../hooks/useSorobanEvents";
@@ -102,6 +103,7 @@ export interface Web3ContextType {
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
@@ -386,7 +388,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
             "Freeighter extension is not installed. If you are on a mobile device, please select Albedo (Web Wallet) or Demo Account.",
           );
         }
-        address = await connectFreeighterWallet();
+        address = await connectFreighterWallet();
         const currentNet = await getCurrentNetwork();
         setNetwork(currentNet);
       } else if (type === "albedo") {
@@ -569,6 +571,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
     splitPlan: SplitPlan | null = null,
+    autoSwap: AutoSwapConfig | null = null,
   ): Promise<BatchClaimReceipt> => {
     if (!userAddress) throw new Error("Wallet not connected");
     await assertNotSanctioned(userAddress, "batch-claim-payout");
@@ -578,6 +581,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       campaigns,
       connectorType || "freeighter",
       splitPlan,
+      autoSwap,
     );
     return res;
   };
