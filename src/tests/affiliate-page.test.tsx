@@ -47,6 +47,9 @@ vi.mock("../components/affiliate/TelegramCampaignBrowser", () => ({
 vi.mock("../components/affiliate/CustomLinksManager", () => ({
   CustomLinksManager: () => <div>Short-link manager content</div>,
 }));
+vi.mock("../components/affiliate/CampaignApplication", () => ({
+  CampaignApplication: () => <div>Campaign application content</div>,
+}));
 vi.mock("../components/affiliate/AffiliateSettings", () => ({
   AffiliateSettings: () => <div>Affiliate settings content</div>,
 }));
@@ -72,6 +75,9 @@ describe("Affiliate page navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Join Campaign" }));
     expect(await screen.findByText("Join campaign content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Apply & Tracking Links" }));
+    expect(await screen.findByText("Campaign application content")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "My Sales & Commissions" }));
     expect(await screen.findByText("Sales content")).toBeTruthy();

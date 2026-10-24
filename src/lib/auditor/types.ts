@@ -144,3 +144,79 @@ export interface PackVerificationResult {
   auditorKeyId: string;
   generatedAt: string;
 }
+
+/**
+ * Anomaly Detection - Suspicious Activity & Wash-Trading Detection
+ * Supports the AuditorOverview "Red Flag" indicators and one-click anomaly reporting.
+ */
+
+export type AnomalySeverity = "critical" | "high" | "medium" | "low";
+
+export type AnomalyType =
+  | "wash_trading"
+  | "rapid_claim"
+  | "circular_transfer"
+  | "self_trading"
+  | "burst_activity"
+  | "collusion_ring";
+
+export type RedFlagStatus = "none" | "watch" | "flagged" | "confirmed";
+
+export interface AnomalySignal {
+  /** Stable identifier for this signal instance. */
+  signalId: string;
+  /** Category of anomaly detected. */
+  type: AnomalyType;
+  /** Severity level driving the Red Flag indicator color. */
+  severity: AnomalySeverity;
+  /** Current review status of the flag. */
+  status: RedFlagStatus;
+  /** Human-readable summary of the detected pattern. */
+  description: string;
+  /** Normalized confidence score in [0, 1]. */
+  confidence: number;
+  /** Accounts involved in the suspicious pattern. */
+  involvedAccounts: string[];
+  /** Transaction hashes that support the signal. */
+  evidenceTxHashes: string[];
+  /** ISO timestamp of when the signal was first detected. */
+  detectedAt: string;
+  /** Optional metric value that tripped the threshold (e.g. velocity in tx/min). */
+  metricValue?: number;
+  /** Optional threshold that was exceeded. */
+  threshold?: number;
+}
+
+export interface AnomalyDetectionSummary {
+  totalSignals: number;
+  confirmed: number;
+  flagged: number;
+  watch: number;
+  bySeverity: Record<AnomalySeverity, number>;
+  byType: Record<AnomalyType, number>;
+  lastScannedAt: string;
+  overallRedFlagStatus: RedFlagStatus;
+}
+
+export interface AnomalyReportPayload {
+  /** Signal being reported. */
+  signalId: string;
+  /** Severity at time of reporting. */
+  severity: AnomalySeverity;
+  /** Type of anomaly being reported. */
+  type: AnomalyType;
+  /** Optional free-form notes from the auditor. */
+  notes?: string;
+  /** Auditor identity submitting the report. */
+  reportedBy: string;
+  /** ISO timestamp of report submission. */
+  reportedAt: string;
+}
+
+export interface AnomalyReportReceipt {
+  reportId: string;
+  signalId: string;
+  status: "submitted" | "duplicate" | "failed";
+  submittedAt: string;
+  message: string;
+}

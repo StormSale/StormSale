@@ -42,6 +42,7 @@ vi.mock("../components/shared/MultiSigApprovalModal", () => ({
   MultiSigApprovalModal: () => null,
 }));
 vi.mock("../components/shared/RpcStatusModal", () => ({ RpcStatusModal: () => null }));
+vi.mock("../components/shared/Header", () => ({ Header: () => null }));
 vi.mock("../components/auth/ProtectedRoute", () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => children,
 }));
