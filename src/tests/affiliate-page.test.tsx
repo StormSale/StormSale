@@ -53,6 +53,9 @@ vi.mock("../components/affiliate/CampaignApplication", () => ({
 vi.mock("../components/affiliate/AffiliateSettings", () => ({
   AffiliateSettings: () => <div>Affiliate settings content</div>,
 }));
+vi.mock("../components/affiliate/TelegramAlertsCard", () => ({
+  TelegramAlertsCard: () => <div>Telegram alerts content</div>,
+}));
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -87,6 +90,7 @@ describe("Affiliate page navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Personalized Settings" }));
     expect(await screen.findByText("Affiliate settings content")).toBeTruthy();
+    expect(screen.getByText("Telegram alerts content")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Preferences" }));
     expect(screen.getByText("Affiliate settings content")).toBeTruthy();
 

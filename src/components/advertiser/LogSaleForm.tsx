@@ -20,6 +20,7 @@ import {
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
+import { notifyTelegramConversion } from "../../lib/telegramClient";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
@@ -202,6 +203,16 @@ export const LogSaleForm = () => {
             "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
         });
       }
+
+      // Best effort: the server confirms the tx on Horizon and messages the
+      // affiliate on Telegram if they connected alerts. Never blocks the sale.
+      void notifyTelegramConversion({
+        affiliateWallet: data.affiliateAddress,
+        txHash: postbackTxHash,
+        campaignName: `Campaign ${data.campaignAddress.slice(0, 4)}…${data.campaignAddress.slice(-4)}`,
+        saleAmount: String(data.saleAmount),
+        asset: "XLM",
+      });
 
       showNotification({
         type: "success",
