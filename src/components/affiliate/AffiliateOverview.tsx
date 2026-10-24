@@ -245,150 +245,42 @@ const AffiliateLinkGenerator = () => {
   );
 };
 
-const AffiliateCommissionProgress = () => {
-  const { userAddress } = useWeb3();
-  const [campaignId, setCampaignId] = useState("");
-  const [config, setConfig] = useState<CampaignCommissionConfig | null>(null);
-  const [assessment, setAssessment] = useState<CommissionAssessment | null>(null);
-  const [historicalVolume, setHistoricalVolume] = useState(0);
-  const [lookupMessage, setLookupMessage] = useState("");
+import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
 
-  const loadProgress = () => {
-    setLookupMessage("");
-    setConfig(null);
-    setAssessment(null);
+const AFFILIATE_QUICK_ACTIONS = [
+  {
+    id: "custom-links",
+    label: "Custom Short Links",
+    description: "Branded cloaked URLs",
+    icon: Link2,
+  },
+  {
+    id: "join-campaign",
+    label: "Join New Campaign",
+    description: "Discover high-paying campaigns",
+    icon: Users,
+  },
+  {
+    id: "my-sales",
+    label: "Track Performance",
+    description: "View analytics and insights",
+    icon: TrendingUp,
+  },
+  {
+    id: "claim-payouts",
+    label: "Withdraw Earnings",
+    description: "Claim your commissions",
+    icon: DollarSign,
+  },
+] as const;
 
-    if (!userAddress) {
-      setLookupMessage("Connect your affiliate wallet to view its tier progress.");
-      return;
-    }
-    const normalizedCampaignId = normalizeCommissionCampaignId(campaignId);
-    if (!normalizedCampaignId) {
-      setLookupMessage("Enter a campaign ID to view your progress.");
-      return;
-    }
+type AffiliateQuickActionTab = (typeof AFFILIATE_QUICK_ACTIONS)[number]["id"];
 
-    try {
-      const campaignConfig = loadCampaignCommissionConfig(normalizedCampaignId);
-      if (!campaignConfig) {
-        setLookupMessage("No tier metadata for that campaign was found in this browser.");
-        return;
-      }
-      const volume = getAffiliateCampaignVolume(normalizedCampaignId, userAddress);
-      setConfig(campaignConfig);
-      setHistoricalVolume(volume);
-      setAssessment(assessCommissionTier(campaignConfig, volume));
-    } catch (error) {
-      setLookupMessage(
-        error instanceof Error ? error.message : "Could not load local commission tier data.",
-      );
-    }
-  };
+interface AffiliateOverviewProps {
+  onNavigate?: (tab: AffiliateQuickActionTab) => void;
+}
 
-  return (
-    <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
-      <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-            <Award className="w-5 h-5" />
-          </div>
-          <div>
-            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Commission tier progress
-            </CardTitle>
-            <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Check your current tier and next sales milestone
-            </CardDescription>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent className="pt-5 space-y-4">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <Input
-            value={campaignId}
-            onChange={(event) => setCampaignId(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                loadProgress();
-              }
-            }}
-            placeholder="Campaign ID (e.g. 123)"
-            aria-label="Campaign ID for commission tier progress"
-          />
-          <Button onClick={loadProgress} className="rounded-xl shrink-0">
-            View progress
-          </Button>
-        </div>
-
-        {lookupMessage && (
-          <p role="status" className="text-sm text-zinc-600 dark:text-zinc-300">
-            {lookupMessage}
-          </p>
-        )}
-
-        {config && assessment && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">Current tier</p>
-                <p className="font-bold text-zinc-900 dark:text-white">
-                  {assessment.currentTier?.name ?? "Base"} · {assessment.commissionRate}%
-                </p>
-              </div>
-              <div className="text-right">
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">Recorded volume</p>
-                <p className="font-bold text-zinc-900 dark:text-white">
-                  {historicalVolume.toLocaleString()} XLM
-                </p>
-              </div>
-            </div>
-
-            {assessment.nextTier ? (
-              <>
-                <div className="flex justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-300">
-                  <span>
-                    Next: {assessment.nextTier.name} at {assessment.nextTier.commissionRate}%
-                  </span>
-                  <span className="text-right">
-                    {Math.max(
-                      0,
-                      assessment.nextTier.volumeThreshold - historicalVolume,
-                    ).toLocaleString()}{" "}
-                    XLM remaining
-                  </span>
-                </div>
-                <div
-                  className="h-2 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/50"
-                  role="progressbar"
-                  aria-label="Progress toward next commission tier"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(assessment.progressPercent)}
-                >
-                  <div
-                    className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
-                    style={{ width: `${assessment.progressPercent}%` }}
-                  />
-                </div>
-              </>
-            ) : (
-              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                You have reached the highest configured commission tier.
-              </p>
-            )}
-            <p className="text-xs text-amber-700 dark:text-amber-300">
-              Tier metadata and volume are local to this browser. Rates are estimates; the current
-              Soroban contract still pays its fixed base rate.
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-};
-
-export const AffiliateOverview = () => {
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
   const stats = [
     {
       title: "Total Earnings",
@@ -436,13 +328,17 @@ export const AffiliateOverview = () => {
             Affiliate Dashboard
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Track your performance and maximize your on-chain earnings.
+            Track your performance and maximize your{" "}
+            <TerminologyTooltip term="soroban">on-chain earnings</TerminologyTooltip>.
           </p>
         </div>
-        <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
-          <Zap className="w-5 h-5 mr-2" />
-          Quick Start Guide
-        </Button>
+        <div className="mt-6 lg:mt-0 flex items-center gap-3">
+          <TerminologyGuideButton className="h-12 px-5 rounded-full" />
+          <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
+            <Zap className="w-5 h-5 mr-2" />
+            Quick Start Guide
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -594,29 +490,14 @@ export const AffiliateOverview = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
-            ].map((action, index) => {
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {AFFILIATE_QUICK_ACTIONS.map((action, index) => {
               const IconComponent = action.icon;
               return (
                 <Button
                   key={index}
                   variant="outline"
+                  onClick={() => onNavigate?.(action.id)}
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

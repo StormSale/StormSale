@@ -17,16 +17,10 @@ import {
   wrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
-import { triggerConversionPostback } from "../../lib/webhookEngine";
-import { Shield, Zap, Users, FileKey, TrendingUp } from "lucide-react";
-import {
-  assessCommissionTier,
-  calculateCommissionAmount,
-  getAffiliateCampaignVolume,
-  loadCampaignCommissionConfig,
-  normalizeCommissionCampaignId,
-  recordAffiliateCampaignSale,
-} from "../../lib/commissionTiers";
+import { logSaleSchema, getFieldErrors } from "../../lib/validation";
+import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
+import { getAffiliateAccess } from "../../lib/campaignAccess";
+import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
@@ -34,45 +28,36 @@ export const LogSaleForm = () => {
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
-  const { tierPreview, tierPreviewError } = useMemo(() => {
-    const normalizedCampaignId = normalizeCommissionCampaignId(campaignAddress);
-    if (!normalizedCampaignId || !affiliateAddress.trim()) {
-      return { tierPreview: null, tierPreviewError: "" };
-    }
+  const clearError = (field: string) => {
+    setErrors((prev) => ({ ...prev, [field]: "" }));
+  };
 
-    try {
-      const config = loadCampaignCommissionConfig(normalizedCampaignId);
-      if (!config) {
-        return { tierPreview: null, tierPreviewError: "" };
-      }
-      const historicalVolume = getAffiliateCampaignVolume(normalizedCampaignId, affiliateAddress);
-      return {
-        tierPreview: {
-          config,
-          historicalVolume,
-          assessment: assessCommissionTier(config, historicalVolume),
-        },
-        tierPreviewError: "",
-      };
-    } catch (error) {
-      return {
-        tierPreview: null,
-        tierPreviewError:
-          error instanceof Error ? error.message : "Could not load local commission tier data.",
-      };
-    }
-  }, [campaignAddress, affiliateAddress]);
-
-  const handleLogSale = async (e: React.FormEvent) => {
+  const handleLogSale = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!affiliateAddress || !saleAmount || !campaignAddress) {
+    setErrors({});
+
+    const result = logSaleSchema.safeParse({
+      campaignAddress,
+      affiliateAddress,
+      saleAmount,
+      customerData: customerData || undefined,
+    });
+
+    if (!result.success) {
+      setErrors(getFieldErrors(result.error));
+      return;
+    }
+
+    if (!userAddress) {
       showNotification({
-        type: "warning",
-        title: "Missing Information",
-        message: "Please fill all required fields",
+        type: "error",
+        title: "Wallet Not Connected",
+        message: "Connect your wallet before logging a sale.",
       });
       return;
     }
@@ -86,20 +71,27 @@ export const LogSaleForm = () => {
       return;
     }
 
+    const { data } = result;
+
+    // Private campaigns only credit approved affiliates. Checked before any
+    // encryption work so the advertiser sees why. The id is already validated
+    // as a u32 by the schema, so this cannot throw on an out-of-range value.
+    if (/^\d+$/.test(data.campaignAddress)) {
+      const access = getAffiliateAccess(data.campaignAddress, data.affiliateAddress);
+      if (!access.allowed) {
+        showNotification({
+          type: "error",
+          title: "Affiliate Not Approved",
+          message: access.reason,
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
+
     try {
-      const normalizedCampaignId = normalizeCommissionCampaignId(campaignAddress);
-      const commissionConfig = loadCampaignCommissionConfig(normalizedCampaignId);
-      const historicalVolume = commissionConfig
-        ? getAffiliateCampaignVolume(normalizedCampaignId, affiliateAddress)
-        : 0;
-      const commissionAssessment = commissionConfig
-        ? assessCommissionTier(commissionConfig, historicalVolume)
-        : null;
-      const estimatedCommission = commissionAssessment
-        ? calculateCommissionAmount(parsedSaleAmount, commissionAssessment.commissionRate)
-        : null;
-      const campaignContract = getCampaignContract(campaignAddress);
+      const campaignContract = getCampaignContract(data.campaignAddress);
 
       showNotification({
         type: "info",
@@ -110,7 +102,7 @@ export const LogSaleForm = () => {
       const aesKey = await generateAESKey();
 
       const payload = {
-        customer: customerData || "Anonymous Customer",
+        customer: data.customerData || "Anonymous Customer",
         saleId: `SALE_${Date.now()}`,
         product: "Digital Product",
         timestamp: new Date().toISOString(),
@@ -126,10 +118,11 @@ export const LogSaleForm = () => {
               }
             : null,
       };
+
       const encryptedPayload = await encryptPayload(payload, aesKey);
 
-      const advertiserPublicKey = await getPublicKeyForAddress(userAddress!);
-      const affiliatePublicKey = await getPublicKeyForAddress(affiliateAddress);
+      const advertiserPublicKey = await getPublicKeyForAddress(userAddress);
+      const affiliatePublicKey = await getPublicKeyForAddress(data.affiliateAddress);
 
       const advertiserWrappedKey = await wrapAESKey(aesKey, advertiserPublicKey);
       const affiliateWrappedKey = await wrapAESKey(aesKey, affiliatePublicKey);
@@ -141,43 +134,46 @@ export const LogSaleForm = () => {
       });
 
       const tx = await campaignContract.logEncryptedSale(
-        affiliateAddress,
-        saleAmount,
+        data.affiliateAddress,
+        data.saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
         affiliateWrappedKey,
       );
 
-      await tx.wait();
+      const waitResult = await tx.wait();
 
-      if (commissionConfig) {
-        try {
-          recordAffiliateCampaignSale(normalizedCampaignId, affiliateAddress, parsedSaleAmount);
-        } catch (storageError) {
-          console.error("Could not update local affiliate sales volume:", storageError);
-          showNotification({
-            type: "warning",
-            title: "Tier Progress Not Updated",
-            message:
-              "The sale is confirmed on-chain, but local tier progress could not be updated in this browser.",
-          });
-        }
-      }
+      const postbackTxHash =
+        waitResult?.txHash || tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
+      const createdAt = new Date().toISOString();
 
-      // Automated Conversion Postback Dispatch
+      const conversionPayload = {
+        id: payload.saleId,
+        event: "conversion.created",
+        created_at: createdAt,
+        conversion_id: payload.saleId,
+        campaign_id: data.campaignAddress,
+        campaign_address: data.campaignAddress,
+        affiliate_address: data.affiliateAddress,
+        advertiser_address: userAddress || "GADVERTISER_DEFAULT_TESTNET",
+        amount: Number(data.saleAmount),
+        currency: "XLM",
+        tx_hash: postbackTxHash,
+        status: "confirmed",
+      };
+      void dispatchWebhookEvent("conversion.created", conversionPayload);
+
       try {
-        const postbackTxHash = tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
-
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
-          campaignAddress,
-          affiliateAddress,
+          campaignAddress: data.campaignAddress,
+          affiliateAddress: data.affiliateAddress,
           advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
-          saleAmount,
+          saleAmount: data.saleAmount,
           currency: "XLM",
           stellarTxHash: postbackTxHash,
-          ledgerTimestamp: new Date().toISOString(),
-          customerRef: customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
+          ledgerTimestamp: createdAt,
+          customerRef: data.customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
           status: "CONFIRMED_ON_LEDGER",
         });
 
@@ -190,6 +186,7 @@ export const LogSaleForm = () => {
         }
       } catch (webhookErr) {
         console.warn("Conversion postback warning:", webhookErr);
+
         showNotification({
           type: "warning",
           title: "Postback Notice",
@@ -201,21 +198,21 @@ export const LogSaleForm = () => {
       showNotification({
         type: "success",
         title: "Sale Logged Successfully!",
-        message: commissionAssessment
-          ? `Encrypted sale recorded. Estimated tier rate: ${commissionAssessment.commissionRate}% (${estimatedCommission} XLM). The contract still pays its fixed base rate.`
-          : "Encrypted sale data has been recorded on-chain",
+        message: "Encrypted sale data has been recorded on-chain.",
       });
 
       setAffiliateAddress("");
       setSaleAmount("");
       setCampaignAddress("");
       setCustomerData("");
-    } catch (error: any) {
+      setErrors({});
+    } catch (error: unknown) {
       console.error("Error logging sale:", error);
+
       showNotification({
         type: "error",
         title: "Logging Failed",
-        message: error.message || "Failed to log sale",
+        message: error instanceof Error ? error.message : "Failed to log sale.",
       });
     } finally {
       setIsLoading(false);
@@ -251,52 +248,64 @@ export const LogSaleForm = () => {
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
-          <form onSubmit={handleLogSale}>
+          <form onSubmit={handleLogSale} noValidate>
             <InputGroup className="space-y-8">
               <InputField
-                label="Campaign ID"
-                description="The numeric Soroban campaign ID where this sale belongs"
+                label="Campaign Address"
+                description="Soroban contract address (C…) for this campaign"
+                error={errors.campaignAddress}
                 required
               >
                 <Input
                   value={campaignAddress}
-                  onChange={(e) => setCampaignAddress(e.target.value)}
-                  placeholder="e.g. 1 or Campaign #1"
-                  className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                  required
+                  onChange={(e) => {
+                    setCampaignAddress(e.target.value);
+                    clearError("campaignAddress");
+                  }}
+                  placeholder="Campaign ID (e.g. 1) or CCAMPAIGN... contract address"
+                  variant={errors.campaignAddress ? "error" : "default"}
+                  className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
                 />
               </InputField>
 
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
-                  description="The affiliate who made this sale"
+                  description="Stellar public key of the affiliate (G…)"
+                  error={errors.affiliateAddress}
                   required
                 >
                   <Input
                     value={affiliateAddress}
-                    onChange={(e) => setAffiliateAddress(e.target.value)}
-                    placeholder="GAFFILIATE... (Stellar Public Key)"
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                    required
+                    onChange={(e) => {
+                      setAffiliateAddress(e.target.value);
+                      clearError("affiliateAddress");
+                    }}
+                    placeholder="GAFFILIATE... (56-char Stellar Public Key)"
+                    variant={errors.affiliateAddress ? "error" : "default"}
+                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
                   />
                 </InputField>
 
                 <InputField
                   label="Sale Amount (XLM)"
-                  description="Total sale amount in XLM tokens"
+                  description="Total sale amount in XLM (up to 7 decimal places)"
+                  error={errors.saleAmount}
                   required
                 >
                   <div className="relative">
                     <Input
                       type="number"
-                      step="0.001"
+                      step="0.0000001"
                       min="0"
                       value={saleAmount}
-                      onChange={(e) => setSaleAmount(e.target.value)}
+                      onChange={(e) => {
+                        setSaleAmount(e.target.value);
+                        clearError("saleAmount");
+                      }}
                       placeholder="e.g., 100.50"
+                      variant={errors.saleAmount ? "error" : "default"}
                       className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                      required
                     />
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
                       XLM
@@ -393,17 +402,21 @@ export const LogSaleForm = () => {
 
               <InputField
                 label="Customer Information"
-                description="Optional customer data (will be encrypted)"
+                description="Optional customer data (will be encrypted) — max 256 characters"
+                error={errors.customerData}
               >
                 <Input
                   value={customerData}
-                  onChange={(e) => setCustomerData(e.target.value)}
+                  onChange={(e) => {
+                    setCustomerData(e.target.value);
+                    clearError("customerData");
+                  }}
                   placeholder="Customer name, email, or reference ID"
+                  variant={errors.customerData ? "error" : "default"}
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                 />
               </InputField>
 
-              {/* Encryption Flow Visualization */}
               <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
                 <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs mb-6 flex items-center">
                   <FileKey className="w-4 h-4 mr-2 text-indigo-500" />
@@ -416,10 +429,11 @@ export const LogSaleForm = () => {
                     { step: "3", label: "Get Public Keys", icon: Users },
                     { step: "4", label: "Wrap Keys", icon: FileKey },
                     { step: "5", label: "Store On-Chain", icon: Shield },
-                  ].map((item, index) => {
+                  ].map((item) => {
                     const IconComponent = item.icon;
+
                     return (
-                      <div key={index} className="flex flex-col items-center">
+                      <div key={item.step} className="flex flex-col items-center">
                         <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 rounded-full flex items-center justify-center text-sm font-bold mb-3 border border-indigo-200 dark:border-indigo-500/30">
                           {item.step}
                         </div>
@@ -435,7 +449,8 @@ export const LogSaleForm = () => {
 
               <Button
                 type="submit"
-                disabled={isLoading}
+                loading={isLoading}
+                cooldown
                 className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
               >
                 {isLoading ? (

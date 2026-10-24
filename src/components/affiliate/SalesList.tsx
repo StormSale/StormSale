@@ -75,7 +75,7 @@ export function calculateClearing(
   const minutes = Math.floor((remainingSeconds % 3600) / 60);
   const seconds = Math.floor(remainingSeconds % 60);
 
-  let countdownText = "";
+  let countdownText: string;
   if (days > 0) {
     countdownText = `${days}d ${hours}h ${minutes}m ${seconds}s`;
   } else if (hours > 0) {
@@ -219,7 +219,9 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
     } catch (error) {
       console.error("Error decrypting data:", error);
       // Generic message: WebCrypto failures must not leak padding/key detail.
-      setDecryptError("Unable to decrypt this sale. The payload may be tampered or the key is invalid.");
+      setDecryptError(
+        "Unable to decrypt this sale. The payload may be tampered or the key is invalid.",
+      );
       setIsDialogOpen(true);
     } finally {
       setIsDecrypting(false);
