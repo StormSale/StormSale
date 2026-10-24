@@ -19,8 +19,13 @@ test.describe("Journey: wallet connection", () => {
 
   test("visitor connects with the demo account and disconnects", async ({ page }) => {
     await connectWithDemoAccount(page);
+    // Once SRI is intact the app fully boots and the truncated address renders
+    // in both the account menu button (header) and the responsive dashboard
+    // header inside `<main>`. Playwright strict mode rejects a locator that
+    // resolves to more than one element, so scope to the visible account-menu
+    // copy which is the canonical "am I connected?" affordance.
     await expect(
-      page.getByRole("button", { name: "Account menu for GASTOR...7777" }),
+      page.getByRole("button", { name: /Account menu for GASTOR\.\.\.7777/ }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Disconnect" }).click();
@@ -48,8 +53,10 @@ test.describe("Journey: wallet connection", () => {
     await page.getByRole("button", { name: "Connect Watch Key" }).click();
 
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeVisible();
+    // Same strict-mode reason as the demo-account test above — the watch key
+    // is echoed in the account menu button and inside `<main>`.
     await expect(
-      page.getByRole("button", { name: "Account menu for GAAAAA...AAAA" }),
+      page.getByRole("button", { name: /Account menu for GAAAAA\.\.\.AAAA/ }),
     ).toBeVisible();
   });
 });
