@@ -52,7 +52,35 @@ export const ISSUERS = {
   },
 } as const;
 
-export const NETWORK_ESCROW_ASSETS = {
+/**
+ * Wraps a record so its contents are only computed on first access.
+ *
+ * This defers Soroban contract-id derivation (XDR hashing via the Stellar SDK)
+ * out of module scope: the SDK's XDR encoding is incompatible with vitest's
+ * jsdom realm (cross-realm `instanceof Uint8Array` checks fail), so eager
+ * module-scope evaluation crashes jsdom test suites that merely import this
+ * config. Values are computed once and cached.
+ */
+function lazyRecord<T extends object>(compute: () => T): T {
+  let cache: T | undefined;
+  const resolve = (): T => (cache ??= compute());
+  return new Proxy({} as T, {
+    get(_target, key, receiver) {
+      return Reflect.get(resolve(), key, receiver);
+    },
+    has(_target, key) {
+      return Reflect.has(resolve(), key);
+    },
+    ownKeys() {
+      return Reflect.ownKeys(resolve());
+    },
+    getOwnPropertyDescriptor(_target, key) {
+      return Reflect.getOwnPropertyDescriptor(resolve(), key);
+    },
+  });
+}
+
+export const NETWORK_ESCROW_ASSETS = lazyRecord(() => ({
   TESTNET: {
     USDC: {
       contractAddress: new Asset("USDC", ISSUERS.TESTNET.USDC).contractId(Networks.TESTNET),
@@ -73,7 +101,7 @@ export const NETWORK_ESCROW_ASSETS = {
       issuer: ISSUERS.PUBLIC.EURC,
     },
   },
-} as const;
+}));
 
 export function getSupportedEscrowAssets(
   network: "TESTNET" | "PUBLIC" = STELLAR_CONFIG.network,
@@ -105,7 +133,7 @@ export function getSupportedEscrowAssets(
 }
 
 export const SUPPORTED_ESCROW_ASSETS: Record<"XLM" | "USDC" | "EURC", EscrowAsset> =
-  getSupportedEscrowAssets(STELLAR_CONFIG.network);
+  lazyRecord(() => getSupportedEscrowAssets(STELLAR_CONFIG.network));
 
 export type SupportedEscrowAssetCode = keyof typeof SUPPORTED_ESCROW_ASSETS;
 

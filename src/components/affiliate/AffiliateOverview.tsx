@@ -21,8 +21,11 @@ import {
   Link2,
   QrCode,
   ShieldCheck,
+  Trophy,
+  Award,
 } from "lucide-react";
 import { useWeb3 } from "../../context/Web3Context";
+import { getAffiliateProfile } from "../../lib/affiliateLeaderboard";
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -240,6 +243,18 @@ import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/
 
 const AFFILIATE_QUICK_ACTIONS = [
   {
+    id: "leaderboard",
+    label: "Affiliate Leaderboard",
+    description: "Rank top 50 by verified volume",
+    icon: Trophy,
+  },
+  {
+    id: "milestones",
+    label: "Milestone Badges",
+    description: "Claim $1K, $10K, $100K Soulbound SBTs",
+    icon: Award,
+  },
+  {
     id: "custom-links",
     label: "Custom Short Links",
     description: "Branded cloaked URLs",
@@ -269,9 +284,17 @@ type AffiliateQuickActionTab = (typeof AFFILIATE_QUICK_ACTIONS)[number]["id"];
 
 interface AffiliateOverviewProps {
   onNavigate?: (tab: AffiliateQuickActionTab) => void;
+  onNavigateToLeaderboard?: () => void;
+  onNavigateToMilestones?: () => void;
 }
 
-export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
+  onNavigate,
+  onNavigateToLeaderboard,
+  onNavigateToMilestones,
+}) => {
+  const { userAddress } = useWeb3();
+  const profile = getAffiliateProfile(userAddress || "", userAddress);
   const stats = [
     {
       title: "Total Earnings",
@@ -365,6 +388,68 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate
       </div>
 
       <AffiliateLinkGenerator />
+
+      {/* Gamification & Leaderboard Progress Banner */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-violet-500/10 border border-amber-500/30 p-6 sm:p-8">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                Rank #{profile.rank} on Monthly Leaderboard
+              </span>
+              <span className="text-xs font-bold text-zinc-500 dark:text-zinc-400">
+                {profile.claimedBadges.length} Badges Claimed
+              </span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight">
+              Milestone Badges: ${profile.monthlyGrossSales.toLocaleString()} / Next Goal ($
+              {profile.nextMilestoneProgress.targetSales.toLocaleString()})
+            </h2>
+            <p className="text-xs sm:text-sm text-zinc-600 dark:text-zinc-400 max-w-xl">
+              Hit $1K, $10K, and $100K gross sales milestones to unlock non-transferable Soulbound
+              NFT achievement badges minted on Stellar.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+            {onNavigateToMilestones && (
+              <Button
+                onClick={onNavigateToMilestones}
+                className="flex-1 lg:flex-none h-11 px-5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-zinc-950 font-black text-xs shadow-md shadow-amber-500/25"
+              >
+                <Award className="w-4 h-4 mr-1.5" />
+                Claim Badges
+              </Button>
+            )}
+            {onNavigateToLeaderboard && (
+              <Button
+                onClick={onNavigateToLeaderboard}
+                variant="outline"
+                className="flex-1 lg:flex-none h-11 px-5 rounded-xl border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-bold"
+              >
+                <Trophy className="w-4 h-4 mr-1.5 text-amber-500" />
+                View Leaderboard
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Mini Progress */}
+        <div className="mt-5 pt-4 border-t border-slate-200/60 dark:border-zinc-800/60">
+          <div className="flex justify-between items-center text-xs font-bold mb-1.5 text-zinc-600 dark:text-zinc-400">
+            <span>
+              Progress to {profile.nextMilestoneProgress.nextTierName || "Top Tier Milestone"}
+            </span>
+            <span>{profile.nextMilestoneProgress.progressPercentage}%</span>
+          </div>
+          <div className="w-full bg-slate-200/80 dark:bg-zinc-800 h-2 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-amber-500 to-indigo-500 rounded-full transition-all duration-700"
+              style={{ width: `${profile.nextMilestoneProgress.progressPercentage}%` }}
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">
@@ -487,7 +572,13 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate
                 <Button
                   key={index}
                   variant="outline"
-                  onClick={() => onNavigate?.(action.id)}
+                  onClick={() =>
+                    action.id === "leaderboard"
+                      ? onNavigateToLeaderboard?.()
+                      : action.id === "milestones"
+                        ? onNavigateToMilestones?.()
+                        : onNavigate?.(action.id)
+                  }
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />
