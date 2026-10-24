@@ -2,6 +2,7 @@
  * StormSale Automated Coverage & Threshold Enforcement Script
  *
  * Implements Issue #95: [Test] Enforced Coverage Thresholds
+ * Vitest integration with coverage reporting (test: integrate Vitest framework with coverage reporting)
  * - Reads coverage summary from Vitest v8 coverage report.
  * - Produces file-by-file coverage metrics table.
  * - Enforces minimum 80% coverage threshold.
@@ -90,7 +91,11 @@ function evaluateCoverage(summaryData, options = {}) {
     const branchPct = metrics.branches.pct;
     const funcsPct = metrics.functions.pct;
 
-    const meetsThreshold = linesPct >= threshold || stmtsPct >= threshold;
+    const meetsThreshold =
+      linesPct >= threshold &&
+      stmtsPct >= threshold &&
+      branchPct >= threshold &&
+      funcsPct >= threshold;
 
     const metric = {
       file: relativePath,
@@ -103,15 +108,17 @@ function evaluateCoverage(summaryData, options = {}) {
 
     fileMetrics.push(metric);
 
-    // If targeted files specified or checked
+    // Enforce threshold for targeted files, or for all files when no targets specified
     if (targetFiles.length > 0) {
       if (targetFiles.some((tf) => relativePath.includes(tf)) && !meetsThreshold) {
         violations.push(metric);
       }
+    } else if (!meetsThreshold) {
+      violations.push(metric);
     }
   }
 
-  // Sort by lowest line coverage first
+  // Sort by file path
   fileMetrics.sort((a, b) => a.file.localeCompare(b.file));
 
   return {
@@ -131,8 +138,12 @@ function generateMarkdownReport(evaluation) {
   if (total) {
     md += `| Scope | Statements | Branches | Functions | Lines | Status |\n`;
     md += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
-    const linesPassed = total.lines.pct >= threshold;
-    const statusIcon = linesPassed ? '✅ Passed' : '⚠️ Below Threshold';
+    const totalPassed =
+      total.lines.pct >= threshold &&
+      total.statements.pct >= threshold &&
+      total.branches.pct >= threshold &&
+      total.functions.pct >= threshold;
+    const statusIcon = totalPassed ? '✅ Passed' : '⚠️ Below Threshold';
     md += `| **Overall Codebase** | ${total.statements.pct}% | ${total.branches.pct}% | ${total.functions.pct}% | **${total.lines.pct}%** | ${statusIcon} |\n\n`;
   }
 
@@ -141,7 +152,7 @@ function generateMarkdownReport(evaluation) {
   md += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
 
   for (const m of fileMetrics) {
-    const icon = m.lines >= threshold ? '✅' : '❌';
+    const icon = m.meetsThreshold ? '✅' : '❌';
     md += `| \`${m.file}\` | ${m.statements}% | ${m.branches}% | ${m.functions}% | **${m.lines}%** | ${icon} |\n`;
   }
 
@@ -149,7 +160,7 @@ function generateMarkdownReport(evaluation) {
     md += `\n> [!CAUTION]\n`;
     md += `> **Coverage Threshold Failure**: ${violations.length} target file(s) dropped below the required ${threshold}% threshold:\n`;
     for (const v of violations) {
-      md += `> - \`${v.file}\`: ${v.lines}% lines (required >= ${threshold}%)\n`;
+      md += `> - \`${v.file}\`: lines ${v.lines}%, statements ${v.statements}%, branches ${v.branches}%, functions ${v.functions}% (all required >= ${threshold}%)\n`;
     }
   }
 
