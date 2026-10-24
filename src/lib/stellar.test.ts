@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { formatStellarAddress, isValidStellarAddress, getSorobanRpcServer } from "./stellar";
 
 describe("Stellar Helpers", () => {
@@ -18,7 +18,7 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Soroban contract IDs (C...)", () => {
-    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
@@ -69,5 +69,9 @@ describe("Stellar Helpers", () => {
     const updatedAllowance = await getTokenAllowanceQuery(testOwner);
     expect(updatedAllowance).toBe(1500);
   });
-});
 
+  afterEach(() => {
+    delete (globalThis as any).window;
+    delete (globalThis as any).localStorage;
+  });
+});

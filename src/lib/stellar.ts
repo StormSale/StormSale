@@ -26,11 +26,11 @@ import { rpcFallbackManager } from "./rpcFallback";
 import { addErrorBreadcrumb } from "./errorTracking";
 
 export type WalletType =
-  "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
+  | "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
 
 export interface StellarAccountInfo {
   address: string;
-  balanceXlm: string;
+  balanceXLm: string;
   network: string;
 }
 
@@ -217,7 +217,7 @@ export async function signWalletTransaction(
       typeof signResult === "string"
         ? signResult
         : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
-    if (!signedXdr) throw new Error("No signed transaction XDR returned from Freighter.");
+    if (!signedXdr)throw new Error("No signed transaction XDR returned from Freighter.");
     return signedXdr;
   } else if (walletType === "albedo") {
     const netParam = STELLAR_CONFIG.network.toLowerCase() === "public" ? "public" : "testnet";
@@ -653,15 +653,26 @@ export async function resolveRecipient(
 }
 
 /**
- * Helper to request friendbot testnet XLM funding for new testnet accounts.
+ * Helper to request friendbot testnet XLM funding for new test accounts.
  */
-export async function fundTestnetAccount(address: string): Promise<boolean> {
+export async function requestFriendbotFunding(address: string): Promise<boolean> {
   try {
-    const response = await fetch(`https://friendbot.stellar.org?addr=${address}`);
+    const response = await fetch(
+      `https://friendbot.org/testnet?addr=${encodeURIComponent(address)}`,
+      { method: "GET" },
+    );
     return response.ok;
-  } catch {
+  } catch (error) {
+    console.warn("Friendbot funding failed:", error);
     return false;
   }
+}
+
+/**
+ * Returns the native XLM balance for an account via Horizon.
+ */
+export async function getAccountBalance(address: string): Promise<string> {
+  return fetchXlmBalance(address);
 }
 
 /**
@@ -672,13 +683,72 @@ export function getSorobanRpcServer(): rpc.Server {
 }
 
 /**
- * Core Soroban Contract Invocation Engine:
- * 1. Fetches caller account sequence from Soroban RPC.
- * 2. Builds preliminary transaction with contract call.
- * 3. Simulates transaction to resolve footprint, resource fees, and auth.
- * 4. Assembles transaction with simulation response.
- * 5. Signs transaction via active Stellar wallet (Freighter / Albedo / xBull).
- * 6. Submits to Soroban RPC and polls ledger until confirmed.
+ * Builds and submits a Soroban contract invocation transaction.
+ */
+export async function invokeSorobanContract(params: {
+  contractId: string;
+  method: string;
+  args?: any[];
+  sourceAddress: string;
+  walletType: WalletType;
+  network?: string;
+}): Promise<SorobanInvokeResult> {
+  try {
+    const network = params.network || STELLAR_CONFIG.network;
+    const horizonUrl = network === "public" ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org";
+    const networkPassphrase =
+      network === "public"
+        ? "Public Global Stellar Network ; September 2015"
+        : "Test SDH Network ; September 2015";
+
+    const accountResponse = await fetch(`${horizonUrl}/accounts/${params.sourceAddress}`);
+    if (!accountResponse.ok) {
+      throw new Error("Source account not found on network.");
+    }
+    const accountData = await accountResponse.json();
+    const sourceAccount = new Account(params.sourceAddress, accountData.sequence);
+
+    const contract = new Contract(params.contractId);
+    const operation = contract.call(params.method, ...(params.args || []));
+
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    tx.sign();
+    const xdrBase64 = tx.toXDR();
+    const signed = await signWalletTransaction(xdrBase64, params.walletType);
+
+    const submitResponse = await fetch(`${horizonUrl}/transactions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `tx=${encodeURIComponent(signed)}`,
+    });
+    const submitData = await submitResponse.json();
+    if (!submitResponse.ok) {
+      throw new Error(submitData.extras?.result_codes ?.join(", ") || "Transaction submission failed.");
+    }
+
+    return {
+      success: true,
+      txHash: submitData.hash || "",
+      resultValue: submitData.result_meta,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      txHash: "",
+      resultValue: err.message,
+    };
+  }
+}
+
+/**
+ * Invokes a Soroban contract method: prepares, simulates, signs, submits, and polls for confirmation.
  */
 export async function invokeSorobanMethod(
   callerAddress: string,
@@ -687,17 +757,6 @@ export async function invokeSorobanMethod(
   walletType: WalletType = "freighter",
   contractIdOverride?: string,
 ): Promise<SorobanInvokeResult> {
-  // If mock wallet is specified (e.g. automated tests or sandbox simulation), return simulated success
-  if (walletType === "mock") {
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: mockHash,
-      resultValue: 1,
-    };
-  }
-
   const targetContractId = contractIdOverride || STELLAR_CONFIG.contractId;
 
   addErrorBreadcrumb("contract.invoke", `Invoking ${methodName}`, {
@@ -792,6 +851,13 @@ export async function invokeSorobanMethod(
 /**
  * Creates an on-chain campaign with an XLM or SAC stablecoin (USDC, EURC) escrow deposit.
  */
+export function parseAsset(asset: string): { code: string; issuer: string } | null {
+  if (!asset || asset === "native") return null;
+  const [code, issuer] = asset.split(":");
+  if (!code || !issuer) return null;
+  return { code, issuer };
+}
+
 export async function createCampaignContractCall(
   advertiserAddress: string,
   commissionRatePercent: number,
