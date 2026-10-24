@@ -19,6 +19,7 @@ import {
   getTransactionStatus,
 } from "../lib/stellar";
 import type { WalletType, TransactionPollStatus } from "../lib/stellar";
+import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { registerUser } from "../utils/api";
@@ -26,6 +27,7 @@ import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
+import type { AutoSwapConfig } from "../lib/sorobanDex";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import type { MultiSigAccountInfo } from "../lib/multisig";
@@ -168,10 +170,16 @@ export interface Web3ContextType {
     asset?: SupportedEscrowAssetCode;
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  topUpCampaignEscrow: (
+    campaignId: number,
+    amount: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => Promise<{ success: boolean; txHash?: string; toppedUpAmount?: number }>;
 
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
@@ -459,7 +467,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
           onAttempt: (attempt, delayMs) => {
             if (pollAbortRef.current.aborted) return;
             setPollingStatus({ status: "pending", txHash, attempt, nextDelayMs: delayMs });
-            options.onAttempt?.(attempt, delayMs);
+            options?.onAttempt?.(attempt, delayMs);
           },
         });
         if (!pollAbortRef.current.aborted) {
@@ -780,11 +788,65 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     );
   };
 
+  /**
+   * Tops up a campaign's escrow balance on Soroban or mock sandbox, deducting token allowance.
+   */
+  const topUpCampaignEscrow = async (
+    campaignId: number,
+    amount: number,
+    assetCode: SupportedEscrowAssetCode = "XLM",
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await topUpCampaignEscrowContractCall(
+        userAddress,
+        campaignId,
+        amount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      if (connectorType !== "mock") {
+        throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
+      }
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setTokenAllowance((prev) => Math.max(0, prev - amount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - amount);
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
+        }
+      }
+      return {
+        success: true,
+        txHash: mockTxHash,
+        toppedUpAmount: amount,
+      };
+    }
+  };
+
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
   // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
     await assertNotSanctioned(userAddress, "batch-claim-payout");
@@ -794,6 +856,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       campaigns,
       connectorType || "freighter",
       splitPlan,
+      autoSwap,
     );
     return res;
   };
@@ -857,68 +920,73 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  const value: Web3ContextType = {
-    userAddress,
-    userRole,
-    isConnected,
-    isStellarNetwork: network.toUpperCase() === STELLAR_CONFIG.network.toUpperCase(),
-    network,
-    xlmBalance,
-    assetBalances,
-    connectorType,
-    isWalletModalOpen,
-    ledgerBipPath,
-    setLedgerBipPath,
-    openWalletModal,
-    closeWalletModal,
-    connectWallet,
-    disconnectWallet,
-    updateUserRole,
-    requestFriendbotFunding,
-    refreshBalances,
-    approveAllowance,
-    createCampaignOnChain,
-    logSaleOnChain,
-    claimPayoutOnChain,
-    refundCampaignEscrow,
-    batchClaimPayoutsOnChain,
-    registerPasskeyAccount,
-    tokenAllowance,
-    refreshTokenAllowance,
-    approveTokenAllowance,
-    pollTransaction,
-    retryTransactionPoll,
-    pollingStatus,
-    pollingTxHash,
-    pollingError,
-    clearPollingError,
-    multiSigInfo,
-    isMultiSigAccount,
-    isMultiSigModalOpen,
-    activeMultiSigXdr,
-    activeMultiSigDescription,
-    openMultiSigModal,
-    closeMultiSigModal,
-    refreshMultiSigInfo,
-    activeRpcEndpoint,
-    rpcEndpoints,
-    rpcFailoverHistory,
-    rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
-    isRpcModalOpen,
-    openRpcModal,
-    closeRpcModal,
-    switchRpcEndpoint,
-    simulateRpcFailover,
-    checkRpcHealth,
-    addCustomRpcEndpoint,
-    factoryContract,
-    getCampaignContract,
-    provider: null,
-    signer: null,
-    switchToStellarNetwork,
-  };
-
-  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
+  return (
+    <Web3Context.Provider
+      value={{
+        userAddress,
+        userRole,
+        isConnected,
+        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
+        network,
+        xlmBalance,
+        assetBalances,
+        connectorType,
+        isWalletModalOpen,
+        ledgerBipPath,
+        setLedgerBipPath,
+        openWalletModal,
+        closeWalletModal,
+        connectWallet,
+        disconnectWallet,
+        updateUserRole,
+        requestFriendbotFunding,
+        refreshBalances,
+        approveAllowance,
+        createCampaignOnChain,
+        logSaleOnChain,
+        claimPayoutOnChain,
+        refundCampaignEscrow,
+        topUpCampaignEscrow,
+        batchClaimPayoutsOnChain,
+        registerPasskeyAccount,
+        tokenAllowance,
+        refreshTokenAllowance,
+        approveTokenAllowance,
+        pollTransaction,
+        retryTransactionPoll,
+        pollingStatus,
+        pollingTxHash,
+        pollingError,
+        clearPollingError,
+        factoryContract,
+        getCampaignContract,
+        multiSigInfo,
+        isMultiSigAccount,
+        isMultiSigModalOpen,
+        activeMultiSigXdr,
+        activeMultiSigDescription,
+        openMultiSigModal,
+        closeMultiSigModal,
+        refreshMultiSigInfo,
+        provider: null,
+        signer: null,
+        switchToStellarNetwork,
+        activeRpcEndpoint,
+        rpcEndpoints,
+        rpcFailoverHistory,
+        rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
+        isRpcModalOpen,
+        openRpcModal,
+        closeRpcModal,
+        switchRpcEndpoint,
+        simulateRpcFailover,
+        checkRpcHealth,
+        addCustomRpcEndpoint,
+      }}
+    >
+      {children}
+    </Web3Context.Provider>
+  );
 }
 
 export function useWeb3() {

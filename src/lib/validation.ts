@@ -50,6 +50,26 @@ export const stellarPublicKeySchema = z
     },
   );
 
+/** `username*domain.com` SEP-0002 federation address. */
+const FEDERATION_ADDRESS_PATTERN =
+  /^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?\*[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i;
+
+/**
+ * A recipient entered as either a Stellar public key (G…) or a federation
+ * address. Federation addresses are resolved to a G… account before any
+ * contract call, where the resolved value is still validated as a public key.
+ */
+export const stellarRecipientSchema = z
+  .string()
+  .trim()
+  .refine(
+    (val) => StrKey.isValidEd25519PublicKey(val) || FEDERATION_ADDRESS_PATTERN.test(val),
+    {
+      message:
+        "Must be a valid 56-character Stellar public key starting with G, or a name*domain federation address",
+    },
+  );
+
 /**
  * Soroban contract address only (C…). Used for campaign contract addresses.
  */
@@ -74,6 +94,18 @@ export const xlmAmountSchema = z
   });
 
 /** Positive integer ID (sale ID, campaign ID). */
+/**
+ * An on-chain campaign id: a whole number that fits the contract's u32.
+ * A larger value would be rejected by the contract call, so it is refused
+ * here with a message instead of failing as an unhandled rejection.
+ */
+export const campaignIdSchema = z
+  .string()
+  .trim()
+  .refine((val) => /^\d+$/.test(val) && Number(val) <= 0xffffffff, {
+    message: "Campaign ID must be a whole number up to 4294967295",
+  });
+
 export const positiveIntSchema = z
   .string()
   .trim()
@@ -149,9 +181,11 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
  * contract: log_sale(campaignId, affiliateAddress, amountXlm)
  */
 export const logSaleSchema = z.object({
-  campaignAddress: sorobanContractSchema.or(stellarAddressSchema),
+  // The on-chain campaign id (what private-campaign access is keyed on), or
+  // a contract/account address.
+  campaignAddress: campaignIdSchema.or(sorobanContractSchema).or(stellarAddressSchema),
 
-  affiliateAddress: stellarPublicKeySchema,
+  affiliateAddress: stellarRecipientSchema,
 
   saleAmount: xlmAmountSchema,
 
@@ -171,7 +205,7 @@ export const grantAccessSchema = z.object({
 
   saleId: positiveIntSchema,
 
-  auditorAddress: stellarPublicKeySchema,
+  auditorAddress: stellarRecipientSchema,
 });
 
 export type GrantAccessInput = z.infer<typeof grantAccessSchema>;
