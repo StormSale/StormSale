@@ -50,12 +50,37 @@ export interface AnomalyReport {
   note?: string;
 }
 
+export interface SorobanResourceBudget {
+  minResourceFee: string;
+  cpuInstructions: number;
+  memoryBytes: number;
+  readBytes: number;
+  writeBytes: number;
+  readLigerKeys: number;
+  writeLigerKeys: number;
+  warnings: string[];
+  optimizationScore: number;
+}
+
+export interface SorobanSimulationResult {
+  success: boolean;
+  error?: string;
+  budget?: SorobanResourceBudget;
+  events?: unknown[];
+}
+
 const MAX_TRANSACTIONS = 5000;
 const MAX_CYCLE_LENGTH = 6;
 const MAX_REPORTED_CYCLES = 250;
 const CORRELATED_WINDOW_MS = 2 * 60 * 1000;
 const HIGH_VELOCITY_WINDOW_MS = 10 * 60 * 1000;
 const HIGH_VELOCITY_THRESHOLD = 5;
+
+// Soroban resource budget thresholds for warnings.
+const CPU_WARN_THRESHOLD = 100_000_000;
+const MEMORY_WARN_THRESHOLD = 40_000_000;
+const REAED_BYTES_WARN_THRESHOLD = 100_000;
+const WRITE_BYTES_WARN_THRESHOLD = 100_000;
 
 function normalizeFlow(value: unknown, index: number): TransactionFlow {
   if (!value || typeof value !== "object") {
@@ -354,4 +379,106 @@ export function createAnomalyReport(
     createdAt: new Date().toISOString(),
     note: note?.trim() || undefined,
   };
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function resourceFromContainer(container: Record<string, unknown> | undefined): {
+  cpuInstructions: number;
+  memoryBytes: number;
+  readBytes: number;
+  writeBytes: number;
+  readLigerKeys: number;
+  writeLigerKeys: number;
+} {
+  if (!container) {
+    return {
+      cpuInstructions: 0,
+      memoryBytes: 0,
+      readBytes: 0,
+      writeBytes: 0,
+      readLigerKeys: 0,
+      writeLigerKeys: 0,
+    };
+  }
+
+  const cpuInstructions = toNumber(container.cpuInstructions);
+  const memoryBytes = toNumber(container.memoryBytes);
+  const readBytes = toNumber(container.readBytes);
+  const writeBytes = toNumber(container.writeBytes);
+  const readLigerKeys = toNumber(container.readLigerKeys);
+  const writeLigerKeys = toNumber(container.writeLigerKeys);
+
+  return { cpuInstructions, memoryBytes, readBytes, writeBytes, readLigerKeys, writeLigerKeys };
+}
+
+export function parseSorobanSimulation(response: unknown): SorobanSimulationResult {
+  if (!response || typeof response !== "object") {
+    return { success: false, error: "Empty or invalid simulation response." };
+  }
+
+  const resp = response as Record<string, unknown>;
+  const error = resp.error;
+  if (typeof error === "string" && error.trim().length > 0) {
+    return { success: false, error };
+  }
+
+  const result = resp.result as Record<string, unknown> | undefined;
+  const resources = (
+    (result?.resources as Record<string, unknown> | undefined) ??
+    (resp.resources as Record<string, unknown> | undefined)
+  );
+
+  if (!resources) {
+    return { success: false, error: "Simulation response is missing resource information." };
+  }
+
+  const fee = resources.minResourceFee;
+  const minResourceFee = typeof fee === "string" ? fee : typeof fee === "number" ? String(fee) : "0";
+
+  const base = resourceFromContainer(resources);
+  const warnings: string[] = [];
+
+  if (base.cpuInstructions > CPU_WARN_THRESHOLD) {
+    warnings.push(
+      `CPU instructions (${base.cpuInstructions}) exceed the recommended threshold (${CPU_WARN_THRESHOLD}).`,
+    );
+  }
+  if (base.memoryBytes > MEMORY_WARN_THRESHOLD) {
+    warnings.push(
+      `Memory usage (${base.memoryBytes} bytes) exceeds the recommended threshold (${MEMORY_WARN_THRESHOLD} bytes).`,
+    );
+  }
+  if (base.readBytes > REAED_BYTES_WARN_THRESHOLD) {
+    warnings.push(
+      `Ledger read bytes (${base.readBytes}) exceed the recommended threshold (${READ_BYTES_WARN_THRESHOLD}).`,
+    );
+  }
+  if (base.writeBytes > WRITE_BYTES_WARN_THRESHOLD) {
+    warnings.push(
+      `Ledger write bytes (${base.writeBytes}) exceed the recommended threshold (${WRITE_BYTES_WARN_THRESHOLD}).`,
+    );
+  }
+
+  const cpuRatio = Math.min(1, base.cpuInstructions / CPU_WARN_THRESHOLD);
+  const memoryRatio = Math.min(1, base.memoryBytes / MEMORY_WARN_THRESHOLD);
+  const optimizationScore = Math.round((1 - Math.max(cpuRatio, memoryRatio)) * 100);
+
+  const budget: SorobanResourceBudget = {
+    minResourceFee,
+    ...base,
+    warnings,
+    optimizationScore,
+  };
+
+  const events = Array.isArray(resp.events) ? (resp.events as unknown[]) : undefined;
+
+  return { success: true, budget, events };
 }

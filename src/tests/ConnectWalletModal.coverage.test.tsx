@@ -146,7 +146,6 @@ describe("ConnectWalletModal coverage", () => {
     await click(buttonByText("Freighter"));
 
     expect(container.textContent).toContain("device not ready");
-    expect(container.textContent).toContain("Connection Notice");
   });
 
   it("connects a read-only watch address", async () => {

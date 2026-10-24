@@ -10,6 +10,7 @@ import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
+import { ResourceDiagnostic } from "./components/shared/ResourceDiagnostic";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
@@ -38,7 +39,7 @@ export function PageLoader() {
     <div
       role="status"
       aria-label="Loading page"
-      className="min-h-screen flex flex-col items-center justify-center p-6 bg-background text-foreground"
+      className="min-h-screen flex flex-col flex-center justify-center p-6 bg-background text-foreground"
     >
       <div className="relative flex items-center justify-center">
         <div className="w-12 h-12 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin" />
@@ -98,6 +99,11 @@ function Router() {
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
   });
+  const [devMode, setDevMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("dev") === "1" || params.get("devMode") === "true";
+  });
 
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
@@ -125,6 +131,19 @@ function Router() {
       <ConnectWalletModal />
       <MultiSigApprovalModal />
       <RpcStatusModal />
+      <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs shadow ring-1 ring-border">
+        <label htmlFor="dev-mode-toggle" className="cursor-pointer select-none">
+          Dev mode
+        </label>
+        <input
+          id="dev-mode-toggle"
+          type="checkbox"
+          checked={devMode}
+          onChange={(e) => setDevMode(e.target.checked)}
+          className="h-4 w-4 cursor-pointer"
+        />
+      </div>
+      {devMode && <ResourceDiagnostic />}
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
           <Landing />
