@@ -1,9 +1,9 @@
-
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
 import { AuditHistory } from "../components/auditor/AuditHistory";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
+import { VerifyContractBytecode } from "../components/auditor/VerifyContractBytecode";
 import { ComplianceChecklist } from "../components/auditor/ComplianceChecklist";
 import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer";
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
@@ -29,6 +29,7 @@ import {
   KeyRound,
   Lock,
   Gauge,
+  Binary,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,6 +40,8 @@ interface AuditorProps {
 
 const AUDITOR_TABS = [
   "overview",
+  "bytecode",
+  "merkle",
   "verify",
   "history",
   "checklist",
@@ -46,7 +49,6 @@ const AUDITOR_TABS = [
   "network",
   "fraud",
   "soc2",
-  "merkle",
   "privacy",
 ] as const;
 
@@ -128,6 +130,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "bytecode", label: "Verify Contract Bytecode", icon: Binary },
     { id: "merkle", label: "Merkle Tree Proofs", icon: GitFork },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
@@ -155,6 +158,9 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "bytecode":
+        return <VerifyContractBytecode />;
+
       case "merkle":
         return (
           <MerkleTreeVisualizer
@@ -162,7 +168,6 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
             organizationId={org.id}
           />
         );
-
       case "verify":
         return <VerifyAccess />;
 
