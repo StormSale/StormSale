@@ -1,4 +1,4 @@
-/**
+/*
  * Encrypted Local Cache Layer for StormSale
  *
  * Implements AES-GCM 256-bit encryption for all sensitive key-value pairs stored
