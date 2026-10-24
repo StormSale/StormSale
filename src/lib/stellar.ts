@@ -16,6 +16,7 @@ import {
   Address,
   Account,
   BASE_FEE,
+  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
@@ -417,6 +418,259 @@ export function isValidStellarAddress(address: string): boolean {
   );
 }
 
+/**
+ * Validates a Stellar ed25519 account id (`G...`) with its StrKey base32 and
+ * CRC16 checksum, rejecting contract ids and format-only lookalikes.
+ */
+export function isValidStellarAccount(address: string): boolean {
+  if (!address) return false;
+  return StrKey.isValidEd25519PublicKey(address.trim());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stellar Federation (SEP-0002) address resolution                           */
+/* -------------------------------------------------------------------------- */
+
+/** A parsed `username*domain.com` federation address. */
+export interface ParsedFederatedAddress {
+  username: string;
+  domain: string;
+}
+
+/** A record returned by a SEP-0002 federation server. */
+export interface FederatedAddressRecord {
+  /** The federation address that was resolved (e.g. `alice*stormsale.io`). */
+  federatedAddress: string;
+  /** The resolved ed25519 Stellar account id (`G...`). */
+  accountId: string;
+  /** Memo type the recipient requires for payments (e.g. `id`, `text`, `hash`). */
+  memoType?: string;
+  /** Memo value the recipient requires, if any. */
+  memo?: string;
+}
+
+/** Outcome of validating/resolving a recipient input field. */
+export type RecipientResolutionStatus = "raw" | "federated" | "unresolved" | "invalid";
+
+export interface RecipientResolution {
+  status: RecipientResolutionStatus;
+  /** Resolved ed25519 public key when `status` is `raw` or `federated`. */
+  address?: string;
+  /** The original federation address, only present when `status` is `federated`. */
+  federatedAddress?: string;
+  memoType?: string;
+  memo?: string;
+  /** Human readable reason when `status` is `unresolved` or `invalid`. */
+  error?: string;
+}
+
+/** Options for federation lookups. */
+export interface FederationResolutionOptions {
+  /** Request timeout in milliseconds. */
+  timeoutMs?: number;
+  /** Override the federation server URL (normally discovered from stellar.toml). */
+  federationServer?: string;
+}
+
+// `name*domain.tld` — username allows common email-ish characters, domain must have a dot.
+const FEDERATION_ADDRESS_PATTERN =
+  /^([a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?)\*([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i;
+
+// Extract `FEDERATION_SERVER = "https://..."` from a stellar.toml document.
+const FEDERATION_SERVER_TOML_PATTERN = /^\s*FEDERATION_SERVER\s*=\s*["']([^"']+)["']/im;
+
+/**
+ * Returns true when the value looks like a `username*domain.com` federation address.
+ */
+export function isFederatedAddress(value: string): boolean {
+  if (!value) return false;
+  return FEDERATION_ADDRESS_PATTERN.test(value.trim());
+}
+
+/**
+ * Splits a federation address into its username and domain parts.
+ * Returns `null` when the value is not a valid federation address.
+ */
+export function parseFederatedAddress(value: string): ParsedFederatedAddress | null {
+  const match = value?.trim().match(FEDERATION_ADDRESS_PATTERN);
+  if (!match) return null;
+  return { username: match[1], domain: match[2].toLowerCase() };
+}
+
+/**
+ * Performs a fetch with an abort-based timeout that stays active while the
+ * response body is consumed, so federation lookups never hang the UI.
+ */
+async function fetchWithTimeout<T>(
+  url: string,
+  timeoutMs: number,
+  read: (response: Response) => Promise<T>,
+): Promise<{ response: Response; body: T }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+    const body = await read(response);
+    return { response, body };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Federation request timed out after ${timeoutMs} ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Discovers the SEP-0002 federation server for a domain by reading its
+ * `/.well-known/stellar.toml` file.
+ */
+export async function discoverFederationServer(
+  domain: string,
+  timeoutMs: number = STELLAR_CONFIG.federationTimeoutMs,
+): Promise<string> {
+  const tomlUrl = `https://${domain}/.well-known/stellar.toml`;
+  const { response, body: toml } = await fetchWithTimeout(tomlUrl, timeoutMs, (res) => res.text());
+  if (!response.ok) {
+    throw new Error(`Could not load stellar.toml for ${domain} (HTTP ${response.status})`);
+  }
+
+  const match = toml.match(FEDERATION_SERVER_TOML_PATTERN);
+  const server = match?.[1]?.trim();
+  if (!server) {
+    throw new Error(`stellar.toml for ${domain} does not declare a FEDERATION_SERVER`);
+  }
+  return server;
+}
+
+/**
+ * Resolves a `username*domain.com` federation address to its ed25519 public key
+ * and any memo the recipient requires. Throws when the lookup fails so callers
+ * can gracefully fall back to a raw public key.
+ *
+ * @see https://developers.stellar.org/docs/learn/encyclopedia/federation
+ */
+export async function resolveFederatedAddress(
+  federatedAddress: string,
+  options: FederationResolutionOptions = {},
+): Promise<FederatedAddressRecord> {
+  const parsed = parseFederatedAddress(federatedAddress);
+  if (!parsed) {
+    throw new Error(`Invalid federation address: ${federatedAddress}`);
+  }
+
+  const timeoutMs = options.timeoutMs ?? STELLAR_CONFIG.federationTimeoutMs;
+  const serverUrl =
+    options.federationServer ?? (await discoverFederationServer(parsed.domain, timeoutMs));
+
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    throw new Error(`Invalid federation server URL: ${serverUrl}`);
+  }
+  // SEP-0002 requires HTTPS; FEDERATION_SERVER comes from an untrusted stellar.toml.
+  if (url.protocol !== "https:") {
+    throw new Error(`Federation server must use HTTPS: ${serverUrl}`);
+  }
+  url.search = "";
+  url.searchParams.set("q", `${parsed.username}*${parsed.domain}`);
+  url.searchParams.set("type", "name");
+
+  const { response, body: data } = await fetchWithTimeout(
+    url.toString(),
+    timeoutMs,
+    async (res) =>
+      (await res.json().catch(() => null)) as {
+        stellar_address?: string;
+        account_id?: string;
+        memo_type?: string;
+        memo?: string | number;
+      } | null,
+  );
+  if (!response.ok) {
+    throw new Error(`Federation server responded with HTTP ${response.status}`);
+  }
+
+  const accountId = data?.account_id?.trim();
+  if (!accountId || !isValidStellarAccount(accountId)) {
+    throw new Error("Federation server did not return a valid ed25519 account id");
+  }
+
+  return {
+    federatedAddress: data?.stellar_address?.trim() || `${parsed.username}*${parsed.domain}`,
+    accountId,
+    memoType: data?.memo_type,
+    memo: data?.memo !== undefined && data?.memo !== null ? String(data.memo) : undefined,
+  };
+}
+
+/**
+ * Resolves a recipient input that may be either a raw `G...` public key or a
+ * `username*domain.com` federation address. Never throws: an unreachable or
+ * misconfigured federation server yields `{ status: "unresolved" }` so the UI
+ * can fall back to raw public key entry.
+ */
+export async function resolveRecipient(
+  input: string,
+  options: FederationResolutionOptions = {},
+): Promise<RecipientResolution> {
+  const value = input?.trim() ?? "";
+  if (!value) {
+    return { status: "invalid", error: "Enter a Stellar public key or federation address." };
+  }
+
+  if (isValidStellarAccount(value)) {
+    return { status: "raw", address: value };
+  }
+
+  if (!isFederatedAddress(value)) {
+    return {
+      status: "invalid",
+      error: "Enter a valid G... public key or name*domain.com federation address.",
+    };
+  }
+
+  try {
+    const record = await resolveFederatedAddress(value, options);
+    return {
+      status: "federated",
+      address: record.accountId,
+      federatedAddress: record.federatedAddress,
+      memoType: record.memoType,
+      memo: record.memo,
+    };
+  } catch (error) {
+    return {
+      status: "unresolved",
+      error: error instanceof Error ? error.message : "Federation lookup failed.",
+    };
+  }
+}
+
+/**
+ * Helper to request friendbot testnet XLM funding for new testnet accounts.
+ */
+export async function fundTestnetAccount(address: string): Promise<boolean> {
+  try {
+    const response = await fetch(`https://friendbot.stellar.org?addr=${address}`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Returns a configured Soroban RPC Server instance from the active node in rpcFallbackManager.
+ */
+export function getSorobanRpcServer(): rpc.Server {
+  return rpcFallbackManager.getActiveRpcServer();
+}
+
 export interface SorobanEventFilter {
   type: "system" | "contract" | "diagnostic";
   contractIds?: string[];
@@ -432,13 +686,6 @@ export interface SorobanEvent {
   ledger: number;
   txHash?: string;
   createdAt?: string;
-}
-
-/**
- * Returns a configured Soroban RPC Server instance from the active node in rpcFallbackManager.
- */
-export function getSorobanRpcServer(): rpc.Server {
-  return rpcFallbackManager.getActiveRpcServer();
 }
 
 export const SOROBAN_EVENT_TOPICS = [
@@ -560,7 +807,7 @@ export function startSorobanEventStream(
         if (seenIds.has(evt.id)) continue;
         seenIds.add(evt.id);
         options.onEvent(evt);
-        if (evt.ledge > cursor) cursor = evt.ledger;
+        if (evt.ledger > cursor) cursor = evt.ledger;
       }
 
       attempt = 0;

@@ -32,6 +32,9 @@ export const STELLAR_CONFIG = {
     // Maximum number of events requested per poll.
     pageSize: 100,
   },
+
+  // Timeout for stellar.toml discovery and federation server lookups (ms).
+  federationTimeoutMs: 8000,
 };
 
 import { Asset, Networks } from "@stellar/stellar-sdk";
