@@ -29,6 +29,8 @@ import {
   RefreshCw,
   Lock,
   Globe,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
@@ -84,6 +86,13 @@ export const CreateCampaignForm = () => {
     openMultiSigModal,
   } = useWeb3();
   const { showNotification } = useNotification();
+
+  const commissionRateNum = parseFloat(commissionRate) || 10;
+  const parsedCommissionTiers = commissionTiers.map((tier) => ({
+    name: tier.name.trim(),
+    volumeThreshold: Number(tier.volumeThreshold),
+    commissionRate: Number(tier.commissionRate),
+  }));
 
   // Numeric calculations
   const parsedBudget = parseFloat(budget);
@@ -271,6 +280,24 @@ export const CreateCampaignForm = () => {
         parseInt(result.data.clearingPeriod, 10),
         selectedAsset,
       );
+
+      try {
+        saveCampaignCommissionConfig(
+          String(campaignResult.campaignId),
+          commissionRateNum,
+          parsedCommissionTiers,
+        );
+      } catch (commissionConfigError) {
+        console.error(
+          "Campaign created, but its commission tiers were not saved:",
+          commissionConfigError,
+        );
+        showNotification({
+          type: "warning",
+          title: "Campaign Created — Commission Tiers Not Saved",
+          message: `Campaign #${campaignResult.campaignId} is live on-chain, but its commission tiers could not be saved locally. Do not create it again.`,
+        });
+      }
 
       // Record the access policy. This runs after the budget is already locked
       // in escrow, so a failure here must not be reported as a failed

@@ -20,7 +20,14 @@ import {
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
+import { Shield, Zap, Users, FileKey, TrendingUp } from "lucide-react";
+import {
+  assessCommissionTier,
+  calculateCommissionAmount,
+  getAffiliateCampaignVolume,
+  loadCampaignCommissionConfig,
+  normalizeCommissionCampaignId,
+} from "../../lib/commissionTiers";
 
 export const LogSaleForm = () => {
   const [affiliateAddress, setAffiliateAddress] = useState("");
@@ -32,6 +39,39 @@ export const LogSaleForm = () => {
 
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
+  const normalizedCampaignId = normalizeCommissionCampaignId(campaignAddress);
+  const { tierPreview, tierPreviewError } = useMemo(() => {
+    if (!normalizedCampaignId || !affiliateAddress.trim()) {
+      return { tierPreview: null, tierPreviewError: "" };
+    }
+
+    try {
+      const config = loadCampaignCommissionConfig(normalizedCampaignId);
+      if (!config) return { tierPreview: null, tierPreviewError: "" };
+
+      const historicalVolume = getAffiliateCampaignVolume(normalizedCampaignId, affiliateAddress);
+      return {
+        tierPreview: {
+          assessment: assessCommissionTier(config, historicalVolume),
+          historicalVolume,
+        },
+        tierPreviewError: "",
+      };
+    } catch (error) {
+      return {
+        tierPreview: null,
+        tierPreviewError:
+          error instanceof Error ? error.message : "Could not load commission tier data.",
+      };
+    }
+  }, [normalizedCampaignId, affiliateAddress]);
+  const commissionAssessment = tierPreview?.assessment ?? null;
+  const historicalVolume = tierPreview?.historicalVolume ?? 0;
+  const saleAmountNumber = Number(saleAmount);
+  const estimatedCommission =
+    tierPreview && Number.isFinite(saleAmountNumber) && saleAmountNumber > 0
+      ? calculateCommissionAmount(saleAmountNumber, tierPreview.assessment.commissionRate)
+      : null;
 
   const clearError = (field: string) => {
     setErrors((prev) => ({ ...prev, [field]: "" }));

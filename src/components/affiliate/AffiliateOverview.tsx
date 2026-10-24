@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import {
   Card,
@@ -21,7 +21,6 @@ import {
   Link2,
   QrCode,
   ShieldCheck,
-  Award,
 } from "lucide-react";
 import { useWeb3 } from "../../context/Web3Context";
 import { Input } from "../ui/input";
@@ -31,7 +30,6 @@ import {
   loadCampaignCommissionConfig,
   normalizeCommissionCampaignId,
 } from "../../lib/commissionTiers";
-import type { CampaignCommissionConfig, CommissionAssessment } from "../../lib/commissionTiers";
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -246,6 +244,110 @@ const AffiliateLinkGenerator = () => {
 };
 
 import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
+
+const AffiliateCommissionProgress = () => {
+  const { userAddress } = useWeb3();
+  const [campaignId, setCampaignId] = useState("");
+  const normalizedCampaignId = normalizeCommissionCampaignId(campaignId);
+  const progress = useMemo(() => {
+    if (!normalizedCampaignId || !userAddress) return null;
+
+    try {
+      const config = loadCampaignCommissionConfig(normalizedCampaignId);
+      if (!config) return { config: null, historicalVolume: 0, assessment: null, error: "" };
+
+      const historicalVolume = getAffiliateCampaignVolume(normalizedCampaignId, userAddress);
+      return {
+        config,
+        historicalVolume,
+        assessment: assessCommissionTier(config, historicalVolume),
+        error: "",
+      };
+    } catch (error) {
+      return {
+        config: null,
+        historicalVolume: 0,
+        assessment: null,
+        error: error instanceof Error ? error.message : "Could not read commission tier progress.",
+      };
+    }
+  }, [normalizedCampaignId, userAddress]);
+
+  return (
+    <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+      <CardHeader>
+        <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+          Commission tier progress
+        </CardTitle>
+        <CardDescription className="text-zinc-500 dark:text-zinc-400">
+          Check your locally recorded sales volume and current rate for a campaign.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <label className="block text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+          Commission campaign ID
+          <Input
+            value={campaignId}
+            onChange={(event) => setCampaignId(event.target.value)}
+            placeholder="Enter a campaign ID"
+            className="mt-1.5"
+          />
+        </label>
+        {!normalizedCampaignId ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Enter a campaign ID to view tier progress.
+          </p>
+        ) : !userAddress ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Connect your wallet to view affiliate progress.
+          </p>
+        ) : progress?.error ? (
+          <p role="alert" className="text-sm text-rose-700 dark:text-rose-300">
+            {progress.error}
+          </p>
+        ) : !progress?.config || !progress.assessment ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            No commission tiers are configured for this campaign.
+          </p>
+        ) : (
+          <div className="space-y-2 text-sm">
+            <p className="text-zinc-700 dark:text-zinc-300">
+              Current tier:{" "}
+              <strong>
+                {progress.assessment.currentTier?.name ?? "Base"} ·{" "}
+                {progress.assessment.commissionRate}%
+              </strong>
+            </p>
+            <p className="text-zinc-500 dark:text-zinc-400">
+              Recorded volume: {progress.historicalVolume.toLocaleString()} XLM
+            </p>
+            {progress.assessment.nextTier && (
+              <div>
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/50"
+                  role="progressbar"
+                  aria-label="Progress toward next commission tier"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(progress.assessment.progressPercent)}
+                >
+                  <div
+                    className="h-full rounded-full bg-indigo-600 dark:bg-indigo-400"
+                    style={{ width: `${progress.assessment.progressPercent}%` }}
+                  />
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  {progress.assessment.nextTier.volumeThreshold - progress.historicalVolume} XLM
+                  until {progress.assessment.nextTier.name}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const AFFILIATE_QUICK_ACTIONS = [
   {
