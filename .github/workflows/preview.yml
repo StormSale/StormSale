@@ -87,18 +87,22 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const marker = "<!-- stormsale-preview-comment -->";
             const commit = context.payload.pull_request.head.sha.slice(0, 7);
-            const body = `${marker}
-### 🌐 Ephemeral preview environment is live
-
-| | |
-| :--- | :--- |
-| **Preview URL** | ${url} |
-| **Network** | Stellar **Testnet** (default) |
-| **Commit** | \`${commit}\` |
-
-> This staging environment is torn down automatically when the PR is closed or
-> merged. Click the URL to inspect UI changes in a live browser before approving.
-`;
+            // Build the comment line by line so the YAML block stays indented
+            // while the rendered markdown starts at column 0 (no code block).
+            const body = [
+              marker,
+              "### 🌐 Ephemeral preview environment is live",
+              "",
+              "| | |",
+              "| :--- | :--- |",
+              `| **Preview URL** | ${url} |`,
+              "| **Network** | Stellar **Testnet** (default) |",
+              `| **Commit** | \`${commit}\` |`,
+              "",
+              "> This staging environment is torn down automatically when the PR is closed or",
+              "> merged. Click the URL to inspect UI changes in a live browser before approving.",
+              "",
+            ].join("\n");
 
             // Replace our previous preview comment instead of spamming the thread.
             const { data: comments } = await github.rest.issues.listComments({
