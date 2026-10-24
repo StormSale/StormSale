@@ -50,6 +50,26 @@ export const stellarPublicKeySchema = z
     },
   );
 
+/** `username*domain.com` SEP-0002 federation address. */
+const FEDERATION_ADDRESS_PATTERN =
+  /^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?\*[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i;
+
+/**
+ * A recipient entered as either a Stellar public key (G…) or a federation
+ * address. Federation addresses are resolved to a G… account before any
+ * contract call, where the resolved value is still validated as a public key.
+ */
+export const stellarRecipientSchema = z
+  .string()
+  .trim()
+  .refine(
+    (val) => StrKey.isValidEd25519PublicKey(val) || FEDERATION_ADDRESS_PATTERN.test(val),
+    {
+      message:
+        "Must be a valid 56-character Stellar public key starting with G, or a name*domain federation address",
+    },
+  );
+
 /**
  * Soroban contract address only (C…). Used for campaign contract addresses.
  */
@@ -165,7 +185,7 @@ export const logSaleSchema = z.object({
   // a contract/account address.
   campaignAddress: campaignIdSchema.or(sorobanContractSchema).or(stellarAddressSchema),
 
-  affiliateAddress: stellarPublicKeySchema,
+  affiliateAddress: stellarRecipientSchema,
 
   saleAmount: xlmAmountSchema,
 
@@ -185,7 +205,7 @@ export const grantAccessSchema = z.object({
 
   saleId: positiveIntSchema,
 
-  auditorAddress: stellarPublicKeySchema,
+  auditorAddress: stellarRecipientSchema,
 });
 
 export type GrantAccessInput = z.infer<typeof grantAccessSchema>;
