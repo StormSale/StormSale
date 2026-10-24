@@ -32,12 +32,8 @@ jobs:
       url: ${{ steps.deploy.outputs.preview-url }}
 
     steps:
-      - name: Checkout PR code
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # Build the contributor's HEAD so secrets can never leak into forks'
-          # code paths beyond this trusted deployment step.
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
