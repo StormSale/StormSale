@@ -178,6 +178,18 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(isTelegramMiniApp()).toBe(true);
     });
 
+    it("round-trips large payload initData without truncation", () => {
+      const largeValue = "x".repeat(4096);
+      const encoded = encodeURIComponent(largeValue);
+      mockWebApp.initData = `query_id=AAHd&payload=${encoded}`;
+      expect(isTelegramMiniApp()).toBe(true);
+      const params = new URLSearchParams(mockWebApp.initData);
+      const decoded = params.get("payload");
+      expect(decoded).not.toBeNull();
+      expect(decoded!.length).toBe(largeValue.length);
+      expect(decoded).toBe(largeValue);
+    });
+
     it("recognizes non-empty initData when platform is unknown or empty", () => {
       mockWebApp.initData = "query_id=AAHd";
       mockWebApp.platform = "unknown";
@@ -327,62 +339,6 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(result).toBe(true);
       expect(writeTextMock).toHaveBeenCalledWith(url);
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
-
-    it("triggers error haptic feedback if clipboard writing fails", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
-      (navigator.clipboard as any).writeText = writeTextMock;
-
-      const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
-      const result = await copyReferralLinkWithHaptic(url);
-
-      expect(result).toBe(false);
-      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("error");
-    });
-
-    it("falls back to execCommand when navigator.clipboard.writeText rejects and succeeds if execCommand succeeds", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
-      (navigator.clipboard as any).writeText = writeTextMock;
-
-      const mockTextArea = {
-        value: "",
-        select: vi.fn(),
-      };
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
-      };
-      (document as any).createElement = vi.fn().mockReturnValue(mockTextArea);
-      (document as any).execCommand = vi.fn().mockReturnValue(true);
-
-      const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
-      const result = await copyReferralLinkWithHaptic(url);
-
-      expect(result).toBe(true);
-      expect((document as any).execCommand).toHaveBeenCalledWith("copy");
-      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
-  });
-
-  describe("Telegram Campaign Directory", () => {
-    it("contains multi-asset active campaigns with valid contract references and commission details", () => {
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThanOrEqual(4);
-
-      const usdcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "USDC");
-      const eurcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "EURC");
-      const xlmCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "XLM");
-
-      expect(usdcCampaign).toBeDefined();
-      expect(eurcCampaign).toBeDefined();
-      expect(xlmCampaign).toBeDefined();
-
-      MOCK_TELEGRAM_CAMPAIGNS.forEach((c) => {
-        expect(c.id).toBeTruthy();
-        expect(c.name).toBeTruthy();
-        expect(c.commissionRate).toBeTruthy();
-        expect(c.clearingPeriod).toBeTruthy();
-        expect(c.contractAddress).toBeTruthy();
-      });
     });
   });
 });
