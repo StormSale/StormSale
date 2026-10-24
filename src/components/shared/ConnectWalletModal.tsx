@@ -22,6 +22,8 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useWalletConnect } from "../../context/WalletConnectContext";
 import { CopyButton } from "../ui/copy-button";
+import { FederatedAddressInput } from "./FederatedAddressInput";
+import { resolveRecipient } from "../../lib/stellar";
 import type { WalletType } from "../../lib/stellar";
 
 export const ConnectWalletModal: React.FC = () => {
@@ -111,13 +113,21 @@ export const ConnectWalletModal: React.FC = () => {
 
     try {
       if (type === "readonly") {
-        const trimmed = customKey.trim();
-        if (!trimmed.startsWith("G") || trimmed.length !== 56) {
+        // Accept either a raw G... key or a name*domain.com federation address,
+        // re-resolving on submit so an unresolved string never reaches the wallet.
+        const resolution = await resolveRecipient(customKey);
+        if (
+          (resolution.status !== "raw" && resolution.status !== "federated") ||
+          !resolution.address
+        ) {
           throw new Error(
-            "Invalid Stellar public key format. Keys start with 'G' and are 56 characters.",
+            resolution.error ||
+              "Invalid Stellar public key format. Keys start with 'G' and are 56 characters.",
           );
         }
-        await connectWallet("readonly", trimmed);
+        await connectWallet("readonly", resolution.address);
+      } else if (type === "ledger") {
+        await connectWallet("ledger", undefined, getActiveBipPath());
       } else {
         await connectWallet(type);
       }
@@ -386,18 +396,14 @@ export const ConnectWalletModal: React.FC = () => {
               {/* Copy URI Section */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                    Connection URI
-                  </span>
+                  <span className="font-bold text-zinc-700 dark:text-zinc-300">Connection URI</span>
                   <button
                     type="button"
                     onClick={generateWalletConnectUri}
                     disabled={isGeneratingQr}
                     className="inline-flex items-center space-x-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 font-semibold"
                   >
-                    <RefreshCw
-                      className={`w-3.5 h-3.5 ${isGeneratingQr ? "animate-spin" : ""}`}
-                    />
+                    <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingQr ? "animate-spin" : ""}`} />
                     <span>Refresh Code</span>
                   </button>
                 </div>
@@ -576,14 +582,13 @@ export const ConnectWalletModal: React.FC = () => {
                     className="p-4 bg-slate-50 dark:bg-zinc-800/50 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5"
                   >
                     <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                      Stellar Public Key (G...)
+                      Stellar Public Key (G...) or Federation Address
                     </label>
-                    <input
-                      type="text"
+                    <FederatedAddressInput
                       value={customKey}
-                      onChange={(e) => setCustomKey(e.target.value)}
-                      placeholder="GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-                      className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs font-mono text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      onChange={setCustomKey}
+                      placeholder="GXXXX... or alice*stormsale.io"
+                      inputClassName="h-auto px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs"
                     />
                     <div className="flex justify-end space-x-2">
                       <button
