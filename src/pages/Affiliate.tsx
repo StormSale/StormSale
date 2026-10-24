@@ -6,6 +6,7 @@ import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
+import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import {
   Users,
   TrendingUp,
@@ -38,6 +39,7 @@ const AFFILIATE_TABS = [
   "claim-payouts",
   "settings",
   "security",
+  "apply-links",
 ] as const;
 type AffiliateTab = (typeof AFFILIATE_TABS)[number];
 
@@ -53,6 +55,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
+    { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
@@ -67,6 +70,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <CustomLinksManager />;
       case "join-campaign":
         return <JoinCampaignButton />;
+      case "apply-links":
+        return <CampaignApplication />;
       case "my-sales":
         return <SalesList />;
       case "claim-payouts":

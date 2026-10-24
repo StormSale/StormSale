@@ -28,7 +28,9 @@ import {
   ArrowRight,
   RefreshCw,
   Lock,
+  Globe,
 } from "lucide-react";
+import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
 
@@ -44,6 +46,9 @@ export const CreateCampaignForm = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [flowStep, setFlowStep] = useState<FlowStep>("idle");
   const [isRefreshingAllowance, setIsRefreshingAllowance] = useState(false);
+  // Private campaigns require affiliates to apply and be approved before they
+  // can generate tracking links or be credited with sales.
+  const [isPrivate, setIsPrivate] = useState(false);
   const [lastCreatedCampaign, setLastCreatedCampaign] = useState<{
     campaignId: number;
     txHash?: string;
@@ -242,9 +247,34 @@ export const CreateCampaignForm = () => {
         selectedAsset,
       );
 
+      // Record the access policy. This runs after the budget is already locked
+      // in escrow, so a failure here must not be reported as a failed
+      // creation: the campaign exists, and retrying would lock a second escrow.
+      let visibilitySaved = true;
+      try {
+        setCampaignVisibility(
+          campaignResult.campaignId,
+          userAddress ?? "",
+          isPrivate ? "private" : "public",
+        );
+      } catch (visibilityError: any) {
+        visibilitySaved = false;
+        console.error("Campaign created, but its access setting was not saved:", visibilityError);
+        showNotification({
+          type: "warning",
+          title: "Campaign Created — Access Setting Not Saved",
+          message: `Campaign #${campaignResult.campaignId} is live on-chain, but its ${
+            isPrivate ? "private" : "public"
+          } setting could not be saved: ${visibilityError?.message ?? "unknown error"}. Do not create it again.`,
+        });
+      }
+
       showNotification({
         type: "success",
-        title: "Campaign Escrow Live on Stellar!",
+        title:
+          isPrivate && visibilitySaved
+            ? "Private Campaign Live on Stellar!"
+            : "Campaign Escrow Live on Stellar!",
         message: `Campaign #${campaignResult.campaignId} deployed with ${selectedAsset} escrow. Tx: ${
           campaignResult.txHash ? campaignResult.txHash.slice(0, 10) + "..." : "Confirmed"
         }`,
@@ -261,6 +291,7 @@ export const CreateCampaignForm = () => {
       setCampaignName("");
       setBudget("");
       setErrors({});
+      setIsPrivate(false);
     } catch (error: any) {
       console.error("Error creating campaign:", error);
       showNotification({
@@ -557,6 +588,50 @@ export const CreateCampaignForm = () => {
                   </div>
                 </div>
               </InputField>
+
+              {/* Visibility: public, or private with manual approval */}
+              <div className="flex items-start justify-between gap-4 p-5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      isPrivate
+                        ? "bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        : "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    {isPrivate ? <Lock className="w-5 h-5" aria-hidden="true" /> : <Globe className="w-5 h-5" aria-hidden="true" />}
+                  </div>
+                  <div>
+                    <p
+                      id="campaign-private-label"
+                      className="font-bold text-zinc-900 dark:text-white"
+                    >
+                      Private / Application Required
+                    </p>
+                    <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                      {isPrivate
+                        ? "Affiliates must apply with their promotional channels. Only affiliates you approve can generate tracking links or be credited with sales. The approval list is saved in this browser for now, so manage applications from this device."
+                        : "Any affiliate can generate a tracking link and promote this campaign."}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isPrivate}
+                  aria-labelledby="campaign-private-label"
+                  onClick={() => setIsPrivate((v) => !v)}
+                  className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                    isPrivate ? "bg-indigo-600" : "bg-slate-300 dark:bg-zinc-700"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                      isPrivate ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
 
               {/* REAL-TIME TOKEN ALLOWANCE & ESCROW FLOW PANEL */}
               <div className="bg-slate-50 dark:bg-zinc-950/70 p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-6">
