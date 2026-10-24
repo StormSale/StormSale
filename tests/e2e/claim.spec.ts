@@ -16,7 +16,7 @@ import type { Page } from '@playwright/test';
 
 const APP_BASE = process.env.E2E_BASE_URL ?? 'http://localhost:3000';
 
-const ADFRESS = '0xAffiliateAddress0000000000000000000000000000';
+const ADDRESS = '0xAffiliateAddress0000000000000000000000000000';
 const CHAIN_ID = 1;
 
 interface ClaimState {
@@ -37,7 +37,7 @@ async function mockCommissionApi(page: Page, state: ClaimState) {
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          address: ADFRESS,
+          address: ADDRESS,
           chainId: CHAIN_ID,
           claimable: state.claimable,
           balance: state.balance,
@@ -97,7 +97,7 @@ async function mockWallet(page: Page, balance: string) {
         return null;
       },
     };
-  }, { address: ADFRESS, chainId: CHAIN_ID, balance });
+  }, { address: ADDRESS, chainId: CHAIN_ID, balance });
 }
 
 test.describe('Affiliate commission claim', () => {

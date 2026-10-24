@@ -78,7 +78,7 @@ describe("Secure Claim Settlement Validation (#49)", () => {
       const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock");
       const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
       expect(balanceAfter).toBeGreaterThan(balanceBefore);
-      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 1e-9);
+      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 9);
     });
 
     it("aggregates multiple matured campaigns into a single balance increase", async () => {
@@ -88,8 +88,8 @@ describe("Secure Claim Settlement Validation (#49)", () => {
       ];
       const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock");
       const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
-      expect(receipt.totalClaimedXlm).toBeCloseTo(30.75, 1e-9);
-      expect(balanceAfter).toBeCloseTo(130.75, 1e-9);
+      expect(receipt.totalClaimedXlm).toBeCloseTo(30.75, 9);
+      expect(balanceAfter).toBeCloseTo(130.75, 9);
     });
   });
 

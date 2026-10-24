@@ -43,16 +43,16 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
   describe("Claim Aggregation", () => {
     it("should calculate total withdrawable XLM balance accurately across multiple campaigns", () => {
       const total = calculateTotalClaimableXlm(mockCampaigns);
-      expect(total).toBeCloseTo(155.75, 1e-1); // 45.5 + 78.0 + 32.25
+      expect(total).toBeCloseTo(155.75, 1);
     });
 
     it("should return 0 when campaigns list is empty", () => {
-      expect(calculateTotalClaimableXlm([])).toBeCloseTo(0, 1e-1);
+      expect(calculateTotalClaimableXlm([])).toBeCloseTo(0, 1);
     });
 
     it("should fetch matured claims for an affiliate", async () => {
       const data = await fetchAffiliateMaturedClaims(
-        "GA7QW5KXGPTRtN2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
+        "GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
       );
       expect(data.length).toBeGreaterThan(0);
       expect(data[0].status).toBe("matured");
@@ -70,16 +70,16 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
       expect(receipt.success).toBe(true);
       expect(receipt.txHash).toBeDefined();
       expect(receipt.txHash.startsWith("0x")).toBe(true);
-      expect(receipt.totalClaimedXlm).toBeCloseTo(155.75, 1e-1);
+      expect(receipt.totalClaimedXlm).toBeCloseTo(155.75, 1);
 
       // Verify itemized claims breakdown
       expect(receipt.itemizedClaims.length).toBe(3);
       expect(receipt.itemizedClaims[0].campaignId).toBe(101);
-      expect(receipt.itemizedClaims[0].claimedXlm).toBeCloseTo(45.5, 1e-1);
+      expect(receipt.itemizedClaims[0].claimedXlm).toBeCloseTo(45.5, 1);
       expect(receipt.itemizedClaims[1].campaignId).toBe(204);
-      expect(receipt.itemizedClaims[1].claimedXlm).toBeCloseTo(78.0, 1e-1);
+      expect(receipt.itemizedClaims[1].claimedXlm).toBeCloseTo(78.0, 1);
       expect(receipt.itemizedClaims[2].campaignId).toBe(309);
-      expect(receipt.itemizedClaims[2].claimedXlm).toBeCloseTo(32.25, 1e-1);
+      expect(receipt.itemizedClaims[2].claimedXlm).toBeCloseTo(32.25, 1);
     });
 
     it("should throw error when attempting to claim with no campaigns", async () => {

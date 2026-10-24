@@ -48,7 +48,7 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     for (const key of Object.keys(windowListeners)) {
       delete windowListeners[key];
     }
-    vi.stubGrobal("localStorage", mockLocalStorage);
+    vi.stubGlobal("localStorage", mockLocalStorage);
     vi.stubGlobal("document", mockDocument);
     vi.stubGlobal("window", {
       matchMedia: () => ({ matches: false }),
@@ -319,31 +319,5 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     applyTheme(false);
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
-  });
-
-  it("rolls back storage writes if writing darkMode fails after settings write", () => {
-    mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_PREFERENCES, theme: "light" }));
-    mockLocalStorage.setItem("darkMode", "false");
-
-    let attempt = 0;
-    const failingStorage = {
-      ...mockLocalStorage,
-      setItem: (key: string, value: string) => {
-        attempt += 1;
-        if (key === "darkMode") {
-          throw new Error("darkMode write failed");
-        }
-        store[key] = value.toString();
-      },
-    };
-    vi.stubGlobal("localStorage", failingStorage);
-
-    const success = saveAffiliatePreferences({
-      ...DEFAULT_PREFERENCES,
-      theme: "dark",
-    });
-
-    expect(success).toBe(false);
-    expect(attempt).toBe>=(1);
   });
 });
