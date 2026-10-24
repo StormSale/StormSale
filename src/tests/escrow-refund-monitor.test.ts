@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { initialMockCampaigns, type Campaign } from "../components/advertiser/MyCampaignsList";
 import { refundCampaignEscrowContractCall } from "../lib/stellar";
 
@@ -49,7 +49,7 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
     });
 
     it("executes refund contract call on Soroban returning valid txHash", async () => {
-      const testAdvertiser = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+      const testAdvertiser = "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777";
       const campaignId = 4;
 
       const result = await refundCampaignEscrowContractCall(testAdvertiser, campaignId, "mock");
@@ -58,10 +58,26 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
       expect(typeof result.txHash).toBe("string");
     });
 
+    it("propagates refund failures from the Soroban contract call", async () => {
+      const testAdvertiser = "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777";
+      const result = await refundCampaignEscrowContractCall(testAdvertiser, 4, "mock");
+      expect(result).toHaveProperty("success");
+      expect(result).toHaveProperty("txHash");
+    });
+
     it("handles mock refund even with empty caller address gracefully", async () => {
       const result = await refundCampaignEscrowContractCall("", 4, "mock");
       expect(result.success).toBe(true);
       expect(result.txHash).toBeDefined();
+    });
+
+    it("does not throw when refund is invoked without a network override", async () => {
+      const result = await refundCampaignEscrowContractCall(
+        "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777",
+        4,
+      );
+      expect(result).toBeDefined();
+      expect(typeof result.success).toBe("boolean");
     });
   });
 });

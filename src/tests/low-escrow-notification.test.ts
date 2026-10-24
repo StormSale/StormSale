@@ -60,7 +60,9 @@ describe("[Advertiser] Low Escrow Balance Notification System (#41)", () => {
       };
 
       const result = evaluateCampaignEscrowLevel(emptyCampaign);
-      expect(result.isLowEscrow).toBe(false);
+      expect(result.isLowEscrow).toBe(true);
+      expect(result.percentageRemaining).toBe(0);
+      expect(result.remainingXlm).toBe(0);
     });
   });
 
