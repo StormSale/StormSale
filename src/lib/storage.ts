@@ -135,7 +135,11 @@ export async function setEncryptedItem<T>(key: string, value: T): Promise<void> 
   const hashedKey = await hashStorageKey(key);
 
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const plaintext = new TextEncoder().encode(JSON.stringify(value));
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) {
+    throw new Error(`[EncryptedStorage] Cannot serialize value for key "${key}".`);
+  }
+  const plaintext = new TextEncoder().encode(serialized);
 
   const ciphertext = await subtle.encrypt({ name: "AES-GCM", iv }, storageKey, plaintext);
 
@@ -150,6 +154,12 @@ export async function setEncryptedItem<T>(key: string, value: T): Promise<void> 
 
 /**
  * Retrieves and decrypts an item from localStorage by its plaintext key.
+ *
+ * Round-trip integrity: AES-GCM authenticates the ciphertext, so any tampering
+ * or wrong-key decryption causes subtle.decrypt to reject, and we return null
+ * rather than surfacing corrupted data. The decrypted bytes are decoded as a
+ * single UTF-8 string (no truncation regardless of payload size) and must be a
+ * valid JSON document that re-serializes to the same canonical text.
  */
 export async function getEncryptedItem<T>(key: string): Promise<T | null> {
   const storage = getLocalStorage();
@@ -173,8 +183,13 @@ export async function getEncryptedItem<T>(key: string): Promise<T | null> {
 
     const decrypted = await subtle.decrypt({ name: "AES-GCM", iv }, storageKey, data);
 
-    const text = new TextDecoder().decode(decrypted);
-    return JSON.parse(text) as T;
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(decrypted);
+    const parsed = JSON.parse(text) as T;
+    if (JSON.stringify(parsed) !== text) {
+      console.warn(`[EncryptedStorage] Round-trip mismatch for cache key "${key}".`);
+      return null;
+    }
+    return parsed;
   } catch (err) {
     console.warn(`[EncryptedStorage] Failed to decrypt cache key "${key}":`, err);
     return null;

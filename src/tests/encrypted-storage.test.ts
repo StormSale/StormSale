@@ -62,6 +62,22 @@ describe("Encrypted Local Cache Layer Suite", () => {
 
     expect(retrieved).toEqual(complexPayload);
 
+    // Large payload round-trip accuracy
+    const largePayload = {
+      entries: Array.from({ length: 2000 }, (_, i) => ({
+        id: `entry_${i}`,
+        value: `payload-${i}-${"x".repeat(64)}`,
+      })),
+    };
+    await setEncryptedItem("large_cache", largePayload);
+    const largeRetrieved = await getEncryptedItem<typeof largePayload>("large_cache");
+    expect(largeRetrieved).toEqual(largePayload);
+    expect(largeRetrieved?.entries.length).toBe(2000);
+    expect(largeRetrieved?.entries[1999]).toEqual({
+      id: "entry_1999",
+      value: `payload-1999-${"x".repeat(64)}`,
+    });
+
     // Primitives
     await setEncryptedItem("active_step", 3);
     expect(await getEncryptedItem<number>("active_step")).toBe(3);
