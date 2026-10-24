@@ -51,7 +51,9 @@ export const idbCache = {
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
-    } catch {}
+    } catch {
+      // Ignore IndexedDB write failure on quota or private browsing
+    }
   },
 
   async remove(key: string): Promise<void> {
@@ -64,7 +66,9 @@ export const idbCache = {
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
-    } catch {}
+    } catch {
+      // Ignore IndexedDB delete failure
+    }
   },
 
   async clear(): Promise<void> {
@@ -77,7 +81,9 @@ export const idbCache = {
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error);
       });
-    } catch {}
+    } catch {
+      // Ignore IndexedDB clear failure
+    }
   },
 };
 

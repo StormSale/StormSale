@@ -18,11 +18,14 @@ import {
   Address,
   Account,
   BASE_FEE,
+  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
+import { rpcFallbackManager } from "./rpcFallback";
+import { addErrorBreadcrumb } from "./errorTracking";
 
 export type WalletType =
   "freighter" | "albedo" | "xbull" | "ledger" | "passkey" | "mock" | "readonly";
@@ -191,7 +194,7 @@ export async function connectXbullWallet(): Promise<string> {
     const address = await xbull.getPublicKey();
     return address;
   } catch (err: any) {
-    throw new Error(err.message || "xBull connection failed.");
+    throw new Error(err.message || "xBull connection failed.", { cause: err });
   }
 }
 
@@ -252,11 +255,13 @@ export async function getCurrentNetwork(): Promise<string> {
 }
 
 /**
- * Queries the Stellar Horizon API for the account's XLM balance.
+ * Queries the Stellar Horizon API for the account's XLM balance with silent multi-endpoint failover.
  */
 export async function fetchXlmBalance(address: string): Promise<string> {
   try {
-    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/accounts/${address}`);
+    const response = await rpcFallbackManager.executeHorizonFetchWithFallback(
+      (horizonBaseUrl) => `${horizonBaseUrl}/accounts/${address}`,
+    );
     if (!response.ok) {
       if (response.status === 404) {
         return "0.0000000 (Unfunded)";
@@ -418,6 +423,240 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
+ * Validates a Stellar ed25519 account id (`G...`) with its StrKey base32 and
+ * CRC16 checksum, rejecting contract ids and format-only lookalikes.
+ */
+export function isValidStellarAccount(address: string): boolean {
+  if (!address) return false;
+  return StrKey.isValidEd25519PublicKey(address.trim());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stellar Federation (SEP-0002) address resolution                           */
+/* -------------------------------------------------------------------------- */
+
+/** A parsed `username*domain.com` federation address. */
+export interface ParsedFederatedAddress {
+  username: string;
+  domain: string;
+}
+
+/** A record returned by a SEP-0002 federation server. */
+export interface FederatedAddressRecord {
+  /** The federation address that was resolved (e.g. `alice*stormsale.io`). */
+  federatedAddress: string;
+  /** The resolved ed25519 Stellar account id (`G...`). */
+  accountId: string;
+  /** Memo type the recipient requires for payments (e.g. `id`, `text`, `hash`). */
+  memoType?: string;
+  /** Memo value the recipient requires, if any. */
+  memo?: string;
+}
+
+/** Outcome of validating/resolving a recipient input field. */
+export type RecipientResolutionStatus = "raw" | "federated" | "unresolved" | "invalid";
+
+export interface RecipientResolution {
+  status: RecipientResolutionStatus;
+  /** Resolved ed25519 public key when `status` is `raw` or `federated`. */
+  address?: string;
+  /** The original federation address, only present when `status` is `federated`. */
+  federatedAddress?: string;
+  memoType?: string;
+  memo?: string;
+  /** Human readable reason when `status` is `unresolved` or `invalid`. */
+  error?: string;
+}
+
+/** Options for federation lookups. */
+export interface FederationResolutionOptions {
+  /** Request timeout in milliseconds. */
+  timeoutMs?: number;
+  /** Override the federation server URL (normally discovered from stellar.toml). */
+  federationServer?: string;
+}
+
+// `name*domain.tld` — username allows common email-ish characters, domain must have a dot.
+const FEDERATION_ADDRESS_PATTERN =
+  /^([a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?)\*([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i;
+
+// Extract `FEDERATION_SERVER = "https://..."` from a stellar.toml document.
+const FEDERATION_SERVER_TOML_PATTERN = /^\s*FEDERATION_SERVER\s*=\s*["']([^"']+)["']/im;
+
+/**
+ * Returns true when the value looks like a `username*domain.com` federation address.
+ */
+export function isFederatedAddress(value: string): boolean {
+  if (!value) return false;
+  return FEDERATION_ADDRESS_PATTERN.test(value.trim());
+}
+
+/**
+ * Splits a federation address into its username and domain parts.
+ * Returns `null` when the value is not a valid federation address.
+ */
+export function parseFederatedAddress(value: string): ParsedFederatedAddress | null {
+  const match = value?.trim().match(FEDERATION_ADDRESS_PATTERN);
+  if (!match) return null;
+  return { username: match[1], domain: match[2].toLowerCase() };
+}
+
+/**
+ * Performs a fetch with an abort-based timeout that stays active while the
+ * response body is consumed, so federation lookups never hang the UI.
+ */
+async function fetchWithTimeout<T>(
+  url: string,
+  timeoutMs: number,
+  read: (response: Response) => Promise<T>,
+): Promise<{ response: Response; body: T }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+    const body = await read(response);
+    return { response, body };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Federation request timed out after ${timeoutMs} ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Discovers the SEP-0002 federation server for a domain by reading its
+ * `/.well-known/stellar.toml` file.
+ */
+export async function discoverFederationServer(
+  domain: string,
+  timeoutMs: number = STELLAR_CONFIG.federationTimeoutMs,
+): Promise<string> {
+  const tomlUrl = `https://${domain}/.well-known/stellar.toml`;
+  const { response, body: toml } = await fetchWithTimeout(tomlUrl, timeoutMs, (res) => res.text());
+  if (!response.ok) {
+    throw new Error(`Could not load stellar.toml for ${domain} (HTTP ${response.status})`);
+  }
+
+  const match = toml.match(FEDERATION_SERVER_TOML_PATTERN);
+  const server = match?.[1]?.trim();
+  if (!server) {
+    throw new Error(`stellar.toml for ${domain} does not declare a FEDERATION_SERVER`);
+  }
+  return server;
+}
+
+/**
+ * Resolves a `username*domain.com` federation address to its ed25519 public key
+ * and any memo the recipient requires. Throws when the lookup fails so callers
+ * can gracefully fall back to a raw public key.
+ *
+ * @see https://developers.stellar.org/docs/learn/encyclopedia/federation
+ */
+export async function resolveFederatedAddress(
+  federatedAddress: string,
+  options: FederationResolutionOptions = {},
+): Promise<FederatedAddressRecord> {
+  const parsed = parseFederatedAddress(federatedAddress);
+  if (!parsed) {
+    throw new Error(`Invalid federation address: ${federatedAddress}`);
+  }
+
+  const timeoutMs = options.timeoutMs ?? STELLAR_CONFIG.federationTimeoutMs;
+  const serverUrl =
+    options.federationServer ?? (await discoverFederationServer(parsed.domain, timeoutMs));
+
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    throw new Error(`Invalid federation server URL: ${serverUrl}`);
+  }
+  // SEP-0002 requires HTTPS; FEDERATION_SERVER comes from an untrusted stellar.toml.
+  if (url.protocol !== "https:") {
+    throw new Error(`Federation server must use HTTPS: ${serverUrl}`);
+  }
+  url.search = "";
+  url.searchParams.set("q", `${parsed.username}*${parsed.domain}`);
+  url.searchParams.set("type", "name");
+
+  const { response, body: data } = await fetchWithTimeout(
+    url.toString(),
+    timeoutMs,
+    async (res) =>
+      (await res.json().catch(() => null)) as {
+        stellar_address?: string;
+        account_id?: string;
+        memo_type?: string;
+        memo?: string | number;
+      } | null,
+  );
+  if (!response.ok) {
+    throw new Error(`Federation server responded with HTTP ${response.status}`);
+  }
+
+  const accountId = data?.account_id?.trim();
+  if (!accountId || !isValidStellarAccount(accountId)) {
+    throw new Error("Federation server did not return a valid ed25519 account id");
+  }
+
+  return {
+    federatedAddress: data?.stellar_address?.trim() || `${parsed.username}*${parsed.domain}`,
+    accountId,
+    memoType: data?.memo_type,
+    memo: data?.memo !== undefined && data?.memo !== null ? String(data.memo) : undefined,
+  };
+}
+
+/**
+ * Resolves a recipient input that may be either a raw `G...` public key or a
+ * `username*domain.com` federation address. Never throws: an unreachable or
+ * misconfigured federation server yields `{ status: "unresolved" }` so the UI
+ * can fall back to raw public key entry.
+ */
+export async function resolveRecipient(
+  input: string,
+  options: FederationResolutionOptions = {},
+): Promise<RecipientResolution> {
+  const value = input?.trim() ?? "";
+  if (!value) {
+    return { status: "invalid", error: "Enter a Stellar public key or federation address." };
+  }
+
+  if (isValidStellarAccount(value)) {
+    return { status: "raw", address: value };
+  }
+
+  if (!isFederatedAddress(value)) {
+    return {
+      status: "invalid",
+      error: "Enter a valid G... public key or name*domain.com federation address.",
+    };
+  }
+
+  try {
+    const record = await resolveFederatedAddress(value, options);
+    return {
+      status: "federated",
+      address: record.accountId,
+      federatedAddress: record.federatedAddress,
+      memoType: record.memoType,
+      memo: record.memo,
+    };
+  } catch (error) {
+    return {
+      status: "unresolved",
+      error: error instanceof Error ? error.message : "Federation lookup failed.",
+    };
+  }
+}
+
+/**
  * Helper to request friendbot testnet XLM funding for new testnet accounts.
  */
 export async function fundTestnetAccount(address: string): Promise<boolean> {
@@ -430,12 +669,10 @@ export async function fundTestnetAccount(address: string): Promise<boolean> {
 }
 
 /**
- * Returns a configured Soroban RPC Server instance.
+ * Returns a configured Soroban RPC Server instance from the active node in rpcFallbackManager.
  */
 export function getSorobanRpcServer(): rpc.Server {
-  return new rpc.Server(STELLAR_CONFIG.rpcUrl, {
-    allowHttp: STELLAR_CONFIG.rpcUrl.startsWith("http://"),
-  });
+  return rpcFallbackManager.getActiveRpcServer();
 }
 
 /**
@@ -465,52 +702,60 @@ export async function invokeSorobanMethod(
     };
   }
 
-  const server = getSorobanRpcServer();
   const targetContractId = contractIdOverride || STELLAR_CONFIG.contractId;
 
-  // 1. Fetch source account from Soroban RPC
-  let account: Account;
+  addErrorBreadcrumb("contract.invoke", `Invoking ${methodName}`, {
+    method: methodName,
+    contractId: targetContractId,
+    walletType,
+  });
+
+  // 1-5. Fetch account, simulate and assemble transaction with silent RPC failover
+  let preparedTx: any;
   try {
-    account = await server.getAccount(callerAddress);
+    const { preliminaryTx, simResponse } = await rpcFallbackManager.executeWithFallback(
+      async (activeServer) => {
+        const account = await activeServer.getAccount(callerAddress);
+        const contract = new Contract(targetContractId);
+        const callOp = contract.call(methodName, ...scValArgs);
+        const preliminaryTx = new TransactionBuilder(account, {
+          fee: BASE_FEE,
+          networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+        })
+          .addOperation(callOp)
+          .setTimeout(60)
+          .build();
+
+        const simResponse = await activeServer.simulateTransaction(preliminaryTx);
+        return { preliminaryTx, simResponse };
+      },
+    );
+
+    if (rpc.Api.isSimulationError(simResponse)) {
+      throw new Error(`Soroban simulation failed: ${simResponse.error}`);
+    }
+
+    preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
   } catch (err: any) {
     throw new Error(
-      `Account ${callerAddress} is not funded on Testnet or could not be loaded: ${err?.message || err}. Use Friendbot to fund it first.`,
+      `Soroban invocation preparation failed for ${callerAddress}: ${err?.message || err}`,
+      { cause: err },
     );
   }
-
-  // 2. Build invocation operation
-  const contract = new Contract(targetContractId);
-  const callOp = contract.call(methodName, ...scValArgs);
-
-  // 3. Build preliminary transaction for simulation
-  const preliminaryTx = new TransactionBuilder(account, {
-    fee: BASE_FEE,
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  })
-    .addOperation(callOp)
-    .setTimeout(60)
-    .build();
-
-  // 4. Simulate transaction
-  const simResponse = await server.simulateTransaction(preliminaryTx);
-  if (rpc.Api.isSimulationError(simResponse)) {
-    throw new Error(`Soroban simulation failed: ${simResponse.error}`);
-  }
-
-  // 5. Assemble transaction with simulated resources & auth
-  const preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
 
   // 6. Sign transaction via the active wallet (Freighter, Albedo, xBull)
   const signedXdr = await signWalletTransaction(preparedTx.toXDR(), walletType);
   const signedTx = TransactionBuilder.fromXDR(signedXdr, STELLAR_CONFIG.networkPassphrase);
 
-  // 7. Submit transaction to Soroban RPC
-  const sendResponse = await server.sendTransaction(signedTx);
+  // 7. Submit transaction to Soroban RPC with silent fallback
+  const sendResponse = await rpcFallbackManager.executeWithFallback(async (activeServer) => {
+    return await activeServer.sendTransaction(signedTx);
+  });
   if (sendResponse.status === "ERROR") {
     throw new Error(`Failed to submit transaction: ${JSON.stringify(sendResponse.errorResult)}`);
   }
 
-  // 8. Poll for ledger confirmation
+  // 8. Poll for ledger confirmation with silent fallback
   const txHash = sendResponse.hash;
   let attempts = 0;
   const maxAttempts = 25;
@@ -519,7 +764,9 @@ export async function invokeSorobanMethod(
     await new Promise((resolve) => setTimeout(resolve, 1500));
     attempts++;
 
-    const statusResponse = await server.getTransaction(txHash);
+    const statusResponse = await rpcFallbackManager.executeWithFallback(async (activeServer) => {
+      return await activeServer.getTransaction(txHash);
+    });
     if (statusResponse.status === "SUCCESS") {
       let resultValue: any = null;
       if (statusResponse.returnValue) {
@@ -855,23 +1102,27 @@ export async function claimPayoutContractCall(
  * Reads campaign metadata directly from Soroban contract storage.
  */
 export async function getCampaignContractQuery(campaignId: number): Promise<any> {
-  const server = getSorobanRpcServer();
-  const contract = new Contract(STELLAR_CONFIG.contractId);
-  const dummyAccount = new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "0");
+  return rpcFallbackManager.executeWithFallback(async (server) => {
+    const contract = new Contract(STELLAR_CONFIG.contractId);
+    const dummyAccount = new Account(
+      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "0",
+    );
 
-  const tx = new TransactionBuilder(dummyAccount, {
-    fee: BASE_FEE,
-    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-  })
-    .addOperation(contract.call("get_campaign", nativeToScVal(campaignId, { type: "u32" })))
-    .setTimeout(30)
-    .build();
+    const tx = new TransactionBuilder(dummyAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+    })
+      .addOperation(contract.call("get_campaign", nativeToScVal(campaignId, { type: "u32" })))
+      .setTimeout(30)
+      .build();
 
-  const sim = await server.simulateTransaction(tx);
-  if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-    return scValToNative(sim.result.retval);
-  }
-  return null;
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+      return scValToNative(sim.result.retval);
+    }
+    return null;
+  });
 }
 
 /**
@@ -903,35 +1154,36 @@ export async function getTokenAllowanceQuery(
   }
 
   try {
-    const server = getSorobanRpcServer();
-    const contract = new Contract(tokenContractId);
-    const dummyAccount = new Account(
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-      "0",
-    );
+    return await rpcFallbackManager.executeWithFallback(async (server) => {
+      const contract = new Contract(tokenContractId);
+      const dummyAccount = new Account(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "0",
+      );
 
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          "allowance",
-          new Address(ownerAddress).toScVal(),
-          new Address(spenderAddress).toScVal(),
-        ),
-      )
-      .setTimeout(30)
-      .build();
+      const tx = new TransactionBuilder(dummyAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            "allowance",
+            new Address(ownerAddress).toScVal(),
+            new Address(spenderAddress).toScVal(),
+          ),
+        )
+        .setTimeout(30)
+        .build();
 
-    const sim = await server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const nativeVal = scValToNative(sim.result.retval);
-      const divisor = Math.pow(10, decimals);
-      const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
-      return Math.max(0, stroops / divisor);
-    }
-    return 0;
+      const sim = await server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+        const nativeVal = scValToNative(sim.result.retval);
+        const divisor = Math.pow(10, decimals);
+        const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
+        return Math.max(0, stroops / divisor);
+      }
+      return 0;
+    });
   } catch (error) {
     console.warn("Failed to query token allowance:", error);
     if (typeof window !== "undefined" && window.localStorage) {
