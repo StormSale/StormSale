@@ -2,6 +2,7 @@
  * StormSale Automated Coverage & Threshold Enforcement Script
  *
  * Implements Issue #95: [Test] Enforced Coverage Thresholds
+ * Vitest integration with coverage reporting (test: integrate Vitest framework with coverage reporting)
  * - Reads coverage summary from Vitest v8 coverage report.
  * - Produces file-by-file coverage metrics table.
  * - Enforces minimum 80% coverage threshold.
@@ -117,7 +118,7 @@ function evaluateCoverage(summaryData, options = {}) {
     }
   }
 
-  // Sort by lowest line coverage first
+  // Sort by file path
   fileMetrics.sort((a, b) => a.file.localeCompare(b.file));
 
   return {
