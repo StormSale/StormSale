@@ -93,13 +93,13 @@ export const CreateCampaignForm = () => {
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
     if (isConnected && userAddress) {
-      refreshTokenAllowance(undefined, selectedAsset).then((val) => {
+      refreshTokenAllowance(undefined, selectedAsset).then((val: number) => {
         setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
       });
     }
   }, [isConnected, userAddress, selectedAsset, refreshTokenAllowance]);
 
-  const handleManualRefreshAllowance = async () => {
+  const handleRefreshAllowance = async () => {
     setIsRefreshingAllowance(true);
     try {
       const val = await refreshTokenAllowance(undefined, selectedAsset);
@@ -115,7 +115,7 @@ export const CreateCampaignForm = () => {
   };
 
   // Step 1: Approve Token Allowance Only
-  const handleApproveAllowanceOnly = async () => {
+  const handleApproveAllowance = async () => {
     if (!isConnected) {
       showNotification({
         type: "error",

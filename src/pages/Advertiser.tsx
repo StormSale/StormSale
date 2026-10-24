@@ -1,3 +1,6 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "../lib/queryClient";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/shared/Sidebar";
 import { CreateCampaignForm } from "../components/advertiser/CreateCampaignForm";
@@ -36,6 +39,10 @@ import { motion, AnimatePresence } from "framer-motion";
 interface AdvertiserProps {
   onBack: () => void;
 }
+
+const fetchAdvertiserOverview = async () => {
+  return { totalRoi: 124500, activeCampaigns: 12, activeAffiliates: 89 };
+};
 
 const ADVERTISER_TABS = [
   "overview",
@@ -138,12 +145,23 @@ export const Advertiser: React.FC<AdvertiserProps> = (props) => (
   </NotificationProvider>
 );
 
+export const prefetchAdvertiserData = () =>
+  queryClient.prefetchQuery({
+    queryKey: ["advertiser", "overview"],
+    queryFn: fetchAdvertiserOverview,
+  });
+
 // Additional Components for Advertiser Dashboard
 interface AdvertiserOverviewProps {
   onTabChange: (tab: string) => void;
 }
 
 const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) => {
+  const { data } = useQuery({
+    queryKey: ["advertiser", "overview"],
+    queryFn: fetchAdvertiserOverview,
+  });
+
   return (
     <div className="space-y-8 pb-12">
       {/* Header - Command Center Style */}
@@ -227,7 +245,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   Total Network ROI
                 </p>
                 <p className="text-5xl font-black text-zinc-900 dark:text-white">
-                  $124,500<span className="text-2xl text-zinc-400">.00</span>
+                  ${data?.totalRoi?.toLocaleString() ?? "0"}<span className="text-2xl text-zinc-400">.00</span>
                 </p>
               </div>
               <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-100 dark:border-indigo-500/20">
@@ -262,7 +280,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                     Active Campaigns
                   </p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-3xl font-black text-zinc-900 dark:text-white">12</p>
+                    <p className="text-3xl font-black text-zinc-900 dark:text-white">{data?.activeCampaigns ?? 0}</p>
                     <span className="text-xs font-bold text-emerald-500">+2 new</span>
                   </div>
                 </div>
@@ -281,7 +299,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                     Active Affiliates
                   </p>
                   <div className="flex items-baseline space-x-2">
-                    <p className="text-3xl font-black text-zinc-900 dark:text-white">89</p>
+                    <p className="text-3xl font-black text-zinc-900 dark:text-white">{data?.activeAffiliates ?? 0}</p>
                     <span className="text-xs font-bold text-amber-500">Global</span>
                   </div>
                 </div>
