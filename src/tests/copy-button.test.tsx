@@ -20,6 +20,10 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   };
 
   const setDocument = (value: any) => {
+    if (value === undefined) {
+      delete (globalThis as any).document;
+      return;
+    }
     Object.defineProperty(globalThis, "document", {
       value,
       configurable: true,
@@ -34,6 +38,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   afterEach(() => {
     setNavigator(originalNav);
     setDocument(originalDoc);
+    vi.restoreAllMocks();
   });
 
   describe("copyToClipboard engine & fallback mechanism", () => {

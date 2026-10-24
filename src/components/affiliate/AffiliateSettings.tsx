@@ -106,7 +106,7 @@ export function loadAffiliatePreferences(): AffiliatePreferences {
     const theme: ThemeOption =
       parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "system"
         ? parsed.theme
-        : DEFAULT_PREFERENCE.theme;
+        : DEFAULT_PREFERENCES.theme;
     const notificationFrequency: NotificationFrequency =
       parsed.notificationFrequency === "muted" ? "muted" : "instant";
     const preferredAsset: AffiliatePreferences["preferredAsset"] =
@@ -114,7 +114,7 @@ export function loadAffiliatePreferences(): AffiliatePreferences {
       parsed.preferredAsset === "USDC" ||
       parsed.preferredAsset === "EURC"
         ? parsed.preferredAsset
-        : DEFAULT_PREFERENCE.preferredAsset;
+        : DEFAULT_PREFERENCES.preferredAsset;
     const minClaimThreshold =
       typeof parsed.minClaimThreshold === "string" &&
       parsed.minClaimThreshold.trim() !== "" &&
@@ -429,7 +429,7 @@ export const AffiliateSettings: React.FC = () => {
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
           <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
             <div className="flex items-center space-x-4">
-              <div className="w-12 h-w12 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+              <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-950/60 rounded-xl flex items-center justify-center text-indigo-600 dark:text-indigo-400">
                 <Sliders className="w-6 h-6" />
               </div>
               <div>
