@@ -53,6 +53,7 @@ export interface DialogContentProps
     VariantProps<typeof dialogVariants> {
   animated?: boolean;
   showCloseButton?: boolean;
+  portalled?: boolean;
 }
 
 const DialogContent = React.forwardRef<
@@ -66,41 +67,50 @@ const DialogContent = React.forwardRef<
       size = "lg",
       animated = true,
       showCloseButton = true,
+      portalled = true,
       ...props
     },
     ref,
-  ) => (
-    <DialogPortal>
-      <DialogOverlay />
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn(dialogVariants({ size }), className)}
-        {...props}
-      >
-        {animated ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.98, y: 4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="contents"
-          >
-            {children}
-          </motion.div>
-        ) : (
-          children
-        )}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            aria-label="Close dialog"
-            className="absolute right-4 top-4 rounded-xl p-1.5 text-zinc-400 opacity-70 ring-offset-background transition-opacity hover:opacity-100 hover:bg-slate-100 dark:hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
-          >
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
-    </DialogPortal>
-  ),
+  ) => {
+    const content = (
+      <>
+        <DialogOverlay />
+        <DialogPrimitive.Content
+          ref={ref}
+          className={cn(dialogVariants({ size }), className)}
+          {...props}
+        >
+          {animated ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98, y: 4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="contents"
+            >
+              {children}
+            </motion.div>
+          ) : (
+            children
+          )}
+          {showCloseButton && (
+            <DialogPrimitive.Close
+              aria-label="Close dialog"
+              className="absolute right-4 top-4 rounded-xl p-1.5 text-zinc-400 opacity-70 ring-offset-background transition-opacity hover:opacity-100 hover:bg-slate-100 dark:hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </DialogPrimitive.Close>
+          )}
+        </DialogPrimitive.Content>
+      </>
+    );
+
+    if (!portalled) {
+      return content;
+    }
+
+    return <DialogPortal>{content}</DialogPortal>;
+  },
 );
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
