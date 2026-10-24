@@ -27,6 +27,9 @@ export const Affiliate = lazy(() =>
   import("./pages/Affiliate").then((m) => ({ default: m.Affiliate })),
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
+export const Admin = lazy(() =>
+  import("./pages/Admin").then((m) => ({ default: m.Admin })),
+);
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
     default: m.BrandedCampaignView,
@@ -68,7 +71,7 @@ const ErrorFallback = () => (
   </div>
 );
 
-const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
+const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor", "admin"] as const;
 
 type Page = (typeof VALID_PAGES)[number];
 
@@ -156,6 +159,13 @@ function Router() {
                   </Suspense>
                 </ProtectedRoute>
               )}
+              {currentPage === "admin" && (
+                <ProtectedRoute requiredRole="ADMIN" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
+                    <Admin onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
             </main>
           </div>
         )}
@@ -163,6 +173,9 @@ function Router() {
     </>
   );
 }
+
+// Admin route is gated by ProtectedRoute (requiredRole="ADMIN") so the
+// Emergency Pause kill-switch UI is only reachable by platform admins.
 
 function App() {
   useEffect(() => {

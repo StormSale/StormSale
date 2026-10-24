@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   connectFreighterWallet,
   connectAlbedoWallet,
-  connectXbullWallet,
+  connectXBullWallet,
   checkFreighterInstalled,
   getCurrentNetwork,
   fetchXlmBalance,
@@ -16,6 +16,9 @@ import {
   getTokenAllowanceQuery,
   approveTokenContractCall,
   refundCampaignEscrowContractCall,
+  pauseContractCall,
+  resumeContractCall,
+  getContractPausedStateQuery,
 } from "../lib/stellar";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
@@ -24,6 +27,7 @@ import { registerUser } from "../utils/api";
 import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
+import { batchClaimPayouts } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { AutoSwapConfig } from "../lib/sorobanDex";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
@@ -115,6 +119,14 @@ export interface Web3ContextType {
     assetCode?: SupportedEscrowAssetCode,
   ) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Admin Emergency Kill-Switch
+  isAdmin: boolean;
+  contractPaused: boolean;
+  isContractPauseLoading: boolean;
+  refreshContractPauseState: () => Promise<boolean>;
+  pauseContract: () => Promise<{ success: boolean; txHash?: string }>;
+  resumeContract: () => Promise<{ success: boolean; txHash?: string }>;
+
   // Stellar SEP-0030 Multi-Signature Campaign Escrow
   multiSigInfo: MultiSigAccountInfo | null;
   isMultiSigAccount: boolean;
@@ -163,6 +175,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [contractPaused, setContractPaused] = useState(false);
+  const [isContractPauseLoading, setIsContractPauseLoading] = useState(false);
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -385,7 +399,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = await connectAlbedoWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "xbull") {
-        address = await connectXbullWallet();
+        address = await connectXBullWallet();
         setNetwork(STELLAR_CONFIG.network);
       } else if (type === "ledger") {
         const { connectLedgerDevice, DEFAULT_STELLAR_BIP_PATH } =
@@ -412,7 +426,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         setNetwork(STELLAR_CONFIG.network);
       } else {
         // Mock fallback demo account with 10,000 XLM
-        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+        address = "GASTORMSALE7TESTNET7AFFLIATE7MERCHANT7ESCROW7XLM77777";
         setNetwork("TESTNET");
         setXlmBalance("10000.00");
       }
@@ -449,6 +463,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       EURC: "0.00",
     });
     setTokenAllowance(0);
+    setContractPaused(false);
     setMultiSigInfo(null);
     setIsMultiSigModalOpen(false);
     setActiveMultiSigXdr(null);
@@ -545,7 +560,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         refreshBalance(userAddress);
         refreshTokenAllowance(undefined, assetCode);
       }, 1000);
-      return res;
+      return { ...res, asset: assetCode };
     } else {
       // Mock fallback for UI preview without extension
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
@@ -572,34 +587,20 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Soroban: Log Verified Sale
+  // Soroban: Log Sale (Affiliate Commission)
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+    return logSaleContractCall(
+      userAddress,
+      campaignId,
+      affiliateAddress,
+      amountXlm,
+      connectorType || "freighter",
     );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await logSaleContractCall(
-        userAddress,
-        campaignId,
-        affiliateAddress,
-        amountXlm,
-        connectorType,
-      );
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
   };
 
   // Soroban: Claim Affiliate Commission
@@ -627,7 +628,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         });
       }
       setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
+      return { ...res, asset: assetCode };
     } else {
       const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
       return {
@@ -638,23 +639,14 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
   };
 
-  // Soroban: Refund Unused Campaign Escrow
+  // Soroban: Refund Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
+    return refundCampaignEscrowContractCall(
+      userAddress,
+      campaignId,
+      connectorType || "freighter",
+    );
   };
 
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
@@ -674,65 +666,74 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       splitPlan,
       autoSwap,
     );
-    setTimeout(() => refreshBalance(userAddress), 1000);
     return res;
   };
 
-  // Passkey Smart Account Registration
+  // Passkey: Register a new passkey account
   const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    const record = await registerPasskey(userName || "Affiliate User");
-    await connectWallet("passkey");
-    return record;
+    return registerPasskey(userName || "Affiliate User");
   };
 
-  // Compatibility facade for existing form components
-  const factoryContract = {
-    createCampaign: async (rate: string, period: string) => {
-      const res = await createCampaignOnChain(
-        "Campaign",
-        1000,
-        parseFloat(rate) || 10,
-        parseInt(period) || 604800,
-        "XLM",
-      );
-      return {
-        wait: async () => res,
-      };
-    },
-    joinCampaign: async (campaignAddr: string) => {
-      console.log(`[Soroban] Joined campaign: ${campaignAddr}`);
-      return {
-        wait: async () => ({ success: true }),
-      };
-    },
-  };
+  // Admin Emergency Kill-Switch
+  const isAdmin = userRole === "admin";
 
-  const getCampaignContract = (_address: string) => ({
-    logEncryptedSale: async (
-      affiliate: string,
-      amount: string,
-      _payload: any,
-      _advKey: any,
-      _affKey: any,
-    ) => {
-      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
-      return {
-        wait: async () => res,
-      };
-    },
-    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
-      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
-      return {
-        wait: async () => ({ success: true }),
-      };
-    },
-  });
+  const refreshContractPauseState = useCallback(async () => {
+    setIsContractPauseLoading(true);
+    try {
+      const paused = await getContractPausedStateQuery();
+      setContractPaused(paused);
+      return paused;
+    } catch (err) {
+      console.warn("Could not fetch contract pause state:", err);
+      return contractPaused;
+    } finally {
+      setIsContractPauseLoading(false);
+    }
+  }, [contractPaused]);
 
+  const pauseContract = useCallback(async () => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    if (!isAdmin) throw new Error("Admin access required");
+    setIsContractPauseLoading(true);
+    try {
+      const res = await pauseContractCall(userAddress, connectorType || "freighter");
+      setContractPaused(true);
+      return res;
+    } finally {
+      setIsContractPauseLoading(false);
+    }
+  }, [userAddress, connectorType, isAdmin]);
+
+  const resumeContract = useCallback(async () => {
+    if (!userAddress) throw new Error("Wallet not connected");
+    if (!isAdmin) throw new Error("Admin access required");
+    setIsContractPauseLoading(true);
+    try {
+      const res = await resumeContractCall(userAddress, connectorType || "freighter");
+      setContractPaused(false);
+      return res;
+    } finally {
+      setIsContractPauseLoading(false);
+    }
+  }, [userAddress, connectorType, isAdmin]);
+
+  // Compatibility helpers for legacy form callers
+  const factoryContract = null;
+  const getCampaignContract = (_address: string) => null;
+  const provider = null;
+  const signer = null;
   const switchToStellarNetwork = async () => {
-    setNetwork("TESTNET");
-    return true;
+    try {
+      const currentNet = await getCurrentNetwork();
+      setNetwork(currentNet);
+      return true;
+    } catch {
+      return false;
+    }
   };
+
+  const isStellarNetwork = network === "PUBLIC" || network === "TESTNET";
 
   return (
     <Web3Context.Provider
@@ -740,7 +741,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         userAddress,
         userRole,
         isConnected,
-        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
+        isStellarNetwork,
         network,
         xlmBalance,
         assetBalances,
@@ -765,6 +766,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         tokenAllowance,
         refreshTokenAllowance,
         approveTokenAllowance,
+        isAdmin,
+        contractPaused,
+        isContractPauseLoading,
+        refreshContractPauseState,
+        pauseContract,
+        resumeContract,
         factoryContract,
         getCampaignContract,
         multiSigInfo,
@@ -775,8 +782,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         openMultiSigModal,
         closeMultiSigModal,
         refreshMultiSigInfo,
-        provider: null,
-        signer: null,
+        provider,
+        signer,
         switchToStellarNetwork,
         activeRpcEndpoint,
         rpcEndpoints,
@@ -796,9 +803,9 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useWeb3(): Web3ContextType {
+export function useWeb3() {
   const context = useContext(Web3Context);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }
   return context;
