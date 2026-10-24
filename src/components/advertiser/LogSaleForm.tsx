@@ -20,6 +20,7 @@ import {
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
+import { notifyTelegramConversion } from "../../lib/telegramClient";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
@@ -202,6 +203,26 @@ export const LogSaleForm = () => {
           title: "Postback Notice",
           message:
             "Sale confirmed on-chain, but automated webhook dispatch encountered an issue. You can review or retry from the Webhook Manager tab.",
+        });
+      }
+
+      // Best effort: the server re-reads this log_sale transaction from the
+      // ledger and messages the affiliate on Telegram if they connected
+      // alerts. It is not awaited, so it never delays the sale confirmation.
+      if (/^[0-9a-f]{64}$/i.test(postbackTxHash)) {
+        void notifyTelegramConversion(postbackTxHash).then((outcome) => {
+          // "send_failed" means the affiliate has alerts on but Telegram
+          // rejected the message; tell the advertiser. Other failures (alerts
+          // not configured, RPC lag) are not actionable from this form.
+          if (outcome === "error") console.warn("Telegram alert request failed.");
+          if (outcome === "send_failed") {
+            showNotification({
+              type: "warning",
+              title: "Telegram Alert Not Sent",
+              message:
+                "The sale is confirmed on-chain, but the affiliate's Telegram alert could not be delivered.",
+            });
+          }
         });
       }
 
