@@ -1,4 +1,4 @@
-import { Suspense, useState, useEffect, useRef, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
@@ -113,11 +113,11 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
         >
           <div className="max-w-lg w-full text-center">
             <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
-              <span aria-hidden="true" className="text-2 xl font-bold text-red-500">
+              <span aria-hidden="true" className="text-2xl font-bold text-red-500">
                 !
               </span>
             </div>
-            <h2 className="text-2 xl font-bold mb-2">Something went wrong</h2>
+            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
             <p className="text-sm text-muted-foreground mb-4">
               An unexpected error occurred. You can report it to help us fix the issue,
               then reload or try again.
@@ -285,15 +285,15 @@ function App() {
 
   if (isShortLinkRoute) {
     return (
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <ErrorBoundary>
         <ShortLinkRedirect />
-      </Sentry.ErrorBoundary>
+      </ErrorBoundary>
     );
   }
 
   return (
     <NotificationWrapper>
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <ErrorBoundary>
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
@@ -303,7 +303,7 @@ function App() {
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>
-      </Sentry.ErrorBoundary>
+      </ErrorBoundary>
     </NotificationWrapper>
   );
 }
