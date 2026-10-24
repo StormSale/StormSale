@@ -1,6 +1,6 @@
 {
   "name": "storm-sale",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "\tThe future of affiliate bridging the gap between marketers and end users",
   "homepage": "https://github.com/StormSale/StormSale#readme",
@@ -79,6 +79,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.12.0",
+    "happy-dom": "^21.0.4",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^17.5.1",

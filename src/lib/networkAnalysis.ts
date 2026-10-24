@@ -12,7 +12,18 @@ export interface NetworkNode {
   address: string;
   roles: string[];
   suspicious: boolean;
+  redFlags: RedFlag[];
 }
+
+export interface RedFlag {
+  type: RedFlagType;
+  severity: RedFlagSeverity;
+  message: string;
+}
+
+export type RedFlagType = "circularFlow" | "sharedFunding" | "correlatedTiming" | "highVelocity";
+
+export type RedFlagSeverity = "low" | "medium" | "high";
 
 export interface NetworkEdge extends TransactionFlow {
   id: number;
@@ -27,12 +38,24 @@ export interface NetworkAnalysis {
   circularFlows: string[][];
   sharedFundingGroups: string[][];
   correlatedTimingGroups: number[][];
+  redFlagCount: number;
+  suspiciousAccountCount: number;
+}
+
+export interface AnomalyReport {
+  id: string;
+  address: string;
+  flags: RedFlag[];
+  createdAt: string;
+  note?: string;
 }
 
 const MAX_TRANSACTIONS = 5000;
 const MAX_CYCLE_LENGTH = 6;
 const MAX_REPORTED_CYCLES = 250;
 const CORRELATED_WINDOW_MS = 2 * 60 * 1000;
+const HIGH_VELOCITY_WINDOW_MS = 10 * 60 * 1000;
+const HIGH_VELOCITY_THRESHOLD = 5;
 
 function normalizeFlow(value: unknown, index: number): TransactionFlow {
   if (!value || typeof value !== "object") {
@@ -89,6 +112,45 @@ export function parseTransactionFlows(payload: unknown): TransactionFlow[] {
   }
 
   return rows.map(normalizeFlow);
+}
+
+function buildRedFlags(
+  circular: boolean,
+  sharedFunding: boolean,
+  correlatedTiming: boolean,
+  highVelocity: boolean,
+): RedFlag[] {
+  const flags: RedFlag[] = [];
+  if (circular) {
+    flags.push({
+      type: "circularFlow",
+      severity: "high",
+      message: "Account participates in a circular fund flow (wash-trading pattern).",
+    });
+  }
+  if (sharedFunding) {
+    flags.push({
+      type: "sharedFunding",
+      severity: "medium",
+      message: "Account is funded by a source that distributes to multiple accounts.",
+    });
+  }
+  if (correlatedTiming) {
+    flags.push({
+      type: "correlatedTiming",
+      severity: "medium",
+      message:
+        "Activity occurred within a tight timing window across accounts (rapid-claim pattern).",
+    });
+  }
+  if (highVelocity) {
+    flags.push({
+      type: "highVelocity",
+      severity: "high",
+      message: "Account emits an unusually high number of transactions in a short window.",
+    });
+  }
+  return flags;
 }
 
 export function analyzeTransactionFlows(flows: TransactionFlow[]): NetworkAnalysis {
@@ -201,6 +263,28 @@ export function analyzeTransactionFlows(flows: TransactionFlow[]): NetworkAnalys
   });
   const correlatedTimingGroups = correlatedIds.length > 0 ? [correlatedIds] : [];
 
+  // Detect high-velocity accounts (potential rapid-claim patterns).
+  const highVelocityAccounts = new Set<string>();
+  const activityBySource = new Map<string, number[]>();
+  for (const edge of edges) {
+    const times = activityBySource.get(edge.source) ?? [];
+    times.push(Date.parse(edge.timestamp));
+    activityBySource.set(edge.source, times);
+  }
+  for (const [source, times] of activityBySource) {
+    times.sort((left, right) => left - right);
+    let windowStart = 0;
+    for (let end = 0; end < times.length; end++) {
+      while (times[end] - times[windowStart] > HIGH_VELOCITY_WINDOW_MS) {
+        windowStart++;
+      }
+      if (end - windowStart + 1 >= HIGH_VELOCITY_THRESHOLD) {
+        highVelocityAccounts.add(source);
+        break;
+      }
+    }
+  }
+
   const suspiciousAccounts = new Set<string>();
   for (const edge of edges) {
     if (edge.circular || edge.correlatedTiming) {
@@ -209,12 +293,65 @@ export function analyzeTransactionFlows(flows: TransactionFlow[]): NetworkAnalys
     }
     if (edge.sharedFunding) suspiciousAccounts.add(edge.destination);
   }
+  for (const address of highVelocityAccounts) suspiciousAccounts.add(address);
 
-  const nodes = accounts.map((address) => ({
-    address,
-    roles: [...(roles.get(address) ?? [])].sort(),
-    suspicious: suspiciousAccounts.has(address),
-  }));
+  const nodes = accounts.map((address) => {
+    const addressEdges = edges.filter(
+      (edge) => edge.source === address || edge.destination === address,
+    );
+    const hasCircular = addressEdges.some((edge) => edge.circular);
+    const hasSharedFunding = addressEdges.some(
+      (edge) => edge.sharedFunding && edge.destination === address,
+    );
+    const hasCorrelatedTiming = addressEdges.some((edge) => edge.correlatedTiming);
+    const hasHighVelocity = highVelocityAccounts.has(address);
+    const redFlags = buildRedFlags(
+      hasCircular,
+      hasSharedFunding,
+      hasCorrelatedTiming,
+      hasHighVelocity,
+    );
+    return {
+      address,
+      roles: [...(roles.get(address) ?? [])].sort(),
+      suspicious: suspiciousAccounts.has(address),
+      redFlags,
+    };
+  });
 
-  return { nodes, edges, circularFlows, sharedFundingGroups, correlatedTimingGroups };
+  const redFlagCount = nodes.reduce((total, node) => total + node.redFlags.length, 0);
+
+  return {
+    nodes,
+    edges,
+    circularFlows,
+    sharedFundingGroups,
+    correlatedTimingGroups,
+    redFlagCount,
+    suspiciousAccountCount: suspiciousAccounts.size,
+  };
+}
+
+export function createAnomalyReport(
+  address: string,
+  flags: RedFlag[],
+  note?: string,
+): AnomalyReport {
+  if (typeof address !== "string" || address.trim().length === 0) {
+    throw new Error("An account address is required to create an anomaly report.");
+  }
+  if (!Array.isArray(flags) || flags.length === 0) {
+    throw new Error("At least one red flag is required to create an anomaly report.");
+  }
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  return {
+    id,
+    address: address.trim(),
+    flags: flags.map((flag) => ({ ...flag })),
+    createdAt: new Date().toISOString(),
+    note: note?.trim() || undefined,
+  };
 }
