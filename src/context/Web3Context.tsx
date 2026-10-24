@@ -27,6 +27,7 @@ import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
+import type { AutoSwapConfig } from "../lib/sorobanDex";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import type { MultiSigAccountInfo } from "../lib/multisig";
@@ -117,6 +118,7 @@ export interface Web3ContextType {
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
@@ -653,6 +655,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
     await assertNotSanctioned(userAddress, "batch-claim-payout");
@@ -662,6 +665,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       userAddress,
       connectorType || "freighter",
       splitPlan,
+      autoSwap,
     );
     await refreshBalance(userAddress);
     return res;

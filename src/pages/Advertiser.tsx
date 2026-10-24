@@ -9,6 +9,7 @@ import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
+import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
 import { NotificationProvider } from "../context/NotificationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
 import { STELLAR_CONFIG } from "../config/stellar";
@@ -28,6 +29,7 @@ import {
   FileSearch,
   Layers,
   Coins,
+  ClipboardList,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -46,6 +48,7 @@ const ADVERTISER_TABS = [
   "grant-access",
   "audit-logs",
   "analytics",
+  "affiliate-applications",
 ] as const;
 type AdvertiserTab = (typeof ADVERTISER_TABS)[number];
 
@@ -60,6 +63,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
+    { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
@@ -91,6 +95,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
       case "my-campaigns":
         return <MyCampaignsList />;
+      case "affiliate-applications":
+        return <AffiliateApplicationsQueue />;
       default:
         return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
     }

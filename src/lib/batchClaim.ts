@@ -17,6 +17,14 @@ import {
   buildSplitPaymentOperations,
   xlmToStroops,
 } from "./commissionSplit";
+import {
+  type AutoSwapConfig,
+  type AutoSwapReceipt,
+  quoteSwap,
+  toBaseUnits,
+  toAutoSwapReceipt,
+  buildSwapOperations,
+} from "./sorobanDex";
 const MOCK_AFFILIATE_ADDRESS = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 
 function isPlausibleStellarAddress(address: string): boolean {
@@ -51,7 +59,11 @@ function validateClaimItems(items: ClaimableCampaignItem[]): void {
       throw new Error(`Duplicate campaignId in batch claim: ${c.campaignId}.`);
     }
     seen.add(c.campaignId);
-    if (typeof c.claimableXlm !== "number" || !Number.isFinite(c.claimableXlm) || c.claimableXlm <= 0) {
+    if (
+      typeof c.claimableXlm !== "number" ||
+      !Number.isFinite(c.claimableXlm) ||
+      c.claimableXlm <= 0
+    ) {
       throw new Error(`Invalid claimable amount for campaign #${c.campaignId}.`);
     }
     if (c.claimableXlm > 1_000_000_000) {
@@ -95,6 +107,11 @@ export interface BatchClaimReceipt {
   splitAllocations?: SplitAllocationReceipt[];
   /** Count of extra payment operations appended to the claim transaction. */
   paymentOperationCount?: number;
+  /**
+   * Cross-DEX swap settled in the same envelope when "Auto-Swap on Claim" is
+   * enabled (#127). Present only when a swap was actually executed.
+   */
+  autoSwap?: AutoSwapReceipt;
 }
 
 /**
@@ -167,6 +184,7 @@ export async function executeBatchCommissionClaim(
   campaignsToClaim: ClaimableCampaignItem[],
   walletType: WalletType = "freighter",
   splitPlan?: SplitPlan | null,
+  autoSwap?: AutoSwapConfig | null,
 ): Promise<BatchClaimReceipt> {
   validateClaimItems(campaignsToClaim);
   if (!isPlausibleStellarAddress(affiliateAddress)) {
@@ -182,12 +200,26 @@ export async function executeBatchCommissionClaim(
 
   // Pre-compute the atomic split across destinations (exact stroop accounting).
   const activeDestinations = splitPlan?.enabled ? splitPlan.destinations : [];
-  const allocations = computeSplitAllocations(
-    xlmToStroops(totalClaimedXlm),
-    activeDestinations,
-  );
+  const allocations = computeSplitAllocations(xlmToStroops(totalClaimedXlm), activeDestinations);
   const splitAllocations = toSplitAllocationReceipts(allocations);
   const paymentOperationCount = splitAllocations.length;
+
+  // Resolve the optional atomic cross-DEX swap (#127). The withdrawn XLM total
+  // is quoted against the affiliate's chosen target token + slippage bound so
+  // the swap can be appended to the very same transaction envelope.
+  const swapEnabled = !!autoSwap?.enabled && autoSwap.targetToken !== autoSwap.tokenIn;
+  let swapQuote: ReturnType<typeof quoteSwap> | null = null;
+  if (swapEnabled && autoSwap) {
+    if (!(autoSwap.maxSlippageBps >= 0) || autoSwap.maxSlippageBps > 10000) {
+      throw new Error("Auto-swap slippage tolerance must be between 0 and 10000 basis points.");
+    }
+    const amountIn = toBaseUnits(totalClaimedXlm, autoSwap.tokenIn);
+    if (amountIn <= 0n) {
+      throw new Error("Nothing to auto-swap: claimed amount must be greater than zero.");
+    }
+    swapQuote = quoteSwap(amountIn, autoSwap.tokenIn, autoSwap.targetToken, autoSwap.maxSlippageBps);
+  }
+  const autoSwapReceipt = swapQuote ? toAutoSwapReceipt(swapQuote) : undefined;
 
   // If mock/test/readonly fallback, return instant simulated transaction receipt
   // Explicit sandbox/test modes return a deterministic-shape simulated receipt.
@@ -195,10 +227,7 @@ export async function executeBatchCommissionClaim(
   if (walletType === "readonly") {
     throw new Error("Readonly wallet cannot sign a batch claim transaction.");
   }
-  if (
-    walletType === "mock" ||
-    (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)
-  ) {
+  if (walletType === "mock" || (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)) {
     const mockHash = "0x" + randomHex64();
 
     return {
@@ -209,6 +238,7 @@ export async function executeBatchCommissionClaim(
       itemizedClaims,
       splitAllocations: splitAllocations.length > 0 ? splitAllocations : undefined,
       paymentOperationCount,
+      autoSwap: autoSwapReceipt,
     };
   }
 
@@ -225,12 +255,15 @@ export async function executeBatchCommissionClaim(
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Batch claim settlement failed: affiliate account is not available on the ledger (${reason}). Fund it and retry.`,
+      { cause: err },
     );
   }
 
   // 2. Build multi-operation transaction envelope:
-  //    claim_payout invocations first, then split payment operations — all atomic.
-  const operationCount = campaignsToClaim.length + paymentOperationCount;
+  //    claim_payout invocations first, then split payment operations, then the
+  //    cross-DEX swap — all atomic in a single ledger transaction.
+  const swapOps = swapQuote ? buildSwapOperations(swapQuote, affiliateAddress) : [];
+  const operationCount = campaignsToClaim.length + paymentOperationCount + swapOps.length;
   const baseOpFee = Number(BASE_FEE) * operationCount;
   const txBuilder = new TransactionBuilder(account, {
     fee: String(baseOpFee),
@@ -248,6 +281,10 @@ export async function executeBatchCommissionClaim(
 
   for (const paymentOp of buildSplitPaymentOperations(allocations)) {
     txBuilder.addOperation(paymentOp);
+  }
+
+  for (const swapOp of swapOps) {
+    txBuilder.addOperation(swapOp);
   }
 
   const preliminaryTx = txBuilder.setTimeout(90).build();
@@ -277,5 +314,6 @@ export async function executeBatchCommissionClaim(
     itemizedClaims,
     splitAllocations: splitAllocations.length > 0 ? splitAllocations : undefined,
     paymentOperationCount,
+    autoSwap: autoSwapReceipt,
   };
 }

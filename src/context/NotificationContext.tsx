@@ -1,11 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-} from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -127,23 +120,20 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications([]);
   }, []);
 
-  const showNotification = useCallback(
-    (notification: Omit<Notification, "id">): string => {
-      const id = Math.random().toString(36).substring(2, 11);
-      const isPersistent = notification.persistent === true || notification.duration === 0;
+  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
+    const id = Math.random().toString(36).substring(2, 11);
+    const isPersistent = notification.persistent === true || notification.duration === 0;
 
-      const newNotification: Notification = {
-        ...notification,
-        id,
-        persistent: isPersistent,
-        duration: isPersistent ? 0 : notification.duration ?? 5000,
-      };
+    const newNotification: Notification = {
+      ...notification,
+      id,
+      persistent: isPersistent,
+      duration: isPersistent ? 0 : (notification.duration ?? 5000),
+    };
 
-      setNotifications((prev) => [...prev, newNotification]);
-      return id;
-    },
-    [],
-  );
+    setNotifications((prev) => [...prev, newNotification]);
+    return id;
+  }, []);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = useCallback(
@@ -211,7 +201,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
 
   const [remainingTime, setRemainingTime] = useState<number>(duration);
   const [isPaused, setIsPaused] = useState<boolean>(false);
-  const startTimeRef = useRef<number>(Date.now());
+  const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-dismiss countdown with hover-to-pause

@@ -18,6 +18,9 @@ export const STELLAR_CONFIG = {
 
   nativeAsset: "XLM",
   nativeDecimals: 7,
+
+  // Timeout for stellar.toml discovery and federation server lookups (ms).
+  federationTimeoutMs: 8000,
 };
 
 export interface EscrowAsset {
