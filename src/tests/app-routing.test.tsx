@@ -119,7 +119,8 @@ describe("App routing", () => {
 
   afterEach(() => {
     cleanup();
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
+    vi.mocked(console.error).mockRestore?.();
   });
 
   it("renders the landing route and navigates through protected role pages", async () => {
@@ -139,7 +140,7 @@ describe("App routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to dashboard" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Invalid destination" }));
-    expect(screen.getByText("Dashboard page")).toBeTruthy();
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect wallet" }));
     expect(await screen.findByText("Landing page")).toBeTruthy();

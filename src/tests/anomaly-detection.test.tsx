@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 
 const exportSpies = vi.hoisted(() => ({ print: vi.fn(), download: vi.fn() }));
 
@@ -15,7 +16,7 @@ vi.mock("../lib/complianceExport", async (importOriginal) => {
 vi.mock("../components/auditor/Soc2EvidenceExport", () => ({
   Soc2EvidenceExport: () => <div>SOC 2 export</div>,
 }));
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
+
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { NotificationProvider } from "../context/NotificationContext";
 
