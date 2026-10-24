@@ -32,12 +32,8 @@ jobs:
       url: ${{ steps.deploy.outputs.preview-url }}
 
     steps:
-      - name: Checkout PR code
+      - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          # Build the contributor's HEAD so secrets can never leak into forks'
-          # code paths beyond this trusted deployment step.
-          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -88,17 +84,17 @@ jobs:
             const marker = "<!-- stormsale-preview-comment -->";
             const commit = context.payload.pull_request.head.sha.slice(0, 7);
             const body = `${marker}
-### 🌐 Ephemeral preview environment is live
+            ### 🌐 Ephemeral preview environment is live
 
-| | |
-| :--- | :--- |
-| **Preview URL** | ${url} |
-| **Network** | Stellar **Testnet** (default) |
-| **Commit** | \`${commit}\` |
+            | | |
+            | :--- | :--- |
+            | **Preview URL** | ${url} |
+            | **Network** | Stellar **Testnet** (default) |
+            | **Commit** | \`${commit}\` |
 
-> This staging environment is torn down automatically when the PR is closed or
-> merged. Click the URL to inspect UI changes in a live browser before approving.
-`;
+            > This staging environment is torn down automatically when the PR is closed or
+            > merged. Click the URL to inspect UI changes in a live browser before approving.
+            `;
 
             // Replace our previous preview comment instead of spamming the thread.
             const { data: comments } = await github.rest.issues.listComments({
