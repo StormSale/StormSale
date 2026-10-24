@@ -20,6 +20,7 @@ import {
   connectLedgerDevice,
   DEFAULT_STALLAR_BIP_PATH,
 } from "../lib/stellar";
+import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
@@ -100,6 +101,11 @@ export interface Web3ContextType {
     asset?: SupportedEscrowAssetCode;
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  topUpCampaignEscrow: (
+    campaignId: number,
+    amount: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => Promise<{ success: boolean; txHash?: string; toppedUpAmount?: number }>;
 
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
@@ -595,6 +601,59 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     [userAddress, connectorType, refreshBalance],
   );
 
+  /**
+   * Tops up a campaign's escrow balance on Soroban or mock sandbox, deducting token allowance.
+   */
+  const topUpCampaignEscrow = async (
+    campaignId: number,
+    amount: number,
+    assetCode: SupportedEscrowAssetCode = "XLM",
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await topUpCampaignEscrowContractCall(
+        userAddress,
+        campaignId,
+        amount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      if (connectorType !== "mock") {
+        throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
+      }
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setTokenAllowance((prev) => Math.max(0, prev - amount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - amount);
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
+        }
+      }
+      return {
+        success: true,
+        txHash: mockTxHash,
+        toppedUpAmount: amount,
+      };
+    }
+  };
+
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
   // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = useCallback(
@@ -691,6 +750,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       logSaleOnChain,
       claimPayoutOnChain,
       refundCampaignEscrow,
+      topUpCampaignEscrow,
       batchClaimPayoutsOnChain,
       registerPasskeyAccount,
       tokenAllowance,
@@ -742,6 +802,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       logSaleOnChain,
       claimPayoutOnChain,
       refundCampaignEscrow,
+      topUpCampaignEscrow,
       batchClaimPayoutsOnChain,
       registerPasskeyAccount,
       tokenAllowance,

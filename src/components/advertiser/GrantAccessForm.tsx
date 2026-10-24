@@ -13,6 +13,8 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { wrapAESKey, getPublicKeyForAddress } from "../../lib/crypto";
 import { grantAccessSchema, getFieldErrors } from "../../lib/validation";
+import { resolveRecipient } from "../../lib/stellar";
+import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import { Eye, Shield, UserCheck } from "lucide-react";
 
 export const GrantAccessForm = () => {
@@ -25,8 +27,7 @@ export const GrantAccessForm = () => {
   const { getCampaignContract } = useWeb3();
   const { showNotification } = useNotification();
 
-  const clearError = (field: string) =>
-    setErrors((prev) => ({ ...prev, [field]: "" }));
+  const clearError = (field: string) => setErrors((prev) => ({ ...prev, [field]: "" }));
 
   const handleGrantAccess = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +43,21 @@ export const GrantAccessForm = () => {
     const { data } = result;
     setIsLoading(true);
     try {
+      // Always re-resolve the submitted value so a stale or unresolved
+      // federation string can never reach the contract call.
+      const resolution = await resolveRecipient(data.auditorAddress);
+      const recipientAddress =
+        resolution.status === "raw" || resolution.status === "federated"
+          ? resolution.address
+          : undefined;
+      if (!recipientAddress) {
+        const message =
+          resolution.error || "Could not resolve the auditor address to a Stellar public key.";
+        setErrors({ auditorAddress: message });
+        showNotification({ type: "error", title: "Auditor Not Verified", message });
+        return;
+      }
+
       const campaignContract = getCampaignContract(data.campaignAddress);
 
       showNotification({
@@ -50,7 +66,7 @@ export const GrantAccessForm = () => {
         message: "Setting up auditor permissions...",
       });
 
-      const auditorPublicKey = await getPublicKeyForAddress(data.auditorAddress);
+      const auditorPublicKey = await getPublicKeyForAddress(recipientAddress);
       const auditorWrappedKey = await wrapAESKey({} as CryptoKey, auditorPublicKey);
 
       showNotification({
@@ -61,7 +77,7 @@ export const GrantAccessForm = () => {
 
       const tx = await campaignContract.grantAuditAccess(
         data.saleId,
-        data.auditorAddress,
+        recipientAddress,
         auditorWrappedKey,
       );
 
@@ -127,7 +143,10 @@ export const GrantAccessForm = () => {
               >
                 <Input
                   value={campaignAddress}
-                  onChange={(e) => { setCampaignAddress(e.target.value); clearError("campaignAddress"); }}
+                  onChange={(e) => {
+                    setCampaignAddress(e.target.value);
+                    clearError("campaignAddress");
+                  }}
                   placeholder="CCAMPAIGN... (56-char Soroban Contract Address)"
                   variant={errors.campaignAddress ? "error" : "default"}
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
@@ -145,7 +164,10 @@ export const GrantAccessForm = () => {
                     type="number"
                     min="1"
                     value={saleId}
-                    onChange={(e) => { setSaleId(e.target.value); clearError("saleId"); }}
+                    onChange={(e) => {
+                      setSaleId(e.target.value);
+                      clearError("saleId");
+                    }}
                     placeholder="e.g., 123"
                     variant={errors.saleId ? "error" : "default"}
                     className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
@@ -154,16 +176,18 @@ export const GrantAccessForm = () => {
 
                 <InputField
                   label="Auditor Address"
-                  description="Stellar public key of the auditor (G…)"
+                  description="Stellar public key (G…) or federation address (name*domain.com)"
                   error={errors.auditorAddress}
                   required
                 >
-                  <Input
+                  <FederatedAddressInput
                     value={auditorAddress}
-                    onChange={(e) => { setAuditorAddress(e.target.value); clearError("auditorAddress"); }}
-                    placeholder="GAUDITOR... (56-char Stellar Public Key)"
-                    variant={errors.auditorAddress ? "error" : "default"}
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
+                    onChange={(value) => {
+                      setAuditorAddress(value);
+                      clearError("auditorAddress");
+                    }}
+                    placeholder="GAUDITOR... or auditor*stormsale.io"
+                    inputClassName="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   />
                 </InputField>
               </div>

@@ -59,6 +59,22 @@ vi.mock("../config/contracts", () => ({
 }));
 vi.mock("../lib/stellar", () => ({
   formatStellarAddress: (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`,
+  // FederatedAddressInput reads these helpers; raw keys resolve without a fetch.
+  isValidStellarAccount: (value: string) => /^G[A-Z2-7]{55}$/.test(value?.trim() ?? ""),
+  isFederatedAddress: (value: string) => /^[^*\s]+\*[^*\s]+\.[^*\s]+$/.test(value?.trim() ?? ""),
+  resolveFederatedAddress: vi.fn(async () => {
+    throw new Error("Federation lookups are not exercised in this suite.");
+  }),
+  resolveRecipient: vi.fn(async (value: string) => {
+    const trimmed = value?.trim() ?? "";
+    if (/^G[A-Z2-7]{55}$/.test(trimmed)) {
+      return { status: "raw", address: trimmed };
+    }
+    return {
+      status: "invalid",
+      error: "Enter a valid G... public key or name*domain.com federation address.",
+    };
+  }),
 }));
 vi.mock("../lib/crypto", () => crypto);
 vi.mock("../lib/webhookEngine", () => webhooks);
