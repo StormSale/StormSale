@@ -65,6 +65,11 @@ export const GrantAccessForm = () => {
           resolution.error || "Could not resolve the auditor address to a Stellar public key.";
         setErrors({ auditorAddress: message });
         showNotification({ type: "error", title: "Auditor Not Verified", message });
+        // Revert optimistic state: restore the submitted inputs.
+        setOptimisticGrant(null);
+        setSaleId(pendingRef.current.saleId);
+        setAuditorAddress(pendingRef.current.auditorAddress);
+        setCampaignAddress(pendingRef.current.campaignAddress);
         return;
       }
 

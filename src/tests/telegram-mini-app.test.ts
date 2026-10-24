@@ -1,1 +1,297 @@
-aW1wb3J0IHsgZGVzY3JpYmUsIGl0LCBleHBlY3QsIHZpLCBiZWZvcmVFYWNoLCBhZnRlckVhY2ggfSBmcm9tICJ2aXRlc3QiOwppbXBvcnQgewogIGlzVGVsZWdyYW1NaW5pQXBwLAogIGluaXRUZWxlZ3JhbVdlYkFwcCwKICBnZXRUZWxlZ3JhbVVzZXIsCiAgZ2V0VGVsZWdyYW1QbGF0Zm9ybSwKICB0cmlnZ2VySGFwdGljLAogIHN5bmNUZWxlZ3JhbVRoZW1lLAogIGFwcGx5VGVsZWdyYW1UaGVtZSwKICBvcGVuVGVsZWdyYW1TaGFyZUxpbmssCiAgY29weVJlZmVycmFsTGlua1dpdGhIYXB0aWMsCn0gZnJvbSAiLi4vbGliL3RlbGVncmFtIjsKaW1wb3J0IHR5cGUgeyBUZWxlZ3JhbVdlYkFwcCB9IGZyb20gIi4uL2xpYi90ZWxlZ3JhbSI7CgpkZXNjcmliZSgiVGVsZWdyYW0gTWluaS1BcHAgKFRNQSkgQ2xpZW50IEludGVncmF0aW9uIiwgKCkgPT4gewogIGxldCBtb2NrV2ViQXBwOiBUZWxlZ3JhbVdlYkFwcDsKICBjb25zdCBjbGFzc0xpc3RTZXQgPSBuZXcgU2V0PHN0cmluZz4oKTsKICBjb25zdCBzdHlsZU1hcCA9IG5ldyBNYXA8c3RyaW5nLCBzdHJpbmc+KCk7CgogIGxldCBvcmlnV2luZG93RGVzY3JpcHRvcjogUHJvcGVydHlEZXNjcmlwdG9yIHwgdW5kZWZpbmVkOwogIGxldCBvcmlnRG9jdW1lbnREZXNjcmlwdG9yOiBQcm9wZXJ0eURlc2NyaXB0b3IgfCB1bmRlZmluZWQ7CiAgbGV0IG9yaWdOYXZpZ2F0b3JEZXNjcmlwdG9yOiBQcm9wZXJ0eURlc2NyaXB0b3IgfCB1bmRlZmluZWQ7CgogIGJlZm9yZUVhY2goKCkgPT4gewogICAgY2xhc3NMaXN0U2V0LmNsZWFyKCk7CiAgICBzdHlsZU1hcC5jbGVhcigpOwoKICAgIG1vY2tXZWJBcHAgPSB7CiAgICAgIGluaXREYXRhOgogICAgICAgICJxdWVyeV9pZD1BQUhkJnVzZXI9JTdCJTIyaWQlMjIlM0ExMjM0NTYlMkMlMjJmaXJzdF9uYW1lJTIyJTNBJTIyQWxleCUyMiUyQyUyMnVzZXJuYW1lJTIyJTNBJTIyYWxleF93ZWIzJTIyJTdEIiwKICAgICAgaW5pdERhdGFVbnNhZmU6IHsKICAgICAgICBxdWVyeV9pZDogIkFBSGQiLAogICAgICAgIHVzZXI6IHsKICAgICAgICAgIGlkOiAxMjM0NTYsCiAgICAgICAgICBmaXJzdF9uYW1lOiAiQWxleCIsCiAgICAgICAgICB1c2VybmFtZTogImFsZXhfd2ViMyIsCiAgICAgICAgfSwKICAgICAgfSwKICAgICAgdmVyc2lvbjogIjcuMTAiLAogICAgICBwbGF0Zm9ybTogImlvcyIsCiAgICAgIGNvbG9yU2NoZW1lOiAiZGFyayIsCiAgICAgIHRoZW1lUGFyYW1zOiB7CiAgICAgICAgYmdfY29sb3I6ICIjMTgyMjJkIiwKICAgICAgICB0ZXh0X2NvbG9yOiAiI2ZmZmZmZiIsCiAgICAgICAgYnV0dG9uX2NvbG9yOiAiIzJlYTZmZiIsCiAgICAgICAgYnV0dG9uX3RleHRfY29sb3I6ICIjZmZmZmZmIiwKICAgICAgICBzZWNvbmRhcnlfYmdfY29sb3I6ICIjMTMxYjI0IiwKICAgICAgfSwKICAgICAgaXNFeHBhbmRlZDogdHJ1ZSwKICAgICAgdmlld3BvcnRIZWlnaHQ6IDcwMCwKICAgICAgdmlld3BvcnRTdGFibGVIZWlnaHQ6IDcwMCwKICAgICAgaGVhZGVyQ29sb3I6ICIjMTgyMjJkIiwKICAgICAgYmFja2dyb3VuZENvbG9yOiAiIzE4MjIyZCIsCiAgICAgIEJhY2tCdXR0b246IHsKICAgICAgICBpc1Zpc2libGU6IGZhbHNlLAogICAgICAgIHNob3c6IHZpLmZuKCksCiAgICAgICAgaGlkZTogdmkuZm4oKSwKICAgICAgICBvbkNsaWNrOiB2aS5mbigpLAogICAgICAgIG9mZkNsaWNrOiB2aS5mbigpLAogICAgICB9LAogICAgICBNYWluQnV0dG9uOiB7CiAgICAgICAgdGV4dDogIkNPTlRJTlVFIiwKICAgICAgICBjb2xvcjogIiMyZWE2ZmYiLAogICAgICAgIHRleHRDb2xvcjogIiNmZmZmZmYiLAogICAgICAgIGlzVmlzaWJsZTogZmFsc2UsCiAgICAgICAgaXNBY3RpdmU6IHRydWUsCiAgICAgICAgaXNQcm9ncmVzc1Zpc2libGU6IGZhbHNlLAogICAgICAgIHNldFRleHQ6IHZpLmZuKCksCiAgICAgICAgb25DbGljazogdmkuZm4oKSwKICAgICAgICBvZmZDbGljazogdmkuZm4oKSwKICAgICAgICBzaG93OiB2aS5mbigpLAogICAgICAgIGhpZGU6IHZpLmZuKCksCiAgICAgICAgZW5hYmxlOiB2aS5mbigpLAogICAgICAgIGRpc2FibGU6IHZpLmZuKCksCiAgICAgICAgc2hvd1Byb2dyZXNzOiB2aS5mbigpLAogICAgICAgIGhpZGVQcm9ncmVzczogdmkuZm4oKSwKICAgICAgfSwKICAgICAgSGFwdGljRmVlZGJhY2s6IHsKICAgICAgICBpbXBhY3RPY2N1cnJlZDogdmkuZm4oKSwKICAgICAgICBub3RpZmljYXRpb25PY2N1cnJlZDogdmkuZm4oKSwKICAgICAgICBzZWxlY3Rpb25DaGFuZ2VkOiB2aS5mbigpLAogICAgICB9LAogICAgICByZWFkeTogdmkuZm4oKSwKICAgICAgZXhwYW5kOiB2aS5mbigpLAogICAgICBjbG9zZTogdmkuZm4oKSwKICAgICAgb3Blbkxpbms6IHZpLmZuKCksCiAgICAgIG9wZW5UZWxlZ3JhbUxpbms6IHZpLmZuKCksCiAgICAgIHNldEhlYWRlckNvbG9yOiB2aS5mbigpLAogICAgICBzZXRCYWNrZ3JvdW5kQ29sb3I6IHZpLmZuKCksCiAgICAgIGVuYWJsZUNsb3NpbmdDb25maXJtYXRpb246IHZpLmZuKCksCiAgICAgIGRpc2FibGVDbG9zaW5nQ29uZmlybWF0aW9uOiB2aS5mbigpLAogICAgICBvbkV2ZW50OiB2aS5mbigpLAogICAgICBvZmZFdmVudDogdmkuZm4oKSwKICAgICAgc2VuZERhdGE6IHZpLmZuKCksCiAgICB9OwoKICAgIGNvbnN0IG1vY2tEb2N1bWVudCA9IHsKICAgICAgZG9jdW1lbnRFbGVtZW50OiB7CiAgICAgICAgY2xhc3NMaXN0OiB7CiAgICAgICAgICBhZGQ6IHZpLmZuKChjbHM6IHN0cmluZykgPT4gY2xhc3NMaXN0U2V0LmFkZChjbHMpKSwKICAgICAgICAgIHJlbW92ZTogdmkuZm4oKGNsczogc3RyaW5nKSA9PiBjbGFzc0xpc3RTZXQuZGVsZXRlKGNscykpLAogICAgICAgICAgY29udGFpbnM6IHZpLmZuKChjbHM6IHN0cmluZykgPT4gY2xhc3NMaXN0U2V0LmhhcyhjbHMpKSwKICAgICAgICB9LAogICAgICAgIHN0eWxlOiB7CiAgICAgICAgICBzZXRQcm9wZXJ0eTogdmkuZm4oKGtleTogc3RyaW5nLCB2YWw6IHN0cmluZykgPT4gc3R5bGVNYXAuc2V0KGtleSwgdmFsKSksCiAgICAgICAgICBnZXRQcm9wZXJ0eVZhbHVlOiB2aS5mbigoa2V5OiBzdHJpbmcpID0+IHN0eWxlTWFwLmdldChrZXkpIHx8ICIiKSwKICAgICAgICB9LAogICAgICB9LAogICAgfTsKCiAgICBjb25zdCBtb2NrTmF2aWdhdG9yID0gewogICAgICBjbGlwYm9hcmQ6IHsKICAgICAgICB3cml0ZVRleHQ6IHZpLmZuKCkubW9ja1Jlc29sdmVkVmFsdWUodW5kZWZpbmVkKSwKICAgICAgfSwKICAgIH07CgogICAgY29uc3QgbW9ja1dpbmRvdyA9IHsKICAgICAgVGVsZWdyYW06IHsKICAgICAgICBXZWJBcHA6IG1vY2tXZWJBcHAsCiAgICAgIH0sCiAgICAgIG9wZW46IHZpLmZuKCksCiAgICB9OwoKICAgIG9yaWdXaW5kb3dEZXNjcmlwdG9yID0gT2JqZWN0LmdldE93blByb3BlcnR5RGVzY3JpcHRvcihnbG9iYWxUaGlzLCAid2luZG93Iik7CiAgICBvcmlnRG9jdW1lbnREZXNjcmlwdG9yID0gT2JqZWN0LmdldE93blByb3BlcnR5RGVzY3JpcHRvcihnbG9iYWxUaGlzLCAiZG9jdW1lbnQiKTsKICAgIG9yaWdOYXZpZ2F0b3JEZXNjcmlwdG9yID0gT2JqZWN0LmdldE93blByb3BlcnR5RGVzY3JpcHRvcihnbG9iYWxUaGlzLCAibmF2aWdhdG9yIik7CgogICAgT2JqZWN0LmRlZmluZVByb3BlcnR5KGdsb2JhbFRoaXMsICJ3aW5kb3ciLCB7CiAgICAgIHZhbHVlOiBtb2NrV2luZG93LAogICAgICBjb25maWd1cmFibGU6IHRydWUsCiAgICAgIHdyaXRhYmxlOiB0cnVlLAogICAgfSk7CiAgICBPYmplY3QuZGVmaW5lUHJvcGVydHkoZ2xvYmFsVGhpcywgImRvY3VtZW50IiwgewogICAgICB2YWx1ZTogbW9ja0RvY3VtZW50LAogICAgICBjb25maWd1cmFibGU6IHRydWUsCiAgICAgIHdyaXRhYmxlOiB0cnVlLAogICAgfSk7CiAgICBPYmplY3QuZGVmaW5lUHJvcGVydHkoZ2xvYmFsVGhpcywgIm5hdmlnYXRvciIsIHsKICAgICAgdmFsdWU6IG1vY2tOYXZpZ2F0b3IsCiAgICAgIGNvbmZpZ3VyYWJsZTogdHJ1ZSwKICAgICAgd3JpdGFibGU6IHRydWUsCiAgICB9KTsKICB9KTsKCiAgYWZ0ZXJFYWNoKCgpID0+IHsKICAgIGlmIChvcmlnV2luZG93RGVzY3JpcHRvcikgewogICAgICBPYmplY3QuZGVmaW5lUHJvcGVydHkoZ2xvYmFsVGhpcywgIndpbmRvdyIsIG9yaWdXaW5kb3dEZXNjcmlwdG9yKTsKICAgIH0gZWxzZSB7CiAgICAgIGRlbGV0ZSAoZ2xvYmFsVGhpcyBhcyBhbnkpLndpbmRvd7sKICAgIH0KCiAgICBpZiAob3JpZ0RvY3VtZW50RGVzY3JpcHRvcikgewogICAgICBPYmplY3QuZGVmaW5lUHJvcGVydHkoZ2xvYmFsVGhpcywgImRvY3VtZW50Iiwgb3JpZ0RvY3VtZW50RGVzY3JpcHRvcik7CiAgICB9IGVsc2UgewogICAgICBkZWxldGUgKGdsb2JhbFRoaXMgYXMgYW55KS5kb2N1bWVudDsKICAgIH0KCiAgICBpZiAob3JpZ05hdmlnYXRvckRlc2NyaXB0b3IpIHsKICAgICAgT2JqZWN0LmRlZmluZVByb3BlcnR5KGdsb2JhbFRoaXMsICJuYXZpZ2F0b3IiLCBvcmlnTmF2aWdhdG9yRGVzY3JpcHRvcik7CiAgICB9IGVsc2UgewogICAgICBkZWxldGUgKGdsb2JhbFRoaXMgYXMgYW55KS5uYXZpZ2F0b3I7CiAgICB9CgogICAgdmkucmVzdG9yZUFsbE1vY2tzKCk7CiAgfSk7CgogIGRlc2NyaWJlKCJUTUEgQ29udGFpbmVyICYgRW52aXJvbm1lbnQgRGV0ZWN0aW9uIiwgKCkgPT4gewogICAgaXQoImNvcnJlY3RseSBpZGVudGlmaWVzIHdoZW4gcnVubmluZyBpbnNpZGUgVGVsZWdyYW0gTWluaSBBcHAiLCAoKSA9PiB7CiAgICAgIGV4cGVjdChpc1RlbGVncmFtTWluaUFwcCgpKS50b0JlKHRydWUpOwogICAgICBleHBlY3QoZ2V0VGVsZWdyYW1QbGF0Zm9ybSgpKS50b0JlKCJpb3MiKTsKICAgICAgZXhwZWN0KGdldFRlbGVncmFtVXNlcigpPy51c2VybmFtZSkudG9CZSgiYWxleF93ZWIzIik7CiAgICB9KTsKCiAgICBpdCgicmVjb2duaXplcyBlbXB0eSBpbml0RGF0YSB3aGVuIHZhbGlkIHBsYXRmb3JtIGlkZW50aWZpZXIgaXMgcHJlc2VudCIsICgpID0+IHsKICAgICAgbW9ja1dlYkFwcC5pbml0RGF0YSA9ICIiOwogICAgICBtb2NrV2ViQXBwLnBsYXRmb3JtID0gImFuZHJvaWQiOwogICAgICBleHBlY3QoaXNUZWxlZ3JhbU1pbmlBcHAoKSkudG9CZS h0cnVlKTsKICAgIH0pOwoKICAgIGl0KCJyZWNvZ25pemVzIG5vbi1lbXB0eSBpbml0RGF0YSB3aGVuIHBsYXRmb3JtIGlzIHVua25vd24gb3IgZW1wdHkiLCAoKSA9PiB7CiAgICAgIG1vY2tXZWJBcHAuaW5pdERhdGEgPSAicXVlcnlfaWQ9QUFIZCI7CiAgICAgIG1vY2tXZWJBcHAucGxhdGZvcm0gPSAidW5rbm93biI7CiAgICAgIGV4cGVjdChpc1RlbGVncmFtTWluaUFwcCgpKS50b0JlKHRydWUpOwogICAgfSk7CgogICAgaXQoInJldHVybnMgZmFsc2Ugd2hlbiBib3RoIGluaXREYXRhIGFuZCBwbGF0Zm9ybSBhcmUgdW5yZWNvZ25pemVkIiwgKCkgPT4gewogICAgICBtb2NrV2ViQXBwLmluaXREYXRhID0gIiI7CiAgICAgIG1vY2tXZWJBcHAucGxhdGZvcm0gPSAidW5rbm93biI7CiAgICAgIGV4cGVjdChpc1RlbGVncmFtTWluaUFwcCgpKS50b0JlKGZhbHNlKTsKICAgIH0pOwoKICAgIGl0KCJyZXR1cm5zIGZhbHNlIHdoZW4gVGVsZWdyYW0gV2ViQXBwIFNEIGlzIG5vdCBwcmVzZW50IiwgKCkgPT4gewogICAgICBkZWxldGUgKGdsb2JhbFRoaXMgYXMgYW55KS53aW5kb3cuVGVsZWdyYW07CiAgICAgIGV4cGVjdChpc1RlbGVncmFtTWluaUFwcCgpKS50b0JlKGZhbHNlKTsKICAgICAgZXhwZWN0KGdldFRlbGVncmFtUGxhdGZvcm0oKSkudG9CZSgid2ViIik7CiAgICAgIGV4cGVjdChnZXRUZWxlZ3JhbVVzZXIoKSkudG9CZU51bGwoKTsKICAgIH0pOwoKICAgIGl0KCJpbml0aWFsaXplcyBXZWJBcHAgd2l0aCB2aWV3cG9ydCBleHBhbnNpb24gd2l0aG91dCB1bmNvbmRpdGlvbmFsIGNsb3NlIGNvbmZpcm1hdGlvbiIsICgpID0+IHsKICAgICAgY29uc3QgaW5pdGlhbGl6ZWQgPSBpbml0VGVsZWdyYW1XZWJBcHAoKTsKICAgICAgZXhwZWN0KGluaXRpYWxpemVkKS50b0JlKHRydWUpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5yZWFkeSkudG9IYXZlQmVlbkNhbGxlZFRpbWVzKDEpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5leHBhbmQpLnRvSGF2ZUJlZW5DYWxsZWRUaW1lcygxKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuZW5hYmxlQ2xvc2luZ0NvbmZpcm1hdGlvbikubm90LnRvSGF2ZUJlZW5DYWxsZWQoKTsKICAgIH0pOwogIH0pOwoKICBkZXNjcmliZSgiVGhlbWUgU3luY2hyb25pemF0aW9uIHdpdGggVGVsZWdyYW0gQ2xpZW50IiwgKCkgPT4gewogICAgaXQoImFwcGxpZXMgZGFyayB0aGVtZSBjbGFzcyBhbmQgQ1NTIHZhcmlhYmxlcyBtYXRjaGluZyBUZWxlZ3JhbSBjb2xvclNjaGVtZSIsICgpID0+IHsKICAgICAgbW9ja1dlYkFwcC5jb2xvclNjaGVtZSA9ICJkYXJrIjsKICAgICAgYXBwbHlUZWxlZ3JhbVRoZW1lKG1vY2tXZWJBcHApOwoKICAgICAgZXhwZWN0KGNsYXNzTGlzdFNldC5oYXMoImRhcmsiKSkudG9CZS h0cnVlKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuc2V0SGVhZGVyQ29sb3IpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCIjMDkwOTBiIik7CiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLnNldEJhY2tncm91bmRDb2xvcikudG9IYXZlQmVlbkNhbGxlZFdpdGgoIiMwOTA5MGIiKTsKICAgIH0pOwoKICAgIGl0KCJyZW1vdmVzIGRhcmsgdGhlbWUgY2xhc3Mgd2hlbiBUZWxlZ3JhbSBzd2l0Y2hlcyB0byBsaWdodCB0aGVtZSIsICgpID0+IHsKICAgICAgbW9ja1dlYkFwcC5jb2xvclNjaGVtZSA9ICJsaWdodCI7CiAgICAgIGFwcGx5VGVsZWdyYW1UaGVtZShtb2NrV2ViQXBwKTsKCiAgICAgIGV4cGVjdChjbGFzc0xpc3RTZXQuaGFzKCJkYXJrIikpLnRvQmUoZmFsc2UpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5zZXRIZWFkZXJDb2xvcikudG9IYXZlQmVlbkNhbGxlZFdpdGgoIiNmZmZmZmYiKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuc2V0QmFja2dyb3VuZENvbG9yKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgiI2Y4ZmFmYyIpOwogICAgfSk7CgogICAgaXQoInJlZ2lzdGVycyB0aGVtZUNoYW5nZWQgZXZlbnQgbGlzdGVuZXIgYW5kIHRyaWdnZXJzIGR5bmFtaWMgdXBkYXRlIiwgKCkgPT4gewogICAgICBsZXQgcmVnaXN0ZXJlZEhhbmRsZXI6ICgoKSA9PiB2b2lkKSB8IHVuZGVmaW5lZDsKICAgICAgbW9ja1dlYkFwcC5vbkV2ZW50ID0gdmkuZm4oKS5tb2NrSW1wbGVtZW50YXRpb24oKGV2ZW50LCBoYW5kbGVyKSA9PiB7CiAgICAgICAgaWYgKGV2ZW50ID09PSAidGhlbWVDaGFuZ2VkIikgewogICAgICAgICAgcmVnaXN0ZXJlZEhhbmRsZXIgPSBoYW5kbGVyOwogICAgICAgIH0KICAgICAgfSk7CgogICAgICBjb25zdCBvblRoZW1lQ2hhbmdlU3B5ID0gdmkuZm4oKTsKICAgICAgY29uc3QgdW5zdWJzY3JpYmUgPSBzeW5jVGVsZWdyYW1UaGVtZShvblRoZW1lQ2hhbmdlU3B5KTsKCiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLm9uRXZlbnQpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCJ0aGVtZUNoYW5nZWQiLCBleHBlY3QuYW55KEZ1bmN0aW9uKSk7CgogICAgICAvLyBTaW11bGF0ZSBUZWxlZ3JhbSB0aGVtZSBzd2l0Y2ggZnJvbSBkYXJrIHRvIGxpZ2h0CiAgICAgIG1vY2tXZWJBcHAuY29sb3JTY2hlbWUgPSAibGlnaHQiOwogICAgICBpZiAocmVnaXN0ZXJlZEhhbmRsZXIpIHsKICAgICAgICByZWdpc3RlcmVkSGFuZGxlcigpOwogICAgICB9CgogICAgICBleHBlY3Qob25UaGVtZUNoYW5nZVNweSkudG9IYXZlQmVlbkNhbGxlZFdpdGgoZmFsc2UpOwogICAgICBleHBlY3QoY2xhc3NMaXN0U2V0LmhhcygiZGFyayIpKS50b0JlKGZhbHNlKTsKCiAgICAgIHVuc3Vic2NyaWJlKCk7CiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLm9mZkV2ZW50KS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgidGhlbWVDaGFuZ2VkIiwgZXhwZWN0LmFueShGdW5jdGlvbikpOwogICAgfSk7CiAgfSk7CgogIGRlc2NyaWJlKCJOYXRpdmUgSGFwdGljIEZlZWRiYWNrIiwgKCkgPT4gewogICAgaXQoInRyaWdnZXJzIGltcGFjdE9jY3VycmVkIGZvciBpbXBhY3Qgc3R5bGVzIChsaWdodCwgbWVkaXVtLCBoZWF2eSwgcmlnaWQsIHNvZnQpIiwgKCkgPT4gewogICAgICB0cmlnZ2VySGFwdGljKCJsaWdodCIpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5IYXB0aWNGZWVkYmFjay5pbXBhY3RPY2N1cnJlZCkudG9IYXZlQmVlbkNhbGxlZFdpdGgoImxpZ2h0Iik7CgogICAgICB0cmlnZ2VySGFwdGljKCJtZWRpdW0iKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuSGFwdGljRmVlZGJhY2suaW1wYWN0T2NjdXJyZWQpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCJtZWRpdW0iKTsKCiAgICAgIHRyaWdnZXJIYXB0aWMoImhlYXZ5Iik7CiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLkhhcHRpY0ZlZWRiYWNrLmltcGFjdE9jY3VycmVkKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgiaGVhdnkiKTsKICAgIH0pOwoKICAgIGl0KCJ0cmlnZ2VycyBub3RpZmljYXRpb25PY2N1cnJlZCBmb3Igbm90aWZpY2F0aW9uIHR5cGVzIChzdWNjZXNzLCB3YXJuaW5nLCBlcnJvcikiLCAoKSA9PiB7CiAgICAgIHRyaWdnZXJIYXB0aWMoInN1Y2Nlc3MiKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuSGFwdGljRmVlZGJhY2subm90aWZpY2F0aW9uT2NjdXJyZWQpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCJzdWNjZXNzIik7CgogICAgICB0cmlnZ2VySGFwdGljKCJ3YXJuaW5nIik7CiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLkhhcHRpY0ZlZWRiYWNrLm5vdGlmaWNhdGlvbk9jY3VycmVkKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgid2FybmluZyIpOwoKICAgICAgdHJpZ2dlckhhcHRpYygiZXJyb3IiKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuSGFwdGljRmVlZGJhY2subm90aWZpY2F0aW9uT2NjdXJyZWQpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCJlcnJvciIpOwogICAgfSk7CgogICAgaXQoInRyaWdnZXJzIHNlbGVjdGlvbkNoYW5nZWQgZm9yIHNlbGVjdGlvbiBldmVudHMiLCAoKSA9PiB7CiAgICAgIHRyaWdnZXJIYXB0aWMoInNlbGVjdGlvbiIpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5IYXB0aWNGZWVkYmFjay5zZWxlY3Rpb25DaGFuZ2VkKS50b0hhdmVCZWVuQ2FsbGVkKCk7CiAgICB9KTsKCiAgICBpdCgic2lsZW50bHkgbm8tb3BzIHdoZW4gSGFwdGljRmVlZGJhY2sgaXMgbm90IGF2YWlsYWJsZSIsICgpID0+IHsKICAgICAgZGVsZXRlIChtb2NrV2ViQXBwIGFzIGFueSkuSGFwdGljRmVlZGJhY2s7CiAgICAgIGV4cGVjdCgoKSA9PiB0cmlnZ2VySGFwdGljKCJsaWdodCIpKS5ub3QudG9UaHJvdygpOwogICAgfSk7CiAgfSk7CgogIGRlc2NyaWJlKCJTaGFyaW5nICYgQ2xpcGJvYXJkIEhlbHBlcnMiLCAoKSA9PiB7CiAgICBpdCgib3BlbnMgdGVsZWdyYW0gc2hhcmUgbGluayB3aXRoIGVuY29kZWQgdGV4dCBhbmQgdXJsIiwgKCkgPT4gewogICAgICBvcGVuVGVsZWdyYW1TaGFyZUxpbmUoIlRlc3QgbWVzc2FnZSIsICJodHRwczovL2V4YW1wbGUuY29tL3JlZiIpOwogICAgICBleHBlY3QobW9ja1dlYkFwcC5vcGVuVGVsZWdyYW1MaW5rKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgKICAgICAgICBgaHR0cHM6Ly90Lm1lL3NoYXJlL3VybD8ke25ldyBVUkxTZWFyY2hQYXJhbXMoewogICAgICAgICAgdXJsOiAiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZWYiLAogICAgICAgICAgdGV4dDogIlRlc3QgbWVzc2FnZSIsCiAgICAgICAgfSkudG9TdHJpbmcoKX1gCiAgICAgICk7CiAgICB9KTsKCiAgICBpdCgiZmFsbHMgYmFjayB0byB3aW5kb3cub3BlbiB3aGVuIG9wZW5UZWxlZ3JhbUxpbmsgaXMgbm90IGF2YWlsYWJsZSIsICgpID0+IHsKICAgICAgZGVsZXRlIChtb2NrV2ViQXBwIGFzIGFueSkub3BlblRlbGVncmFtTGluazsKICAgICAgb3BlblRlbGVncmFtU2hhcmVMaW5rKCJGYWxsYmFjayIsICJodHRwczovL2V4YW1wbGUuY29tL3JlZiIpOwogICAgICBleHBlY3QoKGdsb2JhbFRoaXMgYXMgYW55KS53aW5kb3cub3BlbikudG9IYXZlQmVlbkNhbGxlZCgpOwogICAgfSk7CgogICAgaXQoImNvcGllcyByZWZlcnJhbCBsaW5rIHRvIGNsaXBib2FyZCBhbmQgdHJpZ2dlcnMgaGFwdGljIGZlZWRiYWNrIiwgYXN5bmMgKCkgPT4gewogICAgICBjb25zdCByZXN1bHQgPSBhd2FpdCBjb3B5UmVmZXJyYWxMaW5rV2l0aEhhcHRpYygiaHR0cHM6Ly9leGFtcGxlLmNvbS9yZWYiKTsKICAgICAgZXhwZWN0KHJlc3VsdCkudG9CZS h0cnVlKTsKICAgICAgZXhwZWN0KCgoZ2xvYmFsVGhpcyBhcyBhbnkpLm5hdmlnYXRvci5jbGlwYm9hcmQud3JpdGVUZXh0KSkudG9IYXZlQmVlbkNhbGxlZFdpdGgoImh0dHBzOi8vZXhhbXBsZS5jb20vcmVmIik7CiAgICAgIGV4cGVjdChtb2NrV2ViQXBwLkhhcHRpY0ZlZWRiYWNrLm5vdGlmaWNhdGlvbk9jY3VycmVkKS50b0hhdmVCZWVuQ2FsbGVkV2l0aCgic3VjY2VzcyIpOwogICAgfSk7CgogICAgaXQoInJldHVybnMgZmFsc2UgYW5kIHRyaWdnZXJzIGVycm9yIGhhcHRpYyB3aGVuIGNsaXBib2FyZCB3cml0ZSBmYWlscyIsIGFzeW5jICgpID0+IHsKICAgICAgKGdsb2JhbFRoaXMgYXMgYW55KS5uYXZpZ2F0b3IuY2xpcGJvYXJkLndyaXRlVGV4dCA9IHZpLmZuKCkubW9ja1JlamVjdGVkVmFsdWUobmV3IEVycm9yKCJkZW5pZWQiKSk7CiAgICAgIGNvbnN0IHJlc3VsdCA9IGF3YWl0IGNvcHlSZWZlcnJhbExpbmtXaXRoSGFwdGljKCJodHRwczovL2V4YW1wbGUuY29tL3JlZiIpOwogICAgICBleHBlY3QocmVzdWx0KS50b0JlKGZhbHNlKTsKICAgICAgZXhwZWN0KG1vY2tXZWJBcHAuSGFwdGljRmVlZGJhY2subm90aWZpY2F0aW9uT2NjdXJyZWQpLnRvSGF2ZUJlZW5DYWxsZWRXaXRoKCJlcnJvciIpOwogICAgfSk7CiAgfSk7Cn0pOwo=
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  isTelegramMiniApp,
+  initTelegramWebApp,
+  getTelegramUser,
+  getTelegramPlatform,
+  triggerHaptic,
+  syncTelegramTheme,
+  applyTelegramTheme,
+  openTelegramShareLink,
+  copyReferralLinkWithHaptic,
+} from "../lib/telegram";
+import type { TelegramWebApp } from "../lib/telegram";
+
+describe("Telegram Mini-App (TMA) Client Integration", () => {
+  let mockWebApp: TelegramWebApp;
+  const classListSet = new Set<string>();
+  const styleMap = new Map<string, string>();
+
+  let origWindowDescriptor: PropertyDescriptor | undefined;
+  let origDocumentDescriptor: PropertyDescriptor | undefined;
+  let origNavigatorDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    classListSet.clear();
+    styleMap.clear();
+
+    mockWebApp = {
+      initData:
+        "query_id=AAHd&user=%7B%22id%22%3A123456%2C%22first_name%22%3A%22Alex%22%2C%22username%22%3A%22alex_web3%22%7D",
+      initDataUnsafe: {
+        query_id: "AAHd",
+        user: {
+          id: 123456,
+          first_name: "Alex",
+          username: "alex_web3",
+        },
+      },
+      version: "7.10",
+      platform: "ios",
+      colorScheme: "dark",
+      themeParams: {
+        bg_color: "#18222d",
+        text_color: "#ffffff",
+        button_color: "#2ea6ff",
+        button_text_color: "#ffffff",
+        secondary_bg_color: "#131b24",
+      },
+      isExpanded: true,
+      viewportHeight: 700,
+      viewportStableHeight: 700,
+      headerColor: "#18222d",
+      backgroundColor: "#18222d",
+      BackButton: {
+        isVisible: false,
+        show: vi.fn(),
+        hide: vi.fn(),
+        onClick: vi.fn(),
+        offClick: vi.fn(),
+      },
+      MainButton: {
+        text: "CONTINUE",
+        color: "#2ea6ff",
+        textColor: "#ffffff",
+        isVisible: false,
+        isActive: true,
+        isProgressVisible: false,
+        setText: vi.fn(),
+        onClick: vi.fn(),
+        offClick: vi.fn(),
+        show: vi.fn(),
+        hide: vi.fn(),
+        enable: vi.fn(),
+        disable: vi.fn(),
+        showProgress: vi.fn(),
+        hideProgress: vi.fn(),
+      },
+      HapticFeedback: {
+        impactOccurred: vi.fn(),
+        notificationOccurred: vi.fn(),
+        selectionChanged: vi.fn(),
+      },
+      ready: vi.fn(),
+      expand: vi.fn(),
+      close: vi.fn(),
+      openLink: vi.fn(),
+      openTelegramLink: vi.fn(),
+      setHeaderColor: vi.fn(),
+      setBackgroundColor: vi.fn(),
+      enableClosingConfirmation: vi.fn(),
+      disableClosingConfirmation: vi.fn(),
+      onEvent: vi.fn(),
+      offEvent: vi.fn(),
+      sendData: vi.fn(),
+    } as unknown as TelegramWebApp;
+
+    const mockDocument = {
+      documentElement: {
+        classList: {
+          add: vi.fn((cls: string) => classListSet.add(cls)),
+          remove: vi.fn((cls: string) => classListSet.delete(cls)),
+          contains: vi.fn((cls: string) => classListSet.has(cls)),
+        },
+        style: {
+          setProperty: vi.fn((key: string, val: string) => styleMap.set(key, val)),
+          getPropertyValue: vi.fn((key: string) => styleMap.get(key) || ""),
+        },
+      },
+    };
+
+    const mockNavigator = {
+      clipboard: {
+        writeText: vi.fn().mockResolvedValue(undefined),
+      },
+    };
+
+    const mockWindow = {
+      Telegram: {
+        WebApp: mockWebApp,
+      },
+      open: vi.fn(),
+    };
+
+    origWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    origDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
+    origNavigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+
+    Object.defineProperty(globalThis, "window", {
+      value: mockWindow,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "document", {
+      value: mockDocument,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: mockNavigator,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    if (origWindowDescriptor) {
+      Object.defineProperty(globalThis, "window", origWindowDescriptor);
+    } else {
+      delete (globalThis as any).window;
+    }
+
+    if (origDocumentDescriptor) {
+      Object.defineProperty(globalThis, "document", origDocumentDescriptor);
+    } else {
+      delete (globalThis as any).document;
+    }
+
+    if (origNavigatorDescriptor) {
+      Object.defineProperty(globalThis, "navigator", origNavigatorDescriptor);
+    } else {
+      delete (globalThis as any).navigator;
+    }
+
+    vi.restoreAllMocks();
+  });
+
+  describe("TMA Container & Environment Detection", () => {
+    it("correctly identifies when running inside Telegram Mini App", () => {
+      expect(isTelegramMiniApp()).toBe(true);
+      expect(getTelegramPlatform()).toBe("ios");
+      expect(getTelegramUser()?.username).toBe("alex_web3");
+    });
+
+    it("recognizes empty initData when platform identifier is present", () => {
+      mockWebApp.initData = "";
+      mockWebApp.platform = "android";
+      expect(isTelegramMiniApp()).toBe(true);
+    });
+
+    it("recognizes non-empty initData when platform is unknown or empty", () => {
+      mockWebApp.initData = "query_id=AAHd";
+      mockWebApp.platform = "unknown";
+      expect(isTelegramMiniApp()).toBe(true);
+    });
+
+    it("returns false when both initData and platform are unrecognized", () => {
+      mockWebApp.initData = "";
+      mockWebApp.platform = "unknown";
+      expect(isTelegramMiniApp()).toBe(false);
+    });
+
+    it("returns false when Telegram WebApp SDK is not present", () => {
+      delete (globalThis as any).window.Telegram;
+      expect(isTelegramMiniApp()).toBe(false);
+      expect(getTelegramPlatform()).toBe("web");
+      expect(getTelegramUser()).toBeNull();
+    });
+
+    it("initializes WebApp with viewport expansion without unconditional close confirmation", () => {
+      const initialized = initTelegramWebApp();
+      expect(initialized).toBe(true);
+      expect(mockWebApp.ready).toHaveBeenCalledTimes(1);
+      expect(mockWebApp.expand).toHaveBeenCalledTimes(1);
+      expect(mockWebApp.enableClosingConfirmation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Theme Synchronization with Telegram Client", () => {
+    it("applies dark theme class and CSS variables matching Telegram colorScheme", () => {
+      mockWebApp.colorScheme = "dark";
+      applyTelegramTheme(mockWebApp);
+
+      expect(classListSet.has("dark")).toBe(true);
+      expect(mockWebApp.setHeaderColor).toHaveBeenCalledWith("#090909");
+      expect(mockWebApp.setBackgroundColor).toHaveBeenCalledWith("#090909");
+    });
+
+    it("removes dark theme class when Telegram switches to light theme", () => {
+      mockWebApp.colorScheme = "light";
+      applyTelegramTheme(mockWebApp);
+
+      expect(classListSet.has("dark")).toBe(false);
+      expect(mockWebApp.setHeaderColor).toHaveBeenCalledWith("#ffffff");
+      expect(mockWebApp.setBackgroundColor).toHaveBeenCalledWith("#f8fafc");
+    });
+
+    it("registers themeChanged event listener and triggers dynamic update", () => {
+      let registeredHandler: (() => void) | undefined;
+      mockWebApp.onEvent = vi.fn().mockImplementation((event, handler) => {
+        if (event === "themeChanged") {
+          registeredHandler = handler;
+        }
+      });
+
+      const onThemeChangeSpy = vi.fn();
+      const unsubscribe = syncTelegramTheme(onThemeChangeSpy);
+
+      expect(mockWebApp.onEvent).toHaveBeenCalledWith("themeChanged", expect.any(Function));
+
+      mockWebApp.colorScheme = "light";
+      if (registeredHandler) {
+        registeredHandler();
+      }
+
+      expect(onThemeChangeSpy).toHaveBeenCalledWith(false);
+      expect(classListSet.has("dark")).toBe(false);
+
+      unsubscribe();
+      expect(mockWebApp.offEvent).toHaveBeenCalledWith("themeChanged", expect.any(Function));
+    });
+  });
+
+  describe("Native Haptic Feedback", () => {
+    it("triggers impactOccurred for impact styles (light, medium, heavy, rigid, soft)", () => {
+      triggerHaptic("light");
+      expect(mockWebApp.HapticFeedback.impactOccurred).toHaveBeenCalledWith("light");
+
+      triggerHaptic("medium");
+      expect(mockWebApp.HapticFeedback.impactOccurred).toHaveBeenCalledWith("medium");
+
+      triggerHaptic("heavy");
+      expect(mockWebApp.HapticFeedback.impactOccurred).toHaveBeenCalledWith("heavy");
+    });
+
+    it("triggers notificationOccurred for success, warning, and error types", () => {
+      triggerHaptic("success");
+      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
+
+      triggerHaptic("warning");
+      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("warning");
+
+      triggerHaptic("error");
+      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("error");
+    });
+
+    it("triggers selectionChanged for selection events", () => {
+      triggerHaptic("selection");
+      expect(mockWebApp.HapticFeedback.selectionChanged).toHaveBeenCalled();
+    });
+  });
+
+  describe("Share Links & Clipboard Actions", () => {
+    it("opens Telegram share link via openTelegramLink", () => {
+      const url = "https://t.me/share/url?url=https%3A%2F%2Fexample.com%2Fref%2F123";
+      openTelegramShareLink(url);
+      expect(mockWebApp.openTelegramLink).toHaveBeenCalledWith(url);
+    });
+
+    it("copies referral link to clipboard and triggers success haptic", async () => {
+      const link = "https://app.example.com/ref/alex_web3";
+      await copyReferralLinkWithHaptic(link);
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(link);
+      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
+    });
+  });
+});

@@ -54,6 +54,8 @@ describe("Stellar Helpers", () => {
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
     const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+    // Mock pulls expect a fresh mock per run to avoid shared state
+    Object.keys(mockStorage).forEach((k) => delete mockStorage[k]);
 
     // Initially allowance should be 0
     const initialAllowance = await getTokenAllowanceQuery(testOwner);
