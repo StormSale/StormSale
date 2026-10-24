@@ -2,20 +2,27 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = 4173;
 
+/**
+ * Playwright configuration for the StormSale E2E suite.
+ *
+ * The claim spec (tests/e2e/claim.spec.ts) exercises the real batch-claim code
+ * path in a headless browser context. The dev server is started automatically.
+ */
 export default defineConfig({
-  timeout: 60_000,
   testDir: "./tests/e2e",
   testMatch: "**/*.e2e.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
+  timeout: 60_000,
+  expect: { timeout: 10_000 },
   reporter: process.env.CI
     ? [["list"], ["html", { open: "never" }], ["json", { outputFile: "e2e-results.json" }]]
     : [["list"], ["html", { open: "never" }]],
   outputDir: "test-results/e2e",
   use: {
-    baseURL: `http://127.0.0.1:${PORT}`,
+    baseURL: process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`,
     // Acceptance criteria: keep a video of every failing test.
     video: "retain-on-failure",
     screenshot: "only-on-failure",

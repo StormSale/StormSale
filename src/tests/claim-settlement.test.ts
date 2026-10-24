@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   calculateTotalClaimableXlm,
   executeBatchCommissionClaim,
@@ -65,5 +65,47 @@ describe("Secure Claim Settlement Validation (#49)", () => {
     expect(() => calculateTotalClaimableXlm([maturedItem({ claimableXlm: -1 })])).toThrow(
       "Negative claimable amount",
     );
+  });
+
+  describe("wallet balance increase", () => {
+    let balanceBefore: number;
+
+    beforeEach(() => {
+      balanceBefore = 100;
+    });
+
+    it("increases the wallet balance by the claimed amount", async () => {
+      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock");
+      const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
+      expect(balanceAfter).toBeGreaterThan(balanceBefore);
+      expect(balanceAfter - balanceBefore).toBeCloseTo(receipt.totalClaimedXlm, 1e-9);
+    });
+
+    it("aggregates multiple matured campaigns into a single balance increase", async () => {
+      const items = [
+        maturedItem({ campaignId: 201, claimableXlm: 10.25 }),
+        maturedItem({ campaignId: 202, claimableXlm: 20.5 }),
+      ];
+      const receipt = await executeBatchCommissionClaim(MOCK_AFFILIATE, items, "mock");
+      const balanceAfter = balanceBefore + receipt.totalClaimedXlm;
+      expect(receipt.totalClaimedXlm).toBeCloseTo(30.75, 1e-9);
+      expect(balanceAfter).toBeCloseTo(130.75, 1e-9);
+    });
+  });
+
+  describe("error path: low gas", () => {
+    it("surfaces a low gas failure without changing the balance", async () => {
+      const balanceBefore = 100;
+      await expect(
+        executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock", { gasLimit: 0 }),
+      ).rejects.toThrow(/low gas/i);
+      expect(balanceBefore).toBe(100);
+    });
+
+    it("rejects a gas limit below the minimum required for the batch", async () => {
+      await expect(
+        executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem()], "mock", { gasLimit: 1 }),
+      ).rejects.toThrow(/low gas/i);
+    });
   });
 });

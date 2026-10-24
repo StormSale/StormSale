@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -50,6 +50,7 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Auto-Swap on Claim (Issue #127)
   const [autoSwapEnabled, setAutoSwapEnabled] = useState(false);

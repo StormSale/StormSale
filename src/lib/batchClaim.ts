@@ -115,44 +115,70 @@ export interface BatchClaimReceipt {
 }
 
 /**
- * Mock/Query active campaigns where the affiliate has cleared matured commission payouts.
+ * Queries active campaigns where the affiliate has cleared matured commission payouts.
+ * Returns the matured claimable items from the Soroban contract configured in STELLAR_CONFIG.
  */
 export async function fetchAffiliateMaturedClaims(
-  _affiliateAddress: string,
+  affiliateAddress: string,
 ): Promise<ClaimableCampaignItem[]> {
-  // In production, queries Soroban contract and Horizon ledger events for cleared sales
-  return [
-    {
-      campaignId: 101,
-      campaignName: "Apex Alpha Performance Tech",
-      advertiserAddress: "GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
-      maturedSalesCount: 4,
-      claimableXlm: 45.5,
-      clearingPeriodDays: 7,
-      lastSaleDate: "2026-10-01",
-      status: "matured",
-    },
-    {
-      campaignId: 204,
-      campaignName: "Nova Quantum Cloud Services",
-      advertiserAddress: "GB4RN8XJLP8M1K3V6P7Q8R9S0T1U2V3W4X5Y6Z7A8B9C0D1E2F3G",
-      maturedSalesCount: 7,
-      claimableXlm: 78.0,
-      clearingPeriodDays: 14,
-      lastSaleDate: "2026-09-28",
-      status: "matured",
-    },
-    {
-      campaignId: 309,
-      campaignName: "Stellar Horizon SaaS Hub",
-      advertiserAddress: "GC1M2N3P4Q5R6S7T8U9V0W1X2Y3Z4A5B6C7D8E9F0G1H2I3J4K5L",
-      maturedSalesCount: 3,
-      claimableXlm: 32.25,
-      clearingPeriodDays: 3,
-      lastSaleDate: "2026-10-08",
-      status: "matured",
-    },
-  ];
+  if (!affiliateAddress) {
+    throw new Error("Affiliate address is required to fetch claims.");
+  }
+
+  const server = getSorobanRpcServer();
+  const contract = new Contract(STELLAR_CONFIG.contractId);
+
+  const account = await server.getAccount(affiliateAddress);
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+  })
+    .addOperation(
+      contract.call(
+        "get_matured_claims",
+        new Address(affiliateAddress).toScVal(),
+      ),
+    )
+    .setTimeout(90)
+    .build();
+
+  const simResponse = await server.simulateTransaction(tx);
+  if (rpc.Api.isSimulationError(simResponse)) {
+    throw new Error(
+      `Failed to fetch matured claims: ${simResponse.error}`,
+    );
+  }
+
+  const retVal = (simResponse as rpc.Api.SimulateTransactionSuccessResponse).result
+    ?.retVal;
+  if (!retVal) {
+    return [];
+  }
+
+  const decoded = scValToNative(retVal);
+  if (!Array.isArray(decoded)) {
+    return [];
+  }
+
+  return decoded.map((entry: any) => {
+    const campaignId = Number(entry.campaign_id ?? entry.campaignId ?? 0);
+    const claimableXlm = Number(entry.claimable_xlm ?? entry.claimableXlm ?? 0) / 10_000_000;
+    const maturedSalesCount = Number(entry.matured_sales_count ?? entry.maturedSalesCount ?? 0);
+    const clearingPeriodDays = Number(entry.clearing_period_days ?? entry.clearingPeriodDays ?? 0);
+    const lastSaleDate = String(entry.last_sale_date ?? entry.lastSaleDate ?? "");
+    const status = (entry.status ?? "matured") as ClaimableCampaignItem["status"];
+
+    return {
+      campaignId,
+      campaignName: String(entry.campaign_name ?? entry.campaignName ?? `Campaign ${campaignId}`),
+      advertiserAddress: String(entry.advertiser_address ?? entry.advertiserAddress ?? ""),
+      maturedSalesCount,
+      claimableXlm,
+      clearingPeriodDays,
+      lastSaleDate,
+      status,
+    };
+  });
 }
 
 /**

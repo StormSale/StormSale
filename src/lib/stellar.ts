@@ -203,7 +203,7 @@ export async function signWalletTransaction(
   walletType: WalletType,
 ): Promise<string> {
   if (walletType === "freighter") {
-    const signResult = await signFreighterTransaction(preparedXdr, {
+    const signResult = await signFreighterTransaction(preparedPdr, {
       networkPassphrase: STELLAR_CONFIG.networkPassphrase,
     });
     if (
@@ -216,22 +216,22 @@ export async function signWalletTransaction(
       typeof signResult === "string"
         ? signResult
         : (signResult as any).signedTxXdr || (signResult as any).signedXdr;
-    if (!signedXdr) throw new Error("No signed transaction XDR returned from Freighter.");
-    return signedXdr;
+    if (!signedXdr)throw new Error("No signed transaction XDR returned from Freighter.");
+    return signedPdr;
   } else if (walletType === "albedo") {
     const netParam = STELLAR_CONFIG.network.toLowerCase() === "public" ? "public" : "testnet";
     return await signAlbedoTransaction(preparedXdr, netParam);
   } else if (walletType === "xbull") {
     const xbull = (window as any).xBullSDK || (window as any).xbull;
     if (!xbull) throw new Error("xBull extension is not available.");
-    return await xbull.signXDR(preparedXdr);
+    return await xbull.signXDR(preparedPdr);
   } else if (walletType === "ledger") {
     const { signLedgerTransaction } = await import("./ledgerBridge");
-    return await signLedgerTransaction(preparedXdr);
+    return await signLedgerTransaction(preparedXdr, walletType);
   } else if (walletType === "passkey") {
     const { authenticateWithPasskey } = await import("./passkeySigner");
     await authenticateWithPasskey();
-    return preparedXdr;
+    return preparedPdr;
   } else {
     // Mock / Read-only fallback
     return preparedXdr;
@@ -418,13 +418,14 @@ export function isValidStellarAddress(address: string): boolean {
 }
 
 /**
- * Helper to request friendbot testnet XLM funding for new testnet accounts.
+ * Helper to request friendbot testnet XLM funding for a given address.
  */
-export async function fundTestnetAccount(address: string): Promise<boolean> {
+export async function fundXlmTestnet(address: string): Promise<boolean> {
   try {
-    const response = await fetch(`https://friendbot.stellar.org?addr=${address}`);
+    const response = await fetch(`${STELLAR_CONFIG.friendbotUrl}?tdr=${address}`);
     return response.ok;
-  } catch {
+  } catch (error) {
+    console.warn("Error funding testnet account:", error);
     return false;
   }
 }
