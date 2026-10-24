@@ -605,13 +605,11 @@ export function validateSignedSorobanTransactionXdr(
     throw new Error("Both signed XDR and its prepared unsigned transaction are required.");
   }
 
-  let signedTransaction: ReturnType<typeof TransactionBuilder.fromXDR>;
-  let preparedTransaction: ReturnType<typeof TransactionBuilder.fromXDR>;
-  signedTransaction = TransactionBuilder.fromXDR(
+  const signedTransaction = TransactionBuilder.fromXDR(
     signedXdr.trim(),
     STELLAR_CONFIG.networkPassphrase,
   );
-  preparedTransaction = TransactionBuilder.fromXDR(
+  const preparedTransaction = TransactionBuilder.fromXDR(
     preparedUnsignedXdr.trim(),
     STELLAR_CONFIG.networkPassphrase,
   );
@@ -634,12 +632,9 @@ export function validateSignedSorobanTransactionXdr(
     throw new Error("The imported transaction has no signatures.");
   }
 
-  signedTransaction.signatures = [];
-  preparedTransaction.signatures = [];
-  if (signedTransaction.toXDR() !== preparedTransaction.toXDR()) {
+  if (signedTransaction.tx.toXdr("base64") !== preparedTransaction.tx.toXdr("base64")) {
     throw new Error("Signed XDR does not match the prepared transaction.");
   }
-  signedTransaction.signatures = importedSignatures;
 
   const signer = Keypair.fromPublicKey(expectedSignerAddress);
   const hasValidSignature = importedSignatures.some((decoratedSignature) => {
