@@ -32,6 +32,8 @@ export interface Notification {
   actionUrl?: string;
   onAction?: () => void;
   campaignId?: string;
+  retryable?: boolean;
+  onRetry?: () => void;
 }
 
 export interface NotificationContextType {
@@ -48,6 +50,8 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  notifyTransactionTimeout: (params: TransactionTimeoutParams) => string;
+  pollTransaction: (params: PollTransactionParams) => string;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -57,6 +61,26 @@ export interface EscrowMonitoredCampaign {
   escrowBalance: number;
   status?: string;
 }
+
+export interface TransactionTimeoutParams {
+  txHash?: string;
+  message?: string;
+  onRetry?: () => void;
+  explorerUrl?: string;
+}
+
+export interface PollTransactionParams {
+  txHash?: string;
+  checkStatus: () => Promise<"pending" | "success" | "failed">;
+  onSuccess?: () => void;
+  onFailure?: () => void;
+  onRetry?: () => void;
+  explorerUrl?: string;
+}
+
+export const POLLING_BASE_DELAY_MS = 1000;
+export const POLLING_MAX_DELAY_MS = 30000;
+export const POLLING_MAX_ATTEMPTS = 8;
 
 /**
  * Evaluates campaign escrow funds and determines whether a critical low-balance condition exists (< 10%).
@@ -75,6 +99,30 @@ export function evaluateCampaignEscrowLevel(campaign: EscrowMonitoredCampaign): 
     remainingXlm: campaign.escrowBalance,
     percentageRemaining: percentage,
   };
+}
+
+/**
+ * Computes the exponential backoff delay for a given polling attempt.
+ * attempt 0 -> base, attempt 1 -> 2*base, attempt 2 -> 4*base, capped at max.
+ */
+export function computePollingDelay(
+  attempt: number,
+  baseDelay: number = POLLING_BASE_DELAY_MS,
+  maxDelay: number = POLLING_MAX_DELAY_MS,
+): number {
+  const safeAttempt = Math.max(0, Math.floor(attempt));
+  const delay = baseDelay * Math.pow(2, safeAttempt);
+  return Math.min(delay, maxDelay);
+}
+
+/**
+ * Determines whether polling should stop because the max attempt budget is exhausted.
+ */
+export function hasPollingTimedOut(
+  attempt: number,
+  maxAttempts: number = POLLING_MAX_ATTEMPTS,
+): boolean {
+  return attempt >= maxAttempts;
 }
 
 /**
@@ -107,7 +155,28 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
-export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
+/**
+ * Builds a persistent timeout notification with a retry prompt action.
+ */
+export function buildTransactionTimeoutNotification(
+  params: TransactionTimeoutParams,
+): Omit<Notification, "id"> {
+  return {
+    type: "error",
+    title: "Transaction Confirmation Timed Out",
+    message:
+      params.message ||
+      "We could not confirm your transaction in time. It may still be processing on-chain.",
+    persistent: true,
+    duration: 0,
+    retryable: true,
+    onRetry: params.onRetry,
+    actionLabel: "Retry Polling",
+    actionUrl: params.explorerUrl,
+  };
+}
+
+const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -120,9 +189,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     setNotifications([]);
   }, []);
 
-  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
-    const id = Math.random().toString(36).substring(2, 11);
-    const isPersistent = notification.persistent === true || notification.duration === 0;
+  const pollingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  const showNotification = useCallback(
+    (notification: Omit<Notification, "id">): string => {
+      const id = Math.random().toString(36).substring(2, 11);
+      const isPersistent = notification.persistent === true || notification.duration === 0;
 
     const newNotification: Notification = {
       ...notification,
@@ -148,6 +220,81 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       return showNotification(buildLowEscrowNotification(params));
     },
     [showNotification],
+  );
+
+  // Triggers a persistent timeout notification with retry prompt
+  const notifyTransactionTimeout = useCallback(
+    (params: TransactionTimeoutParams): string => {
+      return showNotification(buildTransactionTimeoutNotification(params));
+    },
+    [showNotification],
+  );
+
+  // Adaptive transaction polling with exponential backoff
+  const pollTransaction = useCallback(
+    (params: PollTransactionParams): string => {
+      const notificationId = showNotification({
+        type: "pending",
+        title: "Confirming Transaction",
+        message: params.txHash
+          ? `Waiting for confirmation of ${params.txHash.slice(0, 10)}...`
+          : "Waiting for transaction confirmation...",
+        persistent: true,
+        duration: 0,
+      });
+
+      let attempt = 0;
+
+      const clearTimer = () => {
+        const timer = pollingTimers.current.get(notificationId);
+        if (timer) {
+          clearTimeout(timer);
+          pollingTimers.current.delete(notificationId);
+        }
+      };
+
+      const scheduleNext = () => {
+        if (hasPollingTimedOut(attempt, POLLING_MAX_ATTEMPTS)) {
+          clearTimer();
+          dismissNotification(notificationId);
+          notifyTransactionTimeout({
+            txHash: params.txHash,
+            onRetry: params.onRetry,
+            explorerUrl: params.explorerUrl,
+          });
+          return;
+        }
+
+        const delay = computePollingDelay(attempt);
+        const timer = setTimeout(async () => {
+          attempt += 1;
+          try {
+            const status = await params.checkStatus();
+            if (status === "success") {
+              clearTimer();
+              dismissNotification(notificationId);
+              if (params.onSuccess) params.onSuccess();
+              return;
+            }
+            if (status === "failed") {
+              clearTimer();
+              dismissNotification(notificationId);
+              if (params.onFailure) params.onFailure();
+              return;
+            }
+          } catch {
+            // treat errors as pending and continue polling
+          }
+          scheduleNext();
+        }, delay);
+
+        pollingTimers.current.set(notificationId, timer);
+      };
+
+      scheduleNext();
+      return notificationId;
+    },
+    [showNotification, dismissNotification, notifyTransactionTimeout],
   );
 
   // Automated background evaluation for low escrow balances
@@ -182,6 +329,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
         notifyLowEscrowBalance,
         checkEscrowBalances,
         clearAllNotifications,
+        notifyTransactionTimeout,
+        pollTransaction,
       }}
     >
       {children}
@@ -334,6 +483,22 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
             <p className="text-xs text-zinc-600 dark:text-zinc-300 mt-1.5 leading-relaxed">
               {notification.message}
             </p>
+          )}
+
+          {notification.retryable && notification.onRetry && (
+            <div className="mt-3 flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (notification.onRetry) notification.onRetry();
+                  onDismiss(notification.id);
+                }}
+                className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all"
+              >
+                <span>Retry Polling</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+              </button>
+            </div>
           )}
 
           {/* Interactive Action: Link or Button to flow */}

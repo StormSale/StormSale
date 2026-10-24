@@ -10,7 +10,7 @@ const MOCK_AFFILIATE = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 const maturedItem = (overrides: Partial<ClaimableCampaignItem> = {}): ClaimableCampaignItem => ({
   campaignId: 101,
   campaignName: "Apex Alpha Performance Tech",
-  advertiserAddress: "GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
+  advertiserAddress: "GA7QW5KXGPTR4N2K9J2M3N4P5QR7S8T9U0V1W2X3Y4Z5A6B7C8D",
   maturedSalesCount: 4,
   claimableXlm: 45.5,
   clearingPeriodDays: 7,
@@ -38,6 +38,12 @@ describe("Secure Claim Settlement Validation (#49)", () => {
     await expect(
       executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem(), maturedItem()], "mock"),
     ).rejects.toThrow("Duplicate campaignId");
+  });
+
+  it("rejects a campaign with zero matured sales", async () => {
+    await expect(
+      executeBatchCommissionClaim(MOCK_AFFILIATE, [maturedItem({ maturedSalesCount: 0 })], "mock"),
+    ).rejects.toThrow();
   });
 
   it("rejects invalid claim amounts", async () => {

@@ -41,6 +41,120 @@ export interface SorobanInvokeResult {
 }
 
 /**
+ * Polling configuration for confirming blockchain transactions.
+ * Exponential backoff with jitter and a hard timeout.
+ */
+export interface PollingConfig {
+  /** Initial delay before the first poll, in ms. */
+  initialDelayMs?: number;
+  /** Multiplier applied to the delay after each attempt. */
+  backoffFactor?: number;
+  /** Maximum delay between polls, in ms. */
+  maxDelayMs?: number;
+  /** Total time budget before timeout, in ms. */
+  timeoutMs?: number;
+  /** Fractional random jitter (0.2 = up to 20%) to avoid thronging. */
+  jitterFactor?: number;
+}
+
+export const DEFAULT_POLLING_CONFIG: Required<PollingConfig> = {
+  initialDelayMs: 1000,
+  backoffFactor: 1.6,
+  maxDelayMs: 10000,
+  timeoutMs: 60000,
+  jitterFactor: 0.2,
+};
+
+export class TransactionPollingTimeoutError extends Error {
+  readonly tyHash: string;
+  readonly attempts: number;
+  readonly elapsedMs: number;
+
+  constructor(tyHash: string, attempts: number, elapsedMs: number) {
+    super(
+      `Transaction ${tyHash} was submitted but not confirmed after ${attempts} polls (${Math.round(elapsedMs / 1000)}s). You can retry confirmation.`,
+    );
+    this.name = "TransactionPollingTimeoutError";
+    this.tyHash = tyHash;
+    this.attempts = attempts;
+    this.elapsedMs = elapsedMs;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Computes the next polling delay using exponential backoff with jitter,
+ * capped at maxDelayMs.
+ */
+export function computeBackoffDelay(
+  attempt: number,
+  config: Required<PollingConfig> = DEFAULT_POLLING_CONFIG,
+): number {
+  const base = config.initialDelayMs * Math.pow(config.backoffFactor, attempt);
+  const capped = Math.min(base, config.maxDelayMs);
+  const jitter = 1 + (Math.random() * 2 - 1) * config.jitterFactor;
+  return Math.max(0, Math.round(capped * jitter));
+}
+
+/**
+ * Polls Soroban RPC until the transaction is confirmed or the timeout is reached.
+ * Uses exponential backoff between attempts and throws TransactionPollingTimeoutError on
+ * timeout so callers can surface a retry prompt.
+ */
+export async function pollTransactionStatus(
+  txHash: string,
+  config: PollingConfig = {},
+  onAttempt?: (attempt: number, delayMs: number) => void,
+  server: rpc.Server = getSorobanRpcServer(),
+): Promise<rpc.Api.GetTransactionResponse> {
+  const cfg = { ...DEFAULT_POLLING_CONFIG, ...config };
+  const started = Date.now();
+  let attempt = 0;
+  let lastError: unknown;
+
+  while (Date.now() - started < cfg.timeoutMs) {
+    const delay = computeBackoffDelay(attempt, cfg);
+    onAttempt?.(attempt, delay);
+    await sleep(delay);
+
+    try {
+      const result = await server.getTransaction(txHash);
+      const status = result.status;
+      if (status === rpc.Api.GetTransactionStatus.SUCCESS) {
+        return result;
+      }
+      if (status === rpc.Api.GetTransactionStatus.FAILED) {
+        throw new Error(
+          `Transaction ${txHash} failed on-chain: ${result.resultXdr?.toString() || "unknown error"}`,
+        );
+      }
+      // NOT_FOUND / pending -> keep polling
+    } catch (err) {
+      // RPC may return not-found for a brief window after submission.
+      // Only surface failures that are not transient not-found errors.
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/not found|NOT_FOUND|404/i.test(msg)) {
+        lastError = err;
+      } else {
+        throw err;
+      }
+    }
+
+    attempt += 1;
+  }
+
+  const elapsed = Date.now() - started;
+  const timeoutErr = new TransactionPollingTimeoutError(txHash, attempt, elapsed);
+  if (lastError) {
+    (timeoutErr as any).cause = lastError;
+  }
+  throw timeoutErr;
+}
+
+/**
  * Checks if the Freighter wallet extension is installed and available in the browser.
  */
 export async function checkFreighterInstalled(): Promise<boolean> {
@@ -185,11 +299,13 @@ export async function connectXbullWallet(): Promise<string> {
   const xbull = (window as any).xBullSDK || (window as any).xbull;
   if (!xbull) {
     throw new Error(
-      "xBull wallet extension is not installed. Please install xBull from https://xbull.app or use Albedo on mobile.",
+      "xBull wallet extension is not installed. Please install xBull from https://xbull.app",
     );
   }
+
   try {
-    const address = await xbull.getPublicKey();
+    await xbull.connect();
+    const { address } = await xbull.getAddress();
     return address;
   } catch (err: any) {
     throw new Error(err.message || "xBull connection failed.", { cause: err });
@@ -197,11 +313,64 @@ export async function connectXbullWallet(): Promise<string> {
 }
 
 /**
- * Multi-wallet transaction signing dispatcher.
+ * Signs a transaction with xBull.
+ */
+export async function signXBullTransaction(
+  xdrBase64: string,
+  network: string = "testnet",
+): Promise<string> {
+  const xbull = (window as any).xBullSDK || (window as any).xbull;
+  if (!xbull) {
+    throw new Error("xBull wallet is not installed.");
+  }
+
+  try {
+    const result = await xbull.signTransaction(xdrBase64, { networkPassphrase: network });
+    return result;
+  } catch (err) {
+    throw new Error(
+      err instanceof Error ? err.message : "xBull transaction signing failed",
+    );
+  }
+}
+
+/**
+ * Signs a transaction with Freighter wallet.
+ */
+export async function signFreighterTx(
+  xdrBase64: string,
+  network: string = "testnet",
+): Promise<string> {
+  const result = await signFreighterTransaction(xdrBase64, { network });
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  return result.signedTx || result.signedTransaction || "";
+}
+
+/**
+ * Returns the Soroban RPC server for the configured network.
+ */
+export function getSorobanRpcServer(): rpc.Server {
+  return new rpc.Server(STELLAR_CONFIG.sorobanRpcUrl, { allowHttp: true });
+}
+
+/**
+ * Fetches the XLM balance for a Stellar account.
+ */
+export async function getXlmBalance(address: string): Promise<string> {
+  const server = new rpc.Server(STELLAR_CONFIG.sorobanRpcUrl, { allowHttp: true });
+  const account = await server.getAccount(address);
+  const native = account.balances.find((b) => b.asset_type === "native");
+  return native ? native.balance : "0";
+}
+
+/**
+ * Signs a transaction with the specified wallet type.
  */
 export async function signWalletTransaction(
   preparedXdr: string,
-  walletType: WalletType,
+  walletType: WalletType = "freighter",
 ): Promise<string> {
   if (walletType === "freighter") {
     const signResult = await signFreighterTransaction(preparedXdr, {
