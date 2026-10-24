@@ -12,6 +12,7 @@ import { RpcStatusModal } from "./components/shared/RpcStatusModal";
 import { loadBrandConfig } from "./lib/branding";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { Header } from "./components/shared/Header";
 import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -129,6 +130,7 @@ function Router() {
           <Landing />
         ) : (
           <div className="min-h-screen bg-background">
+            <Header onNavigate={handleNavigate} />
             <main>
               {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
               {currentPage === "advertiser" && (
