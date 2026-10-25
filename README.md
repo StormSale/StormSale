@@ -171,6 +171,16 @@ Make.com custom webhook triggers. See the
 [Zapier and Make.com setup guide](docs/integrations/zapier-make.md) for
 configuration steps, sample payloads, retry behavior, and current limitations.
 
+### 🏷️ Google Tag Manager (GTM) Conversion Tracking
+
+StormSale is designed to be wired into Google Tag Manager without editing store source code. The planned Community Template (`template.tpl`) exposes:
+
+- **Campaign ID** – the on-chain campaign identifier to attribute conversions to.
+- **Order Value Variable** – a GTM data layer variable containing the sale amount.
+- **Currency** – the ISO 4217 currency code for the order value.
+
+The template is intended to fire on the standard GTM `Purchase` event and on custom events, and to pass GTM sandbox permission checks. Pull requests implementing this integration must target the `dev` branch.
+
 ---
 
 ## 📁 Repository Directory Structure

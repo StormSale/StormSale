@@ -209,6 +209,19 @@ export const LogSaleForm = () => {
         message: "Encrypted sale data has been recorded on-chain.",
       });
 
+      if (typeof window !== "undefined") {
+        (window as unknown as { dataLayer?: unknown[] }).dataLayer =
+          (window as unknown as { dataLayer?: unknown[] }).dataLayer || [];
+        (window as unknown as { dataLayer: unknown[] }).dataLayer.push({
+          event: "storm_sale_conversion",
+          campaign_id: data.campaignAddress,
+          affiliate_address: recipientAddress,
+          sale_amount: data.saleAmount,
+          currency: "XLM",
+          sale_id: payload.saleId,
+        });
+      }
+
       setAffiliateAddress("");
       setSaleAmount("");
       setCampaignAddress("");
