@@ -103,6 +103,9 @@ vi.mock("../components/auditor/NetworkRiskVisualizer", () => ({
 vi.mock("../components/auditor/PrivacyVerification", () => ({
   PrivacyVerification: () => <div>Privacy panel</div>,
 }));
+vi.mock("../components/auditor/VerifyContractBytecode", () => ({
+  VerifyContractBytecode: () => <div>Bytecode panel</div>,
+}));
 
 import { Auditor } from "../pages/Auditor";
 
@@ -120,6 +123,7 @@ describe("Auditor page", () => {
     expect(screen.getByText("Organization scope")).toBeTruthy();
 
     const panels: Array<[string, string | RegExp]> = [
+      ["Verify Contract Bytecode", "Bytecode panel"],
       ["Merkle Tree Proofs", /Merkle panel sale:none/],
       ["Verify Access", "Verify panel"],
       ["Audit History", "History panel"],
