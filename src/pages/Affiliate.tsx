@@ -1,9 +1,11 @@
+import React, { useState } from "react";
 import { Sidebar } from "../components/shared/Sidebar";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { PerformanceAnalytics } from "../components/affiliate/PerformanceAnalytics";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
@@ -11,6 +13,7 @@ import {
   Users,
   TrendingUp,
   DollarSign,
+  BarChart3,
   Shield,
   LayoutDashboard,
   Send,
@@ -30,6 +33,7 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "performance",
   "telegram-browser",
   "custom-links",
   "join-campaign",
@@ -42,14 +46,38 @@ const AFFILIATE_TABS = [
 type AffiliateTab = (typeof AFFILIATE_TABS)[number];
 
 const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = usePreference<AffiliateTab>(
+  const [prefTab, setPrefTab] = usePreference<AffiliateTab>(
     "stormsale.affiliate.tab",
     isTelegramMiniApp() ? "telegram-browser" : "overview",
     (v) => AFFILIATE_TABS.includes(v as AffiliateTab),
   );
 
+  const [activeTab, setActiveTabState] = useState<AffiliateTab>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlTab = params.get("tab");
+      if (urlTab && AFFILIATE_TABS.includes(urlTab as AffiliateTab)) {
+        return urlTab as AffiliateTab;
+      }
+    }
+    return prefTab;
+  });
+
+  const handleTabChange = (tab: string) => {
+    if (AFFILIATE_TABS.includes(tab as AffiliateTab)) {
+      setActiveTabState(tab as AffiliateTab);
+      setPrefTab(tab as AffiliateTab);
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", tab);
+        window.history.pushState({}, "", url.toString());
+      }
+    }
+  };
+
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "performance", label: "CVR Analytics", icon: BarChart3 },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
@@ -74,12 +102,14 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "performance":
+        return <PerformanceAnalytics />;
       case "settings":
         return <AffiliateSettings />;
       case "overview":
-        return <AffiliateOverview onNavigate={setActiveTab} />;
+        return <AffiliateOverview onNavigate={handleTabChange} />;
       default:
-        return <AffiliateOverview onNavigate={setActiveTab} />;
+        return <AffiliateOverview onNavigate={handleTabChange} />;
     }
   };
 
@@ -87,7 +117,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50 dark:bg-zinc-950 font-sans selection:bg-indigo-500/30">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={(tab) => setActiveTab(tab as AffiliateTab)}
+        onTabChange={(tab) => handleTabChange(tab)}
         tabs={tabs}
         onBack={onBack}
         roleName="Affiliate Pro"
@@ -111,7 +141,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
               <Button
                 variant={activeTab === "settings" ? "default" : "outline"}
                 size="sm"
-                onClick={() => setActiveTab("settings")}
+                onClick={() => handleTabChange("settings")}
                 aria-label="Preferences"
                 className="rounded-xl h-10 px-4 font-semibold text-xs flex items-center space-x-1.5 border border-slate-200 dark:border-zinc-800"
               >
