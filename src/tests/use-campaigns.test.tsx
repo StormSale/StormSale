@@ -149,7 +149,27 @@ describe("Centralized useCampaigns Data Hook Suite (#70)", () => {
 
   // 1. Initial Load & Type Safety
   describe("Initial Load & Type Safety", () => {
-    it("loads campaigns with loading state transitioning to false", async () => {
+    it("returns empty array when cache is empty", async () => {
+      const harness = renderHookHelper();
+      await harness.mount();
+
+      // Wait for effects to settle
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 10));
+      });
+
+      const { campaigns, isLoading, error, refetch } = harness.result;
+      expect(isLoading).toBe(false);
+      expect(error).toBeNull();
+      expect(typeof refetch).toBe("function");
+      expect(Array.isArray(campaigns)).toBe(true);
+      expect(campaigns).toEqual([]);
+
+      await harness.unmount();
+    });
+
+    it("loads campaigns with loading state transitioning to false when seeded", async () => {
+      setStoredCampaigns(INITIAL_CAMPAIGNS);
       const harness = renderHookHelper();
       await harness.mount();
 
@@ -304,6 +324,10 @@ describe("Centralized useCampaigns Data Hook Suite (#70)", () => {
 
   // 4. Role Support & Filtering
   describe("Role Support & Filtering", () => {
+    beforeEach(() => {
+      setStoredCampaigns(INITIAL_CAMPAIGNS);
+    });
+
     it("filters active campaigns for affiliate role", async () => {
       const harness = renderHookHelper("affiliate");
       await harness.mount();
@@ -420,6 +444,11 @@ describe("Centralized useCampaigns Data Hook Suite (#70)", () => {
 
   // 7. Storage persistence & caching
   describe("Storage Persistence", () => {
+    it("returns empty array when localStorage is empty", () => {
+      const retrieved = getStoredCampaigns();
+      expect(retrieved).toEqual([]);
+    });
+
     it("stores and retrieves campaigns in localStorage", () => {
       const customCampaigns: Campaign[] = [
         {

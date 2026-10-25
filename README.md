@@ -96,6 +96,7 @@ StormSale organizes platform features into dedicated personas:
 - **In-Page Payload Decryption:** Decrypt and inspect authorized sale records using verified auditor keys.
 - **Immutable Audit Trail:** Review chronological verification history and download tamper-proof audit certificates.
 - **Compliance Reporting:** Live scorecard covering NIST SP 800-53, ISO/IEC 27001, SOC 2 Type II, and FIPS 140-2.
+- **Automated SOC 2 Evidence Packager:** One-click compilation of signed evidence bundles (contract state, CI logs, test run receipts, and SHA-256 Merkle root receipts) with Ed25519 auditor signatures and in-browser verification. See [docs/SOC2_EVIDENCE_PACKAGER.md](docs/SOC2_EVIDENCE_PACKAGER.md).
 
 ---
 
@@ -135,6 +136,41 @@ npm run dev
 
 Visit `http://localhost:5173` to launch the application.
 
+### Website Tracking Tag
+
+Add the asynchronous script to any page. The SDK stores a `?ref={wallet}` value in a 30-day,
+first-party cookie shared by the site's subdomains. When an order completes, call the global API:
+
+```html
+<script>
+  // Create the readiness promise before the async SDK script can load, so the
+  // SDK's inline onload/onerror handlers always have a promise to settle.
+  window.stormSaleReady = new Promise((resolve, reject) => {
+    window.stormSaleResolve = resolve;
+    window.stormSaleReject = reject;
+  });
+</script>
+<script
+  async
+  id="stormsale-sdk"
+  src="https://stormsale.io/stormsale.js"
+  data-endpoint="https://your-site.example/api/conversions"
+  onload="window.stormSaleResolve(window.stormsale)"
+  onerror="window.stormSaleReject(new Error('StormSale SDK failed to load'))"
+></script>
+<script>
+  async function onOrderComplete(order) {
+    const stormsale = await window.stormSaleReady;
+    await stormsale.trackConversion({ orderId: order.id, amount: order.total });
+  }
+</script>
+```
+
+The endpoint is optional. Without it, the SDK emits a `stormsale:conversion` event on `document`
+with `{ orderId, amount, referral }` in `event.detail`, so the host site can forward the conversion
+to its own backend. Configured endpoints receive that same JSON via `POST` and must allow cross-origin
+requests when hosted on another domain.
+
 ### 4. Running with Docker
 
 ```bash
@@ -162,6 +198,13 @@ npm run build
 npm run lint
 npm run format
 ```
+
+## 🔌 No-Code Webhook Integrations
+
+The Webhook Manager supports browser-based event delivery to Zapier and
+Make.com custom webhook triggers. See the
+[Zapier and Make.com setup guide](docs/integrations/zapier-make.md) for
+configuration steps, sample payloads, retry behavior, and current limitations.
 
 ---
 

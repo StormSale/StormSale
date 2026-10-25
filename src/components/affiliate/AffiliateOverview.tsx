@@ -1,3 +1,5 @@
+import { useCallback, useState } from "react";
+import QRCode from "qrcode";
 import {
   Card,
   CardContent,
@@ -6,9 +8,270 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { TrendingUp, Users, DollarSign, Target, Zap, ArrowRight, CheckCircle2 } from "lucide-react";
+import {
+  TrendingUp,
+  Users,
+  DollarSign,
+  Target,
+  Zap,
+  ArrowRight,
+  CheckCircle2,
+  Copy,
+  Download,
+  Link2,
+  QrCode,
+  ShieldCheck,
+} from "lucide-react";
+import { useWeb3 } from "../../context/Web3Context";
 
-export const AffiliateOverview = () => {
+const toBase64Url = (bytes: Uint8Array) => {
+  let binary = "";
+  bytes.forEach((byte) => (binary += String.fromCharCode(byte)));
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+
+async function createEncryptedAffiliateUrl(affiliate: string, campaignId: string) {
+  if (!globalThis.crypto?.subtle) throw new Error("Secure link generation requires HTTPS.");
+
+  const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const payload = new TextEncoder().encode(
+    JSON.stringify({ v: 1, affiliate, campaignId, createdAt: new Date().toISOString() }),
+  );
+  const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, payload);
+  const rawKey = new Uint8Array(await crypto.subtle.exportKey("raw", key));
+  const params = new URLSearchParams({
+    ref: `v1.${toBase64Url(iv)}.${toBase64Url(new Uint8Array(ciphertext))}`,
+  });
+  const url = new URL(window.location.origin);
+  url.search = params.toString();
+  url.hash = `key=${toBase64Url(rawKey)}`;
+  return url.toString();
+}
+
+const AffiliateLinkGenerator = () => {
+  const { userAddress } = useWeb3();
+  const [campaignId, setCampaignId] = useState("");
+  const [affiliateOverride, setAffiliateOverride] = useState<string | null>(null);
+  const affiliateAddress = affiliateOverride ?? userAddress ?? "";
+  const [shareUrl, setShareUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const generate = useCallback(async () => {
+    setMessage("");
+    setShareUrl("");
+    setQrDataUrl("");
+    if (!affiliateAddress.trim() || !campaignId.trim()) {
+      setMessage("Enter an affiliate wallet and campaign ID to create a link.");
+      return;
+    }
+    setIsGenerating(true);
+    try {
+      const nextUrl = await createEncryptedAffiliateUrl(affiliateAddress.trim(), campaignId.trim());
+      const qr = await QRCode.toDataURL(nextUrl, {
+        errorCorrectionLevel: "H",
+        margin: 2,
+        width: 220,
+        color: { dark: "#18181b", light: "#ffffff" },
+      });
+      setShareUrl(nextUrl);
+      setQrDataUrl(qr);
+      setMessage("Encrypted link and QR code are ready.");
+    } catch {
+      setMessage("Could not create your link. Use a secure (HTTPS) connection and try again.");
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [affiliateAddress, campaignId]);
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setMessage("Link copied to clipboard.");
+    } catch {
+      setMessage("Clipboard access is unavailable. Select and copy the link below.");
+    }
+  };
+
+  return (
+    <Card className="overflow-hidden border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+      <CardHeader className="border-b border-slate-100 dark:border-zinc-800/70 bg-gradient-to-r from-indigo-50/80 to-white dark:from-indigo-500/10 dark:to-zinc-900/40">
+        <div className="flex items-start gap-4">
+          <div className="w-11 h-11 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-indigo-600/20">
+            <Link2 className="w-5 h-5" />
+          </div>
+          <div>
+            <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+              Encrypted link & QR code
+            </CardTitle>
+            <CardDescription className="mt-1 text-zinc-500 dark:text-zinc-400">
+              Create a private, campaign-specific tracking link to share anywhere.
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5 md:p-6">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px]">
+          <div className="space-y-4">
+            <div>
+              <label
+                htmlFor="affiliate-wallet"
+                className="mb-1.5 block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
+              >
+                Affiliate wallet
+              </label>
+              <input
+                id="affiliate-wallet"
+                value={affiliateAddress}
+                onChange={(event) => setAffiliateOverride(event.target.value)}
+                placeholder="G... wallet address"
+                className="w-full h-11 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3.5 text-sm text-zinc-900 dark:text-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="campaign-id"
+                className="mb-1.5 block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
+              >
+                Campaign ID
+              </label>
+              <input
+                id="campaign-id"
+                value={campaignId}
+                onChange={(event) => setCampaignId(event.target.value)}
+                placeholder="e.g. spring-launch"
+                className="w-full h-11 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3.5 text-sm text-zinc-900 dark:text-white outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+              />
+            </div>
+            <Button
+              onClick={generate}
+              disabled={isGenerating}
+              className="h-11 w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold"
+            >
+              <QrCode className="mr-2 h-4 w-4" />
+              {isGenerating
+                ? "Generating secure link…"
+                : shareUrl
+                  ? "Generate a new link"
+                  : "Generate link & QR code"}
+            </Button>
+            {message && (
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-xs text-zinc-500 dark:text-zinc-400"
+              >
+                {message}
+              </p>
+            )}
+            {shareUrl && (
+              <div className="space-y-2">
+                <label
+                  htmlFor="share-link"
+                  className="block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
+                >
+                  Your share link
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="share-link"
+                    readOnly
+                    value={shareUrl}
+                    className="min-w-0 flex-1 h-10 rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-3 text-xs text-zinc-600 dark:text-zinc-300"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={copyLink}
+                    aria-label="Copy affiliate link"
+                    className="h-10 rounded-lg px-3"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 p-3 text-xs leading-relaxed text-emerald-800 dark:text-emerald-300">
+              <ShieldCheck className="h-4 w-4 shrink-0" />
+              <span>
+                AES-256-GCM encrypts your affiliate and campaign details. The key stays in the URL
+                fragment and is not sent with the request.
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 dark:border-zinc-700 bg-slate-50/70 dark:bg-zinc-950/40 p-5 text-center">
+            {qrDataUrl ? (
+              <>
+                <img
+                  src={qrDataUrl}
+                  alt="QR code for encrypted affiliate tracking link"
+                  className="h-[180px] w-[180px] rounded-xl bg-white p-2 shadow-sm"
+                />
+                <p className="mt-3 text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                  Scan to open your affiliate link
+                </p>
+                <a
+                  href={qrDataUrl}
+                  download="stormsale-affiliate-qr.png"
+                  className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-xs font-semibold text-zinc-700 dark:text-zinc-200 hover:border-indigo-400"
+                >
+                  <Download className="h-3.5 w-3.5" /> Download QR
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="flex h-[180px] w-[180px] items-center justify-center rounded-xl bg-white dark:bg-zinc-900 text-slate-300 dark:text-zinc-700">
+                  <QrCode className="h-16 w-16" strokeWidth={1.25} />
+                </div>
+                <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                  Your QR code appears here
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+import { TerminologyTooltip, TerminologyGuideButton } from "../../components/ui/tooltip";
+
+const AFFILIATE_QUICK_ACTIONS = [
+  {
+    id: "custom-links",
+    label: "Custom Short Links",
+    description: "Branded cloaked URLs",
+    icon: Link2,
+  },
+  {
+    id: "join-campaign",
+    label: "Join New Campaign",
+    description: "Discover high-paying campaigns",
+    icon: Users,
+  },
+  {
+    id: "my-sales",
+    label: "Track Performance",
+    description: "View analytics and insights",
+    icon: TrendingUp,
+  },
+  {
+    id: "claim-payouts",
+    label: "Withdraw Earnings",
+    description: "Claim your commissions",
+    icon: DollarSign,
+  },
+] as const;
+
+type AffiliateQuickActionTab = (typeof AFFILIATE_QUICK_ACTIONS)[number]["id"];
+
+interface AffiliateOverviewProps {
+  onNavigate?: (tab: AffiliateQuickActionTab) => void;
+}
+
+export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({ onNavigate }) => {
   const stats = [
     {
       title: "Total Earnings",
@@ -56,13 +319,17 @@ export const AffiliateOverview = () => {
             Affiliate Dashboard
           </h1>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Track your performance and maximize your on-chain earnings.
+            Track your performance and maximize your{" "}
+            <TerminologyTooltip term="soroban">on-chain earnings</TerminologyTooltip>.
           </p>
         </div>
-        <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
-          <Zap className="w-5 h-5 mr-2" />
-          Quick Start Guide
-        </Button>
+        <div className="mt-6 lg:mt-0 flex items-center gap-3">
+          <TerminologyGuideButton className="h-12 px-5 rounded-full" />
+          <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
+            <Zap className="w-5 h-5 mr-2" />
+            Quick Start Guide
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -96,6 +363,8 @@ export const AffiliateOverview = () => {
           );
         })}
       </div>
+
+      <AffiliateLinkGenerator />
 
       {/* Two Column Layout */}
       <div className="grid lg:grid-cols-2 gap-8">
@@ -211,29 +480,14 @@ export const AffiliateOverview = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[
-              {
-                label: "Join New Campaign",
-                description: "Discover high-paying campaigns",
-                icon: Users,
-              },
-              {
-                label: "Track Performance",
-                description: "View analytics and insights",
-                icon: TrendingUp,
-              },
-              {
-                label: "Withdraw Earnings",
-                description: "Claim your commissions",
-                icon: DollarSign,
-              },
-            ].map((action, index) => {
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {AFFILIATE_QUICK_ACTIONS.map((action, index) => {
               const IconComponent = action.icon;
               return (
                 <Button
                   key={index}
                   variant="outline"
+                  onClick={() => onNavigate?.(action.id)}
                   className="h-24 flex-col gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700 transition-all group"
                 >
                   <IconComponent className="w-6 h-6 text-zinc-400 dark:text-zinc-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors" />

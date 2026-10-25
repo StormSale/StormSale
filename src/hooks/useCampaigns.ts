@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useWeb3 } from "./useWeb3";
-import { getCampaignContractQuery } from "../lib/stellar";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
 
 export interface Campaign {
   id: string;
+  onChainId?: number;
   name: string;
   status: CampaignStatus;
   commissionRate: number;
@@ -24,6 +24,10 @@ export interface Campaign {
   affiliateAddress?: string;
   description?: string;
   category?: string;
+  currentBalanceXlm?: number;
+  initialBudgetXlm?: number;
+  refillThresholdPercent?: number;
+  ttlRemainingLedgers?: number;
 }
 
 export type CampaignRole = "advertiser" | "affiliate" | "auditor" | "admin" | "all" | string;
@@ -144,7 +148,8 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
 const CAMPAIGNS_STORAGE_KEY = "stormsale_campaigns_cache";
 
 /**
- * Retrieves cached campaigns from localStorage if available, or returns default INITIAL_CAMPAIGNS.
+ * Retrieves cached campaigns from localStorage if available, or returns an empty array.
+ * Never leaks mock fallback campaigns into production flows.
  */
 export function getStoredCampaigns(): Campaign[] {
   if (typeof window !== "undefined" && window.localStorage) {
@@ -152,15 +157,24 @@ export function getStoredCampaigns(): Campaign[] {
       const stored = window.localStorage.getItem(CAMPAIGNS_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (c): c is Campaign =>
+              Boolean(
+                c &&
+                typeof c === "object" &&
+                typeof c.id === "string" &&
+                typeof c.name === "string" &&
+                typeof c.contractAddress === "string",
+              ),
+          );
         }
       }
     } catch {
       // Fallback on parse failure
     }
   }
-  return INITIAL_CAMPAIGNS;
+  return [];
 }
 
 /**
@@ -217,6 +231,15 @@ export function filterCampaigns(
     // No role truncation
   }
 
+  // Explicit advertiserAddress filter (outside role or when role is not advertiser)
+  if (normalizedRole !== "advertiser" && options.advertiserAddress) {
+    list = list.filter(
+      (c) =>
+        c.advertiserAddress &&
+        c.advertiserAddress.toLowerCase() === options.advertiserAddress?.toLowerCase(),
+    );
+  }
+
   // 2. Status filtering
   if (options.status && options.status !== "All") {
     if (options.status === "LowEscrow") {
@@ -246,9 +269,10 @@ export function filterCampaigns(
  *
  * Features:
  * - Fully typed `Campaign` return shape
- * - Auto-refreshes on new block/ledger events from Web3 provider
+ * - Auto-refreshes on new block/ledger events from Web3 provider and periodic polling
  * - Clean listener removal on unmount
  * - Role-aware data filtering (advertiser, affiliate, auditor, admin)
+ * - Race-condition safe with requestIdRef
  * - Error and loading states
  * - Imperative `refetch()` trigger
  */
@@ -258,11 +282,27 @@ export function useCampaigns(
   const options: UseCampaignsOptions =
     typeof optionsOrRole === "string" ? { role: optionsOrRole } : optionsOrRole || {};
 
-  const { role, status, search, advertiserAddress, affiliateAddress, autoRefresh = true } = options;
+  const {
+    role,
+    status,
+    search,
+    advertiserAddress,
+    affiliateAddress,
+    autoRefresh = true,
+    pollIntervalMs = 15000,
+  } = options;
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
+
+  // Keep customFetcher reference stable to avoid infinite loops
+  const customFetcherRef = useRef(options.customFetcher);
+  customFetcherRef.current = options.customFetcher;
+
+  // Race condition guard
+  const requestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
 
   // Read Web3 context (provider, userAddress, etc.)
   let web3Context: ReturnType<typeof useWeb3> | null = null;
@@ -275,66 +315,46 @@ export function useCampaigns(
   }
 
   const provider = web3Context?.provider;
-  const isMountedRef = useRef(true);
 
   // Fetch campaign data
   const fetchData = useCallback(async () => {
     if (!isMountedRef.current) return;
+    const currentRequestId = ++requestIdRef.current;
     setIsLoading(true);
     setError(null);
 
     try {
       let rawData: Campaign[];
 
-      if (options.customFetcher) {
-        rawData = await options.customFetcher();
+      if (customFetcherRef.current) {
+        rawData = await customFetcherRef.current();
       } else {
-        // Attempt contract query if campaignId or contract is available
-        const baseData = getStoredCampaigns();
-
-        // Check if any campaign can be enriched via contract query (skip live RPC query during test runs)
-        const isTestEnv =
-          typeof (globalThis as any).process !== "undefined" &&
-          (globalThis as any).process?.env?.NODE_ENV === "test";
-
-        if (
-          !isTestEnv &&
-          baseData.length > 0 &&
-          typeof getCampaignContractQuery === "function"
-        ) {
-          try {
-            const firstId = parseInt(baseData[0].id, 10);
-            if (!isNaN(firstId)) {
-              await getCampaignContractQuery(firstId);
-            }
-          } catch {
-            // Non-blocking contract query preview
-          }
-        }
-
-        rawData = baseData;
+        rawData = getStoredCampaigns();
       }
 
-      if (isMountedRef.current) {
+      if (isMountedRef.current && currentRequestId === requestIdRef.current) {
         const filtered = filterCampaigns(rawData, {
           role,
           status,
           search,
-          advertiserAddress: advertiserAddress || (role === "advertiser" ? web3Context?.userAddress || undefined : undefined),
-          affiliateAddress: affiliateAddress || (role === "affiliate" ? web3Context?.userAddress || undefined : undefined),
+          advertiserAddress:
+            advertiserAddress ||
+            (role === "advertiser" ? web3Context?.userAddress || undefined : undefined),
+          affiliateAddress:
+            affiliateAddress ||
+            (role === "affiliate" ? web3Context?.userAddress || undefined : undefined),
         });
         setCampaigns(filtered);
         setIsLoading(false);
       }
     } catch (err: unknown) {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && currentRequestId === requestIdRef.current) {
         const errObj = err instanceof Error ? err : new Error(String(err));
         setError(errObj);
         setIsLoading(false);
       }
     }
   }, [
-    options.customFetcher,
     role,
     status,
     search,
@@ -346,23 +366,24 @@ export function useCampaigns(
   // Initial load
   useEffect(() => {
     isMountedRef.current = true;
-    fetchData();
+    void fetchData();
 
     return () => {
       isMountedRef.current = false;
     };
   }, [fetchData]);
 
-  // Subscribe to new block / ledger events
+  // Subscribe to new block / ledger events and periodic polling
   useEffect(() => {
     if (!autoRefresh) return;
 
     let cleanupFn: (() => void) | undefined;
+    let timerId: ReturnType<typeof setInterval> | undefined;
 
     // 1. Subscribe via Web3 provider (ethers, viem, wagmi, or custom EventEmitter)
     if (provider && typeof provider.on === "function") {
       const handleBlock = () => {
-        fetchData();
+        void fetchData();
       };
 
       provider.on("block", handleBlock);
@@ -382,7 +403,7 @@ export function useCampaigns(
     } else if (typeof window !== "undefined") {
       // 2. Window / custom block event fallback
       const handleCustomBlock = () => {
-        fetchData();
+        void fetchData();
       };
 
       window.addEventListener("block", handleCustomBlock);
@@ -396,10 +417,18 @@ export function useCampaigns(
       };
     }
 
+    // 3. Periodic ledger polling timer
+    if (pollIntervalMs > 0) {
+      timerId = setInterval(() => {
+        void fetchData();
+      }, pollIntervalMs);
+    }
+
     return () => {
       if (cleanupFn) cleanupFn();
+      if (timerId) clearInterval(timerId);
     };
-  }, [provider, autoRefresh, fetchData]);
+  }, [provider, autoRefresh, pollIntervalMs, fetchData]);
 
   return {
     campaigns,

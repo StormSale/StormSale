@@ -11,47 +11,20 @@ import { CohortVisualizer } from "./CohortVisualizer";
 import { useCampaigns } from "../../hooks/useCampaigns";
 
 export const CampaignAnalytics = () => {
-  const { campaigns } = useCampaigns({ role: "advertiser" });
+  const { campaigns, isLoading, error } = useCampaigns({ role: "advertiser" });
 
-  const campaignStats =
-    campaigns.length > 0
-      ? campaigns.map((c) => ({
-          name: c.name,
-          sales: c.totalSales,
-          revenue: parseInt(c.totalRevenue.replace(/[^0-9]/g, "")) || 0,
-          commissions: parseInt(c.totalCommissions.replace(/[^0-9]/g, "")) || 0,
-          affiliates: c.affiliates,
-        }))
-      : [
-          {
-            name: "Tech Gadgets Pro",
-            sales: 124,
-            revenue: 24800,
-            commissions: 2480,
-            affiliates: 12,
-          },
-          {
-            name: "Web3 Masterclass",
-            sales: 89,
-            revenue: 44500,
-            commissions: 4450,
-            affiliates: 8,
-          },
-          {
-            name: "Crypto Tools Suite",
-            sales: 67,
-            revenue: 33500,
-            commissions: 3350,
-            affiliates: 6,
-          },
-          {
-            name: "DeFi Starter Pack",
-            sales: 45,
-            revenue: 22500,
-            commissions: 2250,
-            affiliates: 5,
-          },
-        ];
+  const toAmount = (v: string | number) => {
+    if (typeof v === "number") return v;
+    return parseFloat(String(v).replace(/[^0-9.]/g, "")) || 0;
+  };
+
+  const campaignStats = campaigns.map((c) => ({
+    name: c.name,
+    sales: c.totalSales,
+    revenue: toAmount(c.totalRevenue),
+    commissions: toAmount(c.totalCommissions),
+    affiliates: c.affiliates,
+  }));
 
   const performanceMetrics = [
     {
@@ -164,36 +137,53 @@ export const CampaignAnalytics = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="space-y-4">
-              {campaignStats.map((campaign, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
-                >
-                  <div className="flex items-center space-x-4">
-                    <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-100 dark:border-indigo-500/20">
-                      <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            {isLoading ? (
+              <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">
+                <p className="text-sm font-medium">Loading campaign performance...</p>
+              </div>
+            ) : error ? (
+              <div className="py-8 text-center text-rose-500 text-sm">
+                <p>Failed to load campaign performance.</p>
+              </div>
+            ) : campaignStats.length === 0 ? (
+              <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">
+                <p className="text-sm font-medium">No campaigns found.</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                  Create a campaign to start tracking performance metrics.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {campaignStats.map((campaign, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
+                  >
+                    <div className="flex items-center space-x-4">
+                      <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-100 dark:border-indigo-500/20">
+                        <BarChart3 className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                          {campaign.name}
+                        </div>
+                        <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">
+                          {campaign.affiliates} affiliates • {campaign.sales} sales
+                        </div>
+                      </div>
                     </div>
-                    <div>
+                    <div className="text-right">
                       <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {campaign.name}
+                        ${campaign.revenue.toLocaleString()}
                       </div>
                       <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">
-                        {campaign.affiliates} affiliates • {campaign.sales} sales
+                        ${campaign.commissions.toLocaleString()} comms
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                      ${campaign.revenue.toLocaleString()}
-                    </div>
-                    <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">
-                      ${campaign.commissions.toLocaleString()} comms
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
