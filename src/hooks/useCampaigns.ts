@@ -19,6 +19,7 @@ export interface Campaign {
   contractAddress: string;
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
+  assetCode?: string; // Currency/Asset symbol (e.g. XLM, USDC, EURC)
   isRefunded?: boolean;
   advertiserAddress?: string;
   affiliateAddress?: string;
@@ -158,6 +159,7 @@ export function getStoredCampaigns(): Campaign[] {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
+          const VALID_STATUSES: CampaignStatus[] = ["Active", "Paused", "Completed"];
           return parsed.filter(
             (c): c is Campaign =>
               Boolean(
@@ -165,7 +167,12 @@ export function getStoredCampaigns(): Campaign[] {
                 typeof c === "object" &&
                 typeof c.id === "string" &&
                 typeof c.name === "string" &&
-                typeof c.contractAddress === "string",
+                typeof c.contractAddress === "string" &&
+                typeof c.escrowBalance === "number" &&
+                Number.isFinite(c.escrowBalance) &&
+                typeof c.escrowInitial === "number" &&
+                Number.isFinite(c.escrowInitial) &&
+                VALID_STATUSES.includes(c.status),
               ),
           );
         }
@@ -298,11 +305,14 @@ export function useCampaigns(
 
   // Keep customFetcher reference stable to avoid infinite loops
   const customFetcherRef = useRef(options.customFetcher);
-  customFetcherRef.current = options.customFetcher;
+  useEffect(() => {
+    customFetcherRef.current = options.customFetcher;
+  }, [options.customFetcher]);
 
   // Race condition guard
   const requestIdRef = useRef(0);
   const isMountedRef = useRef(true);
+  const isInitialLoadRef = useRef(true);
 
   // Read Web3 context (provider, userAddress, etc.)
   let web3Context: ReturnType<typeof useWeb3> | null = null;
@@ -320,7 +330,9 @@ export function useCampaigns(
   const fetchData = useCallback(async () => {
     if (!isMountedRef.current) return;
     const currentRequestId = ++requestIdRef.current;
-    setIsLoading(true);
+    if (isInitialLoadRef.current) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -344,13 +356,17 @@ export function useCampaigns(
             affiliateAddress ||
             (role === "affiliate" ? web3Context?.userAddress || undefined : undefined),
         });
-        setCampaigns(filtered);
+        setCampaigns((prev) =>
+          JSON.stringify(prev) === JSON.stringify(filtered) ? prev : filtered,
+        );
+        isInitialLoadRef.current = false;
         setIsLoading(false);
       }
     } catch (err: unknown) {
       if (isMountedRef.current && currentRequestId === requestIdRef.current) {
         const errObj = err instanceof Error ? err : new Error(String(err));
         setError(errObj);
+        isInitialLoadRef.current = false;
         setIsLoading(false);
       }
     }

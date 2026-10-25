@@ -80,6 +80,7 @@ export interface Campaign {
   contractAddress: string;
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
+  assetCode?: string;
   isRefunded?: boolean;
   currentBalanceXlm?: number;
   initialBudgetXlm?: number;
@@ -252,10 +253,24 @@ export const MyCampaignsList = () => {
   // Top-Up & Allowance States
   const [autoTopUpConfigs, setAutoTopUpConfigs] = useState<Record<string, AutoTopUpConfig>>({});
 
+  useEffect(() => {
+    setAutoTopUpConfigs((previous) => {
+      const next = { ...previous };
+      for (const campaign of campaigns) {
+        if (!next[campaign.id]) {
+          next[campaign.id] = getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+        }
+      }
+      return next;
+    });
+  }, [campaigns]);
+
   const [topUpInProgressId, setTopUpInProgressId] = useState<string | null>(null);
   const [isApprovingAllowance, setIsApprovingAllowance] = useState(false);
   const [isAutoCheckRunning, setIsAutoCheckRunning] = useState(false);
   const isAutoCheckRunningRef = useRef(false);
+  const campaignsRef = useRef(campaigns);
+  campaignsRef.current = campaigns;
 
   // Modal Dialog States
   const [configModalCampaign, setConfigModalCampaign] = useState<Campaign | null>(null);
@@ -546,11 +561,12 @@ export const MyCampaignsList = () => {
       }
 
       setTopUpInProgressId(campaign.id);
+      const asset = campaign.assetCode || "XLM";
       try {
         showNotification({
           type: "info",
           title: isAutomated ? "Executing Automated Top-Up" : "Processing Escrow Top-Up",
-          message: `Transferring ${amount.toLocaleString()} XLM into ${campaign.name} escrow contract...`,
+          message: `Transferring ${amount.toLocaleString()} ${asset} into ${campaign.name} escrow contract...`,
         });
 
         const res = await topUpCampaignEscrow(onChainId, amount);
@@ -585,9 +601,9 @@ export const MyCampaignsList = () => {
         showNotification({
           type: "success",
           title: isAutomated ? "Automated Top-Up Confirmed!" : "Escrow Top-Up Successful!",
-          message: `Added ${amount.toLocaleString()} XLM to ${campaign.name}. New Escrow Balance: ${(
+          message: `Added ${amount.toLocaleString()} ${asset} to ${campaign.name}. New Escrow Balance: ${(
             campaign.escrowBalance + amount
-          ).toLocaleString()} XLM. Remaining Allowance: ${(effectiveAllowance - amount).toLocaleString()} XLM.`,
+          ).toLocaleString()} ${asset}. Remaining Allowance: ${(effectiveAllowance - amount).toLocaleString()} ${asset}.`,
         });
 
         setManualTopUpCampaign(null);
@@ -611,6 +627,7 @@ export const MyCampaignsList = () => {
       handleAuthorizeAllowance,
       topUpCampaignEscrow,
       autoTopUpConfigs,
+      refetch,
     ],
   );
 
@@ -626,7 +643,7 @@ export const MyCampaignsList = () => {
       let remainingAllowance = tokenAllowance;
 
       try {
-        for (const campaign of campaigns) {
+        for (const campaign of campaignsRef.current) {
           if (campaign.status === "Completed") continue;
           const config =
             autoTopUpConfigs[campaign.id] ||
@@ -660,7 +677,7 @@ export const MyCampaignsList = () => {
         setIsAutoCheckRunning(false);
       }
     },
-    [isConnected, campaigns, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
+    [isConnected, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
   );
 
   // Invoke auto top-up check when wallet connects or token allowance updates
@@ -730,6 +747,7 @@ export const MyCampaignsList = () => {
       return;
     }
 
+    const asset = campaign.assetCode || "XLM";
     // Issue #104: Escrow reclamations >= $10,000 require Gnosis Safe / Stellar secondary signature
     if (isLargeRefund(campaign.escrowBalance)) {
       let proposal = getLatestProposalForCampaign(campaign.id);
@@ -750,7 +768,7 @@ export const MyCampaignsList = () => {
       showNotification({
         type: "info",
         title: "Multi-Sig Authorization Required",
-        message: `Escrow refund exceeds $10,000 policy threshold (${campaign.escrowBalance.toLocaleString()} XLM). Secondary Safe approval required.`,
+        message: `Escrow refund exceeds $10,000 policy threshold (${campaign.escrowBalance.toLocaleString()} ${asset}). Secondary Safe approval required.`,
       });
       return;
     }
@@ -762,7 +780,7 @@ export const MyCampaignsList = () => {
       showNotification({
         type: "info",
         title: "Processing Escrow Refund",
-        message: `Withdrawing ${refundAmount.toLocaleString()} XLM unused escrow on Soroban...`,
+        message: `Withdrawing ${refundAmount.toLocaleString()} ${asset} unused escrow on Soroban...`,
       });
 
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
@@ -778,7 +796,7 @@ export const MyCampaignsList = () => {
       showNotification({
         type: "success",
         title: "Escrow Refund Confirmed!",
-        message: `Successfully refunded ${refundAmount.toLocaleString()} XLM to ${
+        message: `Successfully refunded ${refundAmount.toLocaleString()} ${asset} to ${
           userAddress ? formatStellarAddress(userAddress) : "your wallet"
         }. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
@@ -1240,7 +1258,7 @@ export const MyCampaignsList = () => {
                         <span>{campaign.escrowBalance.toLocaleString()}</span>
                         <span className="text-zinc-400 font-normal">
                           {" "}
-                          / {campaign.escrowInitial.toLocaleString()} XLM
+                          / {campaign.escrowInitial.toLocaleString()} {campaign.assetCode || "XLM"}
                         </span>
                         <span
                           className={`ml-2 text-xs font-bold ${

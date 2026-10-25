@@ -394,12 +394,17 @@ export const CreateCampaignForm = () => {
       // Sync new campaign with centralized campaign store
       const commissionRateNum = Number(result.data.commissionRate);
       const clearingPeriodNum = parseInt(result.data.clearingPeriod, 10);
+      const formattedClearingPeriod =
+        clearingPeriodNum >= 86400
+          ? `${Math.round(clearingPeriodNum / 86400)} Days`
+          : `${Math.round(clearingPeriodNum / 3600)} Hours`;
+
       const newCamp: Campaign = {
         id: String(campaignResult.campaignId),
-        name: campaignName,
+        name: result.data.campaignName,
         status: "Active",
         commissionRate: commissionRateNum,
-        clearingPeriod: `${Math.round(clearingPeriodNum / 86400)} Days`,
+        clearingPeriod: formattedClearingPeriod,
         clearingPeriodSecs: clearingPeriodNum,
         totalSales: 0,
         totalRevenue: "$0",
@@ -409,9 +414,13 @@ export const CreateCampaignForm = () => {
         contractAddress: CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
         escrowInitial: budgetNum,
         escrowBalance: budgetNum,
+        assetCode: selectedAsset,
         advertiserAddress: userAddress || undefined,
       };
-      setStoredCampaigns([newCamp, ...getStoredCampaigns()]);
+      setStoredCampaigns([
+        newCamp,
+        ...getStoredCampaigns().filter((c) => c.id !== newCamp.id),
+      ]);
 
       setFlowStep("success");
       // The escrow deposit just reduced the on-chain XLM balance; reload the

@@ -19,6 +19,7 @@ export const CampaignAnalytics = () => {
   };
 
   const campaignStats = campaigns.map((c) => ({
+    id: c.id,
     name: c.name,
     sales: c.totalSales,
     revenue: toAmount(c.totalRevenue),
@@ -26,15 +27,29 @@ export const CampaignAnalytics = () => {
     affiliates: c.affiliates,
   }));
 
+  const totalRevenue = campaignStats.reduce((sum, c) => sum + c.revenue, 0);
+  const totalSales = campaignStats.reduce((sum, c) => sum + c.sales, 0);
+  const totalAffiliates = campaignStats.reduce((sum, c) => sum + c.affiliates, 0);
+
   const performanceMetrics = [
     {
       label: "Total Revenue",
-      value: "$125,300",
+      value: `$${totalRevenue.toLocaleString()}`,
       change: "+18%",
       icon: DollarSign,
     },
-    { label: "Total Sales", value: "325", change: "+12%", icon: TrendingUp },
-    { label: "Active Affiliates", value: "31", change: "+5", icon: Users },
+    {
+      label: "Total Sales",
+      value: totalSales.toLocaleString(),
+      change: "+12%",
+      icon: TrendingUp,
+    },
+    {
+      label: "Active Affiliates",
+      value: totalAffiliates.toLocaleString(),
+      change: "+5",
+      icon: Users,
+    },
     {
       label: "Conversion Rate",
       value: "4.2%",
@@ -154,9 +169,9 @@ export const CampaignAnalytics = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                {campaignStats.map((campaign, index) => (
+                {campaignStats.map((campaign) => (
                   <div
-                    key={index}
+                    key={campaign.id}
                     className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
                   >
                     <div className="flex items-center space-x-4">
@@ -194,7 +209,7 @@ export const CampaignAnalytics = () => {
               Top Affiliates
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Your highest performing affiliates
+              Highest performing affiliates (Demo / Sample Data)
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">

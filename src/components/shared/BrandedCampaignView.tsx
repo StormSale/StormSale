@@ -23,15 +23,32 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
     status: "Active",
   });
 
-  const activeCampaigns = fetchedCampaigns.map((c) => ({
-    id: c.id,
-    name: c.name,
-    commission: `${c.commissionRate}%`,
-    avgPayout: `${Math.round(c.escrowInitial / 40)} XLM`,
-    escrowLocked: `${c.escrowBalance.toLocaleString()} XLM`,
-    clearingDays: c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7,
-    category: c.category || "Technology",
-  }));
+  const activeCampaigns = !merchantAddress
+    ? []
+    : fetchedCampaigns.map((c) => ({
+        id: c.id,
+        name: c.name,
+        commission: `${c.commissionRate}%`,
+        avgPayout: `${Math.round(c.escrowInitial / 40)} XLM`,
+        escrowLocked: `${c.escrowBalance.toLocaleString()} ${c.assetCode || "XLM"}`,
+        clearingDays: c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7,
+        category: c.category || "Technology",
+      }));
+
+  const topCommission = activeCampaigns.length > 0
+    ? `${Math.max(...fetchedCampaigns.map((c) => c.commissionRate))}%`
+    : "0%";
+  const totalEscrowLocked = activeCampaigns.length > 0
+    ? `${fetchedCampaigns.reduce((acc, c) => acc + c.escrowBalance, 0).toLocaleString()} XLM`
+    : "0 XLM";
+  const clearingDaysRange = activeCampaigns.length > 0
+    ? (() => {
+        const days = fetchedCampaigns.map((c) => (c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7));
+        const minDays = Math.min(...days);
+        const maxDays = Math.max(...days);
+        return minDays === maxDays ? `${minDays} Days` : `${minDays} - ${maxDays} Days`;
+      })()
+    : "0 Days";
 
   return (
     <div
@@ -170,7 +187,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
                 className="text-2xl sm:text-3xl font-black"
                 style={{ color: brandConfig.primaryColor }}
               >
-                25%
+                {topCommission}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Top Commission Rate
@@ -181,7 +198,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
                 className="text-2xl sm:text-3xl font-black"
                 style={{ color: brandConfig.secondaryColor }}
               >
-                25,700 XLM
+                {totalEscrowLocked}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Active Escrow Locked
@@ -197,7 +214,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
             </div>
             <div>
               <div className="text-2xl sm:text-3xl font-black text-purple-600 dark:text-purple-400">
-                3 - 14 Days
+                {clearingDaysRange}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Maturity Clearing Window

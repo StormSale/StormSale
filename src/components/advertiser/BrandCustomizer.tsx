@@ -52,9 +52,12 @@ export const BrandCustomizer: React.FC = () => {
   const isSubdomainValid = isValidSubdomain(config.subdomain);
 
   useEffect(() => {
-    if (userAddress) {
-      saveBrandConfig(userAddress, config);
+    if (!userAddress) return;
+    if (!config.merchantAddress && !config.advertiserAddress) {
+      setConfig((prev) => ({ ...prev, advertiserAddress: userAddress }));
+      return;
     }
+    saveBrandConfig(userAddress, config);
   }, [config, userAddress]);
 
   const handlePublishToIpfs = async () => {
