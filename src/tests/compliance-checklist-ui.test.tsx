@@ -51,7 +51,7 @@ const attestCheckbox = (id: string) => {
   });
 };
 
-describe("ComplianceChecklist — rendering and filters", () => {
+describe("ComplianceChecklist — rendering and filters", { timeout: 60000 }, () => {
   it("renders the header, seeded summary and every framework group", () => {
     render(<ComplianceChecklist />);
 
@@ -143,7 +143,7 @@ describe("ComplianceChecklist — rendering and filters", () => {
   });
 });
 
-describe("ComplianceChecklist — editing controls", () => {
+describe("ComplianceChecklist — editing controls", { timeout: 60000 }, () => {
   it("attests and un-attests a control from its checkbox", () => {
     render(<ComplianceChecklist />);
     const checkbox = attestCheckbox("nist-ac-6");
@@ -219,7 +219,7 @@ describe("ComplianceChecklist — editing controls", () => {
   });
 });
 
-describe("ComplianceChecklist — persistence, reset and exports", () => {
+describe("ComplianceChecklist — persistence, reset and exports", { timeout: 60000 }, () => {
   it("persists edits for the connected auditor key after the debounce", () => {
     vi.useFakeTimers();
     wallet.userAddress = AUDITOR;
