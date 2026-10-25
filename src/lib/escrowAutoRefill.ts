@@ -14,6 +14,7 @@ export interface AutoRefillConfig {
   preAuthorizedBudgetLimitXlm?: number;
   lastRefillTimestamp?: number;
   lastRefillTxHash?: string;
+  slackWebhookUrl?: string;
 }
 
 export interface EscrowReserveStatus {
@@ -37,7 +38,20 @@ export interface RefillDepositResult {
   message: string;
 }
 
+export interface SlackNotificationLogEntry {
+  id: string;
+  campaignId: string;
+  timestamp: number;
+  kind: "low_escrow" | "high_value_conversion" | "test";
+  status: "sent" | "rate_limited" | "failed";
+  message: string;
+}
+
 const STORAGE_KEY = "stormsale_escrow_autorefill_configs";
+const SLACK_LOG_KEY = "stormsale_slack_notification_logs";
+
+/** Minimum gap between Slack notifications per campaign to avoid channel flooding. */
+export const SLACK_RATE_LIMIT_MS = 5 * 60 * 1000;
 
 /**
  * In-memory fallback balance tracking for mock/sandbox runs
@@ -244,5 +258,262 @@ export async function depositEscrowRefillContractCall(params: {
       timestamp: Date.now(),
       message: `Successfully deposited ${amountXlm.toLocaleString()} XLM to campaign escrow.`,
     };
+  }
+}
+
+/* ---------------- Slack integration ---------------- */
+
+const lastSlackSentAt = new Map<string, number>();
+
+/** Reads Slack notification logs (most recent first). */
+export function getSlackNotificationLogs(campaignId?: string): SlackNotificationLogEntry[] {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const raw = window.localStorage.getItem(SLACK_LOG_KEY);
+      const all: SlackNotificationLogEntry[] = raw ? JSON.parse(raw) : [];
+      const filtered = campaignId ? all.filter((l) => l.campaignId === campaignId) : all;
+      return filtered.sort((a, b) => b.timestamp - a.timestamp);
+    }
+  } catch (err) {
+    console.warn("[AutoRefill] Failed to read Slack logs:", err);
+  }
+  return [];
+}
+
+function appendSlackLog(entry: SlackNotificationLogEntry): void {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const all = getSlackNotificationLogs();
+      all.unshift(entry);
+      window.localStorage.setItem(SLACK_LOG_KEY, JSON.stringify(all.slice(0, 200)));
+    }
+  } catch (err) {
+    console.warn("[AutoRefill] Failed to write Slack log:", err);
+  }
+}
+
+/** Validates a Slack Incoming Webhook URL. */
+export function isValidSlackWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "hooks.slack.com" &&
+      parsed.pathname.startsWith("/services/");
+  } catch {
+    return false;
+  }
+}
+
+function buildSlackBlocks(params: {
+  title: string;
+  body: string;
+  campaignUrl: string;
+  topUpUrl: string;
+}) {
+  return {
+    text: params.title,
+    blocks: [
+      { type: "header", text: { type: "plain_text", text: params.title } },
+      { type: "section", text: { type: "mrkdwn", text: params.body } },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "View Campaign" },
+            url: params.campaignUrl,
+            action_id: "view_campaign",
+          },
+          {
+            type: "button",
+            style: "primary",
+            text: { type: "plain_text", text: "Top Up Escrow" },
+            url: params.topUpUrl,
+            action_id: "top_up_escrow",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+async function postToSlack(webhookUrl: string, payload: unknown): Promise<void> {
+  const res = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Slack webhook responded with ${res.status}`);
+  }
+}
+
+/** Sends a test message to verify a Slack webhook URL. */
+export async function testSlackWebhook(webhookUrl: string, campaignId: string = "test"): Promise<boolean> {
+  if (!isValidSlackWebhookUrl(webhookUrl)) {
+    throw new Error("Invalid Slack webhook URL.");
+  }
+  try {
+    await postToSlack(
+      webhookUrl,
+      buildSlackBlocks({
+        title: "StormSale Slack integration test",
+        body: "Your webhook is connected. Escrow alerts will appear in this channel.",
+        campaignUrl: "https://stormsale.app/advertiser",
+        topUpUrl: "https://stormsale.app/advertiser",
+      }),
+    );
+    appendSlackLog({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      campaignId,
+      timestamp: Date.now(),
+      kind: "test",
+      status: "sent",
+      message: "Test notification delivered.",
+    });
+    return true;
+  } catch (err: any) {
+    appendSlackLog({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      campaignId,
+      timestamp: Date.now(),
+      kind: "test",
+      status: "failed",
+      message: err?.message ?? "Unknown error",
+    });
+    throw err;
+  }
+}
+
+/**
+ * Dispatches a low-escrow warning to Slack when the campaign balance is at or
+ * below its threshold. Rate-limited per campaign.
+ */
+export async function notifyLowEscrowSlack(
+  status: EscrowReserveStatus,
+  webhookUrl: string | undefined,
+  now: number = Date.now(),
+): Promise<SlackNotificationLogEntry | null> {
+  if (!webhookUrl || !status.isLowReserve) return null;
+
+  const id = `${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const last = lastSlackSentAt.get(status.campaignId);
+  if (last !== undefined && now - last < SLACK_RATE_LIMIT_MS) {
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId: status.campaignId,
+      timestamp: now,
+      kind: "low_escrow",
+      status: "rate_limited",
+      message: "Suppressed by rate limit.",
+    };
+    appendSlackLog(entry);
+    return entry;
+  }
+
+  const body =
+    `*Campaign ${status.campaignId}* escrow is at *${status.remainingPercent}%* ` +
+    `(${status.currentBalanceXlm.toLocaleString()} XLM remaining, threshold ` +
+    `${status.thresholdPercent}%).`;
+
+  try {
+    await postToSlack(
+      webhookUrl,
+      buildSlackBlocks({
+        title: "⚠️ Escrow balance low",
+        body,
+        campaignUrl: `https://stormsale.app/campaigns/${encodeURIComponent(status.campaignId)}`,
+        topUpUrl: `https://stormsale.app/advertiser?topup=${encodeURIComponent(status.campaignId)}`,
+      }),
+    );
+    lastSlackSentAt.set(status.campaignId, now);
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId: status.campaignId,
+      timestamp: now,
+      kind: "low_escrow",
+      status: "sent",
+      message: body,
+    };
+    appendSlackLog(entry);
+    return entry;
+  } catch (err: any) {
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId: status.campaignId,
+      timestamp: now,
+      kind: "low_escrow",
+      status: "failed",
+      message: err?.message ?? "Unknown error",
+    };
+    appendSlackLog(entry);
+    return entry;
+  }
+}
+
+/**
+ * Dispatches a high-value affiliate conversion alert to Slack. Rate-limited per campaign.
+ */
+export async function notifyHighValueConversionSlack(params: {
+  campaignId: string;
+  affiliate: string;
+  amountXlm: number;
+  webhookUrl?: string;
+  now?: number;
+}): Promise<SlackNotificationLogEntry | null> {
+  const { campaignId, affiliate, amountXlm, webhookUrl } = params;
+  const now = params.now ?? Date.now();
+  if (!webhookUrl) return null;
+
+  const id = `${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const last = lastSlackSentAt.get(campaignId);
+  if (last !== undefined && now - last < SLACK_RATE_LIMIT_MS) {
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId,
+      timestamp: now,
+      kind: "high_value_conversion",
+      status: "rate_limited",
+      message: "Suppressed by rate limit.",
+    };
+    appendSlackLog(entry);
+    return entry;
+  }
+
+  const body =
+    `Affiliate *${affiliate}* logged a conversion worth *${amountXlm.toLocaleString()} XLM* ` +
+    `on campaign ${campaignId}.`;
+
+  try {
+    await postToSlack(
+      webhookUrl,
+      buildSlackBlocks({
+        title: "🎉 High-value conversion",
+        body,
+        campaignUrl: `https://stormsale.app/campaigns/${encodeURIComponent(campaignId)}`,
+        topUpUrl: `https://stormsale.app/advertiser?topup=${encodeURIComponent(campaignId)}`,
+      }),
+    );
+    lastSlackSentAt.set(campaignId, now);
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId,
+      timestamp: now,
+      kind: "high_value_conversion",
+      status: "sent",
+      message: body,
+    };
+    appendSlackLog(entry);
+    return entry;
+  } catch (err: any) {
+    const entry: SlackNotificationLogEntry = {
+      id,
+      campaignId,
+      timestamp: now,
+      kind: "high_value_conversion",
+      status: "failed",
+      message: err?.message ?? "Unknown error",
+    };
+    appendSlackLog(entry);
+    return entry;
   }
 }

@@ -50,6 +50,10 @@ export interface NotificationContextType {
   clearAllNotifications: () => void;
 }
 
+export interface SlackNotificationConfig {
+  webhookUrl?: string;
+}
+
 export interface EscrowMonitoredCampaign {
   id: string;
   name: string;

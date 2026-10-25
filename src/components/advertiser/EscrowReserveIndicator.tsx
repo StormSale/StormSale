@@ -1,6 +1,6 @@
 import React from "react";
 import { type EscrowReserveStatus } from "../../lib/escrowAutoRefill";
-import { AlertCircle, AlertTriangle, CheckCircle2, Coins, Sparkles } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Coins, Sparkles, Bell } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 
@@ -8,7 +8,9 @@ interface EscrowReserveIndicatorProps {
   status: EscrowReserveStatus;
   onOpenSettings?: () => void;
   onQuickRefill?: () => void;
+  onNotifySlack?: () => void;
   isRefilling?: boolean;
+  isNotifying?: boolean;
   className?: string;
 }
 
@@ -16,7 +18,9 @@ export const EscrowReserveIndicator: React.FC<EscrowReserveIndicatorProps> = ({
   status,
   onOpenSettings,
   onQuickRefill,
+  onNotifySlack,
   isRefilling = false,
+  isNotifying = false,
   className = "",
 }) => {
   const {
@@ -136,6 +140,18 @@ export const EscrowReserveIndicator: React.FC<EscrowReserveIndicatorProps> = ({
         </span>
 
         <div className="flex items-center gap-2">
+          {isLowReserve && onNotifySlack && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={isNotifying}
+              onClick={onNotifySlack}
+              className="h-6 text-[10px] px-2.5 rounded-lg font-bold flex items-center gap-1"
+            >
+              <Bell className="w-2.5 h-2.5" />
+              <span>Notify Slack</span>
+            </Button>
+          )}
           {isLowReserve && onQuickRefill && (
             <Button
               size="sm"

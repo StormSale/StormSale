@@ -300,6 +300,129 @@ export const MyCampaignsList = () => {
 
   const [extendingId, setExtendingId] = useState<string | null>(null);
 
+  // Slack notification state (rate-limited, logged for advertiser settings)
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState<string>("");
+  const [slackTestStatus, setSlackTestStatus] = useState<"idle" | "sending" | "ok" | "error">("idle");
+  const [slackNotificationLogs, setSlackNotificationLogs] = useState<
+    { id: string; timestamp: string; campaignName: string; message: string; status: "sent" | "rate_limited" | "failed" }[]
+  >([]);
+  const lastSlackDispatchRef = useRef<Record<string, number>>({});
+
+  const SLACK_RATE_LIMIT_MS = 15 * 60 * 1000;
+  const SLACK_LOW_BUDGET_PERCENT = 20;
+  const SLACK_HIGH_VALUE_CONVERSION_XLM = 1000;
+
+  /**
+   * Sends a Block Kit message to the configured Slack Incoming Webhook.
+   */
+  const sendSlackMessage = useCallback(
+    async (payload: { text: string; blocks: unknown[] }) => {
+      if (!slackWebhookUrl) throw new Error("No Slack webhook URL configured");
+      const res = await fetch(slackWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`Slack responded with ${res.status}`);
+    },
+    [slackWebhookUrl],
+  );
+
+  const appendSlackLog = useCallback(
+    (entry: { campaignName: string; message: string; status: "sent" | "rate_limited" | "failed" }) => {
+      setSlackNotificationLogs((prev) =>
+        [
+          { id: `${Date.now()}-${Math.random()}`, timestamp: new Date().toISOString(), ...entry },
+          ...prev,
+        ].slice(0, 50),
+      );
+    },
+    [],
+  );
+
+  /**
+   * Tests the configured Slack webhook URL.
+   */
+  const handleTestSlackWebhook = async () => {
+    setSlackTestStatus("sending");
+    try {
+      await sendSlackMessage({
+        text: "Slack webhook test from Advertiser Dashboard",
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: ":white_check_mark: *Webhook connected successfully.*" },
+          },
+        ],
+      });
+      setSlackTestStatus("ok");
+      appendSlackLog({ campaignName: "-", message: "Webhook test", status: "sent" });
+    } catch (err: any) {
+      setSlackTestStatus("error");
+      appendSlackLog({ campaignName: "-", message: `Webhook test failed: ${err.message}`, status: "failed" });
+    }
+  };
+
+  /**
+   * Dispatches a formatted low-escrow warning with action buttons, rate-limited per campaign.
+   */
+  const notifySlackLowEscrow = async (campaign: Campaign, percent: number) => {
+    if (!slackWebhookUrl) return;
+    const now = Date.now();
+    const last = lastSlackDispatchRef.current[campaign.id] ?? 0;
+    const message = `Escrow for "${campaign.name}" is at ${percent.toFixed(1)}%`;
+    if (now - last < SLACK_RATE_LIMIT_MS) {
+      appendSlackLog({ campaignName: campaign.name, message, status: "rate_limited" });
+      return;
+    }
+    lastSlackDispatchRef.current[campaign.id] = now;
+    try {
+      await sendSlackMessage({
+        text: `:warning: ${message}`,
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: `:warning: *Low Escrow Balance*\n${message}` },
+          },
+          {
+            type: "actions",
+            elements: [
+              {
+                type: "button",
+                text: { type: "plain_text", text: "View Campaign" },
+                url: `${window.location.origin}/advertiser/campaigns/${campaign.id}`,
+              },
+              {
+                type: "button",
+                style: "primary",
+                text: { type: "plain_text", text: "Top Up Escrow" },
+                url: `${window.location.origin}/advertiser/campaigns/${campaign.id}?action=topup`,
+              },
+            ],
+          },
+        ],
+      });
+      appendSlackLog({ campaignName: campaign.name, message, status: "sent" });
+    } catch (err: any) {
+      appendSlackLog({ campaignName: campaign.name, message: `${message} (${err.message})`, status: "failed" });
+    }
+  };
+
+  useEffect(() => {
+    if (!slackWebhookUrl) return;
+    campaigns.forEach((c) => {
+      if (c.status !== "Active") return;
+      const initial = c.initialBudgetXlm ?? c.escrowInitial;
+      const current = c.currentBalanceXlm ?? c.escrowBalance;
+      if (initial <= 0) return;
+      const percent = (current / initial) * 100;
+      if (percent < SLACK_LOW_BUDGET_PERCENT) {
+        void notifySlackLowEscrow(c, percent);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaigns, slackWebhookUrl]);
+
   const lowTTLCount = campaigns.filter(
     (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 10000,
   ).length;

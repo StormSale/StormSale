@@ -2,6 +2,11 @@
  * Automated Escrow Top-Up Logic (#107)
  * Handles user-defined trigger thresholds, pre-authorized allowance checking,
  * and automated escrow funding dispatch.
+ *
+ * Slack notification support (issue: Automated Slack App for Merchant Escrow
+ * Depletion Notifications): low-balance evaluations can be dispatched to a
+ * Slack Incoming Webhook with Block Kit formatting, rate-limited per campaign,
+ * and recorded in a local notification log surfaced in advertiser settings.
  */
 
 import { xdr, Address, nativeToScVal } from "@stellar/stellar-sdk";
@@ -40,6 +45,361 @@ export interface AutoTopUpTriggerEvaluation {
 }
 
 export const STORAGE_PREFIX = "stormsale_auto_topup_";
+
+/* ------------------------------------------------------------------------ */
+/* Slack notification types & configuration                                  */
+/* ------------------------------------------------------------------------ */
+
+export const SLACK_STORAGE_PREFIX = "stormsale_slack_";
+export const SLACK_NOTIFICATION_LOG_PREFIX = "stormsale_slack_log_";
+
+/** Campaign budget level (fraction of initial escrow) that triggers a warning. */
+export const LOW_BUDGET_RATIO = 0.2;
+
+/** Minimum time between Slack notifications for the same campaign (ms). */
+export const SLACK_RATE_LIMIT_MS = 15 * 60 * 1000;
+
+/** Maximum number of notification log entries retained per campaign. */
+export const SLACK_LOG_MAX_ENTRIES = 50;
+
+export interface SlackConfig {
+  enabled: boolean;
+  webhookUrl: string;
+  /** Base URL used to build "View Campaign" / "Top Up Escrow" links. */
+  appBaseUrl: string;
+}
+
+export interface SlackNotificationLogEntry {
+  id: string;
+  campaignId: string;
+  kind: "low_escrow" | "high_value_conversion" | "test";
+  status: "sent" | "failed" | "rate_limited" | "skipped";
+  message: string;
+  createdAt: string;
+  error?: string;
+}
+
+export interface SlackDispatchResult {
+  sent: boolean;
+  status: SlackNotificationLogEntry["status"];
+  error?: string;
+}
+
+export interface SlackBlockKitMessage {
+  text: string;
+  blocks: Array<Record<string, unknown>>;
+}
+
+/**
+ * Returns true when a URL is a plausible Slack Incoming Webhook URL.
+ */
+export function isValidSlackWebhookUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === "https:" &&
+      parsed.hostname === "hooks.slack.com" &&
+      parsed.pathname.startsWith("/services/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function getDefaultSlackConfig(): SlackConfig {
+  return {
+    enabled: false,
+    webhookUrl: "",
+    appBaseUrl: typeof window !== "undefined" && window.location ? window.location.origin : "",
+  };
+}
+
+export function getStoredSlackConfig(advertiserAddress: string): SlackConfig {
+  const fallback = getDefaultSlackConfig();
+  if (typeof window === "undefined" || !window.localStorage) return fallback;
+  try {
+    const raw = window.localStorage.getItem(`${SLACK_STORAGE_PREFIX}${advertiserAddress}`);
+    if (!raw) return fallback;
+    return { ...fallback, ...JSON.parse(raw) };
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveSlackConfig(advertiserAddress: string, config: SlackConfig): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(
+      `${SLACK_STORAGE_PREFIX}${advertiserAddress}`,
+      JSON.stringify(config),
+    );
+  } catch (err) {
+    console.warn("Failed to persist Slack config:", err);
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Slack notification log                                                    */
+/* ------------------------------------------------------------------------ */
+
+export function getSlackNotificationLog(campaignId: string): SlackNotificationLogEntry[] {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(`${SLACK_NOTIFICATION_LOG_PREFIX}${campaignId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendSlackNotificationLog(entry: SlackNotificationLogEntry): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const existing = getSlackNotificationLog(entry.campaignId);
+    const next = [entry, ...existing].slice(0, SLACK_LOG_MAX_ENTRIES);
+    window.localStorage.setItem(
+      `${SLACK_NOTIFICATION_LOG_PREFIX}${entry.campaignId}`,
+      JSON.stringify(next),
+    );
+  } catch (err) {
+    console.warn("Failed to persist Slack notification log:", err);
+  }
+}
+
+function makeLogEntry(
+  campaignId: string,
+  kind: SlackNotificationLogEntry["kind"],
+  status: SlackNotificationLogEntry["status"],
+  message: string,
+  error?: string,
+): SlackNotificationLogEntry {
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    campaignId,
+    kind,
+    status,
+    message,
+    createdAt: new Date().toISOString(),
+    ...(error ? { error } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Slack rate limiting                                                       */
+/* ------------------------------------------------------------------------ */
+
+const slackLastSentAt = new Map<string, number>();
+
+/**
+ * Returns true if a notification for this campaign may be sent now.
+ * Uses the last successful send timestamp recorded in memory and in the log.
+ */
+export function canSendSlackNotification(
+  campaignId: string,
+  now: number = Date.now(),
+  rateLimitMs: number = SLACK_RATE_LIMIT_MS,
+): boolean {
+  let last = slackLastSentAt.get(campaignId);
+  if (last === undefined) {
+    const sentEntry = getSlackNotificationLog(campaignId).find((e) => e.status === "sent");
+    if (sentEntry) {
+      last = Date.parse(sentEntry.createdAt);
+      if (Number.isNaN(last)) last = undefined;
+    }
+  }
+  if (last === undefined) return true;
+  return now - last >= rateLimitMs;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Slack Block Kit formatting                                                */
+/* ------------------------------------------------------------------------ */
+
+export interface CampaignSlackContext {
+  id: string;
+  name?: string;
+  escrowBalance: number;
+  escrowInitial: number;
+}
+
+export function buildCampaignLinks(
+  appBaseUrl: string,
+  campaignId: string,
+): { viewCampaign: string; topUpEscrow: string } {
+  const base = appBaseUrl.replace(/\/+$/, "");
+  return {
+    viewCampaign: `${base}/campaigns/${encodeURIComponent(campaignId)}`,
+    topUpEscrow: `${base}/campaigns/${encodeURIComponent(campaignId)}?action=top-up`,
+  };
+}
+
+/**
+ * Builds a Slack Block Kit low-escrow warning with "View Campaign" and
+ * "Top Up Escrow" action buttons.
+ */
+export function buildLowEscrowSlackMessage(
+  campaign: CampaignSlackContext,
+  appBaseUrl: string,
+): SlackBlockKitMessage {
+  const name = campaign.name || `Campaign ${campaign.id}`;
+  const pct =
+    campaign.escrowInitial > 0
+      ? Math.max(0, (campaign.escrowBalance / campaign.escrowInitial) * 100)
+      : 0;
+  const links = buildCampaignLinks(appBaseUrl, campaign.id);
+  const text = `Low escrow balance: ${name} at ${pct.toFixed(1)}% of budget`;
+
+  return {
+    text,
+    blocks: [
+      {
+        type: "header",
+        text: { type: "plain_text", text: "⚠️ Low escrow balance", emoji: true },
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text:
+            `*${name}* has dropped to *${campaign.escrowBalance.toLocaleString()}* of ` +
+            `*${campaign.escrowInitial.toLocaleString()}* XLM (${pct.toFixed(1)}%).`,
+        },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: { type: "plain_text", text: "View Campaign", emoji: true },
+            url: links.viewCampaign,
+            action_id: "view_campaign",
+          },
+          {
+            type: "button",
+            style: "primary",
+            text: { type: "plain_text", text: "Top Up Escrow", emoji: true },
+            url: links.topUpEscrow,
+            action_id: "top_up_escrow",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/* ------------------------------------------------------------------------ */
+/* Slack dispatch                                                            */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Posts a Block Kit payload to a Slack Incoming Webhook.
+ */
+export async function postToSlackWebhook(
+  webhookUrl: string,
+  message: SlackBlockKitMessage,
+): Promise<void> {
+  if (!isValidSlackWebhookUrl(webhookUrl)) {
+    throw new Error("Invalid Slack webhook URL");
+  }
+  const response = await fetch(webhookUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(message),
+  });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Slack webhook responded ${response.status}${body ? `: ${body}` : ""}`);
+  }
+}
+
+/**
+ * Sends a test message to the configured webhook to verify connectivity.
+ * The result is recorded in the notification log.
+ */
+export async function testSlackWebhook(
+  campaignId: string,
+  webhookUrl: string,
+): Promise<SlackDispatchResult> {
+  const message: SlackBlockKitMessage = {
+    text: "StormSale Slack integration test",
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "✅ *StormSale* Slack integration is connected. Escrow alerts will appear here.",
+        },
+      },
+    ],
+  };
+  try {
+    await postToSlackWebhook(webhookUrl, message);
+    const entry = makeLogEntry(campaignId, "test", "sent", "Test notification delivered");
+    appendSlackNotificationLog(entry);
+    slackLastSentAt.set(campaignId, Date.parse(entry.createdAt));
+    return { sent: true, status: "sent" };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    appendSlackNotificationLog(
+      makeLogEntry(campaignId, "test", "failed", "Test notification failed", error),
+    );
+    return { sent: false, status: "failed", error };
+  }
+}
+
+/**
+ * Dispatches a low-escrow alert for a campaign if its balance is below
+ * LOW_BUDGET_RATIO of the initial escrow, Slack is enabled, and the rate
+ * limit allows it. Every attempt is recorded in the notification log.
+ */
+export async function notifyLowEscrowBalance(
+  campaign: CampaignSlackContext,
+  slackConfig: SlackConfig,
+  now: number = Date.now(),
+): Promise<SlackDispatchResult> {
+  if (!slackConfig.enabled || !slackConfig.webhookUrl) {
+    return { sent: false, status: "skipped" };
+  }
+  if (campaign.escrowInitial <= 0) {
+    return { sent: false, status: "skipped" };
+  }
+  const ratio = campaign.escrowBalance / campaign.escrowInitial;
+  if (ratio > LOW_BUDGET_RATIO) {
+    return { sent: false, status: "skipped" };
+  }
+  if (!canSendSlackNotification(campaign.id, now)) {
+    appendSlackNotificationLog(
+      makeLogEntry(
+        campaign.id,
+        "low_escrow",
+        "rate_limited",
+        "Suppressed: rate limit window active",
+      ),
+    );
+    return { sent: false, status: "rate_limited" };
+  }
+
+  const message = buildLowEscrowSlackMessage(campaign, slackConfig.appBaseUrl);
+  try {
+    await postToSlackWebhook(slackConfig.webhookUrl, message);
+    const entry = makeLogEntry(campaign.id, "low_escrow", "sent", message.text);
+    appendSlackNotificationLog(entry);
+    slackLastSentAt.set(campaign.id, now);
+    return { sent: true, status: "sent" };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    appendSlackNotificationLog(
+      makeLogEntry(campaign.id, "low_escrow", "failed", message.text, error),
+    );
+    return { sent: false, status: "failed", error };
+  }
+}
+
+/* ------------------------------------------------------------------------ */
+/* Auto top-up config                                                        */
+/* ------------------------------------------------------------------------ */
 
 /**
  * Generates default configuration for a campaign.
