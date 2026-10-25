@@ -7,7 +7,18 @@ import prettier from "eslint-plugin-prettier";
 import eslintConfigPrettier from "eslint-config-prettier";
 
 export default tseslint.config(
-  { ignores: ["dist", "**/dist/**"] },
+  {
+    ignores: [
+      "dist",
+      "**/dist/**",
+      "coverage",
+      "packages/**",
+      "*.js",
+      "upload_issues.js",
+      "label_issues.js",
+      "scripts/**",
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
@@ -23,6 +34,8 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      "react-hooks/set-state-in-effect": "warn",
+      "react-hooks/preserve-manual-memoization": "warn",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       "prettier/prettier": "warn",
       "@typescript-eslint/no-explicit-any": "warn",

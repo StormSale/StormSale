@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -20,6 +19,9 @@ import {
 } from "../../lib/crypto";
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
+import { getAffiliateAccess } from "../../lib/campaignAccess";
+import { resolveRecipient } from "../../lib/stellar";
+import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import { Shield, Zap, Users, FileKey } from "lucide-react";
 
 export const LogSaleForm = () => {
@@ -63,7 +65,48 @@ export const LogSaleForm = () => {
     }
 
     const { data } = result;
+
+    // Always re-resolve the submitted recipient so a stale or unresolved
+    // federation string can never reach the contract call.
     setIsLoading(true);
+    let recipientAddress: string | undefined;
+    try {
+      const resolution = await resolveRecipient(data.affiliateAddress);
+      recipientAddress =
+        resolution.status === "raw" || resolution.status === "federated"
+          ? resolution.address
+          : undefined;
+      if (!recipientAddress) {
+        const message =
+          resolution.error || "Could not resolve the affiliate address to a Stellar public key.";
+        setErrors({ affiliateAddress: message });
+        showNotification({ type: "error", title: "Recipient Not Verified", message });
+        setIsLoading(false);
+        return;
+      }
+    } catch (error: unknown) {
+      setIsLoading(false);
+      setErrors({
+        affiliateAddress: error instanceof Error ? error.message : "Federation lookup failed.",
+      });
+      return;
+    }
+
+    // Private campaigns only credit approved affiliates. Checked before any
+    // encryption work so the advertiser sees why. The id is already validated
+    // as a u32 by the schema, so this cannot throw on an out-of-range value.
+    if (/^\d+$/.test(data.campaignAddress)) {
+      const access = getAffiliateAccess(data.campaignAddress, recipientAddress);
+      if (!access.allowed) {
+        showNotification({
+          type: "error",
+          title: "Affiliate Not Approved",
+          message: access.reason,
+        });
+        setIsLoading(false);
+        return;
+      }
+    }
 
     try {
       const campaignContract = getCampaignContract(data.campaignAddress);
@@ -87,18 +130,10 @@ export const LogSaleForm = () => {
       const encryptedPayload = await encryptPayload(payload, aesKey);
 
       const advertiserPublicKey = await getPublicKeyForAddress(userAddress);
-      const affiliatePublicKey = await getPublicKeyForAddress(
-        data.affiliateAddress,
-      );
+      const affiliatePublicKey = await getPublicKeyForAddress(recipientAddress);
 
-      const advertiserWrappedKey = await wrapAESKey(
-        aesKey,
-        advertiserPublicKey,
-      );
-      const affiliateWrappedKey = await wrapAESKey(
-        aesKey,
-        affiliatePublicKey,
-      );
+      const advertiserWrappedKey = await wrapAESKey(aesKey, advertiserPublicKey);
+      const affiliateWrappedKey = await wrapAESKey(aesKey, affiliatePublicKey);
 
       showNotification({
         type: "info",
@@ -107,7 +142,7 @@ export const LogSaleForm = () => {
       });
 
       const tx = await campaignContract.logEncryptedSale(
-        data.affiliateAddress,
+        recipientAddress,
         data.saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
@@ -127,7 +162,7 @@ export const LogSaleForm = () => {
         conversion_id: payload.saleId,
         campaign_id: data.campaignAddress,
         campaign_address: data.campaignAddress,
-        affiliate_address: data.affiliateAddress,
+        affiliate_address: recipientAddress,
         advertiser_address: userAddress || "GADVERTISER_DEFAULT_TESTNET",
         amount: Number(data.saleAmount),
         currency: "XLM",
@@ -140,15 +175,13 @@ export const LogSaleForm = () => {
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
           campaignAddress: data.campaignAddress,
-          affiliateAddress: data.affiliateAddress,
+          affiliateAddress: recipientAddress,
           advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
           saleAmount: data.saleAmount,
           currency: "XLM",
           stellarTxHash: postbackTxHash,
           ledgerTimestamp: createdAt,
-          customerRef: data.customerData
-            ? `REF_${payload.saleId.slice(-8)}`
-            : "Anonymous Customer",
+          customerRef: data.customerData ? `REF_${payload.saleId.slice(-8)}` : "Anonymous Customer",
           status: "CONFIRMED_ON_LEDGER",
         });
 
@@ -187,8 +220,7 @@ export const LogSaleForm = () => {
       showNotification({
         type: "error",
         title: "Logging Failed",
-        message:
-          error instanceof Error ? error.message : "Failed to log sale.",
+        message: error instanceof Error ? error.message : "Failed to log sale.",
       });
     } finally {
       setIsLoading(false);
@@ -238,7 +270,7 @@ export const LogSaleForm = () => {
                     setCampaignAddress(e.target.value);
                     clearError("campaignAddress");
                   }}
-                  placeholder="CCAMPAIGN... (56-char Soroban Contract Address)"
+                  placeholder="Campaign ID (e.g. 1) or CCAMPAIGN... contract address"
                   variant={errors.campaignAddress ? "error" : "default"}
                   className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
                 />
@@ -247,19 +279,18 @@ export const LogSaleForm = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
-                  description="Stellar public key of the affiliate (G…)"
+                  description="Stellar public key (G…) or federation address (name*domain.com)"
                   error={errors.affiliateAddress}
                   required
                 >
-                  <Input
+                  <FederatedAddressInput
                     value={affiliateAddress}
-                    onChange={(e) => {
-                      setAffiliateAddress(e.target.value);
+                    onChange={(value) => {
+                      setAffiliateAddress(value);
                       clearError("affiliateAddress");
                     }}
-                    placeholder="GAFFILIATE... (56-char Stellar Public Key)"
-                    variant={errors.affiliateAddress ? "error" : "default"}
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
+                    placeholder="GAFFILIATE... or alice*stormsale.io"
+                    inputClassName="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   />
                 </InputField>
 
@@ -323,10 +354,7 @@ export const LogSaleForm = () => {
                     const IconComponent = item.icon;
 
                     return (
-                      <div
-                        key={item.step}
-                        className="flex flex-col items-center"
-                      >
+                      <div key={item.step} className="flex flex-col items-center">
                         <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 rounded-full flex items-center justify-center text-sm font-bold mb-3 border border-indigo-200 dark:border-indigo-500/30">
                           {item.step}
                         </div>
@@ -342,7 +370,8 @@ export const LogSaleForm = () => {
 
               <Button
                 type="submit"
-                disabled={isLoading}
+                loading={isLoading}
+                cooldown
                 className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
               >
                 {isLoading ? (

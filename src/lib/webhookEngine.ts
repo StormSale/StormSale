@@ -7,6 +7,7 @@ import type {
   SimulationMode,
 } from "../types/webhook";
 import { generateWebhookSecret, generateWebhookSignature } from "./webhookSecurity";
+import { addErrorBreadcrumb } from "./errorTracking";
 
 const STORAGE_ENDPOINTS_KEY = "stormsale_webhook_endpoints_v1";
 const STORAGE_DELIVERIES_KEY = "stormsale_webhook_deliveries_v1";
@@ -541,6 +542,11 @@ export async function dispatchDelivery(
   const deliveries = getWebhookDeliveries();
   const delivery = deliveries.find((d) => d.id === deliveryId);
   if (!delivery) return null;
+
+  addErrorBreadcrumb("webhook.dispatch", `Dispatching webhook ${deliveryId}`, {
+    deliveryId,
+    endpointCount: endpoints?.length ?? 0,
+  });
 
   // Mark status as delivering
   inFlightDeliveries.add(deliveryId);

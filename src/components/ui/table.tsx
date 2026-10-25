@@ -2,7 +2,9 @@ import * as React from "react";
 import { useState, useMemo, useCallback } from "react";
 import { StrKey } from "@stellar/stellar-sdk";
 import { cn } from "../../lib/utils";
+import { formatAddress, formatHash } from "../../lib/tableFormatters";
 import {
+  AlertTriangle,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -13,6 +15,7 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Loader2,
 } from "lucide-react";
 import { Skeleton } from "./skeleton";
 
@@ -115,10 +118,7 @@ export const AddressCell: React.FC<AddressCellProps> = ({
     return <span className="text-zinc-400 text-xs italic">—</span>;
   }
 
-  const truncated =
-    address.length > truncateChars * 2 + 3
-      ? `${address.slice(0, truncateChars)}...${address.slice(-truncateChars)}`
-      : address;
+  const truncated = formatAddress(address, truncateChars, truncateChars);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -209,8 +209,7 @@ export const TxHashCell: React.FC<TxHashCellProps> = ({
     return <span className="text-zinc-400 text-xs italic">—</span>;
   }
 
-  const truncated =
-    hash.length > truncateChars + 4 ? `${hash.slice(0, truncateChars)}...${hash.slice(-4)}` : hash;
+  const truncated = formatHash(hash, truncateChars, 4);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -361,6 +360,15 @@ export interface DataTableProps<TData> {
   isLoading?: boolean;
   skeletonRowCount?: number;
   emptyMessage?: React.ReactNode;
+  /** Error message rendered above the table instead of the rows. */
+  error?: React.ReactNode;
+  /**
+   * Keeps the already loaded rows visible (dimmed) while a refresh is in
+   * flight instead of replacing them with the skeleton.
+   *
+   * Defaults to `false`, which keeps the skeleton for every loading state.
+   */
+  preserveRowsOnRefresh?: boolean;
   // Multi-column Sorting
   sorting?: SortingState;
   onSortingChange?: (sorting: SortingState) => void;
@@ -397,6 +405,8 @@ export function DataTable<TData>({
   isLoading = false,
   skeletonRowCount = 5,
   emptyMessage = "No matching records found.",
+  error = null,
+  preserveRowsOnRefresh = false,
   // Sorting
   sorting: controlledSorting,
   onSortingChange,
@@ -590,6 +600,11 @@ export function DataTable<TData>({
   const startEntry = totalCount === 0 ? 0 : effectivePageIndex * pagination.pageSize + 1;
   const endEntry = Math.min(totalCount, (effectivePageIndex + 1) * pagination.pageSize);
 
+  // A refresh can keep the already loaded rows on screen (dimmed) instead of
+  // replacing them with a skeleton. Opt-in, the default keeps the skeleton.
+  const isRefreshing = isLoading && preserveRowsOnRefresh && paginatedData.length > 0;
+  const showSkeleton = isLoading && !isRefreshing;
+
   return (
     <div className={cn("space-y-4 w-full", containerClassName)}>
       <div
@@ -598,6 +613,25 @@ export function DataTable<TData>({
           className,
         )}
       >
+        {error && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 border-b border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-4 py-3"
+          >
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+            <p className="text-sm font-medium text-red-700 dark:text-red-300">{error}</p>
+          </div>
+        )}
+
+        {isRefreshing && (
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-950/40 px-4 py-2">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" aria-hidden="true" />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+              Refreshing...
+            </span>
+          </div>
+        )}
+
         <Table className={tableClassName} aria-busy={isLoading}>
           <TableHeader className="bg-slate-50/80 dark:bg-zinc-950/60 border-b border-slate-200 dark:border-zinc-800">
             <TableRow className="hover:bg-transparent">
@@ -684,7 +718,7 @@ export function DataTable<TData>({
           </TableHeader>
 
           <TableBody>
-            {isLoading ? (
+            {showSkeleton ? (
               <TableSkeleton columns={columns} rowCount={skeletonRowCount} />
             ) : paginatedData.length === 0 ? (
               <TableRow>
@@ -717,6 +751,7 @@ export function DataTable<TData>({
                     tabIndex={isClickable ? 0 : undefined}
                     className={cn(
                       "border-b border-slate-100 dark:border-zinc-800/80 transition-colors",
+                      isRefreshing && "opacity-60",
                       isClickable &&
                         "cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 focus:outline-none focus-visible:bg-slate-50 dark:focus-visible:bg-zinc-800/60 focus-visible:ring-1 focus-visible:ring-indigo-500",
                     )}
