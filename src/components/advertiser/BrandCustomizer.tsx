@@ -51,8 +51,18 @@ export const BrandCustomizer: React.FC = () => {
   const contrast = evaluateWcagCompliance(config.primaryColor);
   const isSubdomainValid = isValidSubdomain(config.subdomain);
 
+  // Reload brand config whenever userAddress changes
+  useEffect(() => {
+    const loaded = loadBrandConfig(userAddress || undefined);
+    setConfig(loaded);
+  }, [userAddress]);
+
   useEffect(() => {
     if (!userAddress) return;
+    // Guard against bleeding a previous wallet's config into the newly connected session
+    if (config.advertiserAddress && config.advertiserAddress !== userAddress) {
+      return;
+    }
     if (!config.merchantAddress && !config.advertiserAddress) {
       setConfig((prev) => ({ ...prev, advertiserAddress: userAddress }));
       return;

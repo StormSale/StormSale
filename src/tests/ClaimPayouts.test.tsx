@@ -27,14 +27,17 @@ vi.mock("../config/stellar", () => {
 });
 
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
+import { fetchAffiliateMaturedClaims, type ClaimableCampaignItem } from "../lib/batchClaim";
 
 const mockBatchClaimPayoutsOnChain = vi.fn();
 const mockClaimPayoutOnChain = vi.fn();
 const mockShowNotification = vi.fn();
 
+let mockUserAddress = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
 vi.mock("../hooks/useWeb3", () => ({
   useWeb3: () => ({
-    userAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    userAddress: mockUserAddress,
     batchClaimPayoutsOnChain: mockBatchClaimPayoutsOnChain,
     claimPayoutOnChain: mockClaimPayoutOnChain,
   }),
@@ -46,7 +49,7 @@ vi.mock("../context/NotificationContext", () => ({
   }),
 }));
 
-const mockClaimsData = [
+const mockClaimsData: ClaimableCampaignItem[] = [
   {
     campaignId: 101,
     campaignName: "Apex Alpha Performance Tech",
@@ -73,7 +76,7 @@ const mockClaimsData = [
 
 vi.mock("../lib/batchClaim", () => ({
   fetchAffiliateMaturedClaims: vi.fn(async () => mockClaimsData),
-  calculateTotalClaimableXlm: (camps: any[]) =>
+  calculateTotalClaimableXlm: (camps: Array<{ claimableXlm?: number }>) =>
     camps.reduce((sum, c) => sum + (c.claimableXlm || 0), 0),
 }));
 
@@ -84,7 +87,7 @@ vi.mock("../components/affiliate/AffiliateSettings", () => ({
 
 vi.mock("../lib/commissionSplit", () => ({
   resolveActiveSplitPlan: vi.fn(() => null),
-  formatStroopsAsXlm: (val: any) => String(val),
+  formatStroopsAsXlm: (val: bigint | number | string) => String(val),
 }));
 
 vi.mock("../lib/sorobanDex", () => ({
@@ -98,16 +101,18 @@ vi.mock("../lib/sorobanDex", () => ({
     routerName: "Soroban AMM",
     route: { hops: ["XLM", "USDC"] },
   })),
-  toBaseUnits: (v: any) => BigInt(Math.round(v * 10000000)),
+  toBaseUnits: (v: number) => BigInt(Math.round(v * 10000000)),
   formatBaseUnits: () => "45.00",
 }));
 
 describe("ClaimPayouts Component", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUserAddress = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     mockBatchClaimPayoutsOnChain.mockReset();
     mockClaimPayoutOnChain.mockReset();
     mockShowNotification.mockReset();
+    vi.mocked(fetchAffiliateMaturedClaims).mockImplementation(async () => mockClaimsData);
   });
 
   it("renders matured claims and handles batch claim execution", async () => {
@@ -216,5 +221,55 @@ describe("ClaimPayouts Component", () => {
         message: "RPC timeout",
       }),
     );
+  });
+
+  it("discards out-of-order stale responses when address changes before initial load resolves", async () => {
+    let resolveFirstPromise: (val: ClaimableCampaignItem[]) => void = () => {};
+    const firstPromise = new Promise<ClaimableCampaignItem[]>((resolve) => {
+      resolveFirstPromise = resolve;
+    });
+
+    const mockFetch = vi.mocked(fetchAffiliateMaturedClaims);
+    // First address call returns a pending promise
+    mockFetch.mockImplementationOnce(() => firstPromise);
+
+    const { rerender } = render(<ClaimPayouts />);
+
+    // Now change address to Address B
+    mockUserAddress = "GNEWADDRESSBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    const secondAddressData: ClaimableCampaignItem[] = [
+      {
+        campaignId: 999,
+        campaignName: "Address B Quantum Campaign",
+        advertiserAddress: "GA7QW5KXGPTR4N2K9J2M3N4P5Q6R7S8T9U0V1W2X3Y4Z5A6B7C8D",
+        maturedSalesCount: 1,
+        claimableXlm: 100.0,
+        clearingPeriodDays: 3,
+        lastSaleDate: "2026-10-10",
+        status: "matured",
+        assetCode: "XLM",
+      },
+    ];
+
+    mockFetch.mockImplementationOnce(async () => secondAddressData);
+
+    // Rerender with new userAddress
+    await act(async () => {
+      rerender(<ClaimPayouts />);
+    });
+
+    // Address B data should now be rendered
+    await waitFor(() => {
+      expect(screen.getByText("Address B Quantum Campaign")).toBeTruthy();
+    });
+
+    // Now resolve the first (stale) promise from Address A with mockClaimsData
+    await act(async () => {
+      resolveFirstPromise(mockClaimsData);
+    });
+
+    // Verify stale response did NOT overwrite Address B data
+    expect(screen.getByText("Address B Quantum Campaign")).toBeTruthy();
+    expect(screen.queryByText("Apex Alpha Performance Tech")).toBeNull();
   });
 });

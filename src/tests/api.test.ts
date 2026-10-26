@@ -225,5 +225,26 @@ describe("API Boundary Validation Suite (#74)", () => {
       expect(verifySep10ChallengeResponse(challenge.transaction, "GOTHERKEY")).toBe(false);
       expect(verifySep10ChallengeResponse("", validPublicKey)).toBe(false);
     });
+
+    it("handles signature validation edge cases and rejects tampered or empty inputs", () => {
+      const challenge = generateSep10Challenge(validPublicKey, validPublicKey);
+
+      // Empty or invalid expected client address
+      expect(verifySep10ChallengeResponse(challenge.transaction, "")).toBe(false);
+
+      // Empty or invalid signed transaction string
+      expect(verifySep10ChallengeResponse("", "")).toBe(false);
+
+      // Malformed transaction token missing client public key
+      expect(verifySep10ChallengeResponse("MALFORMED_TRANSACTION_PAYLOAD", validPublicKey)).toBe(false);
+
+      // Tampered address (altered checksum character)
+      const tamperedAddress = validPublicKey.slice(0, -1) + (validPublicKey.endsWith("A") ? "B" : "A");
+      expect(verifySep10ChallengeResponse(challenge.transaction, tamperedAddress)).toBe(false);
+
+      // Valid signed challenge must contain the client address
+      const signedPayload = `${challenge.transaction}_SIGNED_BY_${validPublicKey}`;
+      expect(verifySep10ChallengeResponse(signedPayload, validPublicKey)).toBe(true);
+    });
   });
 });

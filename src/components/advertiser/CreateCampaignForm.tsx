@@ -417,10 +417,15 @@ export const CreateCampaignForm = () => {
         assetCode: selectedAsset,
         advertiserAddress: userAddress || undefined,
       };
-      setStoredCampaigns([
-        newCamp,
-        ...getStoredCampaigns().filter((c) => c.id !== newCamp.id),
-      ]);
+
+      try {
+        setStoredCampaigns([
+          newCamp,
+          ...getStoredCampaigns().filter((c) => c.id !== newCamp.id),
+        ]);
+      } catch (storageError) {
+        console.warn("Non-fatal: Failed to persist new campaign to local storage cache:", storageError);
+      }
 
       setFlowStep("success");
       // The escrow deposit just reduced the on-chain XLM balance; reload the

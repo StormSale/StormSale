@@ -6,19 +6,39 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
+import { BarChart3, TrendingUp, Users, DollarSign, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
 import { useCampaigns } from "../../hooks/useCampaigns";
+import { useWeb3 } from "../../hooks/useWeb3";
 
 export const CampaignAnalytics = () => {
   const { campaigns, isLoading, error } = useCampaigns({ role: "advertiser" });
+
+  let web3Context: ReturnType<typeof useWeb3> | null = null;
+  try {
+    web3Context = useWeb3();
+  } catch {
+    web3Context = null;
+  }
+  const advertiserAddress = web3Context?.userAddress;
 
   const toAmount = (v: string | number) => {
     if (typeof v === "number") return v;
     return parseFloat(String(v).replace(/[^0-9.]/g, "")) || 0;
   };
 
-  const campaignStats = campaigns.map((c) => ({
+  // Filter campaigns to only those matching the connected advertiser address before aggregating metric tiles.
+  // Exclude ownerless campaigns and those belonging to other merchants.
+  const ownedCampaigns = campaigns.filter((c) => {
+    const owner = c.advertiserAddress || (c as any).ownerAddress;
+    if (!owner) return false;
+    if (advertiserAddress) {
+      return owner.toLowerCase() === advertiserAddress.toLowerCase();
+    }
+    return true;
+  });
+
+  const campaignStats = ownedCampaigns.map((c) => ({
     id: c.id,
     name: c.name,
     sales: c.totalSales,
@@ -55,28 +75,6 @@ export const CampaignAnalytics = () => {
       value: "4.2%",
       change: "+0.8%",
       icon: BarChart3,
-    },
-  ];
-
-  const topAffiliates = [
-    {
-      name: "Alex Johnson",
-      sales: 45,
-      commission: "$4,500",
-      performance: "Excellent",
-    },
-    {
-      name: "Sarah Miller",
-      sales: 38,
-      commission: "$3,800",
-      performance: "Excellent",
-    },
-    { name: "Mike Chen", sales: 32, commission: "$3,200", performance: "Good" },
-    {
-      name: "Emily Davis",
-      sales: 28,
-      commission: "$2,800",
-      performance: "Good",
     },
   ];
 
@@ -209,56 +207,17 @@ export const CampaignAnalytics = () => {
               Top Affiliates
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Highest performing affiliates (Demo / Sample Data)
+              Highest performing affiliates
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
-            <div className="space-y-4">
-              {topAffiliates.map((affiliate, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800/50 rounded-xl hover:border-slate-200 dark:hover:border-zinc-700 transition-colors"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-zinc-900 dark:bg-indigo-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow-sm">
-                      {affiliate.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .join("")}
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {affiliate.name}
-                      </div>
-                      <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1">
-                        {affiliate.sales} sales
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-bold text-sm text-zinc-900 dark:text-white mb-1">
-                      {affiliate.commission}
-                    </div>
-                    <div
-                      className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full inline-block ${
-                        affiliate.performance === "Excellent"
-                          ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
-                          : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300"
-                      }`}
-                    >
-                      {affiliate.performance}
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="py-12 text-center text-zinc-500 dark:text-zinc-400">
+              <Users className="w-8 h-8 mx-auto mb-2 text-zinc-400 opacity-60" />
+              <p className="text-sm font-medium">No affiliates enrolled yet</p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                Affiliates who join and generate sales will appear here.
+              </p>
             </div>
-            <Button
-              variant="ghost"
-              className="w-full mt-6 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-900/50"
-            >
-              View All Affiliates
-              <Eye className="w-4 h-4 ml-2" />
-            </Button>
           </CardContent>
         </Card>
       </div>

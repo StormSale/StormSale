@@ -62,6 +62,7 @@ import {
   formatLedgerDuration,
   extendContractInstanceTTL,
 } from "../../lib/contractTTL";
+import type { SupportedEscrowAssetCode } from "../../config/stellar";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -251,7 +252,14 @@ export const MyCampaignsList = () => {
   const [, setMultiSigVersion] = useState(0);
 
   // Top-Up & Allowance States
-  const [autoTopUpConfigs, setAutoTopUpConfigs] = useState<Record<string, AutoTopUpConfig>>({});
+  const [autoTopUpConfigs, setAutoTopUpConfigs] = useState<Record<string, AutoTopUpConfig>>(() => {
+    const initial: Record<string, AutoTopUpConfig> = {};
+    for (const campaign of campaigns) {
+      initial[campaign.id] = getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+    }
+    return initial;
+  });
+  const [isConfigLoaded, setIsConfigLoaded] = useState(() => campaigns.length > 0);
 
   useEffect(() => {
     setAutoTopUpConfigs((previous) => {
@@ -263,6 +271,7 @@ export const MyCampaignsList = () => {
       }
       return next;
     });
+    setIsConfigLoaded(true);
   }, [campaigns]);
 
   const [topUpInProgressId, setTopUpInProgressId] = useState<string | null>(null);
@@ -270,7 +279,9 @@ export const MyCampaignsList = () => {
   const [isAutoCheckRunning, setIsAutoCheckRunning] = useState(false);
   const isAutoCheckRunningRef = useRef(false);
   const campaignsRef = useRef(campaigns);
-  campaignsRef.current = campaigns;
+  useEffect(() => {
+    campaignsRef.current = campaigns;
+  }, [campaigns]);
 
   // Modal Dialog States
   const [configModalCampaign, setConfigModalCampaign] = useState<Campaign | null>(null);
@@ -569,7 +580,11 @@ export const MyCampaignsList = () => {
           message: `Transferring ${amount.toLocaleString()} ${asset} into ${campaign.name} escrow contract...`,
         });
 
-        const res = await topUpCampaignEscrow(onChainId, amount);
+        const res = await topUpCampaignEscrow(
+          onChainId,
+          amount,
+          (campaign.assetCode as SupportedEscrowAssetCode) || "XLM",
+        );
 
         // Update campaign state
         setStoredCampaigns(
@@ -647,7 +662,7 @@ export const MyCampaignsList = () => {
           if (campaign.status === "Completed") continue;
           const config =
             autoTopUpConfigs[campaign.id] ||
-            getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+            getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
 
           const evaluation = evaluateAutoTopUpTrigger(campaign, config, remainingAllowance);
           if (evaluation.shouldTrigger) {
@@ -680,12 +695,13 @@ export const MyCampaignsList = () => {
     [isConnected, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
   );
 
-  // Invoke auto top-up check when wallet connects or token allowance updates
+  // Invoke auto top-up check when wallet connects or token allowance updates,
+  // guarded until saved settings are applied from storage.
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && isConfigLoaded) {
       runAutoTopUpCheck(false);
     }
-  }, [isConnected, tokenAllowance, runAutoTopUpCheck]);
+  }, [isConnected, tokenAllowance, isConfigLoaded, runAutoTopUpCheck]);
 
   // Simulate balance drop for demonstration & testing
   const simulateBalanceDrop = (campaignId: string) => {

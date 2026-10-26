@@ -18,7 +18,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
   const contrast = evaluateWcagCompliance(brandConfig.primaryColor);
   const textColor = contrast.recommendedTextColor;
   const merchantAddress = brandConfig.merchantAddress || brandConfig.advertiserAddress;
-  const { campaigns: fetchedCampaigns } = useCampaigns({
+  const { campaigns: fetchedCampaigns, isLoading, error } = useCampaigns({
     advertiserAddress: merchantAddress,
     status: "Active",
   });
@@ -29,7 +29,6 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
         id: c.id,
         name: c.name,
         commission: `${c.commissionRate}%`,
-        avgPayout: `${Math.round(c.escrowInitial / 40)} XLM`,
         escrowLocked: `${c.escrowBalance.toLocaleString()} ${c.assetCode || "XLM"}`,
         clearingDays: c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7,
         category: c.category || "Technology",
@@ -243,7 +242,25 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
           </div>
         </div>
 
-        {activeCampaigns.length === 0 ? (
+        {isLoading ? (
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-12 text-center shadow-sm">
+            <h4 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Loading active campaigns...
+            </h4>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              Fetching campaigns from the Stellar network.
+            </p>
+          </div>
+        ) : error ? (
+          <div className="bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-900/50 rounded-3xl p-12 text-center shadow-sm">
+            <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
+              Failed to load campaigns
+            </h4>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              {error.message || "An error occurred while fetching campaigns."}
+            </p>
+          </div>
+        ) : activeCampaigns.length === 0 ? (
           <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-12 text-center shadow-sm">
             <h4 className="text-lg font-bold text-zinc-900 dark:text-white">
               No active campaigns available
@@ -285,12 +302,6 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
                         style={{ color: brandConfig.primaryColor }}
                       >
                         {camp.commission}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-zinc-500">Avg Affiliate Payout:</span>
-                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                        {camp.avgPayout}
                       </span>
                     </div>
                     <div className="flex justify-between">

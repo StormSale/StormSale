@@ -379,7 +379,19 @@ export function useCampaigns(
     web3Context?.userAddress,
   ]);
 
-  // Initial load
+  // Reset initial load flag when query options change so new queries display the loading state correctly
+  useEffect(() => {
+    isInitialLoadRef.current = true;
+  }, [
+    role,
+    status,
+    search,
+    advertiserAddress,
+    affiliateAddress,
+    web3Context?.userAddress,
+  ]);
+
+  // Initial load and refetch on query option changes
   useEffect(() => {
     isMountedRef.current = true;
     void fetchData();

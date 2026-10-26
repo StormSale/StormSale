@@ -305,7 +305,7 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
       fireEvent.click(confirmBtn);
     });
 
-    expect(wallet.topUpCampaignEscrow).toHaveBeenCalledWith(1, 2500);
+    expect(wallet.topUpCampaignEscrow).toHaveBeenCalledWith(1, 2500, "XLM");
     expect(notifications.showNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "success",

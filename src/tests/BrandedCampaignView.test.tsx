@@ -3,10 +3,11 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { BrandedCampaignView } from "../components/shared/BrandedCampaignView";
 import { DEFAULT_BRAND_CONFIG } from "../lib/branding";
+import type { UseCampaignsOptions } from "../hooks/useCampaigns";
 
 const mockUseCampaigns = vi.fn();
 vi.mock("../hooks/useCampaigns", () => ({
-  useCampaigns: (params: any) => mockUseCampaigns(params),
+  useCampaigns: (params?: UseCampaignsOptions) => mockUseCampaigns(params),
 }));
 
 describe("BrandedCampaignView Component", () => {
@@ -20,8 +21,30 @@ describe("BrandedCampaignView Component", () => {
     heroSubtitle: "Join our high-converting affiliate program",
   };
 
+  it("renders loading state while campaigns are loading", () => {
+    mockUseCampaigns.mockReturnValue({ campaigns: [], isLoading: true, error: null });
+
+    render(<BrandedCampaignView brandConfig={brandConfig} />);
+
+    expect(screen.getByText("Loading active campaigns...")).toBeTruthy();
+    expect(screen.getByText("Fetching campaigns from the Stellar network.")).toBeTruthy();
+  });
+
+  it("renders error state when campaign query fails", () => {
+    mockUseCampaigns.mockReturnValue({
+      campaigns: [],
+      isLoading: false,
+      error: new Error("Failed to reach Stellar Horizon node"),
+    });
+
+    render(<BrandedCampaignView brandConfig={brandConfig} />);
+
+    expect(screen.getByText("Failed to load campaigns")).toBeTruthy();
+    expect(screen.getByText("Failed to reach Stellar Horizon node")).toBeTruthy();
+  });
+
   it("renders genuine empty state when no active campaigns exist for merchant", () => {
-    mockUseCampaigns.mockReturnValue({ campaigns: [] });
+    mockUseCampaigns.mockReturnValue({ campaigns: [], isLoading: false, error: null });
 
     render(<BrandedCampaignView brandConfig={brandConfig} />);
 
@@ -48,6 +71,8 @@ describe("BrandedCampaignView Component", () => {
           category: "Outdoors",
         },
       ],
+      isLoading: false,
+      error: null,
     });
 
     render(
@@ -63,6 +88,7 @@ describe("BrandedCampaignView Component", () => {
     expect(screen.getAllByText("15%").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("6,500 XLM").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("14 Days").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText(/Avg Affiliate Payout/i)).toBeNull();
 
     // Close button
     const closeBtn = screen.getByText("Close Preview");
