@@ -202,7 +202,6 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       persistent: isPersistent,
       duration: isPersistent ? 0 : (notification.duration ?? 5000),
     };
-
     setNotifications((prev) => [...prev, newNotification]);
     return id;
   }, []);
