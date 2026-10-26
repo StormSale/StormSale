@@ -20,11 +20,14 @@ import {
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
+import { notifyTelegramConversion } from "../../lib/telegramClient";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
+import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
+import { BatchSaleUploader } from "./BatchSaleUploader";
 
 export const LogSaleForm = () => {
+  const [mode, setMode] = useState<"single" | "batch">("single");
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -249,6 +252,26 @@ export const LogSaleForm = () => {
         });
       }
 
+      // Best effort: the server re-reads this log_sale transaction from the
+      // ledger and messages the affiliate on Telegram if they connected
+      // alerts. It is not awaited, so it never delays the sale confirmation.
+      if (/^[0-9a-f]{64}$/i.test(postbackTxHash)) {
+        void notifyTelegramConversion(postbackTxHash).then((outcome) => {
+          // "send_failed" means the affiliate has alerts on but Telegram
+          // rejected the message; tell the advertiser. Other failures (alerts
+          // not configured, RPC lag) are not actionable from this form.
+          if (outcome === "error") console.warn("Telegram alert request failed.");
+          if (outcome === "send_failed") {
+            showNotification({
+              type: "warning",
+              title: "Telegram Alert Not Sent",
+              message:
+                "The sale is confirmed on-chain, but the affiliate's Telegram alert could not be delivered.",
+            });
+          }
+        });
+      }
+
       showNotification({
         type: "success",
         title: "Sale Logged Successfully!",
@@ -292,15 +315,64 @@ export const LogSaleForm = () => {
     });
   };
 
+  if (mode === "batch") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode("single")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Single Sale Entry
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("batch")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Batch Uploader (CSV/JSON)
+            </button>
+          </div>
+        </div>
+        <BatchSaleUploader />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-          Log Encrypted Sale
-        </h2>
-        <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-          Record a new sale with military-grade encryption and commission escrow
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+            Log Encrypted Sale
+          </h2>
+          <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
+            Record a new sale with military-grade encryption and commission escrow
+          </p>
+        </div>
+
+        <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs self-start">
+          <button
+            type="button"
+            onClick={() => setMode("single")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Single Sale
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("batch")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Batch CSV/JSON
+          </button>
+        </div>
       </div>
 
       {optimisticSale && (
@@ -356,4 +428,3 @@ export const LogSaleForm = () => {
     </div>
   );
 };
-

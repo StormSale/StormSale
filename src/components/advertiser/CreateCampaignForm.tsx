@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
-import { TerminologyTooltip } from "../../components/ui/tooltip";
+import { InfoTooltip, TerminologyTooltip } from "../../components/ui/tooltip";
 import {
   Card,
   CardContent,
@@ -11,8 +11,13 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useAccountReserve } from "../../hooks/useAccountReserve";
 import { useNotification } from "../../context/NotificationContext";
-import { getCreateCampaignSchema, getFieldErrors } from "../../lib/validation";
+import {
+  getCreateCampaignSchema,
+  getFieldErrors,
+  isPlainDecimalAmount,
+} from "../../lib/validation";
 import { CONTRACT_ADDRESSES } from "../../config/contracts";
 import { formatStellarAddress } from "../../lib/stellar";
 import {
@@ -29,10 +34,42 @@ import {
   RefreshCw,
   Lock,
   Globe,
+  TriangleAlert,
+  Wallet,
 } from "lucide-react";
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+
+const STROOPS_PER_XLM_DIGITS = 7;
+
+const formatXlm = (value: number): string =>
+  value.toFixed(STROOPS_PER_XLM_DIGITS).replace(/\.?0+$/, "") || "0";
+
+/**
+ * Converts a decimal XLM amount to integer stroops (1 XLM = 10^7 stroops)
+ * without floating point drift. Extra fractional digits are truncated.
+ */
+export const toStroops = (value: string | number): bigint => {
+  // `toFixed` switches to exponent notation at 1e21; whole numbers that large
+  // are already integers, so scale them directly instead of returning 0.
+  if (typeof value === "number" && Number.isFinite(value) && value >= 1e21) {
+    return BigInt(value) * 10n ** BigInt(STROOPS_PER_XLM_DIGITS);
+  }
+  const raw =
+    typeof value === "number"
+      ? Number.isFinite(value)
+        ? value.toFixed(STROOPS_PER_XLM_DIGITS)
+        : "0"
+      : value.trim();
+  const match = /^(\d*)(?:\.(\d*))?$/.exec(raw);
+  if (!match) return 0n;
+  const whole = match[1] || "0";
+  const frac = (match[2] ?? "")
+    .slice(0, STROOPS_PER_XLM_DIGITS)
+    .padEnd(STROOPS_PER_XLM_DIGITS, "0");
+  return BigInt(whole) * 10n ** BigInt(STROOPS_PER_XLM_DIGITS) + BigInt(frac);
+};
 
 export type FlowStep =
   | "idle"
@@ -74,6 +111,7 @@ export const CreateCampaignForm = () => {
     createCampaignOnChain,
     isConnected,
     userAddress,
+    xlmBalance,
     tokenAllowance,
     refreshTokenAllowance,
     approveTokenAllowance,
@@ -87,8 +125,13 @@ export const CreateCampaignForm = () => {
   const parsedBudget = parseFloat(budget);
   const maxDecimals = SUPPORTED_ESCROW_ASSETS[selectedAsset]?.decimals ?? 7;
   const fracDigits = budget.includes(".") ? (budget.split(".")[1]?.length ?? 0) : 0;
+  // Only plain decimals are accepted: `parseFloat("1e3")` is 1000 while the
+  // stroop conversion cannot read exponent notation, which would otherwise let
+  // an over-budget amount slip past the spendable-balance check.
+  const isPlainBudget = isPlainDecimalAmount(budget);
   const isValidBudget = Boolean(
     budget &&
+    isPlainBudget &&
     !isNaN(parsedBudget) &&
     isFinite(parsedBudget) &&
     parsedBudget > 0 &&
@@ -100,6 +143,49 @@ export const CreateCampaignForm = () => {
   const isAllowanceSufficient = isConnected && isValidBudget && currentAssetAllowance >= budgetNum;
   const allowanceDeficit = Math.max(0, budgetNum - currentAssetAllowance);
   const isExecuting = flowStep === "approving" || flowStep === "creating";
+
+  const {
+    spendableXlm,
+    reserveXlm,
+    balanceXlm,
+    subentries,
+    baseReserveXlm,
+    isLoading: isReserveLoading,
+    isReady: isReserveReady,
+    isFallback,
+    isUnavailable: isReserveUnavailable,
+    refresh: refreshReserve,
+  } = useAccountReserve(userAddress, xlmBalance);
+
+  // The minimum reserve only constrains XLM escrow deposits; USDC/EURC budgets
+  // do not spend the native balance.
+  const isXlmBudget = selectedAsset === "XLM";
+  // Until the reserve lookup for this address settles, spendable XLM is unknown.
+  const isReservePending = isXlmBudget && isConnected && !isReserveReady;
+  // Compare as integer stroops so a budget even one stroop over the limit is rejected.
+  const exceedsSpendable =
+    isXlmBudget &&
+    isConnected &&
+    isReserveReady &&
+    isValidBudget &&
+    toStroops(budget) > toStroops(spendableXlm);
+  const isReserveBlocked = isReservePending || exceedsSpendable;
+
+  // Max must never offer an amount that could break the real reserve, so it is
+  // unavailable while live Horizon data is missing (subentries unknown).
+  const canUseMax = isConnected && isReserveReady && !isReserveUnavailable && spendableXlm > 0;
+
+  const handleMaxBudget = () => {
+    // Like a manual edit, Max replaces the amount, so stale errors and a
+    // finished flow state must not linger on the new value.
+    if (errors.budget) setErrors((prev) => ({ ...prev, budget: "" }));
+    if (flowStep === "success" || flowStep === "error") setFlowStep("idle");
+    if (!canUseMax) {
+      setBudget("");
+      return;
+    }
+    setBudget(formatXlm(spendableXlm));
+  };
 
   // Keep ref in sync so revert logic can read latest optimistic value without stale closures
   useEffect(() => {
@@ -229,6 +315,25 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    // Enforce the Stellar minimum reserve: escrow can only draw from spendable balance.
+    if (isReservePending) {
+      showNotification({
+        type: "info",
+        title: "Checking Balance",
+        message: "Still loading your account reserve. Please try again in a moment.",
+      });
+      return;
+    }
+
+    if (exceedsSpendable) {
+      showNotification({
+        type: "error",
+        title: "Insufficient Spendable Balance",
+        message: `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM. ${formatXlm(reserveXlm)} XLM is locked by the Stellar minimum reserve.`,
+      });
+      return;
+    }
+
     // Step 1: If allowance is insufficient, execute approval first
     if (!isAllowanceSufficient) {
       setFlowStep("approving");
@@ -319,6 +424,9 @@ export const CreateCampaignForm = () => {
       });
 
       setFlowStep("success");
+      // The escrow deposit just reduced the on-chain XLM balance; reload the
+      // reserve snapshot so Max and the spendable check do not use stale data.
+      void refreshReserve();
       setCommissionRate("");
       setClearingPeriod("");
       setCampaignName("");
@@ -543,12 +651,26 @@ export const CreateCampaignForm = () => {
                           }
                         }}
                         placeholder="e.g., 1000"
-                        variant={errors.budget ? "error" : "default"}
-                        className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                        variant={exceedsSpendable || errors.budget ? "error" : "default"}
+                        className="h-12 pr-28 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                         required
                       />
-                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-bold uppercase text-xs">
-                        {selectedAsset}
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2">
+                        {isXlmBudget && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleMaxBudget}
+                            disabled={!canUseMax}
+                            className="h-8 rounded-lg px-3 text-xs font-bold border-slate-200 dark:border-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                          >
+                            Max
+                          </Button>
+                        )}
+                        <span className="text-zinc-400 font-bold uppercase text-xs">
+                          {selectedAsset}
+                        </span>
                       </div>
                     </div>
                     {budget &&
@@ -559,8 +681,90 @@ export const CreateCampaignForm = () => {
                           {assetBalances?.[selectedAsset] ?? "0.00"}).
                         </p>
                       )}
+                    {exceedsSpendable && (
+                      <p className="text-xs font-medium text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                        <TriangleAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                        <span>
+                          Amount exceeds your spendable balance of {formatXlm(spendableXlm)} XLM.
+                          The Stellar minimum reserve keeps {formatXlm(reserveXlm)} XLM locked.
+                        </span>
+                      </p>
+                    )}
                   </div>
                 </InputField>
+              </div>
+
+              {/* Reserve & spendable balance awareness */}
+              <div className="rounded-2xl border border-slate-100 dark:border-zinc-800/50 bg-slate-50 dark:bg-zinc-950/50 p-5 space-y-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                    <Wallet className="w-4 h-4" />
+                    Escrow Capacity
+                  </div>
+                  <InfoTooltip
+                    label="Base reserve"
+                    text={`Stellar accounts must hold a minimum reserve: two base reserves (2 × ${formatXlm(baseReserveXlm)} XLM) plus ${formatXlm(baseReserveXlm)} XLM for each subentry — trustlines, open offers, data entries, and extra signers. Sponsorships can raise or lower how much this account must hold. Reserved funds cannot be spent or escrowed.`}
+                  />
+                </div>
+
+                {!isConnected ? (
+                  <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    Connect a wallet to see how much XLM is available to escrow.
+                  </p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                          Balance
+                        </p>
+                        <p className="font-bold text-zinc-900 dark:text-white">
+                          {isReserveLoading ? "…" : `${formatXlm(balanceXlm)} XLM`}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                          Min. Reserve
+                        </p>
+                        <p className="font-bold text-amber-600 dark:text-amber-400">
+                          {isReserveLoading ? "…" : `-${formatXlm(reserveXlm)} XLM`}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                          Spendable
+                        </p>
+                        <p className="font-bold text-emerald-600 dark:text-emerald-400">
+                          {isReserveLoading ? "…" : `${formatXlm(spendableXlm)} XLM`}
+                        </p>
+                      </div>
+                    </div>
+
+                    {subentries > 0 && (
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                        {subentries} subentr{subentries === 1 ? "y" : "ies"} detected (trustlines,
+                        open offers, data entries, or extra signers) locking an additional{" "}
+                        {formatXlm(subentries * baseReserveXlm)} XLM.
+                      </p>
+                    )}
+
+                    {isReserveUnavailable && isReserveReady ? (
+                      <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                        Live reserve data is unavailable right now, so trustlines and offers may not
+                        be counted. Figures use your wallet balance with the default base reserve,
+                        and Max is disabled until the account can be loaded.
+                      </p>
+                    ) : (
+                      isFallback &&
+                      isReserveReady && (
+                        <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                          Live reserve data is unavailable right now; using your wallet balance with
+                          the default base reserve.
+                        </p>
+                      )
+                    )}
+                  </>
+                )}
               </div>
 
               <InputField
@@ -627,7 +831,11 @@ export const CreateCampaignForm = () => {
                         : "bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                     }`}
                   >
-                    {isPrivate ? <Lock className="w-5 h-5" aria-hidden="true" /> : <Globe className="w-5 h-5" aria-hidden="true" />}
+                    {isPrivate ? (
+                      <Lock className="w-5 h-5" aria-hidden="true" />
+                    ) : (
+                      <Globe className="w-5 h-5" aria-hidden="true" />
+                    )}
                   </div>
                   <div>
                     <p
@@ -906,7 +1114,13 @@ export const CreateCampaignForm = () => {
                       type="submit"
                       loading={isExecuting}
                       cooldown
-                      className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white text-base md:text-lg font-bold shadow-lg shadow-indigo-600/20 rounded-xl transition-all"
+                      disabled={isReserveBlocked}
+                      title={
+                        exceedsSpendable
+                          ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
+                          : undefined
+                      }
+                      className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white text-base md:text-lg font-bold shadow-lg shadow-indigo-600/20 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {flowStep === "approving" ? (
                         <div className="flex items-center space-x-3">
@@ -949,7 +1163,13 @@ export const CreateCampaignForm = () => {
                     type="submit"
                     loading={isExecuting}
                     cooldown
-                    className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
+                    disabled={isReserveBlocked}
+                    title={
+                      exceedsSpendable
+                        ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
+                        : undefined
+                    }
+                    className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {flowStep === "creating" ? (
                       <div className="flex items-center space-x-3">

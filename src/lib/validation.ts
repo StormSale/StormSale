@@ -62,13 +62,10 @@ const FEDERATION_ADDRESS_PATTERN =
 export const stellarRecipientSchema = z
   .string()
   .trim()
-  .refine(
-    (val) => StrKey.isValidEd25519PublicKey(val) || FEDERATION_ADDRESS_PATTERN.test(val),
-    {
-      message:
-        "Must be a valid 56-character Stellar public key starting with G, or a name*domain federation address",
-    },
-  );
+  .refine((val) => StrKey.isValidEd25519PublicKey(val) || FEDERATION_ADDRESS_PATTERN.test(val), {
+    message:
+      "Must be a valid 56-character Stellar public key starting with G, or a name*domain federation address",
+  });
 
 /**
  * Soroban contract address only (C…). Used for campaign contract addresses.
@@ -119,6 +116,17 @@ export const positiveIntSchema = z
 // ---------------------------------------------------------------------------
 
 /**
+ * Matches a plain, non-negative decimal amount such as `1000`, `12.5` or `.5`.
+ * Exponent notation (`1e3`), signs, hex and whitespace are rejected so that the
+ * value the user sees is exactly the value that is validated and escrowed.
+ */
+export const PLAIN_DECIMAL_AMOUNT_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+export function isPlainDecimalAmount(value: string): boolean {
+  return PLAIN_DECIMAL_AMOUNT_PATTERN.test(value.trim());
+}
+
+/**
  * CreateCampaignForm generator with asset decimal precision enforcement.
  * contract: create_campaign(name, budgetXlm, commissionRatePercent, clearingPeriodSecs)
  */
@@ -146,6 +154,9 @@ export const getCreateCampaignSchema = (maxDecimals: number = 7) =>
       .min(1, "Budget is required")
       .refine((val) => !isNaN(Number(val)) && isFinite(Number(val)), {
         message: "Must be a valid number",
+      })
+      .refine((val) => isPlainDecimalAmount(val), {
+        message: "Enter a plain decimal amount (e.g. 1000 or 12.5), without exponent notation",
       })
       .refine((val) => Number(val) > 0, { message: "Budget must be a positive number" })
       .refine(

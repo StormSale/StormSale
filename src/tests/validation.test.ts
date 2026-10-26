@@ -101,6 +101,16 @@ describe("Validation Schemas & Error Mapping Suite (#74)", () => {
       expect(createCampaignSchema.safeParse(negativeBudget).success).toBe(false);
     });
 
+    it("rejects exponent notation and other non-decimal budget formats", () => {
+      const base = { campaignName: "Spring Promo", commissionRate: "10", clearingPeriod: "3600" };
+      for (const budget of ["1e3", "1E3", "2.5e-1", "0x10", "+5", "Infinity"]) {
+        expect(createCampaignSchema.safeParse({ ...base, budget }).success).toBe(false);
+      }
+      for (const budget of ["5", "5.", ".5", "12.5"]) {
+        expect(createCampaignSchema.safeParse({ ...base, budget }).success).toBe(true);
+      }
+    });
+
     it("enforces maxDecimals precision dynamically using getCreateCampaignSchema", () => {
       // 7 decimals for XLM
       const xlmSchema = getCreateCampaignSchema(7);
