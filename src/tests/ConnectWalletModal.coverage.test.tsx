@@ -144,6 +144,9 @@ describe("ConnectWalletModal coverage", () => {
 
     await render();
     await click(buttonByText("Freighter"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("device not ready");
   });
@@ -203,6 +206,9 @@ describe("ConnectWalletModal coverage", () => {
     await render();
     await click(buttonByText("WalletConnect"));
     await click(buttonByText("Open Desktop Session"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("session expired");
   });
@@ -212,6 +218,9 @@ describe("ConnectWalletModal coverage", () => {
 
     await render();
     await click(buttonByText("WalletConnect"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("Failed to generate WalletConnect QR code");
   });
