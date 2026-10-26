@@ -43,6 +43,12 @@ export const affiliateKey = (wallet: string) => `sl:wallet:${wallet}`;
 /** KV key for click counter (separate for atomic INCR) */
 export const clickKey = (slug: string) => `sl:clicks:${slug.toLowerCase()}`;
 
+/**
+ * KV key for a slug's click stream: a sorted set of country-level events
+ * scored by timestamp (ms). See api/_lib/clickStream.ts.
+ */
+export const clickEventsKey = (slug: string) => `sl:events:${slug.toLowerCase()}`;
+
 /** Expose for testing / injection */
 export function _setRedisClientForTesting(client: Redis): void {
   _redis = client;
