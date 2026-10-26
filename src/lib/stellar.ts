@@ -16,6 +16,7 @@ import {
   Address,
   Account,
   BASE_FEE,
+  StrKey,
   xdr,
 } from "@stellar/stellar-sdk";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
@@ -310,13 +311,15 @@ export async function fetchAssetBalances(
     const usdc = balances.find(
       (b: any) =>
         b.asset_code === "USDC" &&
-        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.USDC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.USDC.issuer),
     );
 
     const eurc = balances.find(
       (b: any) =>
         b.asset_code === "EURC" &&
-        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer || b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
+        (!SUPPORTED_ESCROW_ASSETS.EURC.issuer ||
+          b.asset_issuer === SUPPORTED_ESCROW_ASSETS.EURC.issuer),
     );
 
     return {
@@ -415,6 +418,434 @@ export function isValidStellarAddress(address: string): boolean {
     trimmed.length === 56 &&
     /^[A-Z0-9]+$/.test(trimmed)
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Minimum balance reserve & spendable balance calculation                     */
+/* -------------------------------------------------------------------------- */
+
+/** Stellar protocol base reserve, in XLM (2 * 0.5 XLM = 1 XLM minimum). */
+export const STELLAR_BASE_RESERVE_XLM = STELLAR_CONFIG.baseReserveXlm;
+
+/** Fixed account overhead (the account itself + the base reserve multiplier). */
+export const STELLAR_ACCOUNT_ENTRY_COUNT = 2;
+
+export interface ReserveCalculationOptions {
+  /** Base reserve, in XLM. Defaults to 0.5 XLM. */
+  baseReserveXlm?: number;
+  /** Number of reserves this account sponsors for other accounts. */
+  numSponsoring?: number;
+  /** Number of this account's own reserves sponsored by another account. */
+  numSponsored?: number;
+  /**
+   * Native XLM committed to open sell offers (Horizon `selling_liabilities`).
+   * It stays in the balance but cannot be spent until the offers are removed.
+   */
+  sellingLiabilitiesXlm?: number;
+}
+
+export interface ReserveBreakdown {
+  balanceXlm: number;
+  subentries: number;
+  baseReserveXlm: number;
+  reserveXlm: number;
+  spendableXlm: number;
+  numSponsoring: number;
+  numSponsored: number;
+  sellingLiabilitiesXlm: number;
+}
+
+/** Clamps arbitrary input to a non-negative integer. */
+function toCount(value: number | undefined): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Calculates the minimum XLM reserve an account must hold:
+ * `(2 + subentries + numSponsoring - numSponsored) * baseReserve`.
+ * With the default base reserve this equals 1 XLM + 0.5 XLM per subentry.
+ */
+export function calculateAccountReserve(
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): number {
+  const baseReserveXlm = options.baseReserveXlm ?? STELLAR_BASE_RESERVE_XLM;
+  const entries = toCount(subentries);
+  const sponsoring = toCount(options.numSponsoring);
+  const sponsored = toCount(options.numSponsored);
+  return (STELLAR_ACCOUNT_ENTRY_COUNT + entries + sponsoring - sponsored) * baseReserveXlm;
+}
+
+/**
+ * Returns the full reserve breakdown for an account balance: the locked minimum
+ * reserve, the spendable balance, and the subentry count driving the reserve.
+ */
+export function calculateReserveBreakdown(
+  balanceXlm: number | string,
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): ReserveBreakdown {
+  const parsedBalance = typeof balanceXlm === "number" ? balanceXlm : parseFloat(balanceXlm);
+  const balance = Number.isFinite(parsedBalance) ? parsedBalance : 0;
+  const baseReserveXlm = options.baseReserveXlm ?? STELLAR_BASE_RESERVE_XLM;
+  const reserveXlm = calculateAccountReserve(subentries, { ...options, baseReserveXlm });
+  const liabilities = Number(options.sellingLiabilitiesXlm);
+  const sellingLiabilitiesXlm = Number.isFinite(liabilities) && liabilities > 0 ? liabilities : 0;
+
+  return {
+    balanceXlm: balance,
+    subentries: toCount(subentries),
+    baseReserveXlm,
+    reserveXlm,
+    spendableXlm: Math.max(0, balance - reserveXlm - sellingLiabilitiesXlm),
+    numSponsoring: toCount(options.numSponsoring),
+    numSponsored: toCount(options.numSponsored),
+    sellingLiabilitiesXlm,
+  };
+}
+
+/**
+ * Convenience wrapper: the maximum amount an account can move out while
+ * keeping its required minimum reserve.
+ */
+export function calculateSpendableBalance(
+  balanceXlm: number | string,
+  subentries: number,
+  options: ReserveCalculationOptions = {},
+): number {
+  return calculateReserveBreakdown(balanceXlm, subentries, options).spendableXlm;
+}
+
+/** Minimal shape of a Horizon account balance entry. */
+interface HorizonAccountBalance {
+  asset_type?: string;
+  balance?: string;
+  selling_liabilities?: string;
+}
+
+/**
+ * Outcome of a Horizon account lookup:
+ * - `active`: the account was loaded and the figures are authoritative.
+ * - `unfunded`: Horizon returned 404, so the account does not exist on-chain yet.
+ * - `unavailable`: Horizon errored or was unreachable; the reserve is unknown.
+ */
+export type StellarAccountStatus = "active" | "unfunded" | "unavailable";
+
+/** Detailed Horizon account snapshot used for reserve-aware validation. */
+export interface StellarAccountDetails {
+  address: string;
+  status: StellarAccountStatus;
+  exists: boolean;
+  balanceXlm: number;
+  subentries: number;
+  numSponsoring: number;
+  numSponsored: number;
+  trustlineCount: number;
+  /** Native XLM committed to open sell offers; not spendable. */
+  sellingLiabilitiesXlm: number;
+  reserveXlm: number;
+  spendableXlm: number;
+}
+
+/**
+ * Fetches an account's native balance, subentry count, and sponsorship data from
+ * Horizon so the UI can compute the locked reserve and spendable balance.
+ * Returns a zeroed, non-existent snapshot when the account is unfunded (404,
+ * `status: "unfunded"`) or Horizon cannot be reached (`status: "unavailable"`),
+ * so callers can tell a genuinely empty account from unknown reserve data.
+ */
+export async function fetchStellarAccountDetails(address: string): Promise<StellarAccountDetails> {
+  const empty = (status: StellarAccountStatus): StellarAccountDetails => ({
+    address,
+    status,
+    exists: false,
+    balanceXlm: 0,
+    subentries: 0,
+    numSponsoring: 0,
+    numSponsored: 0,
+    trustlineCount: 0,
+    sellingLiabilitiesXlm: 0,
+    reserveXlm: calculateAccountReserve(0),
+    spendableXlm: 0,
+  });
+
+  try {
+    const response = await fetch(`${STELLAR_CONFIG.horizonUrl}/accounts/${address}`);
+    if (!response.ok) {
+      return empty(response.status === 404 ? "unfunded" : "unavailable");
+    }
+
+    const data = (await response.json()) as {
+      subentry_count?: number;
+      num_sponsoring?: number;
+      num_sponsored?: number;
+      balances?: HorizonAccountBalance[];
+    };
+    const balances = data.balances ?? [];
+    const nativeBalance = balances.find((b) => b.asset_type === "native");
+    const balanceXlm = nativeBalance?.balance ? parseFloat(nativeBalance.balance) : 0;
+    const sellingLiabilitiesXlm = nativeBalance?.selling_liabilities
+      ? parseFloat(nativeBalance.selling_liabilities) || 0
+      : 0;
+    // Horizon reports the subentry total as `subentry_count`.
+    const subentries = Number(data.subentry_count) || 0;
+    const numSponsoring = Number(data.num_sponsoring) || 0;
+    const numSponsored = Number(data.num_sponsored) || 0;
+    const trustlineCount = balances.filter((b) => b.asset_type !== "native").length;
+    const reserveXlm = calculateAccountReserve(subentries, { numSponsoring, numSponsored });
+
+    return {
+      address,
+      status: "active",
+      exists: true,
+      balanceXlm,
+      subentries,
+      numSponsoring,
+      numSponsored,
+      trustlineCount,
+      sellingLiabilitiesXlm,
+      reserveXlm,
+      spendableXlm: Math.max(0, balanceXlm - reserveXlm - sellingLiabilitiesXlm),
+    };
+  } catch (error) {
+    console.warn("Error fetching Horizon account details:", error);
+    return empty("unavailable");
+  }
+}
+
+/**
+ * Validates a Stellar ed25519 account id (`G...`) with its StrKey base32 and
+ * CRC16 checksum, rejecting contract ids and format-only lookalikes.
+ */
+export function isValidStellarAccount(address: string): boolean {
+  if (!address) return false;
+  return StrKey.isValidEd25519PublicKey(address.trim());
+}
+
+/* -------------------------------------------------------------------------- */
+/* Stellar Federation (SEP-0002) address resolution                           */
+/* -------------------------------------------------------------------------- */
+
+/** A parsed `username*domain.com` federation address. */
+export interface ParsedFederatedAddress {
+  username: string;
+  domain: string;
+}
+
+/** A record returned by a SEP-0002 federation server. */
+export interface FederatedAddressRecord {
+  /** The federation address that was resolved (e.g. `alice*stormsale.io`). */
+  federatedAddress: string;
+  /** The resolved ed25519 Stellar account id (`G...`). */
+  accountId: string;
+  /** Memo type the recipient requires for payments (e.g. `id`, `text`, `hash`). */
+  memoType?: string;
+  /** Memo value the recipient requires, if any. */
+  memo?: string;
+}
+
+/** Outcome of validating/resolving a recipient input field. */
+export type RecipientResolutionStatus = "raw" | "federated" | "unresolved" | "invalid";
+
+export interface RecipientResolution {
+  status: RecipientResolutionStatus;
+  /** Resolved ed25519 public key when `status` is `raw` or `federated`. */
+  address?: string;
+  /** The original federation address, only present when `status` is `federated`. */
+  federatedAddress?: string;
+  memoType?: string;
+  memo?: string;
+  /** Human readable reason when `status` is `unresolved` or `invalid`. */
+  error?: string;
+}
+
+/** Options for federation lookups. */
+export interface FederationResolutionOptions {
+  /** Request timeout in milliseconds. */
+  timeoutMs?: number;
+  /** Override the federation server URL (normally discovered from stellar.toml). */
+  federationServer?: string;
+}
+
+// `name*domain.tld` — username allows common email-ish characters, domain must have a dot.
+const FEDERATION_ADDRESS_PATTERN =
+  /^([a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?)\*([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/i;
+
+// Extract `FEDERATION_SERVER = "https://..."` from a stellar.toml document.
+const FEDERATION_SERVER_TOML_PATTERN = /^\s*FEDERATION_SERVER\s*=\s*["']([^"']+)["']/im;
+
+/**
+ * Returns true when the value looks like a `username*domain.com` federation address.
+ */
+export function isFederatedAddress(value: string): boolean {
+  if (!value) return false;
+  return FEDERATION_ADDRESS_PATTERN.test(value.trim());
+}
+
+/**
+ * Splits a federation address into its username and domain parts.
+ * Returns `null` when the value is not a valid federation address.
+ */
+export function parseFederatedAddress(value: string): ParsedFederatedAddress | null {
+  const match = value?.trim().match(FEDERATION_ADDRESS_PATTERN);
+  if (!match) return null;
+  return { username: match[1], domain: match[2].toLowerCase() };
+}
+
+/**
+ * Performs a fetch with an abort-based timeout that stays active while the
+ * response body is consumed, so federation lookups never hang the UI.
+ */
+async function fetchWithTimeout<T>(
+  url: string,
+  timeoutMs: number,
+  read: (response: Response) => Promise<T>,
+): Promise<{ response: Response; body: T }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { Accept: "application/json, text/plain, */*" },
+    });
+    const body = await read(response);
+    return { response, body };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Federation request timed out after ${timeoutMs} ms`, { cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Discovers the SEP-0002 federation server for a domain by reading its
+ * `/.well-known/stellar.toml` file.
+ */
+export async function discoverFederationServer(
+  domain: string,
+  timeoutMs: number = STELLAR_CONFIG.federationTimeoutMs,
+): Promise<string> {
+  const tomlUrl = `https://${domain}/.well-known/stellar.toml`;
+  const { response, body: toml } = await fetchWithTimeout(tomlUrl, timeoutMs, (res) => res.text());
+  if (!response.ok) {
+    throw new Error(`Could not load stellar.toml for ${domain} (HTTP ${response.status})`);
+  }
+
+  const match = toml.match(FEDERATION_SERVER_TOML_PATTERN);
+  const server = match?.[1]?.trim();
+  if (!server) {
+    throw new Error(`stellar.toml for ${domain} does not declare a FEDERATION_SERVER`);
+  }
+  return server;
+}
+
+/**
+ * Resolves a `username*domain.com` federation address to its ed25519 public key
+ * and any memo the recipient requires. Throws when the lookup fails so callers
+ * can gracefully fall back to a raw public key.
+ *
+ * @see https://developers.stellar.org/docs/learn/encyclopedia/federation
+ */
+export async function resolveFederatedAddress(
+  federatedAddress: string,
+  options: FederationResolutionOptions = {},
+): Promise<FederatedAddressRecord> {
+  const parsed = parseFederatedAddress(federatedAddress);
+  if (!parsed) {
+    throw new Error(`Invalid federation address: ${federatedAddress}`);
+  }
+
+  const timeoutMs = options.timeoutMs ?? STELLAR_CONFIG.federationTimeoutMs;
+  const serverUrl =
+    options.federationServer ?? (await discoverFederationServer(parsed.domain, timeoutMs));
+
+  let url: URL;
+  try {
+    url = new URL(serverUrl);
+  } catch {
+    throw new Error(`Invalid federation server URL: ${serverUrl}`);
+  }
+  // SEP-0002 requires HTTPS; FEDERATION_SERVER comes from an untrusted stellar.toml.
+  if (url.protocol !== "https:") {
+    throw new Error(`Federation server must use HTTPS: ${serverUrl}`);
+  }
+  url.search = "";
+  url.searchParams.set("q", `${parsed.username}*${parsed.domain}`);
+  url.searchParams.set("type", "name");
+
+  const { response, body: data } = await fetchWithTimeout(
+    url.toString(),
+    timeoutMs,
+    async (res) =>
+      (await res.json().catch(() => null)) as {
+        stellar_address?: string;
+        account_id?: string;
+        memo_type?: string;
+        memo?: string | number;
+      } | null,
+  );
+  if (!response.ok) {
+    throw new Error(`Federation server responded with HTTP ${response.status}`);
+  }
+
+  const accountId = data?.account_id?.trim();
+  if (!accountId || !isValidStellarAccount(accountId)) {
+    throw new Error("Federation server did not return a valid ed25519 account id");
+  }
+
+  return {
+    federatedAddress: data?.stellar_address?.trim() || `${parsed.username}*${parsed.domain}`,
+    accountId,
+    memoType: data?.memo_type,
+    memo: data?.memo !== undefined && data?.memo !== null ? String(data.memo) : undefined,
+  };
+}
+
+/**
+ * Resolves a recipient input that may be either a raw `G...` public key or a
+ * `username*domain.com` federation address. Never throws: an unreachable or
+ * misconfigured federation server yields `{ status: "unresolved" }` so the UI
+ * can fall back to raw public key entry.
+ */
+export async function resolveRecipient(
+  input: string,
+  options: FederationResolutionOptions = {},
+): Promise<RecipientResolution> {
+  const value = input?.trim() ?? "";
+  if (!value) {
+    return { status: "invalid", error: "Enter a Stellar public key or federation address." };
+  }
+
+  if (isValidStellarAccount(value)) {
+    return { status: "raw", address: value };
+  }
+
+  if (!isFederatedAddress(value)) {
+    return {
+      status: "invalid",
+      error: "Enter a valid G... public key or name*domain.com federation address.",
+    };
+  }
+
+  try {
+    const record = await resolveFederatedAddress(value, options);
+    return {
+      status: "federated",
+      address: record.accountId,
+      federatedAddress: record.federatedAddress,
+      memoType: record.memoType,
+      memo: record.memo,
+    };
+  } catch (error) {
+    return {
+      status: "unresolved",
+      error: error instanceof Error ? error.message : "Federation lookup failed.",
+    };
+  }
 }
 
 /**
@@ -666,7 +1097,9 @@ export async function claimPayoutContractCall(
   assetAddress?: string;
 }> {
   let resolvedAssetCode = assetCode;
-  let resolvedAssetAddress = assetCode ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress : undefined;
+  let resolvedAssetAddress = assetCode
+    ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress
+    : undefined;
 
   // When not explicitly provided by the caller, attempt to query the campaign's settlement asset from contract storage
   if (!resolvedAssetCode && !affiliateAddress.startsWith("GASTORMSALE7") && walletType !== "mock") {
@@ -833,7 +1266,10 @@ export async function approveTokenContractCall(
     const mockHash =
       "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
     if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+      window.localStorage.setItem(
+        `mock_allowance_${ownerAddress}_${spenderAddress}`,
+        amount.toString(),
+      );
     }
     return {
       success: true,
@@ -863,7 +1299,10 @@ export async function approveTokenContractCall(
   );
 
   if (typeof window !== "undefined" && window.localStorage) {
-    window.localStorage.setItem(`mock_allowance_${ownerAddress}_${spenderAddress}`, amount.toString());
+    window.localStorage.setItem(
+      `mock_allowance_${ownerAddress}_${spenderAddress}`,
+      amount.toString(),
+    );
   }
 
   return {

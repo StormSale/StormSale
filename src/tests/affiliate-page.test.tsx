@@ -41,6 +41,9 @@ vi.mock("../components/affiliate/AffiliateOverview", () => ({
     </div>
   ),
 }));
+vi.mock("../components/affiliate/ClickStreamHeatmap", () => ({
+  AffiliateClickStreamHeatmap: () => <div>Click heatmap content</div>,
+}));
 vi.mock("../components/affiliate/TelegramCampaignBrowser", () => ({
   TelegramCampaignBrowser: () => <div>Telegram campaign content</div>,
 }));
@@ -66,6 +69,9 @@ describe("Affiliate page navigation", () => {
     const onBack = vi.fn();
     render(<Affiliate onBack={onBack} />);
     expect(screen.getByText("Overview content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Click Heatmap" }));
+    expect(await screen.findByText("Click heatmap content")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Telegram Campaigns" }));
     expect(await screen.findByText("Telegram campaign content")).toBeTruthy();

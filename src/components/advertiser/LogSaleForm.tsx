@@ -20,9 +20,13 @@ import {
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
-import { Shield, Zap, Users, FileKey } from "lucide-react";
+import { resolveRecipient } from "../../lib/stellar";
+import { FederatedAddressInput } from "../shared/FederatedAddressInput";
+import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
+import { BatchSaleUploader } from "./BatchSaleUploader";
 
 export const LogSaleForm = () => {
+  const [mode, setMode] = useState<"single" | "batch">("single");
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
   const [campaignAddress, setCampaignAddress] = useState("");
@@ -64,22 +68,47 @@ export const LogSaleForm = () => {
 
     const { data } = result;
 
+    // Always re-resolve the submitted recipient so a stale or unresolved
+    // federation string can never reach the contract call.
+    setIsLoading(true);
+    let recipientAddress: string | undefined;
+    try {
+      const resolution = await resolveRecipient(data.affiliateAddress);
+      recipientAddress =
+        resolution.status === "raw" || resolution.status === "federated"
+          ? resolution.address
+          : undefined;
+      if (!recipientAddress) {
+        const message =
+          resolution.error || "Could not resolve the affiliate address to a Stellar public key.";
+        setErrors({ affiliateAddress: message });
+        showNotification({ type: "error", title: "Recipient Not Verified", message });
+        setIsLoading(false);
+        return;
+      }
+    } catch (error: unknown) {
+      setIsLoading(false);
+      setErrors({
+        affiliateAddress: error instanceof Error ? error.message : "Federation lookup failed.",
+      });
+      return;
+    }
+
     // Private campaigns only credit approved affiliates. Checked before any
     // encryption work so the advertiser sees why. The id is already validated
     // as a u32 by the schema, so this cannot throw on an out-of-range value.
     if (/^\d+$/.test(data.campaignAddress)) {
-      const access = getAffiliateAccess(data.campaignAddress, data.affiliateAddress);
+      const access = getAffiliateAccess(data.campaignAddress, recipientAddress);
       if (!access.allowed) {
         showNotification({
           type: "error",
           title: "Affiliate Not Approved",
           message: access.reason,
         });
+        setIsLoading(false);
         return;
       }
     }
-
-    setIsLoading(true);
 
     try {
       const campaignContract = getCampaignContract(data.campaignAddress);
@@ -103,7 +132,7 @@ export const LogSaleForm = () => {
       const encryptedPayload = await encryptPayload(payload, aesKey);
 
       const advertiserPublicKey = await getPublicKeyForAddress(userAddress);
-      const affiliatePublicKey = await getPublicKeyForAddress(data.affiliateAddress);
+      const affiliatePublicKey = await getPublicKeyForAddress(recipientAddress);
 
       const advertiserWrappedKey = await wrapAESKey(aesKey, advertiserPublicKey);
       const affiliateWrappedKey = await wrapAESKey(aesKey, affiliatePublicKey);
@@ -115,7 +144,7 @@ export const LogSaleForm = () => {
       });
 
       const tx = await campaignContract.logEncryptedSale(
-        data.affiliateAddress,
+        recipientAddress,
         data.saleAmount,
         encryptedPayload,
         advertiserWrappedKey,
@@ -135,7 +164,7 @@ export const LogSaleForm = () => {
         conversion_id: payload.saleId,
         campaign_id: data.campaignAddress,
         campaign_address: data.campaignAddress,
-        affiliate_address: data.affiliateAddress,
+        affiliate_address: recipientAddress,
         advertiser_address: userAddress || "GADVERTISER_DEFAULT_TESTNET",
         amount: Number(data.saleAmount),
         currency: "XLM",
@@ -148,7 +177,7 @@ export const LogSaleForm = () => {
         const postbacks = await triggerConversionPostback({
           saleId: payload.saleId,
           campaignAddress: data.campaignAddress,
-          affiliateAddress: data.affiliateAddress,
+          affiliateAddress: recipientAddress,
           advertiserAddress: userAddress || "GADVERTISER_DEFAULT_TESTNET",
           saleAmount: data.saleAmount,
           currency: "XLM",
@@ -200,15 +229,64 @@ export const LogSaleForm = () => {
     }
   };
 
+  if (mode === "batch") {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setMode("single")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Single Sale Entry
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("batch")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              Batch Uploader (CSV/JSON)
+            </button>
+          </div>
+        </div>
+        <BatchSaleUploader />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-          Log Encrypted Sale
-        </h2>
-        <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-          Record a new sale with military-grade encryption and commission escrow
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+            Log Encrypted Sale
+          </h2>
+          <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
+            Record a new sale with military-grade encryption and commission escrow
+          </p>
+        </div>
+
+        <div className="flex items-center p-1 rounded-xl bg-slate-100 dark:bg-zinc-800 text-xs self-start">
+          <button
+            type="button"
+            onClick={() => setMode("single")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-400 shadow-sm transition-colors"
+          >
+            <Shield className="w-3.5 h-3.5" />
+            Single Sale
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("batch")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Batch CSV/JSON
+          </button>
+        </div>
       </div>
 
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-3xl bg-white dark:bg-zinc-900/50">
@@ -252,19 +330,18 @@ export const LogSaleForm = () => {
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
-                  description="Stellar public key of the affiliate (G…)"
+                  description="Stellar public key (G…) or federation address (name*domain.com)"
                   error={errors.affiliateAddress}
                   required
                 >
-                  <Input
+                  <FederatedAddressInput
                     value={affiliateAddress}
-                    onChange={(e) => {
-                      setAffiliateAddress(e.target.value);
+                    onChange={(value) => {
+                      setAffiliateAddress(value);
                       clearError("affiliateAddress");
                     }}
-                    placeholder="GAFFILIATE... (56-char Stellar Public Key)"
-                    variant={errors.affiliateAddress ? "error" : "default"}
-                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 font-mono"
+                    placeholder="GAFFILIATE... or alice*stormsale.io"
+                    inputClassName="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
                   />
                 </InputField>
 

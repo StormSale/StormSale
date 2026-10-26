@@ -11,6 +11,7 @@ import { CampaignAssetLibrary } from "../components/advertiser/CampaignAssetLibr
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
 import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
+import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
 import { NotificationProvider } from "../context/NotificationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
 import { STELLAR_CONFIG } from "../config/stellar";
@@ -32,6 +33,7 @@ import {
   Layers,
   Coins,
   ClipboardList,
+  FileSpreadsheet,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -46,6 +48,7 @@ const ADVERTISER_TABS = [
   "brand-customizer",
   "asset-library",
   "log-sale",
+  "batch-sales",
   "cohort-analysis",
   "webhooks",
   "grant-access",
@@ -70,6 +73,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "asset-library", label: "Promotion Assets & IPFS", icon: FolderArchive },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
+    { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
@@ -87,6 +91,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CampaignAssetLibrary />;
       case "log-sale":
         return <LogSaleForm />;
+      case "batch-sales":
+        return <BatchSaleUploader />;
       case "cohort-analysis":
         return <CohortVisualizer />;
       case "webhooks":
@@ -412,6 +418,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-emerald-500/10",
                   hoverText: "group-hover:text-emerald-500",
                   hoverBorder: "hover:border-emerald-500/30",
+                },
+                {
+                  label: "Batch Sale Uploader",
+                  icon: FileSpreadsheet,
+                  action: "batch-sales",
+                  hoverBg: "group-hover:bg-indigo-500/10",
+                  hoverText: "group-hover:text-indigo-500",
+                  hoverBorder: "hover:border-indigo-500/30",
                 },
                 {
                   label: "Webhooks",
