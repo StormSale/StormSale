@@ -1,0 +1,100 @@
+# @stormsale/next-middleware
+
+Edge-compatible referral attribution for Next.js middleware. It reads the
+existing StormSale `ref` query parameter (for example,
+`/c/campaign-123?ref=affiliate-wallet-or-slug`) and sets an HTTP-only
+`__stormsale_ref` cookie.
+
+## Install
+
+```bash
+npm install @stormsale/next-middleware next
+```
+
+Requires Node.js 18 or later and Next.js 13.4 or later. The package has no
+runtime dependencies; Next.js is a peer dependency.
+
+## Use with Next.js middleware
+
+```ts
+// middleware.ts
+import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
+import { withStormSaleReferral } from "@stormsale/next-middleware";
+
+const middleware = withStormSaleReferral((request: NextRequest, event: NextFetchEvent) => {
+  // Keep your existing middleware logic here.
+  return NextResponse.next();
+});
+
+export default middleware;
+
+export const config = {
+  matcher: ["/:path*"],
+};
+```
+
+The wrapper forwards all arguments (including `request` and `event`) and preserves
+the response produced by your middleware, including its status and body, while
+appending the attribution cookie when appropriate. Handlers may return a
+`Response`, `NextResponse`, or `void` / `undefined` (which creates a pass-through
+response with Next.js's continue header). It does not replace an existing valid
+attribution cookie unless `overwriteExisting` is enabled.
+
+## Read attribution in a Server Component or route handler
+
+```ts
+import { cookies } from "next/headers";
+import { readStormSaleReferralCookie } from "@stormsale/next-middleware";
+
+export async function getReferral() {
+  return readStormSaleReferralCookie(await cookies());
+}
+```
+
+Route handlers can read the same token from a request Cookie header:
+
+```ts
+const referral = readStormSaleReferralCookie(request.headers.get("cookie"));
+```
+
+The helper validates the value and returns `null` when the cookie is missing or
+malformed. It can also read a Next.js `cookies()` store directly.
+
+## Options
+
+Pass options as the second argument to `withStormSaleReferral` or the third
+argument to `stormsaleMiddleware`:
+
+| Option              | Default             | Description                                            |
+| ------------------- | ------------------- | ------------------------------------------------------ |
+| `queryParam`        | `"ref"`             | Query parameter containing the referral token.         |
+| `cookieName`        | `"__stormsale_ref"` | Cookie name.                                           |
+| `maxAge`            | `2592000` (30 days) | Cookie lifetime in seconds, up to 400 days.            |
+| `domain`            | —                   | Optional cookie domain, such as `.example.com`.        |
+| `path`              | `"/"`               | Cookie path.                                           |
+| `overwriteExisting` | `false`             | Replace a valid existing attribution cookie.           |
+| `ignorePaths`       | `[]`                | Exact path strings or regular expressions to skip.     |
+| `matcher`           | —                   | Optional predicate that receives the request pathname. |
+
+The cookie always uses `HttpOnly`, `Secure`, and `SameSite=Lax`. Tokens must be
+1–64 ASCII letters, digits, underscores, or hyphens. Invalid tokens and invalid
+cookie configuration are ignored; middleware-processing failures leave the
+response untouched. Errors thrown by a wrapped application middleware are
+allowed to propagate as they would without this package.
+
+## Runtime and performance
+
+The implementation uses only Web-standard `Request`, `Response`, `URL`, and
+header APIs, making it fully compatible with Vercel Edge Runtime and Node.js
+middleware runtimes. It performs no disk I/O, external network calls,
+cryptography, or Node.js-specific operations. The test suite benchmarks the
+complete `withStormSaleReferral` middleware wrapper across 1,000 requests—covering
+both awaited handler responses and the void-returning continue branch—with an
+average processing time below 5 ms per request in the included test
+environment. Verify the < 5 ms target separately in the Vercel Edge runtime.
+
+## Nuxt
+
+Nuxt is out of scope for this Next.js package. Nuxt middleware uses a different
+event and cookie API; use a dedicated Nuxt/H3 adapter rather than assuming this
+Next.js middleware wrapper is compatible.

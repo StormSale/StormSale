@@ -160,7 +160,7 @@ export const EscrowTopUpModal: React.FC<EscrowTopUpModalProps> = ({
       showNotification({
         type: "success",
         title: "Escrow Top-Up Complete!",
-        message: `Added ${amountNum} ${selectedToken} to escrow budget. Tx: ${res.txHash.slice(0, 10)}...`,
+        message: `Added ${amountNum} ${selectedToken} to escrow budget. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
 
       if (onSuccess) onSuccess();
