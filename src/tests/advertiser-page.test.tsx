@@ -27,6 +27,10 @@ vi.mock("../components/shared/Sidebar", () => ({
 }));
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: vi.fn(), dismissNotification: vi.fn() }),
+}));
+vi.mock("../components/advertiser/StorageTTLHealthIndicator", () => ({
+  StorageTTLHealthIndicator: () => <div>Storage TTL Indicator</div>,
 }));
 vi.mock("../components/advertiser/ContractTTLRestorer", () => ({
   ContractTTLRestorer: () => <div>TTL restorer</div>,

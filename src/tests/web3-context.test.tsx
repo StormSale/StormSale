@@ -6,28 +6,35 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { Web3Provider, useWeb3 } from "../context/Web3Context";
+import { rpcFallbackManager } from "../lib/rpcFallback";
 
-vi.mock("../config/stellar", () => ({
-  STELLAR_CONFIG: {
-    network: "TESTNET",
-    networkPassphrase: "Test SDF Network ; September 2015",
-    rpcUrl: "https://soroban-testnet.stellar.org",
-    horizonUrl: "https://horizon-testnet.stellar.org",
-    explorerUrl: "https://stellar.expert/explorer/testnet",
-    contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-    nativeAsset: "XLM",
-    nativeDecimals: 7,
-  },
-  SUPPORTED_ESCROW_ASSETS: {
-    XLM: { code: "XLM", name: "Stellar Lumens", decimals: 7, contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" },
-    USDC: { code: "USDC", name: "USD Coin", decimals: 7, contractAddress: "CUSDC" },
-    EURC: { code: "EURC", name: "Euro Coin", decimals: 7, contractAddress: "CEURC" },
-  },
-  NETWORK_ESCROW_ASSETS: {
-    TESTNET: {},
-    PUBLIC: {},
-  },
-}));
+vi.mock("../config/stellar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config/stellar")>();
+  return {
+    ...actual,
+    STELLAR_CONFIG: {
+      ...actual.STELLAR_CONFIG,
+      network: "TESTNET",
+      contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    },
+    SUPPORTED_ESCROW_ASSETS: {
+      XLM: { code: "XLM", name: "Stellar Lumens", decimals: 7, contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" },
+      USDC: { code: "USDC", name: "USD Coin", decimals: 7, contractAddress: "CUSDC" },
+      EURC: { code: "EURC", name: "Euro Coin", decimals: 7, contractAddress: "CEURC" },
+    },
+    SAC_TOKENS: {
+      XLM: { symbol: "XLM", name: "Stellar Lumens", decimals: 7, contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" },
+      USDC: { symbol: "USDC", name: "USD Coin", decimals: 7, contractId: "CUSDC" },
+      EURC: { symbol: "EURC", name: "Euro Coin", decimals: 7, contractId: "CEURC" },
+    },
+    TTL_CONFIG: actual.TTL_CONFIG || {
+      DEFAULT_EXTEND_LEDGERS: 100000,
+      WARNING_THRESHOLD_LEDGERS: 50000,
+      CRITICAL_THRESHOLD_LEDGERS: 10000,
+      SECONDS_PER_LEDGER: 5,
+    },
+  };
+});
 
 // Mock stellar library calls
 vi.mock("../lib/stellar", async (importOriginal) => {
@@ -43,12 +50,26 @@ vi.mock("../lib/stellar", async (importOriginal) => {
     getTokenAllowanceQuery: vi.fn().mockResolvedValue(5000),
     approveTokenContractCall: vi.fn().mockResolvedValue({ success: true, allowance: 5000, txHash: "tx_mock_hash" }),
     approveTokenAllowance: vi.fn().mockResolvedValue({ success: true, txHash: "tx_allowance_call" }),
+    approveSACDelegation: vi.fn().mockResolvedValue({
+      success: true,
+      txHash: "tx_allowance_call",
+      simulationFeedback: {
+        estimatedFee: "0.0001",
+        simulationSuccess: true,
+        footprintStatus: "clean",
+        resourceLimitsOk: true,
+        authScopeValid: true,
+        recommendedLiveUntilLedger: 1500000,
+      },
+    }),
+    getSACAllowance: vi.fn().mockResolvedValue(BigInt(50000000000)),
     createCampaignContractCall: vi.fn().mockResolvedValue({ success: true, campaignId: 101, txHash: "tx_create_campaign" }),
     logSaleContractCall: vi.fn().mockResolvedValue({ success: true, txHash: "tx_log_sale" }),
     claimPayoutContractCall: vi.fn().mockResolvedValue({ success: true, txHash: "tx_claim_payout", claimedAmount: 75 }),
     refundCampaignEscrowContractCall: vi.fn().mockResolvedValue({ success: true, txHash: "tx_refund_mock" }),
     fundTestnetAccount: vi.fn().mockResolvedValue(true),
     getCurrentNetwork: vi.fn().mockResolvedValue("TESTNET"),
+    signSEP0010Challenge: vi.fn().mockResolvedValue("AAAA_SIGNED_XDR"),
   };
 });
 
@@ -72,15 +93,31 @@ vi.mock("../lib/escrowTopUp", async (importOriginal) => {
   };
 });
 
-vi.mock("../utils/api", () => ({
-  registerUser: vi.fn().mockImplementation((_addr, role) => Promise.resolve({ success: true, role })),
-}));
+vi.mock("../utils/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../utils/api")>();
+  return {
+    ...actual,
+    registerUser: vi.fn().mockImplementation((_addr, role) => Promise.resolve({ success: true, role })),
+    getStoredSessionToken: vi.fn().mockReturnValue(null),
+    storeSessionToken: vi.fn(),
+    clearSessionToken: vi.fn(),
+    requestAuthChallenge: vi.fn().mockResolvedValue({ challengeXdr: "AAAA", nonce: "nonce123" }),
+    verifyAuthChallenge: vi.fn().mockResolvedValue({
+      token: "mock_token",
+      role: "AFFILIATE",
+      walletAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      expiresAt: Date.now() + 86400000,
+    }),
+  };
+});
 
 describe("Web3Context Suite — Automated Escrow Top-Up & Wallet Integration (#107)", () => {
   let localStorageMock: Record<string, string> = {};
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.spyOn(rpcFallbackManager, "checkAllHealth").mockResolvedValue([]);
+    vi.spyOn(rpcFallbackManager, "checkEndpointHealth").mockResolvedValue({} as any);
     localStorageMock = {};
     const mockStorage = {
       getItem: (key: string) => localStorageMock[key] ?? null,

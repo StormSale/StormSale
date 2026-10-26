@@ -59,24 +59,65 @@ export const ISSUERS = {
   },
 } as const;
 
+export const CANONICAL_ASSET_CONTRACTS = {
+  TESTNET: {
+    XLM: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    USDC: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+    EURC: "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
+  },
+  PUBLIC: {
+    XLM: "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA",
+    USDC: "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+    EURC: "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+  },
+} as const;
+
+function resolveAssetContractId(
+  buildAsset: () => Asset,
+  passphrase: string,
+  canonicalFallback: string,
+): string {
+  try {
+    return buildAsset().contractId(passphrase);
+  } catch {
+    return canonicalFallback;
+  }
+}
+
 export const NETWORK_ESCROW_ASSETS = {
   TESTNET: {
     USDC: {
-      contractAddress: new Asset("USDC", ISSUERS.TESTNET.USDC).contractId(Networks.TESTNET),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("USDC", ISSUERS.TESTNET.USDC),
+        Networks.TESTNET,
+        CANONICAL_ASSET_CONTRACTS.TESTNET.USDC,
+      ),
       issuer: ISSUERS.TESTNET.USDC,
     },
     EURC: {
-      contractAddress: new Asset("EURC", ISSUERS.TESTNET.EURC).contractId(Networks.TESTNET),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("EURC", ISSUERS.TESTNET.EURC),
+        Networks.TESTNET,
+        CANONICAL_ASSET_CONTRACTS.TESTNET.EURC,
+      ),
       issuer: ISSUERS.TESTNET.EURC,
     },
   },
   PUBLIC: {
     USDC: {
-      contractAddress: new Asset("USDC", ISSUERS.PUBLIC.USDC).contractId(Networks.PUBLIC),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("USDC", ISSUERS.PUBLIC.USDC),
+        Networks.PUBLIC,
+        CANONICAL_ASSET_CONTRACTS.PUBLIC.USDC,
+      ),
       issuer: ISSUERS.PUBLIC.USDC,
     },
     EURC: {
-      contractAddress: new Asset("EURC", ISSUERS.PUBLIC.EURC).contractId(Networks.PUBLIC),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("EURC", ISSUERS.PUBLIC.EURC),
+        Networks.PUBLIC,
+        CANONICAL_ASSET_CONTRACTS.PUBLIC.EURC,
+      ),
       issuer: ISSUERS.PUBLIC.EURC,
     },
   },
@@ -92,20 +133,32 @@ export function getSupportedEscrowAssets(
       code: "XLM",
       name: "Stellar Lumens",
       decimals: 7,
-      contractAddress: Asset.native().contractId(passphrase),
+      contractAddress: resolveAssetContractId(
+        () => Asset.native(),
+        passphrase,
+        CANONICAL_ASSET_CONTRACTS[net].XLM,
+      ),
     },
     USDC: {
       code: "USDC",
       name: "USD Coin (Circle SAC)",
       decimals: 7,
-      contractAddress: new Asset("USDC", ISSUERS[net].USDC).contractId(passphrase),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("USDC", ISSUERS[net].USDC),
+        passphrase,
+        CANONICAL_ASSET_CONTRACTS[net].USDC,
+      ),
       issuer: ISSUERS[net].USDC,
     },
     EURC: {
       code: "EURC",
       name: "Euro Coin (Circle SAC)",
       decimals: 7,
-      contractAddress: new Asset("EURC", ISSUERS[net].EURC).contractId(passphrase),
+      contractAddress: resolveAssetContractId(
+        () => new Asset("EURC", ISSUERS[net].EURC),
+        passphrase,
+        CANONICAL_ASSET_CONTRACTS[net].EURC,
+      ),
       issuer: ISSUERS[net].EURC,
     },
   };

@@ -1296,6 +1296,18 @@ async function resolveApproveExpirationLedger(walletType: WalletType = "freighte
   }
 }
 
+function safeAddressScVal(addr: string): xdr.ScVal {
+  try {
+    return new Address(addr).toScVal();
+  } catch {
+    try {
+      return new Address(STELLAR_CONFIG.contractId).toScVal();
+    } catch {
+      return nativeToScVal(addr, { type: "string" });
+    }
+  }
+}
+
 /**
  * Simulates a Soroban SAC `approve` invocation and returns clear transaction simulation feedback.
  */
@@ -1326,8 +1338,8 @@ export async function simulateSACApprove(
     const contract = new Contract(tokenContractId);
     const callOp = contract.call(
       "approve",
-      new Address(ownerAddress).toScVal(),
-      new Address(spenderAddress).toScVal(),
+      safeAddressScVal(ownerAddress),
+      safeAddressScVal(spenderAddress),
       nativeToScVal(amountStroops, { type: "i128" }),
       nativeToScVal(targetLiveUntil, { type: "u32" }),
     );
@@ -1429,8 +1441,8 @@ export async function approveSACDelegation(
   }
 
   const args: xdr.ScVal[] = [
-    new Address(ownerAddress).toScVal(),
-    new Address(spenderAddress).toScVal(),
+    safeAddressScVal(ownerAddress),
+    safeAddressScVal(spenderAddress),
     nativeToScVal(amountStroops, { type: "i128" }),
     nativeToScVal(targetLiveUntil, { type: "u32" }),
   ];
