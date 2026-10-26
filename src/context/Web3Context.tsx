@@ -783,7 +783,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const topUpCampaignEscrow = async (
     campaignId: number,
     amount: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
+    assetCode: SupportedEscrowAssetCode | SACTokenSymbol = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
@@ -797,11 +797,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         campaignId,
         amount,
         connectorType,
-        assetCode,
+        (assetCode as SupportedEscrowAssetCode) || "XLM",
       );
       setTimeout(() => {
         refreshBalance(userAddress);
-        refreshTokenAllowance(undefined, assetCode);
+        refreshTokenAllowance(undefined, assetCode as SupportedEscrowAssetCode);
       }, 1000);
       return res;
     } else {
@@ -908,63 +908,78 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   };
 
   // SAC Token Allowance & TTL Management Implementation
-  const getAllowance = async (tokenSymbol: SACTokenSymbol = "USDC"): Promise<bigint> => {
-    if (!userAddress) return BigInt(0);
-    const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
-    return await getSACAllowance(
-      userAddress,
-      STELLAR_CONFIG.contractId,
-      token.contractId,
-      connectorType || "freighter",
-    );
-  };
+  const getAllowance = useCallback(
+    async (tokenSymbol: SACTokenSymbol = "USDC"): Promise<bigint> => {
+      if (!userAddress) return BigInt(0);
+      const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
+      return await getSACAllowance(
+        userAddress,
+        STELLAR_CONFIG.contractId,
+        token.contractId,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
 
-  const simulateApprove = async (
-    amount: number,
-    tokenSymbol: SACTokenSymbol = "USDC",
-  ): Promise<SACSimulationFeedback> => {
-    const caller = userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
-    return await simulateSACApprove(
-      caller,
-      STELLAR_CONFIG.contractId,
-      token.contractId,
-      amount,
-      undefined,
-      tokenSymbol,
-    );
-  };
+  const simulateApprove = useCallback(
+    async (
+      amount: number,
+      tokenSymbol: SACTokenSymbol = "USDC",
+    ): Promise<SACSimulationFeedback> => {
+      const caller = userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
+      return await simulateSACApprove(
+        caller,
+        STELLAR_CONFIG.contractId,
+        token.contractId,
+        amount,
+        undefined,
+        tokenSymbol,
+      );
+    },
+    [userAddress],
+  );
 
-  const checkTopUpAllowance = async (
-    amount: number,
-    tokenSymbol: SACTokenSymbol = "USDC",
-  ): Promise<AllowanceCheckResult> => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    return await checkAllowanceBeforeTopUp(
-      userAddress,
-      amount,
-      tokenSymbol,
-      STELLAR_CONFIG.contractId,
-      connectorType || "freighter",
-    );
-  };
+  const checkTopUpAllowance = useCallback(
+    async (
+      amount: number,
+      tokenSymbol: SACTokenSymbol = "USDC",
+    ): Promise<AllowanceCheckResult> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      return await checkAllowanceBeforeTopUp(
+        userAddress,
+        amount,
+        tokenSymbol,
+        STELLAR_CONFIG.contractId,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
 
-  const getStorageTTL = async (contractId?: string): Promise<StorageTTLInfo> => {
-    return await getCampaignStorageTTL(contractId || STELLAR_CONFIG.contractId);
-  };
+  const getStorageTTL = useCallback(
+    async (contractId?: string): Promise<StorageTTLInfo> => {
+      return await getCampaignStorageTTL(contractId || STELLAR_CONFIG.contractId);
+    },
+    [],
+  );
 
-  const extendStorageTTL = async (
-    contractId?: string,
-    extendBy?: number,
-  ): Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }> => {
-    if (!userAddress) throw new Error("Wallet not connected");
-    return await extendCampaignStorageTTL(
-      userAddress,
-      contractId || STELLAR_CONFIG.contractId,
-      extendBy,
-      connectorType || "freighter",
-    );
-  };
+  const extendStorageTTL = useCallback(
+    async (
+      contractId?: string,
+      extendBy?: number,
+    ): Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      return await extendCampaignStorageTTL(
+        userAddress,
+        contractId || STELLAR_CONFIG.contractId,
+        extendBy,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
 
   return (
     <Web3Context.Provider
