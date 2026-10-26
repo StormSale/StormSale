@@ -23,9 +23,10 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # Build + deploy an ephemeral preview environment for open PRs.
+  # Skipped on external forks where repository secrets are inaccessible.
   # ---------------------------------------------------------------------------
   preview:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment:
       name: preview/pr-${{ github.event.pull_request.number }}
@@ -132,9 +133,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Teardown the ephemeral environment when the PR is closed or merged.
+  # Skipped on external forks where preview environments were not deployed.
   # ---------------------------------------------------------------------------
   teardown:
-    if: github.event.action == 'closed'
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:
