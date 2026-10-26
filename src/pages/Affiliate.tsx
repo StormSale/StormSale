@@ -4,6 +4,7 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { AffiliateClickStreamHeatmap } from "../components/affiliate/ClickStreamHeatmap";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
@@ -13,6 +14,7 @@ import {
   DollarSign,
   Shield,
   LayoutDashboard,
+  Globe2,
   Send,
   Sliders,
   Link2,
@@ -22,6 +24,7 @@ import { usePreference } from "../hooks/usePreference";
 import { motion, AnimatePresence } from "framer-motion";
 import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
+import { TelegramAlertsCard } from "../components/affiliate/TelegramAlertsCard";
 import { Button } from "../components/ui/button";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "../lib/queryClient";
@@ -32,6 +35,7 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "heatmap",
   "telegram-browser",
   "custom-links",
   "join-campaign",
@@ -52,6 +56,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "heatmap", label: "Click Heatmap", icon: Globe2 },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
@@ -64,6 +69,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "heatmap":
+        return <AffiliateClickStreamHeatmap />;
       case "telegram-browser":
         return <TelegramCampaignBrowser />;
       case "custom-links":
@@ -77,7 +84,12 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
       case "claim-payouts":
         return <ClaimPayouts />;
       case "settings":
-        return <AffiliateSettings />;
+        return (
+          <div className="space-y-6">
+            <AffiliateSettings />
+            <TelegramAlertsCard />
+          </div>
+        );
       case "overview":
         return <AffiliateOverview onNavigate={setActiveTab} />;
       default:
