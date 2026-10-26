@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   generateWebhookSecret,
   generateWebhookSignature,
@@ -8,8 +8,13 @@ import {
 import {
   calculateBackoffDelayMs,
   createDeliveryRecord,
+  dispatchWebhookEvent,
   dispatchDelivery,
   dispatchTestDummyPayload,
+  executeHttpDispatch,
+  getWebhookSamplePayload,
+  getRegisteredEndpoints,
+  isSafeWebhookUrl,
   triggerConversionPostback,
   saveWebhookEndpoint,
   deleteWebhookEndpoint,
@@ -43,13 +48,23 @@ describe("Automated Conversion Postback Webhook Engine Suite", () => {
       name: "Deterministic Ingestion CRM",
       url: "https://crm.example.com/webhook",
       secret: testSecret,
-      events: ["conversion.confirmed", "payout.claimed"],
+      events: [
+        "conversion.confirmed",
+        "payout.claimed",
+        "campaign.created",
+        "conversion.created",
+        "payout.created",
+      ],
       isActive: true,
       createdAt: new Date().toISOString(),
       simulationMode: "mock_200",
       failureCount: 0,
       totalDeliveries: 0,
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   // ----------------------------------------------------------------------
@@ -400,6 +415,290 @@ describe("Automated Conversion Postback Webhook Engine Suite", () => {
   // Section 4: Dummy Test Payloads & Automated Postback Triggers
   // ----------------------------------------------------------------------
   describe("Endpoint Management & Acceptance Criteria", () => {
+    it.each([
+      ["https://hooks.zapier.com/hooks/catch/123/abc", true],
+      ["http://hooks.example.com/catch", false],
+      ["https://localhost/hook", false],
+      ["https://service.internal/hook", false],
+      ["https://intranet/hook", false],
+      ["https://127.0.0.1/hook", false],
+      ["https://10.2.3.4/hook", false],
+      ["https://192.168.1.10/hook", false],
+      ["https://[::1]/hook", false],
+    ])("validates webhook destination %s", (url, expected) => {
+      expect(isSafeWebhookUrl(url)).toBe(expected);
+    });
+
+    it.each(["campaign.created", "conversion.created", "payout.created"] as const)(
+      "creates a flat, ready-to-use %s test payload with valid schema fields",
+      (event) => {
+        const payload = getWebhookSamplePayload(event);
+
+        expect(payload).toMatchObject({ event, is_test_event: true });
+        expect(payload.id).toBeTruthy();
+        expect(payload.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+        expect(payload).not.toHaveProperty("data");
+        const numericField = event === "campaign.created" ? payload.budget : payload.amount;
+        if (numericField !== undefined) expect(typeof numericField).toBe("number");
+      },
+    );
+
+    it.each(["campaign.created", "conversion.created", "payout.created"] as const)(
+      "dispatches live webhook delivery for %s and calls fetch within 3000 ms",
+      async (event) => {
+        const fetchSpy = vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ success: true }), {
+            status: 200,
+            statusText: "OK",
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+        vi.stubGlobal("fetch", fetchSpy);
+
+        const liveEndpoint: WebhookEndpoint = {
+          id: `wh_live_${event.replace(".", "_")}`,
+          name: `Live ${event} endpoint`,
+          url: "https://hooks.example.com/catch",
+          secret: testSecret,
+          events: [event],
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          simulationMode: "live",
+          failureCount: 0,
+          totalDeliveries: 0,
+        };
+        saveWebhookEndpoint(liveEndpoint);
+
+        const startedAt = performance.now();
+        await dispatchWebhookEvent(event, getWebhookSamplePayload(event));
+
+        expect(fetchSpy).toHaveBeenCalled();
+        expect(performance.now() - startedAt).toBeLessThan(3000);
+
+        const [requestUrl, requestOptions] = fetchSpy.mock.calls[0];
+        expect(requestUrl).toBe(liveEndpoint.url);
+        expect(requestOptions.method).toBe("POST");
+        expect(requestOptions.headers["Content-Type"]).toBe("application/json");
+        expect(requestOptions.headers["X-StormSale-Event"]).toBe(event);
+        expect(requestOptions.headers["X-StormSale-Signature"]).toContain("v1=");
+      },
+    );
+
+    it("dispatches each Zapier/Make event to its subscribed endpoint with flat fields", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_nocode_triggers",
+        name: "No-code trigger endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created", "conversion.created", "payout.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        simulationMode: "mock_200",
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+
+      for (const event of endpoint.events) {
+        await dispatchWebhookEvent(event, getWebhookSamplePayload(event));
+      }
+
+      const deliveries = getWebhookDeliveries().filter(
+        (delivery) => delivery.webhookId === endpoint.id,
+      );
+      expect(deliveries.map((delivery) => delivery.event).sort()).toEqual(
+        ["campaign.created", "conversion.created", "payout.created"].sort(),
+      );
+      for (const delivery of deliveries) {
+        expect(delivery.payload.id).toBeTruthy();
+        expect(delivery.payload.event).toBe(delivery.event);
+        expect(delivery.payload).not.toHaveProperty("data");
+        expect(delivery.status).toBe("delivered");
+      }
+    });
+
+    it("does not wait for remote delivery before returning to the event producer", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_slow_nocode",
+        name: "Slow no-code endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        simulationMode: "mock_200",
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+
+      const startedAt = performance.now();
+      const delivery = dispatchWebhookEvent(
+        "campaign.created",
+        getWebhookSamplePayload("campaign.created"),
+      );
+      expect(performance.now() - startedAt).toBeLessThan(25);
+      await delivery;
+    });
+
+    it("disables a destination when it returns HTTP 410 Gone", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_gone",
+        name: "Unsubscribed endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 410 })));
+
+      const delivery = await createDeliveryRecord(
+        endpoint,
+        "campaign.created",
+        getWebhookSamplePayload("campaign.created"),
+      );
+      const result = await dispatchDelivery(delivery.id);
+
+      expect(result?.status).toBe("failed");
+      expect(getWebhookDeliveries().find((item) => item.id === delivery.id)?.status).toBe("failed");
+      expect(getRegisteredEndpoints().find((item) => item.id === endpoint.id)?.isActive).toBe(
+        false,
+      );
+    });
+
+    it("does not disable an endpoint after a single delivery with exhausted retries", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_single_failure_exhausted",
+        name: "Single failed delivery endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        simulationMode: "mock_500",
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+
+      const delivery = await createDeliveryRecord(
+        endpoint,
+        "campaign.created",
+        getWebhookSamplePayload("campaign.created"),
+        2, // maxRetries = 2
+      );
+
+      // Attempt 1 -> status transitions to "retrying", endpoint failureCount remains 0
+      await dispatchDelivery(delivery.id);
+      expect(getWebhookDeliveries().find((d) => d.id === delivery.id)?.status).toBe("retrying");
+      expect(getRegisteredEndpoints().find((item) => item.id === endpoint.id)?.failureCount).toBe(
+        0,
+      );
+
+      // Attempt 2 -> retries exhausted, delivery marked "failed", endpoint failureCount increments to 1
+      await dispatchDelivery(delivery.id);
+      expect(getWebhookDeliveries().find((d) => d.id === delivery.id)?.status).toBe("failed");
+
+      const updatedEndpoint = getRegisteredEndpoints().find((item) => item.id === endpoint.id);
+      expect(updatedEndpoint?.failureCount).toBe(1);
+      expect(updatedEndpoint?.isActive).toBe(true);
+      expect(updatedEndpoint?.lastDeliveryStatus).toBe("failed");
+    });
+
+    it("disables a destination after five consecutive failed deliveries with exhausted retries", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_repeated_failures",
+        name: "Repeatedly failing endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        simulationMode: "mock_500",
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+
+      for (let deliveryIndex = 0; deliveryIndex < 5; deliveryIndex += 1) {
+        const delivery = await createDeliveryRecord(
+          endpoint,
+          "campaign.created",
+          getWebhookSamplePayload("campaign.created"),
+          2, // maxRetries = 2
+        );
+        // Exhaust retries for each delivery
+        await dispatchDelivery(delivery.id);
+        await dispatchDelivery(delivery.id);
+        expect(getWebhookDeliveries().find((d) => d.id === delivery.id)?.status).toBe("failed");
+      }
+
+      const updatedEndpoint = getRegisteredEndpoints().find((item) => item.id === endpoint.id);
+      expect(updatedEndpoint?.failureCount).toBe(5);
+      expect(updatedEndpoint?.isActive).toBe(false);
+    });
+
+    it("aborts an unresponsive webhook request when the delivery timeout expires", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_timeout",
+        name: "Unresponsive endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      const delivery = await createDeliveryRecord(
+        endpoint,
+        "campaign.created",
+        getWebhookSamplePayload("campaign.created"),
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, options: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              options.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+            }),
+        ),
+      );
+
+      const result = await executeHttpDispatch(delivery, endpoint, 10);
+
+      expect(result.success).toBe(false);
+      expect(result.httpStatusCode).toBe(0);
+      expect(result.error).toBe("aborted");
+    });
+
+    it("records remote failure without rejecting the event producer", async () => {
+      const endpoint: WebhookEndpoint = {
+        id: "wh_failure_isolation",
+        name: "Failing endpoint",
+        url: "https://hooks.example.com/catch",
+        secret: testSecret,
+        events: ["campaign.created"],
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        simulationMode: "mock_500",
+        failureCount: 0,
+        totalDeliveries: 0,
+      };
+      saveWebhookEndpoint(endpoint);
+
+      await expect(
+        dispatchWebhookEvent("campaign.created", getWebhookSamplePayload("campaign.created")),
+      ).resolves.toBeUndefined();
+      expect(
+        getWebhookDeliveries().find((delivery) => delivery.webhookId === endpoint.id)?.status,
+      ).toBe("retrying");
+    });
+
     it("allows registering, toggling, and deleting webhook endpoints", () => {
       const newEndpoint: WebhookEndpoint = {
         id: "wh_custom_crm_123",
