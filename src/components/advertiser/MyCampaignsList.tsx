@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
@@ -14,15 +14,30 @@ import {
   CheckCircle2,
   Coins,
   Wallet,
+  Zap,
+  SlidersHorizontal,
+  RefreshCw,
+  ShieldCheck,
+  X,
+  AlertCircle,
   Clock,
   Sparkles,
-  AlertCircle,
   Sliders,
+  Settings,
+  Pause,
+  Play,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { formatStellarAddress } from "../../lib/stellar";
+import {
+  type AutoTopUpConfig,
+  getDefaultAutoTopUpConfig,
+  getStoredAutoTopUpConfig,
+  saveAutoTopUpConfig,
+  evaluateAutoTopUpTrigger,
+} from "../../lib/escrowTopUp";
 import { EscrowReserveIndicator } from "./EscrowReserveIndicator";
 import { AutoRefillConfigModal } from "./AutoRefillConfigModal";
 import {
@@ -47,6 +62,7 @@ export type CampaignStatus = "Active" | "Paused" | "Completed";
 
 export interface Campaign {
   id: string;
+  onChainId?: number;
   name: string;
   status: CampaignStatus;
   commissionRate: number;
@@ -69,6 +85,7 @@ export interface Campaign {
 export const initialMockCampaigns: Campaign[] = [
   {
     id: "1",
+    onChainId: 1,
     name: "Tech Gadgets Pro",
     status: "Active",
     commissionRate: 10,
@@ -89,6 +106,7 @@ export const initialMockCampaigns: Campaign[] = [
   },
   {
     id: "2",
+    onChainId: 2,
     name: "Web3 Masterclass",
     status: "Active",
     commissionRate: 15,
@@ -109,6 +127,7 @@ export const initialMockCampaigns: Campaign[] = [
   },
   {
     id: "3",
+    onChainId: 3,
     name: "Crypto Tools Suite",
     status: "Paused",
     commissionRate: 12,
@@ -129,6 +148,7 @@ export const initialMockCampaigns: Campaign[] = [
   },
   {
     id: "4",
+    onChainId: 4,
     name: "DeFi Starter Pack",
     status: "Completed",
     commissionRate: 8,
@@ -149,6 +169,7 @@ export const initialMockCampaigns: Campaign[] = [
   },
   {
     id: "5",
+    onChainId: 5,
     name: "Stellar MicroPay Launch",
     status: "Completed",
     commissionRate: 5,
@@ -206,6 +227,13 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
   },
 };
 
+/**
+ * Advertiser campaign management list component.
+ *
+ * Provides campaign health overview, real-time Soroban escrow balance monitoring,
+ * automated escrow top-up threshold configuration, pre-authorized allowance management,
+ * and refundable balance claims.
+ */
 export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
   const [search, setSearch] = useState("");
@@ -216,13 +244,58 @@ export const MyCampaignsList = () => {
   const [isMultiSigModalOpen, setIsMultiSigModalOpen] = useState(false);
   const [, setMultiSigVersion] = useState(0);
 
-  const { refundCampaignEscrow, isConnected, userAddress, connectorType } = useWeb3();
+  // Top-Up & Allowance States
+  const [autoTopUpConfigs, setAutoTopUpConfigs] = useState<Record<string, AutoTopUpConfig>>(() => {
+    const map: Record<string, AutoTopUpConfig> = {};
+    initialMockCampaigns.forEach((c) => {
+      map[c.id] = getStoredAutoTopUpConfig(c.id, c.escrowInitial);
+    });
+    return map;
+  });
+
+  const [topUpInProgressId, setTopUpInProgressId] = useState<string | null>(null);
+  const [isApprovingAllowance, setIsApprovingAllowance] = useState(false);
+  const [isAutoCheckRunning, setIsAutoCheckRunning] = useState(false);
+  const isAutoCheckRunningRef = useRef(false);
+
+  // Modal Dialog States
+  const [configModalCampaign, setConfigModalCampaign] = useState<Campaign | null>(null);
+  const [manualTopUpCampaign, setManualTopUpCampaign] = useState<Campaign | null>(null);
+  const [manualTopUpAmount, setManualTopUpAmount] = useState<string>("1000");
+
+  // Form states for Config Modal
+  const [formConfig, setFormConfig] = useState<AutoTopUpConfig | null>(null);
+  const [customAllowanceAmount, setCustomAllowanceAmount] = useState<string>("5000");
+
+  const {
+    refundCampaignEscrow,
+    topUpCampaignEscrow,
+    tokenAllowance,
+    approveTokenAllowance,
+    refreshTokenAllowance,
+    isConnected,
+    userAddress,
+    connectorType,
+  } = useWeb3();
   const { showNotification } = useNotification();
 
-  // Low balance threshold: < 10%
-  const isCampaignLowEscrow = (c: Campaign) => {
+  /**
+   * Determines whether a campaign's escrow balance has fallen below 10% of initial escrow.
+   */
+  const isCampaignLowEscrow = useCallback((c: Campaign) => {
     if (c.status === "Completed" || c.escrowInitial <= 0) return false;
     return c.escrowBalance / c.escrowInitial < 0.1 && c.escrowBalance > 0;
+  }, []);
+
+  /**
+   * Opens the automated top-up configuration modal for a campaign.
+   */
+  const openConfigModal = (campaign: Campaign) => {
+    const current =
+      autoTopUpConfigs[campaign.id] ||
+      getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+    setFormConfig({ ...current });
+    setConfigModalCampaign(campaign);
   };
 
   const [extendingId, setExtendingId] = useState<string | null>(null);
@@ -348,6 +421,284 @@ export const MyCampaignsList = () => {
     }
   };
 
+  /**
+   * Persists the automated top-up configuration for the active modal campaign.
+   */
+  const handleSaveConfig = () => {
+    if (!formConfig || !configModalCampaign) return;
+    saveAutoTopUpConfig(formConfig);
+    setAutoTopUpConfigs((prev) => ({
+      ...prev,
+      [configModalCampaign.id]: { ...formConfig },
+    }));
+    showNotification({
+      type: "success",
+      title: "Auto Top-Up Settings Saved",
+      message: `Trigger threshold set to ${
+        formConfig.thresholdType === "percentage"
+          ? `${formConfig.thresholdValue}%`
+          : `${formConfig.thresholdValue.toLocaleString()} XLM`
+      } with ${formConfig.topUpAmount.toLocaleString()} XLM automatic refill.`,
+    });
+    setConfigModalCampaign(null);
+  };
+
+  /**
+   * Submits a token allowance pre-authorization transaction on the Stellar Asset Contract.
+   */
+  const handleAuthorizeAllowance = useCallback(
+    async (amountToApprove: number) => {
+      if (!isConnected) {
+        showNotification({
+          type: "error",
+          title: "Wallet Not Connected",
+          message: "Please connect your wallet before pre-authorizing escrow allowance.",
+        });
+        return;
+      }
+      if (amountToApprove <= 0) return;
+
+      setIsApprovingAllowance(true);
+      try {
+        showNotification({
+          type: "info",
+          title: "Pre-Authorizing Allowance",
+          message: `Approving ${amountToApprove.toLocaleString()} XLM allowance on Stellar Asset Contract...`,
+        });
+
+        const res = await approveTokenAllowance(amountToApprove);
+        await refreshTokenAllowance();
+
+        showNotification({
+          type: "success",
+          title: "Allowance Pre-Authorized!",
+          message: `Successfully authorized ${amountToApprove.toLocaleString()} XLM for escrow funding. Tx: ${
+            res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"
+          }`,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to authorize token allowance";
+        showNotification({
+          type: "error",
+          title: "Allowance Approval Failed",
+          message: msg,
+        });
+      } finally {
+        setIsApprovingAllowance(false);
+      }
+    },
+    [isConnected, showNotification, approveTokenAllowance, refreshTokenAllowance],
+  );
+
+  /**
+   * Executes an escrow top-up on-chain or mock sandbox, verifying pre-authorized allowances and updating campaign state.
+   */
+  const executeTopUp = useCallback(
+    async (
+      campaign: Campaign,
+      amount: number,
+      isAutomated = false,
+      availableAllowance?: number,
+    ) => {
+      if (!isConnected) {
+        showNotification({
+          type: "error",
+          title: "Wallet Not Connected",
+          message: "Please connect your wallet to execute escrow top-up.",
+        });
+        return false;
+      }
+
+      if (amount <= 0) {
+        showNotification({
+          type: "error",
+          title: "Invalid Amount",
+          message: "Top-up amount must be greater than zero.",
+        });
+        return false;
+      }
+
+      const effectiveAllowance =
+        typeof availableAllowance === "number" ? availableAllowance : tokenAllowance;
+
+      // Check pre-authorized allowance
+      if (effectiveAllowance < amount) {
+        const deficit = amount - effectiveAllowance;
+        showNotification({
+          type: "warning",
+          title: "Pre-Authorized Allowance Deficit",
+          message: `Current allowance is ${effectiveAllowance.toLocaleString()} XLM. Refill requires ${amount.toLocaleString()} XLM (-${deficit.toLocaleString()} XLM deficit). Please pre-authorize allowance.`,
+          actionLabel: "Authorize Allowance",
+          onAction: () => handleAuthorizeAllowance(Math.max(5000, amount)),
+        });
+        return false;
+      }
+
+      const onChainId = campaign.onChainId ?? Number.parseInt(campaign.id, 10);
+      if (!Number.isInteger(onChainId) || onChainId <= 0) {
+        showNotification({
+          type: "error",
+          title: "Invalid Campaign",
+          message: `Campaign ${campaign.name} has no valid on-chain ID.`,
+        });
+        return false;
+      }
+
+      setTopUpInProgressId(campaign.id);
+      try {
+        showNotification({
+          type: "info",
+          title: isAutomated ? "Executing Automated Top-Up" : "Processing Escrow Top-Up",
+          message: `Transferring ${amount.toLocaleString()} XLM into ${campaign.name} escrow contract...`,
+        });
+
+        const res = await topUpCampaignEscrow(onChainId, amount);
+
+        // Update campaign state
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaign.id
+              ? {
+                  ...c,
+                  escrowBalance: c.escrowBalance + amount,
+                  escrowInitial: Math.max(c.escrowInitial, c.escrowBalance + amount),
+                }
+              : c,
+          ),
+        );
+
+        // Update config tracking
+        const currentCfg =
+          autoTopUpConfigs[campaign.id] ||
+          getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+        const updatedCfg: AutoTopUpConfig = {
+          ...currentCfg,
+          topUpCountToday: currentCfg.topUpCountToday + 1,
+          lastTopUpAt: new Date().toISOString(),
+          lastTopUpTx: res.txHash,
+        };
+        saveAutoTopUpConfig(updatedCfg);
+        setAutoTopUpConfigs((prev) => ({ ...prev, [campaign.id]: updatedCfg }));
+
+        showNotification({
+          type: "success",
+          title: isAutomated ? "Automated Top-Up Confirmed!" : "Escrow Top-Up Successful!",
+          message: `Added ${amount.toLocaleString()} XLM to ${campaign.name}. New Escrow Balance: ${(
+            campaign.escrowBalance + amount
+          ).toLocaleString()} XLM. Remaining Allowance: ${(effectiveAllowance - amount).toLocaleString()} XLM.`,
+        });
+
+        setManualTopUpCampaign(null);
+        return true;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to top up campaign escrow";
+        showNotification({
+          type: "error",
+          title: "Top-Up Failed",
+          message: msg,
+        });
+        return false;
+      } finally {
+        setTopUpInProgressId(null);
+      }
+    },
+    [
+      isConnected,
+      tokenAllowance,
+      showNotification,
+      handleAuthorizeAllowance,
+      topUpCampaignEscrow,
+      autoTopUpConfigs,
+    ],
+  );
+
+  /**
+   * Audits active campaigns against their automated top-up thresholds, tracking remaining allowance.
+   */
+  const runAutoTopUpCheck = useCallback(
+    async (isManualTrigger = false) => {
+      if (!isConnected || isAutoCheckRunningRef.current) return;
+      isAutoCheckRunningRef.current = true;
+      setIsAutoCheckRunning(true);
+      let triggeredCount = 0;
+      let remainingAllowance = tokenAllowance;
+
+      try {
+        for (const campaign of campaigns) {
+          if (campaign.status === "Completed") continue;
+          const config =
+            autoTopUpConfigs[campaign.id] ||
+            getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+
+          const evaluation = evaluateAutoTopUpTrigger(campaign, config, remainingAllowance);
+          if (evaluation.shouldTrigger) {
+            const success = await executeTopUp(
+              campaign,
+              config.topUpAmount,
+              true,
+              remainingAllowance,
+            );
+            if (success) {
+              triggeredCount++;
+              remainingAllowance = Math.max(0, remainingAllowance - config.topUpAmount);
+            }
+          }
+        }
+
+        if (triggeredCount === 0 && isManualTrigger) {
+          showNotification({
+            type: "info",
+            title: "Auto Top-Up Audit Complete",
+            message:
+              "All monitored campaigns are currently above their configured threshold or within safe limits.",
+          });
+        }
+      } finally {
+        isAutoCheckRunningRef.current = false;
+        setIsAutoCheckRunning(false);
+      }
+    },
+    [isConnected, campaigns, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
+  );
+
+  // Invoke auto top-up check when wallet connects or token allowance updates
+  useEffect(() => {
+    if (isConnected) {
+      runAutoTopUpCheck(false);
+    }
+  }, [isConnected, tokenAllowance, runAutoTopUpCheck]);
+
+  // Simulate balance drop for demonstration & testing
+  const simulateBalanceDrop = (campaignId: string) => {
+    setCampaigns((prev) =>
+      prev.map((c) => {
+        if (c.id === campaignId) {
+          const cfg =
+            autoTopUpConfigs[c.id] || getDefaultAutoTopUpConfig(c.id, c.escrowInitial);
+          // Drop to 50% of threshold to guarantee breach
+          const targetBalance =
+            cfg.thresholdType === "percentage"
+              ? Math.round(((cfg.thresholdValue * 0.5) / 100) * c.escrowInitial)
+              : Math.round(cfg.thresholdValue * 0.5);
+
+          return {
+            ...c,
+            escrowBalance: Math.max(100, targetBalance),
+          };
+        }
+        return c;
+      }),
+    );
+
+    const targetCamp = campaigns.find((c) => c.id === campaignId);
+    showNotification({
+      type: "warning",
+      title: "Simulated Balance Depletion",
+      message: `Simulated sales on ${targetCamp?.name || "campaign"} dropped escrow balance below trigger threshold. Test automated top-up now!`,
+    });
+  };
+
+  // Refund handler for completed campaigns
   const handleRefund = async (campaign: Campaign) => {
     if (!isConnected) {
       showNotification({
@@ -413,9 +764,10 @@ export const MyCampaignsList = () => {
 
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
-      // Update local campaign state to refunded
       setCampaigns((prev) =>
-        prev.map((c) => (c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c)),
+        prev.map((c) =>
+          c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c,
+        ),
       );
 
       showNotification({
@@ -447,11 +799,9 @@ export const MyCampaignsList = () => {
 
   const lowEscrowCount = campaigns.filter(isCampaignLowEscrow).length;
   const totalEscrowLocked = campaigns.reduce((acc, c) => acc + c.escrowBalance, 0);
-
-  const totalRevenue = campaigns.reduce(
-    (acc, c) => acc + parseInt(c.totalRevenue.replace(/\D/g, "")),
-    0,
-  );
+  const activeAutoTopUpCount = campaigns.filter(
+    (c) => c.status !== "Completed" && autoTopUpConfigs[c.id]?.enabled,
+  ).length;
 
   return (
     <div className="space-y-8">
@@ -545,23 +895,46 @@ export const MyCampaignsList = () => {
       {/* Header */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white dark:bg-zinc-900/50 p-6 md:p-8 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-sm">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-            My Campaigns & Escrow Monitor
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
+              My Campaigns & Escrow Monitor
+            </h1>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+              <Zap className="w-3.5 h-3.5" />
+              Automated Top-Up Enabled
+            </span>
+          </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Monitor real-time Soroban contract balances, low-escrow alerts, and claim refunds for
-            ended campaigns.
+            Monitor real-time Soroban contract balances, set automated escrow top-up thresholds, manage
+            pre-authorized allowances, and claim refunds.
           </p>
         </div>
-        <Button className="mt-6 lg:mt-0 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
-          <Plus className="w-5 h-5 mr-2" />
-          Create Campaign
-        </Button>
+
+        <div className="flex flex-wrap items-center gap-3 mt-6 lg:mt-0">
+          <Button
+            variant="outline"
+            onClick={() => runAutoTopUpCheck(true)}
+            disabled={isAutoCheckRunning}
+            className="h-12 rounded-full px-5 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 font-semibold hover:bg-indigo-50 dark:hover:bg-indigo-950/50 shadow-sm"
+          >
+            <RefreshCw
+              className={`w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400 ${
+                isAutoCheckRunning ? "animate-spin" : ""
+              }`}
+            />
+            {isAutoCheckRunning ? "Auditing Escrows..." : "Run Auto Top-Up Check"}
+          </Button>
+
+          <Button className="bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white rounded-full px-6 h-12 font-semibold shadow-md transition-all">
+            <Plus className="w-5 h-5 mr-2" />
+            Create Campaign
+          </Button>
+        </div>
       </div>
 
-      {/* Global Low Balance Alert Banner if any campaign has <10% balance */}
+      {/* Global Low Balance Alert Banner */}
       {lowEscrowCount > 0 && (
-        <div className="p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 flex items-start justify-between shadow-sm">
+        <div className="p-5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 flex flex-col sm:flex-row items-start justify-between gap-4 shadow-sm">
           <div className="flex items-start space-x-3.5">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
               <AlertTriangle className="w-5 h-5" />
@@ -577,23 +950,34 @@ export const MyCampaignsList = () => {
                 </span>
               </h4>
               <p className="text-sm text-amber-800/90 dark:text-amber-300/90 mt-1">
-                One or more campaigns have dropped below 10% of their initial escrow deposit.
-                Affiliate commission payouts may pause if escrow is exhausted.
+                One or more campaigns have dropped below their escrow safety threshold. Automated top-up
+                will replenish funding if pre-authorized allowance is available.
               </p>
             </div>
           </div>
-          <Button
-            size="sm"
-            onClick={() => setStatusFilter("LowEscrow")}
-            className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl h-9 px-4 shadow-sm"
-          >
-            Filter Low Escrow
-          </Button>
+          <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+            <Button
+              size="sm"
+              onClick={() => void runAutoTopUpCheck(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl h-9 px-4 shadow-sm flex items-center gap-1.5"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              Trigger Auto-Refill
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setStatusFilter("LowEscrow")}
+              className="border-amber-400 text-amber-800 dark:text-amber-300 text-xs font-bold rounded-xl h-9 px-4 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+            >
+              Filter Low Escrow
+            </Button>
+          </div>
         </div>
       )}
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
           { label: "Total Campaigns", value: String(campaigns.length), icon: Shield },
           {
@@ -608,9 +992,15 @@ export const MyCampaignsList = () => {
             icon: Coins,
           },
           {
-            label: "Total Revenue",
-            value: `$${totalRevenue.toLocaleString()}`,
-            icon: TrendingUp,
+            label: "Pre-Authorized Allowance",
+            value: `${tokenAllowance.toLocaleString()} XLM`,
+            icon: ShieldCheck,
+            highlight: true,
+          },
+          {
+            label: "Auto-Refill Active",
+            value: `${activeAutoTopUpCount} Campaigns`,
+            icon: Zap,
           },
         ].map((s, i) => {
           const Icon = s.icon;
@@ -620,19 +1010,23 @@ export const MyCampaignsList = () => {
               className={`bg-white dark:bg-zinc-900/80 border rounded-2xl shadow-sm ${
                 s.alert
                   ? "border-amber-300 dark:border-amber-800/70 ring-1 ring-amber-400/20"
+                  : s.highlight
+                  ? "border-indigo-300 dark:border-indigo-800/70 ring-1 ring-indigo-400/20"
                   : "border-slate-200 dark:border-zinc-800"
               }`}
             >
-              <CardContent className="p-5">
+              <CardContent className="p-4 sm:p-5">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                       {s.label}
                     </p>
                     <p
-                      className={`text-xl font-extrabold mt-1 ${
+                      className={`text-lg sm:text-xl font-extrabold mt-1 ${
                         s.alert
                           ? "text-amber-600 dark:text-amber-400"
+                          : s.highlight
+                          ? "text-indigo-600 dark:text-indigo-400"
                           : "text-zinc-900 dark:text-white"
                       }`}
                     >
@@ -643,6 +1037,8 @@ export const MyCampaignsList = () => {
                     className={`w-9 h-9 rounded-xl flex items-center justify-center border ${
                       s.alert
                         ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400"
+                        : s.highlight
+                        ? "bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400"
                         : "bg-slate-100 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-zinc-900 dark:text-indigo-400"
                     }`}
                   >
@@ -724,6 +1120,18 @@ export const MyCampaignsList = () => {
                   )
                 : 0;
             const isRefundingThis = refundingCampaignId === campaign.id;
+            const isTopUpThis = topUpInProgressId === campaign.id;
+
+            // Auto top-up evaluation for this card
+            const autoCfg =
+              autoTopUpConfigs[campaign.id] ||
+              getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+            const autoEval = evaluateAutoTopUpTrigger(campaign, autoCfg, tokenAllowance);
+            const hasAllowanceDeficit =
+              campaign.status !== "Completed" &&
+              autoCfg.enabled &&
+              campaign.escrowBalance <= autoEval.thresholdAmount &&
+              !autoEval.hasSufficientAllowance;
 
             return (
               <Card
@@ -878,6 +1286,111 @@ export const MyCampaignsList = () => {
                     </Button>
                   </div>
 
+                  {/* AUTOMATED TOP-UP STATUS & CONTROLS (Issue #107) */}
+                  {campaign.status !== "Completed" && (
+                    <div className="p-3.5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 space-y-2.5 mb-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                            <Zap className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-zinc-900 dark:text-white flex items-center gap-1.5">
+                              <span>Automated Escrow Top-Up</span>
+                              {autoCfg.enabled ? (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-extrabold">
+                                  ACTIVE
+                                </span>
+                              ) : (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400 font-bold">
+                                  DISABLED
+                                </span>
+                              )}
+                            </span>
+                            <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                              Trigger: &lt;{" "}
+                              {autoCfg.thresholdType === "percentage"
+                                ? `${autoCfg.thresholdValue}% (${(
+                                    (autoCfg.thresholdValue / 100) *
+                                    campaign.escrowInitial
+                                  ).toFixed(0)} XLM)`
+                                : `${autoCfg.thresholdValue.toLocaleString()} XLM`}{" "}
+                              · Refill: +{autoCfg.topUpAmount.toLocaleString()} XLM
+                            </p>
+                          </div>
+                        </div>
+
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openConfigModal(campaign)}
+                          className="h-8 px-2.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100/50 dark:hover:bg-indigo-900/30 text-xs font-semibold"
+                        >
+                          <SlidersHorizontal className="w-3.5 h-3.5 mr-1" />
+                          Configure
+                        </Button>
+                      </div>
+
+                      {/* Allowance Deficit Alert if balance is low but allowance is short */}
+                      {hasAllowanceDeficit ? (
+                        <div className="p-2.5 rounded-xl bg-amber-100/80 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-xs flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-medium">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              Allowance Deficit: -{autoEval.allowanceDeficit.toLocaleString()} XLM needed
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              handleAuthorizeAllowance(Math.max(5000, autoCfg.topUpAmount))
+                            }
+                            disabled={isApprovingAllowance}
+                            className="h-7 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+                          >
+                            Pre-Authorize
+                          </Button>
+                        </div>
+                      ) : autoEval.shouldTrigger ? (
+                        <div className="p-2.5 rounded-xl bg-emerald-100/80 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 text-xs flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 text-emerald-900 dark:text-emerald-200 font-medium">
+                            <Zap className="w-4 h-4 text-emerald-600 shrink-0 animate-bounce" />
+                            <span>
+                              Trigger ready! Balance is low and allowance is pre-authorized.
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={isTopUpThis}
+                            onClick={() => executeTopUp(campaign, autoCfg.topUpAmount, true)}
+                            className="h-7 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                          >
+                            {isTopUpThis ? "Refilling..." : "Refill Now"}
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {/* Simulation & Test button */}
+                      <div className="flex items-center justify-between pt-1 border-t border-indigo-100/60 dark:border-indigo-900/30 text-[11px] text-zinc-500 dark:text-zinc-400">
+                        <span>
+                          Pre-Authorized Allowance:{" "}
+                          <strong className="text-zinc-800 dark:text-zinc-200">
+                            {tokenAllowance.toLocaleString()} XLM
+                          </strong>
+                        </span>
+                        {import.meta.env.DEV && (
+                          <button
+                            type="button"
+                            onClick={() => simulateBalanceDrop(campaign.id)}
+                            className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                          >
+                            Simulate Balance Drop
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Escrow Reserve Level & Threshold Indicator for Auto-Refill */}
                   {campaign.status !== "Completed" && (
                     <EscrowReserveIndicator
@@ -931,7 +1444,7 @@ export const MyCampaignsList = () => {
                     <span>Since {campaign.createdAt}</span>
                   </div>
 
-                  {/* ACTIONS */}
+                  {/* ACTIONS: Standard Actions + "Refund" / "Top-Up" Action */}
                   <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/50">
                     {campaign.status === "Completed" ? (
                       /* Ended / Completed Campaign: Refund Action Area */
@@ -940,8 +1453,7 @@ export const MyCampaignsList = () => {
                           <div className="w-full h-11 rounded-xl bg-slate-100 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700/60 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-400 space-x-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                             <span>
-                              Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM
-                              Settled)
+                              Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM Settled)
                             </span>
                           </div>
                         ) : isLargeRefund(campaign.escrowBalance) ? (
@@ -1035,32 +1547,71 @@ export const MyCampaignsList = () => {
                         </div>
                       </div>
                     ) : (
-                      /* Active / Paused Campaigns: Standard Operational Actions + Auto-Refill Settings */
-                      <div className="flex gap-3">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="flex-1 h-10 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-800"
-                        >
-                          <Eye className="w-4 h-4 mr-2" />
-                          View
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setSelectedCampaignForConfig(campaign)}
-                          className="h-10 w-10 rounded-xl border border-slate-200 dark:border-zinc-800 p-0 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                          title="Configure Auto-Refill Trigger"
-                        >
-                          <Sliders className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="flex-1 h-10 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-semibold shadow-sm"
-                        >
-                          <BarChart3 className="w-4 h-4 mr-2" />
-                          Analytics
-                        </Button>
+                      /* Active / Paused Campaigns: Top-Up & Standard Operational Actions */
+                      <div className="space-y-2.5">
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              setManualTopUpCampaign(campaign);
+                              setManualTopUpAmount(String(autoCfg.topUpAmount || 1000));
+                            }}
+                            className="flex-1 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm flex items-center justify-center gap-1.5"
+                          >
+                            <Coins className="w-4 h-4" />
+                            <span>Top Up Escrow</span>
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => openConfigModal(campaign)}
+                            title="Configure Automated Escrow Top-Up"
+                            className="h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                          >
+                            <Settings className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                          </Button>
+                        </div>
+
+                        <div className="flex gap-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 h-9 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-800"
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedCampaignForConfig(campaign)}
+                            className="h-9 w-9 rounded-xl border border-slate-200 dark:border-zinc-800 p-0 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                            title="Configure Auto-Refill Trigger"
+                          >
+                            <Sliders className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 w-9 rounded-xl border border-slate-200 dark:border-zinc-800 p-0 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                          >
+                            {campaign.status === "Active" ? (
+                              <Pause className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                            ) : campaign.status === "Paused" ? (
+                              <Play className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                            ) : (
+                              <Settings className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            className="flex-1 h-9 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white font-semibold shadow-sm"
+                          >
+                            <BarChart3 className="w-4 h-4 mr-2" />
+                            Analytics
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1071,6 +1622,458 @@ export const MyCampaignsList = () => {
         </div>
       )}
 
+      {/* MODAL 1: Automated Escrow Top-Up Settings Dialog */}
+      {configModalCampaign && formConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+                    Automated Escrow Top-Up Settings
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {configModalCampaign.name} ({configModalCampaign.contractAddress})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setConfigModalCampaign(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Current Escrow Status preview */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800 flex items-center justify-between">
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                  Current Escrow Balance
+                </span>
+                <div className="text-xl font-extrabold text-zinc-900 dark:text-white mt-0.5">
+                  {configModalCampaign.escrowBalance.toLocaleString()} XLM
+                  <span className="text-xs font-normal text-zinc-500 ml-2">
+                    (of {configModalCampaign.escrowInitial.toLocaleString()} XLM initial)
+                  </span>
+                </div>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                  Health
+                </span>
+                <div
+                  className={`text-sm font-black mt-0.5 ${
+                    isCampaignLowEscrow(configModalCampaign)
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-emerald-600 dark:text-emerald-400"
+                  }`}
+                >
+                  {(
+                    (configModalCampaign.escrowBalance / configModalCampaign.escrowInitial) *
+                    100
+                  ).toFixed(1)}
+                  %
+                </div>
+              </div>
+            </div>
+
+            {/* Toggle Enable/Disable */}
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40">
+              <div>
+                <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                  Enable Automated Top-Up
+                </div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Automatically refill escrow when balance drops below your defined threshold
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={formConfig.enabled}
+                aria-label="Enable automated top-up"
+                onClick={() =>
+                  setFormConfig((prev) => (prev ? { ...prev, enabled: !prev.enabled } : null))
+                }
+                className={`w-12 h-7 rounded-full transition-colors relative p-1 ${
+                  formConfig.enabled
+                    ? "bg-indigo-600"
+                    : "bg-slate-300 dark:bg-zinc-700"
+                }`}
+              >
+                <div
+                  className={`w-5 h-5 rounded-full bg-white transition-transform ${
+                    formConfig.enabled ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* User-Defined Trigger Threshold */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+                  1. Trigger Threshold
+                </label>
+                <div className="flex rounded-lg bg-slate-100 dark:bg-zinc-800 p-0.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormConfig((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              thresholdType: "percentage",
+                              thresholdValue: 15,
+                            }
+                          : null,
+                      )
+                    }
+                    className={`px-3 py-1 rounded-md font-bold transition-all ${
+                      formConfig.thresholdType === "percentage"
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-sm"
+                        : "text-zinc-500"
+                    }`}
+                  >
+                    Percentage (%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setFormConfig((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              thresholdType: "fixed",
+                              thresholdValue: 500,
+                            }
+                          : null,
+                      )
+                    }
+                    className={`px-3 py-1 rounded-md font-bold transition-all ${
+                      formConfig.thresholdType === "fixed"
+                        ? "bg-white dark:bg-zinc-900 text-zinc-900 dark:text-white shadow-sm"
+                        : "text-zinc-500"
+                    }`}
+                  >
+                    Fixed XLM
+                  </button>
+                </div>
+              </div>
+
+              {formConfig.thresholdType === "percentage" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    {[10, 15, 20, 25, 30].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={() =>
+                          setFormConfig((prev) =>
+                            prev ? { ...prev, thresholdValue: pct } : null,
+                          )
+                        }
+                        className={`flex-1 h-9 rounded-xl text-xs font-bold transition-all ${
+                          formConfig.thresholdValue === pct
+                            ? "bg-indigo-600 text-white shadow-sm"
+                            : "bg-slate-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700"
+                        }`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Triggers when escrow drops below{" "}
+                    <strong className="text-indigo-600 dark:text-indigo-400">
+                      {(
+                        (formConfig.thresholdValue / 100) *
+                        configModalCampaign.escrowInitial
+                      ).toFixed(0)}{" "}
+                      XLM
+                    </strong>{" "}
+                    ({formConfig.thresholdValue}% of initial escrow).
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Input
+                    type="number"
+                    value={formConfig.thresholdValue}
+                    onChange={(e) =>
+                      setFormConfig((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              thresholdValue: Math.max(1, parseInt(e.target.value) || 0),
+                            }
+                          : null,
+                      )
+                    }
+                    placeholder="e.g. 500"
+                    className="h-11 rounded-xl"
+                  />
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Triggers when escrow drops below{" "}
+                    <strong className="text-indigo-600 dark:text-indigo-400">
+                      {formConfig.thresholdValue.toLocaleString()} XLM
+                    </strong>
+                    .
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Refill Amount */}
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+                2. Refill Deposit Amount (XLM)
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[500, 1000, 2500, 5000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() =>
+                      setFormConfig((prev) =>
+                        prev ? { ...prev, topUpAmount: amt } : null,
+                      )
+                    }
+                    className={`h-9 rounded-xl text-xs font-bold transition-all ${
+                      formConfig.topUpAmount === amt
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700"
+                    }`}
+                  >
+                    +{amt.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <Input
+                type="number"
+                value={formConfig.topUpAmount}
+                onChange={(e) =>
+                  setFormConfig((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          topUpAmount: Math.max(10, parseInt(e.target.value) || 0),
+                        }
+                      : null,
+                  )
+                }
+                placeholder="Custom refill amount"
+                className="h-11 rounded-xl"
+              />
+            </div>
+
+            {/* Pre-Authorized Allowance Handling Panel */}
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-indigo-500" />
+                  <span className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+                    3. Pre-Authorized Allowance
+                  </span>
+                </div>
+                <span className="text-xs font-mono font-bold text-zinc-900 dark:text-white">
+                  Available: {tokenAllowance.toLocaleString()} XLM
+                </span>
+              </div>
+
+              {tokenAllowance >= formConfig.topUpAmount ? (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Allowance Ready:</span> Your pre-authorized allowance
+                    ({tokenAllowance.toLocaleString()} XLM) covers the {formConfig.topUpAmount.toLocaleString()}{" "}
+                    XLM refill amount. Automated funding will trigger smoothly without transaction halts.
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 space-y-2">
+                  <div className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2 font-medium">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Allowance Deficit:</span> You have{" "}
+                      {tokenAllowance.toLocaleString()} XLM pre-authorized, but the refill requires{" "}
+                      {formConfig.topUpAmount.toLocaleString()} XLM (Deficit: -
+                      {(formConfig.topUpAmount - tokenAllowance).toLocaleString()} XLM).
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <Input
+                      type="number"
+                      value={customAllowanceAmount}
+                      onChange={(e) => setCustomAllowanceAmount(e.target.value)}
+                      placeholder="Amount to approve"
+                      className="h-9 text-xs rounded-xl flex-1 bg-white dark:bg-zinc-900"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => handleAuthorizeAllowance(parseFloat(customAllowanceAmount) || 5000)}
+                      disabled={isApprovingAllowance}
+                      className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
+                    >
+                      {isApprovingAllowance ? "Approving..." : "Pre-Authorize"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Safety Limit: Max Top-Ups per day */}
+            <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+              <span>Daily Top-Up Cap (Safeguard)</span>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                  {formConfig.topUpCountToday} / {formConfig.maxTopUpsPerDay} used today
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setConfigModalCampaign(null)}
+                className="flex-1 h-11 rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSaveConfig}
+                className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md"
+              >
+                Save Settings
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: Quick Manual Top-Up Dialog */}
+      {manualTopUpCampaign && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl space-y-6">
+            <div className="flex items-start justify-between border-b border-slate-100 dark:border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Coins className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+                    Top Up Campaign Escrow
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    {manualTopUpCampaign.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setManualTopUpCampaign(null)}
+                className="w-8 h-8 rounded-full bg-slate-100 dark:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-white flex items-center justify-center"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-100 dark:border-zinc-800 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500">Current Escrow Balance:</span>
+                <span className="font-bold text-zinc-900 dark:text-white font-mono">
+                  {manualTopUpCampaign.escrowBalance.toLocaleString()} XLM
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-zinc-500">Pre-Authorized Allowance:</span>
+                <span className="font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                  {tokenAllowance.toLocaleString()} XLM
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-zinc-900 dark:text-white uppercase tracking-wider">
+                Deposit Amount (XLM)
+              </label>
+              <div className="grid grid-cols-4 gap-2">
+                {[500, 1000, 2500, 5000].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setManualTopUpAmount(String(amt))}
+                    className={`h-9 rounded-xl text-xs font-bold transition-all ${
+                      manualTopUpAmount === String(amt)
+                        ? "bg-indigo-600 text-white shadow-sm"
+                        : "bg-slate-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
+                    }`}
+                  >
+                    +{amt.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <Input
+                type="number"
+                value={manualTopUpAmount}
+                onChange={(e) => setManualTopUpAmount(e.target.value)}
+                placeholder="Enter XLM amount"
+                className="h-11 rounded-xl"
+              />
+            </div>
+
+            {/* Allowance warning if required deposit > current allowance */}
+            {parseFloat(manualTopUpAmount) > tokenAllowance && (
+              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 text-xs text-amber-800 dark:text-amber-300 space-y-2">
+                <p>
+                  Deposit amount ({parseFloat(manualTopUpAmount).toLocaleString()} XLM) exceeds
+                  pre-authorized allowance ({tokenAllowance.toLocaleString()} XLM).
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => handleAuthorizeAllowance(parseFloat(manualTopUpAmount) || 2000)}
+                  disabled={isApprovingAllowance}
+                  className="w-full h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
+                >
+                  {isApprovingAllowance ? "Approving Allowance..." : "Approve Required Allowance"}
+                </Button>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-zinc-800">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setManualTopUpCampaign(null)}
+                className="flex-1 h-11 rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={topUpInProgressId === manualTopUpCampaign.id}
+                onClick={() =>
+                  executeTopUp(manualTopUpCampaign, parseFloat(manualTopUpAmount) || 0, false)
+                }
+                className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold shadow-md"
+              >
+                {topUpInProgressId === manualTopUpCampaign.id ? "Depositing..." : "Confirm Deposit"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Issue #139: Auto-Refill Configuration Modal */}
       {selectedCampaignForConfig && (
         <AutoRefillConfigModal

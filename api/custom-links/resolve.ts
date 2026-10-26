@@ -3,7 +3,9 @@
  *
  * Resolves a custom short-link slug from the shared Upstash Redis store and
  * returns the CustomShortLink record for redirect processing.
- * Also atomically increments the global click counter.
+ * Also atomically increments the global click counter and appends a
+ * country-level event to the link's click stream (issue #162). Only the ISO
+ * country code from the platform geo header is kept — never the IP address.
  *
  * Query params:
  *   slug (string) — the normalized slug to resolve
@@ -15,6 +17,7 @@
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { getRedisClient, slugKey, clickKey } from "../_lib/redis";
+import { countryFromHeaders, recordClickStreamEvent } from "../_lib/clickStream";
 import type { CustomShortLink } from "../../src/types/affiliateLink";
 
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
@@ -60,6 +63,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     clickCount: newCount,
     lastClickedAt: new Date().toISOString(),
   };
+  // Click stream for the heatmap. Awaited so the serverless runtime does not
+  // freeze before the write lands, but a failure never blocks the redirect.
+  const countryIso = countryFromHeaders(req.headers);
+  if (countryIso) {
+    try {
+      await recordClickStreamEvent(redis, rawSlug, "click", countryIso);
+    } catch {
+      /* analytics is best-effort; the redirect must still succeed */
+    }
+  }
+
   // Best-effort update of the record — non-blocking
   redis.set(slugKey(rawSlug), updatedLink).catch(() => {
     /* intentionally non-blocking */
