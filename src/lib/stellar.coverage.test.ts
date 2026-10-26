@@ -386,6 +386,90 @@ describe("balances and amount helpers", () => {
   });
 });
 
+describe("minimum reserve calculations", () => {
+  it("computes the account reserve from subentries and sponsorship", () => {
+    expect(stellar.calculateAccountReserve(0)).toBe(1);
+    expect(stellar.calculateAccountReserve(3)).toBe(2.5);
+    expect(stellar.calculateAccountReserve(3, { baseReserveXlm: 1 })).toBe(5);
+    expect(stellar.calculateAccountReserve(2, { numSponsoring: 2, numSponsored: 1 })).toBe(2.5);
+    expect(stellar.calculateAccountReserve(-2, { numSponsoring: -1, numSponsored: 9 })).toBe(-3.5);
+    expect(stellar.calculateAccountReserve(NaN)).toBe(1);
+  });
+
+  it("computes reserve breakdowns and clamps spendable balance", () => {
+    expect(stellar.calculateReserveBreakdown("10", 2)).toEqual({
+      balanceXlm: 10,
+      subentries: 2,
+      baseReserveXlm: 0.5,
+      reserveXlm: 2,
+      spendableXlm: 8,
+      numSponsoring: 0,
+      numSponsored: 0,
+      sellingLiabilitiesXlm: 0,
+    });
+
+    // Native XLM locked in open sell offers is not spendable.
+    expect(
+      stellar.calculateReserveBreakdown(10, 0, { sellingLiabilitiesXlm: 3 }).spendableXlm,
+    ).toBe(6);
+    expect(
+      stellar.calculateReserveBreakdown(10, 0, { sellingLiabilitiesXlm: -1 }).sellingLiabilitiesXlm,
+    ).toBe(0);
+    expect(stellar.calculateReserveBreakdown("not-a-number", 0).balanceXlm).toBe(0);
+    expect(stellar.calculateReserveBreakdown(1, 0).spendableXlm).toBe(0);
+    expect(stellar.calculateSpendableBalance(10, 2)).toBe(8);
+  });
+
+  it("loads account details from Horizon and degrades gracefully", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        subentry_count: 2,
+        num_sponsoring: 1,
+        num_sponsored: 0,
+        balances: [
+          { asset_type: "native", balance: "20", selling_liabilities: "3" },
+          { asset_type: "credit_alphanum4" },
+        ],
+      }),
+    );
+    await expect(stellar.fetchStellarAccountDetails(PUBKEY)).resolves.toMatchObject({
+      status: "active",
+      exists: true,
+      balanceXlm: 20,
+      subentries: 2,
+      numSponsoring: 1,
+      trustlineCount: 1,
+      sellingLiabilitiesXlm: 3,
+      reserveXlm: 2.5,
+      spendableXlm: 14.5,
+    });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 404));
+    await expect(stellar.fetchStellarAccountDetails(PUBKEY)).resolves.toMatchObject({
+      status: "unfunded",
+      exists: false,
+      balanceXlm: 0,
+      spendableXlm: 0,
+    });
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 503));
+    await expect(stellar.fetchStellarAccountDetails(PUBKEY)).resolves.toMatchObject({
+      status: "unavailable",
+      exists: false,
+    });
+
+    fetchMock.mockRejectedValueOnce(new Error("offline"));
+    await expect(stellar.fetchStellarAccountDetails(PUBKEY)).resolves.toMatchObject({
+      status: "unavailable",
+      exists: false,
+      spendableXlm: 0,
+    });
+  });
+});
+
 describe("Soroban invocation engine", () => {
   it("returns a simulated hash for the mock wallet", async () => {
     const result = await stellar.invokeSorobanMethod(PUBKEY, "noop", [], "mock");
@@ -558,8 +642,9 @@ describe("contract call wrappers", () => {
 
   it("approves allowances for the mock wallet and live wallet", async () => {
     const previousEnv = process.env.NODE_ENV;
-    await expect(stellar.approveTokenAllowance(PUBKEY, CONTRACT, CONTRACT, 10, "mock")).resolves
-      .toMatchObject({ success: true });
+    await expect(
+      stellar.approveTokenAllowance(PUBKEY, CONTRACT, CONTRACT, 10, "mock"),
+    ).resolves.toMatchObject({ success: true });
 
     process.env.NODE_ENV = "production";
     try {
@@ -611,7 +696,9 @@ describe("address helpers", () => {
   it("formats and validates Stellar addresses", () => {
     expect(stellar.formatStellarAddress("")).toBe("");
     expect(stellar.formatStellarAddress("GABC")).toBe("GABC");
-    expect(stellar.formatStellarAddress(PUBKEY)).toBe(`${PUBKEY.slice(0, 4)}...${PUBKEY.slice(-4)}`);
+    expect(stellar.formatStellarAddress(PUBKEY)).toBe(
+      `${PUBKEY.slice(0, 4)}...${PUBKEY.slice(-4)}`,
+    );
 
     expect(stellar.isValidStellarAddress(PUBKEY)).toBe(true);
     expect(stellar.isValidStellarAddress(CONTRACT)).toBe(true);

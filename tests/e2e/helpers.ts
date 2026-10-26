@@ -1,6 +1,9 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-export const VALID_WATCH_KEY = "G" + "A".repeat(55);
+// A checksum-valid ed25519 public key (the all-zero key). The read-only flow now
+// validates keys with StrKey, so a "G" + 55 x "A" string is correctly rejected.
+export const VALID_WATCH_KEY = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+export const VALID_WATCH_KEY_SHORT = "GAAAAA...AWHF";
 export const DEMO_ADDRESS_SHORT = "GASTOR...7777";
 
 /** Stub the backend so journeys never depend on a running API or the Stellar network. */
