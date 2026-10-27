@@ -107,6 +107,21 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Generates a unique notification ID using crypto.randomUUID() when available,
+ * with a Math.random fallback.
+ */
+export function createNotificationId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      // Fallback if randomUUID fails in restricted environment
+    }
+  }
+  return Math.random().toString(36).substring(2, 11);
+}
+
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -121,7 +136,7 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, []);
 
   const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
-    const id = Math.random().toString(36).substring(2, 11);
+    const id = createNotificationId();
     const isPersistent = notification.persistent === true || notification.duration === 0;
 
     const newNotification: Notification = {

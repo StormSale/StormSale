@@ -169,9 +169,20 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
   // Use a ref to track initialization state across component lifecycles & StrictMode double mounts
   const hasInitializedRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
+  // Tracks the active connection attempt so results from a superseded session are ignored
+  const disconnectSessionRef = useRef(0);
 
   const { connectWallet, disconnectWallet, switchToStellarNetwork, isConnected, isStellarNetwork } =
     useWeb3();
+
+  // Reactively trigger network modal when wallet is connected but on incorrect network
+  useEffect(() => {
+    if (isConnected && !isStellarNetwork) {
+      setState((prev) => ({ ...prev, showNetworkModal: true }));
+    } else if (isStellarNetwork) {
+      setState((prev) => ({ ...prev, showNetworkModal: false }));
+    }
+  }, [isConnected, isStellarNetwork]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -215,6 +226,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
   }, []);
 
   const connect = async (): Promise<void> => {
+    const currentSession = ++disconnectSessionRef.current;
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
     try {
@@ -229,6 +241,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
         setState((prev) => ({ ...prev, showNetworkModal: true }));
       }
     } catch (error: unknown) {
+      if (disconnectSessionRef.current !== currentSession) return;
       console.error("Wallet connection error:", error);
       const errorMessage =
         error instanceof Error && error.message.trim()
@@ -239,11 +252,14 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
         error: errorMessage,
       }));
     } finally {
-      setState((prev) => ({ ...prev, isConnecting: false }));
+      if (disconnectSessionRef.current === currentSession) {
+        setState((prev) => ({ ...prev, isConnecting: false }));
+      }
     }
   };
 
   const disconnect = (): void => {
+    disconnectSessionRef.current++;
     const singleton = WalletConnectSingleton.getInstance();
     if (providerInstance) {
       providerInstance.disconnect().catch(console.warn);

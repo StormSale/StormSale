@@ -161,10 +161,8 @@ export function isPasskeySupported(): boolean {
 export async function registerPasskey(
   userName: string = "Affiliate User",
 ): Promise<PasskeyCredentialRecord> {
-  const supported = isPasskeySupported();
-
-  // Test runner or unsupported fallback
-  if (!supported || (typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__)) {
+  const isMockMode = typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__ === true;
+  if (isMockMode) {
     const mockKeypair = Keypair.random();
     const mockRecord: PasskeyCredentialRecord = {
       credentialId: "passkey_cred_" + Date.now().toString(36),
@@ -177,6 +175,11 @@ export async function registerPasskey(
     vault.push(mockRecord);
     await saveEncryptedPasskeyVault(vault);
     return mockRecord;
+  }
+
+  const supported = isPasskeySupported();
+  if (!supported) {
+    throw new Error("Passkeys / WebAuthn is not supported on this device or browser.");
   }
 
   const challenge = window.crypto.getRandomValues(new Uint8Array(32));
@@ -261,10 +264,9 @@ export async function authenticateWithPasskey(challengeBytes?: Uint8Array): Prom
   signatureData: WebAuthnAuthSignature;
 }> {
   const vault = await loadEncryptedPasskeyVault();
-  const supported = isPasskeySupported();
+  const isMockMode = typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__ === true;
 
-  // Test runner or sandbox fallback
-  if (!supported || (typeof window !== "undefined" && (window as any).__MOCK_PASSKEY__)) {
+  if (isMockMode) {
     const mockRecord = vault.length > 0 ? vault[0] : await registerPasskey("Demo Passkey User");
 
     return {
@@ -275,6 +277,11 @@ export async function authenticateWithPasskey(challengeBytes?: Uint8Array): Prom
         signature: btoa("mock_p256_signature"),
       },
     };
+  }
+
+  const supported = isPasskeySupported();
+  if (!supported) {
+    throw new Error("Passkeys / WebAuthn is not supported on this device or browser.");
   }
 
   const challenge = challengeBytes || window.crypto.getRandomValues(new Uint8Array(32));
