@@ -2,7 +2,7 @@
  * StormSale Team Permission & Multi-User Organization Types (#154)
  */
 
-export type OrganizationRole = "ADMIN" | "MARKETING_MANAGER" | "EDITOR" | "FINANCE" | "VIEWER";
+export type OrganizationRole = "ADMIN" | "MARKETING_MANAGER" | "EDITOR" | "FINANCE" | "VIEWER" | "NONE";
 
 export type OrganizationCapability =
   | "campaign:create"

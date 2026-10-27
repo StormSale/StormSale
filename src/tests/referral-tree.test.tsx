@@ -41,11 +41,15 @@ describe("Two-Tier Referral Tree Architecture & Sub-Affiliate Override Commissio
     vi.restoreAllMocks();
   });
 
-  const renderWithProviders = (ui: React.ReactNode, masterAddr: string = MASTER_WALLET) => {
+  const renderWithProviders = (
+    ui: React.ReactNode,
+    masterAddr: string = MASTER_WALLET,
+    allowDemoSeed: boolean = true,
+  ) => {
     return renderToString(
       <Web3Provider overrideAddress={masterAddr}>
         <NotificationProvider>
-          <ReferralTreeProvider masterAddressOverride={masterAddr}>
+          <ReferralTreeProvider masterAddressOverride={masterAddr} allowDemoSeed={allowDemoSeed}>
             {ui}
           </ReferralTreeProvider>
         </NotificationProvider>
@@ -402,6 +406,28 @@ describe("Two-Tier Referral Tree Architecture & Sub-Affiliate Override Commissio
       expect(fallbackCtx.relations).toEqual([]);
       expect(fallbackCtx.tree.children).toEqual([]);
       expect(fallbackCtx.bindRecruiter("A", "B").success).toBe(false);
+    });
+
+    it("provides an empty network to live affiliates when referral storage is empty and allowDemoSeed is false", () => {
+      let treeCtx!: ReferralTreeContextType;
+      const TestComponent = () => {
+        treeCtx = useReferralTree();
+        return <div>Network: {treeCtx.summary.totalNetworkSize}</div>;
+      };
+
+      renderToString(
+        <Web3Provider overrideAddress={MASTER_WALLET}>
+          <NotificationProvider>
+            <ReferralTreeProvider masterAddressOverride={MASTER_WALLET} allowDemoSeed={false}>
+              <TestComponent />
+            </ReferralTreeProvider>
+          </NotificationProvider>
+        </Web3Provider>,
+      );
+
+      expect(treeCtx.relations).toEqual([]);
+      expect(treeCtx.summary.totalNetworkSize).toBe(0);
+      expect(treeCtx.tree.children).toEqual([]);
     });
   });
 

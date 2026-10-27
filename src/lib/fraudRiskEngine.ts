@@ -533,6 +533,44 @@ export function isAffiliatePaused(affiliateAddress: string): boolean {
 }
 
 /**
+ * Authoritatively checks whether an affiliate is currently paused/frozen from claiming payouts.
+ * Queries shared backend/contract state and syncs to local cache, falling back to local storage if offline.
+ */
+export async function fetchAuthoritativeAffiliatePauseState(affiliateAddress: string): Promise<boolean> {
+  if (!affiliateAddress) return false;
+  const trimmed = affiliateAddress.trim();
+  if (!trimmed) return false;
+
+  try {
+    if (typeof fetch === "function") {
+      const res = await fetch(`/api/affiliate/pause-status?wallet=${encodeURIComponent(trimmed)}`);
+      if (res.ok) {
+        const data = (await res.json()) as { isPaused?: boolean; paused?: boolean };
+        const isPaused = Boolean(data.isPaused ?? data.paused);
+        const local = loadPausedAffiliates();
+        if (isPaused && !local[trimmed]) {
+          local[trimmed] = {
+            affiliateAddress: trimmed,
+            pausedAt: new Date().toISOString(),
+            reason: "Authoritative fraud risk freeze",
+            pausedBy: "Authoritative Risk Service",
+          };
+          savePausedAffiliates(local);
+        } else if (!isPaused && local[trimmed]) {
+          delete local[trimmed];
+          savePausedAffiliates(local);
+        }
+        return isPaused;
+      }
+    }
+  } catch {
+    // Fall back to cached local storage
+  }
+
+  return isAffiliatePaused(trimmed);
+}
+
+/**
  * Pauses an affiliate, freezing them from claiming commission payouts pending review.
  */
 export function pauseAffiliate(

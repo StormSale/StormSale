@@ -41,11 +41,17 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
     vi.restoreAllMocks();
   });
 
-  const renderWithProviders = (ui: React.ReactNode) => {
+  const ADMIN_WALLET = "GBVUQ2HHWW6C5M4ZTEDKGZU2JRHBEMBLZSFRSTWEYPEBRBEQVTTSTQDS";
+
+  const renderWithProviders = (
+    ui: React.ReactNode,
+    walletAddress: string | null = ADMIN_WALLET,
+    role?: OrganizationRole,
+  ) => {
     return renderToString(
-      <Web3Provider>
+      <Web3Provider overrideAddress={walletAddress}>
         <NotificationProvider>
-          <OrganizationProvider>{ui}</OrganizationProvider>
+          <OrganizationProvider initialRole={role}>{ui}</OrganizationProvider>
         </NotificationProvider>
       </Web3Provider>,
     );
@@ -358,7 +364,7 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
         };
 
         return renderToString(
-          <Web3Provider>
+          <Web3Provider overrideAddress={ADMIN_WALLET}>
             <NotificationProvider>
               <OrganizationProvider initialRole={role}>
                 <TestComponent />
@@ -526,6 +532,54 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
       expect(verifyRes).toBe(false);
 
       expect(() => fallbackCtx.switchActiveRole("VIEWER")).not.toThrow();
+    });
+
+    it("gives disconnected or non-member wallets no capabilities and role NONE", () => {
+      let disconnectedCtx!: OrganizationContextType;
+      const DisconnectedConsumer = () => {
+        disconnectedCtx = useOrganization();
+        return null;
+      };
+
+      // Disconnected (null wallet)
+      renderToString(
+        <Web3Provider overrideAddress={null}>
+          <NotificationProvider>
+            <OrganizationProvider>
+              <DisconnectedConsumer />
+            </OrganizationProvider>
+          </NotificationProvider>
+        </Web3Provider>,
+      );
+
+      expect(disconnectedCtx.currentRole).toBe("NONE");
+      expect(disconnectedCtx.currentMember).toBeNull();
+      expect(disconnectedCtx.capabilities).toEqual([]);
+      expect(disconnectedCtx.hasCapability("campaign:create")).toBe(false);
+      expect(disconnectedCtx.hasCapability("team:manage")).toBe(false);
+
+      // Non-member wallet
+      let nonMemberCtx!: OrganizationContextType;
+      const NonMemberConsumer = () => {
+        nonMemberCtx = useOrganization();
+        return null;
+      };
+      const strangerKp = Keypair.random();
+      renderToString(
+        <Web3Provider overrideAddress={strangerKp.publicKey()}>
+          <NotificationProvider>
+            <OrganizationProvider>
+              <NonMemberConsumer />
+            </OrganizationProvider>
+          </NotificationProvider>
+        </Web3Provider>,
+      );
+
+      expect(nonMemberCtx.currentRole).toBe("NONE");
+      expect(nonMemberCtx.currentMember).toBeNull();
+      expect(nonMemberCtx.capabilities).toEqual([]);
+      expect(nonMemberCtx.hasCapability("campaign:create")).toBe(false);
+      expect(nonMemberCtx.hasCapability("team:manage")).toBe(false);
     });
   });
 

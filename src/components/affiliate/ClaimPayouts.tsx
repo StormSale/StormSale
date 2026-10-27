@@ -34,7 +34,7 @@ import {
   toBaseUnits,
   formatBaseUnits,
 } from "../../lib/sorobanDex";
-import { isAffiliatePaused } from "../../lib/fraudRiskEngine";
+import { isAffiliatePaused, fetchAuthoritativeAffiliatePauseState } from "../../lib/fraudRiskEngine";
 import { motion, AnimatePresence } from "framer-motion";
 
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
@@ -50,7 +50,22 @@ export const ClaimPayouts = () => {
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
 
-  const isFrozen = userAddress ? isAffiliatePaused(userAddress) : false;
+  const [isFrozen, setIsFrozen] = useState(() => (userAddress ? isAffiliatePaused(userAddress) : false));
+
+  useEffect(() => {
+    let active = true;
+    if (!userAddress) {
+      setIsFrozen(false);
+      return;
+    }
+    setIsFrozen(isAffiliatePaused(userAddress));
+    fetchAuthoritativeAffiliatePauseState(userAddress).then((paused) => {
+      if (active) setIsFrozen(paused);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userAddress]);
 
   // Auto-Swap on Claim (Issue #127)
   const [autoSwapEnabled, setAutoSwapEnabled] = useState(false);

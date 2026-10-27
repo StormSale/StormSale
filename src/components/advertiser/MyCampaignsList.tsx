@@ -281,6 +281,7 @@ export const MyCampaignsList = () => {
   } = useWeb3();
   const { showNotification } = useNotification();
   const { hasCapability, currentRole } = useOrganization();
+  const canRefillEscrow = hasCapability("escrow:refill");
 
   /**
    * Determines whether a campaign's escrow balance has fallen below 10% of initial escrow.
@@ -467,6 +468,14 @@ export const MyCampaignsList = () => {
         });
         return;
       }
+      if (!canRefillEscrow) {
+        showNotification({
+          type: "error",
+          title: "Permission Denied",
+          message: `Your current role (${currentRole}) lacks permission to authorize escrow allowance. Finance or Admin role required.`,
+        });
+        return;
+      }
       if (amountToApprove <= 0) return;
 
       setIsApprovingAllowance(true);
@@ -498,7 +507,7 @@ export const MyCampaignsList = () => {
         setIsApprovingAllowance(false);
       }
     },
-    [isConnected, showNotification, approveTokenAllowance, refreshTokenAllowance],
+    [isConnected, canRefillEscrow, currentRole, showNotification, approveTokenAllowance, refreshTokenAllowance],
   );
 
   /**
@@ -516,6 +525,15 @@ export const MyCampaignsList = () => {
           type: "error",
           title: "Wallet Not Connected",
           message: "Please connect your wallet to execute escrow top-up.",
+        });
+        return false;
+      }
+
+      if (!canRefillEscrow) {
+        showNotification({
+          type: "error",
+          title: "Permission Denied",
+          message: `Your current role (${currentRole}) lacks permission to refill campaign escrow. Finance or Admin role required.`,
         });
         return false;
       }
@@ -615,6 +633,8 @@ export const MyCampaignsList = () => {
     },
     [
       isConnected,
+      canRefillEscrow,
+      currentRole,
       tokenAllowance,
       showNotification,
       handleAuthorizeAllowance,
@@ -902,7 +922,7 @@ export const MyCampaignsList = () => {
                   handleQuickRefill(lowReserveCampaigns[0], 500);
                 }
               }}
-              disabled={refillingId !== null}
+              disabled={refillingId !== null || !canRefillEscrow}
               className="w-full md:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-amber-600/20 flex items-center justify-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
@@ -1365,7 +1385,7 @@ export const MyCampaignsList = () => {
                             onClick={() =>
                               handleAuthorizeAllowance(Math.max(5000, autoCfg.topUpAmount))
                             }
-                            disabled={isApprovingAllowance}
+                            disabled={isApprovingAllowance || !canRefillEscrow}
                             className="h-7 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shrink-0"
                           >
                             Pre-Authorize
@@ -1381,7 +1401,7 @@ export const MyCampaignsList = () => {
                           </div>
                           <Button
                             size="sm"
-                            disabled={isTopUpThis}
+                            disabled={isTopUpThis || !canRefillEscrow}
                             onClick={() => executeTopUp(campaign, autoCfg.topUpAmount, true)}
                             className="h-7 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
                           >
@@ -1422,7 +1442,7 @@ export const MyCampaignsList = () => {
                       )}
                       onOpenSettings={() => setSelectedCampaignForConfig(campaign)}
                       onQuickRefill={() => handleQuickRefill(campaign, 500)}
-                      isRefilling={refillingId === campaign.id}
+                      isRefilling={refillingId === campaign.id || !canRefillEscrow}
                       className="mb-3"
                     />
                   )}
@@ -1621,11 +1641,12 @@ export const MyCampaignsList = () => {
                         <div className="flex gap-2">
                           <Button
                             type="button"
+                            disabled={!canRefillEscrow}
                             onClick={() => {
                               setManualTopUpCampaign(campaign);
                               setManualTopUpAmount(String(autoCfg.topUpAmount || 1000));
                             }}
-                            className="flex-1 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm flex items-center justify-center gap-1.5"
+                            className="flex-1 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
                             <Coins className="w-4 h-4" />
                             <span>Top Up Escrow</span>
@@ -1988,7 +2009,7 @@ export const MyCampaignsList = () => {
                     <Button
                       size="sm"
                       onClick={() => handleAuthorizeAllowance(parseFloat(customAllowanceAmount) || 5000)}
-                      disabled={isApprovingAllowance}
+                      disabled={isApprovingAllowance || !canRefillEscrow}
                       className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
                     >
                       {isApprovingAllowance ? "Approving..." : "Pre-Authorize"}
@@ -2112,7 +2133,7 @@ export const MyCampaignsList = () => {
                 <Button
                   size="sm"
                   onClick={() => handleAuthorizeAllowance(parseFloat(manualTopUpAmount) || 2000)}
-                  disabled={isApprovingAllowance}
+                  disabled={isApprovingAllowance || !canRefillEscrow}
                   className="w-full h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
                 >
                   {isApprovingAllowance ? "Approving Allowance..." : "Approve Required Allowance"}
@@ -2131,7 +2152,7 @@ export const MyCampaignsList = () => {
               </Button>
               <Button
                 type="button"
-                disabled={topUpInProgressId === manualTopUpCampaign.id}
+                disabled={topUpInProgressId === manualTopUpCampaign.id || !canRefillEscrow}
                 onClick={() =>
                   executeTopUp(manualTopUpCampaign, parseFloat(manualTopUpAmount) || 0, false)
                 }

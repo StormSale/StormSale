@@ -55,12 +55,14 @@ export interface ReferralTreeProviderProps {
   readonly children: ReactNode;
   readonly initialRelations?: AffiliateReferralRelation[];
   readonly masterAddressOverride?: string;
+  readonly allowDemoSeed?: boolean;
 }
 
 export const ReferralTreeProvider: React.FC<ReferralTreeProviderProps> = ({
   children,
   initialRelations,
   masterAddressOverride,
+  allowDemoSeed = false,
 }) => {
   const web3 = useSafeWeb3();
   const userAddress = web3?.userAddress || null;
@@ -70,13 +72,16 @@ export const ReferralTreeProvider: React.FC<ReferralTreeProviderProps> = ({
     masterAddressOverride || userAddress || "GAFFILIATE_MASTER_ROOT_001";
 
   const [relations, setRelations] = useState<AffiliateReferralRelation[]>(() => {
-    if (initialRelations && initialRelations.length > 0) return initialRelations;
+    if (initialRelations) return initialRelations;
     const stored = loadReferralRelations();
     if (stored.length > 0) return stored;
-    // Pre-seed with rich realistic mock sub-affiliates
-    const mock = generateMockReferralRelations(activeMasterAddress);
-    saveReferralRelations(mock);
-    return mock;
+    // Pre-seed with sample relations only behind explicit demo or test condition
+    if (allowDemoSeed) {
+      const mock = generateMockReferralRelations(activeMasterAddress);
+      saveReferralRelations(mock);
+      return mock;
+    }
+    return [];
   });
 
   const [selectedNode, setSelectedNode] = useState<ReferralTreeNode | null>(null);

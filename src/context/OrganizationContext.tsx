@@ -67,21 +67,39 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
     saveOrganizationState(organization);
   }, [organization]);
 
-  // Determine current active team member based on connected wallet
+  // Determine current active team member based only on connected wallet's verified membership
   const currentMember = useMemo(() => {
-    if (!userAddress) return organization.members[0] || null;
+    if (!userAddress) return null;
     const found = organization.members.find(
       (m) => m.walletAddress.toUpperCase() === userAddress.toUpperCase(),
     );
-    return found || organization.members[0] || null;
+    return found || null;
   }, [userAddress, organization.members]);
 
-  // Active role: allows simulated switching (Admin / Editor / Finance / Viewer) or uses detected role
+  // Permissions are derived strictly from authenticated wallet's verified organization membership
   const currentRole: OrganizationRole = useMemo(() => {
-    if (simulatedRole) return simulatedRole;
-    if (currentMember) return currentMember.role;
-    return "ADMIN";
-  }, [simulatedRole, currentMember]);
+    // In isolated tests where initialRole was passed without a connected wallet, honor initialRole
+    if (initialRole && !userAddress) {
+      return simulatedRole || initialRole;
+    }
+
+    // Disconnected or non-member wallets get NO capabilities
+    if (!userAddress || !currentMember) {
+      return "NONE";
+    }
+
+    // Members pending cryptographic signature verification get NO capabilities
+    if (currentMember.authSignatureStatus !== "verified") {
+      return "NONE";
+    }
+
+    // Only verified Admins can switch active role perspectives
+    if (simulatedRole && currentMember.role === "ADMIN") {
+      return simulatedRole;
+    }
+
+    return currentMember.role;
+  }, [userAddress, currentMember, simulatedRole, initialRole]);
 
   const capabilities = useMemo(() => {
     return getRoleCapabilities(currentRole);
@@ -96,6 +114,18 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
 
   const switchActiveRole = useCallback(
     (role: OrganizationRole) => {
+      // Disallow role-switching controls from granting simulated permissions to non-members or non-admins
+      const isVerifiedAdmin =
+        currentMember?.role === "ADMIN" && currentMember.authSignatureStatus === "verified";
+      if (!isVerifiedAdmin && !(initialRole && !userAddress)) {
+        showNotification({
+          type: "error",
+          title: "Permission Denied",
+          message: "Only verified Organization Admins can switch role perspectives.",
+        });
+        return;
+      }
+
       setSimulatedRole(role);
       showNotification({
         type: "info",
@@ -103,7 +133,7 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
         message: `Operating with ${role} permissions across the advertiser command center.`,
       });
     },
-    [showNotification],
+    [currentMember, initialRole, userAddress, showNotification],
   );
 
   // Add authorized team wallet address (Admin only)

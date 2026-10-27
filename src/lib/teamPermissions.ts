@@ -65,6 +65,14 @@ export const ROLE_DEFINITIONS: Record<OrganizationRole, RoleDefinition> = {
       "bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-400 border-slate-200 dark:border-zinc-700",
     capabilities: ["analytics:view"],
   },
+  NONE: {
+    role: "NONE",
+    label: "Non-Member",
+    description: "No organizational capabilities or access permissions.",
+    badgeClass:
+      "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-500 border-zinc-200 dark:border-zinc-700",
+    capabilities: [],
+  },
 };
 
 /**

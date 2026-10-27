@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -31,6 +31,7 @@ import {
   calculateTwoTierCommission,
   formatAffiliateAddress,
 } from "../../lib/referralTree";
+import { initialMockCampaigns } from "./MyCampaignsList";
 
 export const LogSaleForm = () => {
   const [mode, setMode] = useState<"single" | "batch">("single");
@@ -51,10 +52,22 @@ export const LogSaleForm = () => {
       ? getRecruiterForAffiliate(affiliateAddress.trim())
       : undefined;
 
+  const campaignCommissionRate = useMemo(() => {
+    const raw = campaignAddress.trim();
+    if (!raw) return 10.0;
+    const match = initialMockCampaigns.find(
+      (c) =>
+        c.id === raw ||
+        String(c.onChainId) === raw ||
+        c.contractAddress.toLowerCase() === raw.toLowerCase(),
+    );
+    return match ? match.commissionRate : 10.0;
+  }, [campaignAddress]);
+
   const twoTierSplit = recruiterRelation
     ? calculateTwoTierCommission(
         parseFloat(saleAmount) || 0,
-        10,
+        campaignCommissionRate,
         recruiterRelation.overrideRatePercent,
         recruiterRelation.parentAddress,
         affiliateAddress.trim(),
@@ -182,6 +195,7 @@ export const LogSaleForm = () => {
         encryptedPayload,
         advertiserWrappedKey,
         affiliateWrappedKey,
+        campaignCommissionRate,
       );
 
       const waitResult = await tx.wait();

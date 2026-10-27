@@ -27,6 +27,7 @@ import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { AutoSwapConfig } from "../lib/sorobanDex";
+import { isAffiliatePaused } from "../lib/fraudRiskEngine";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import type { MultiSigAccountInfo } from "../lib/multisig";
@@ -87,6 +88,7 @@ export interface Web3ContextType {
     affiliateAddress: string,
     amountXlm: number,
     recruiterAddress?: string,
+    commissionRatePercent?: number,
   ) => Promise<{ success: boolean; txHash?: string; split?: TwoTierCommissionSplit }>;
 
   claimPayoutOnChain: (
@@ -601,6 +603,7 @@ export function Web3Provider({
     affiliateAddress: string,
     amountXlm: number,
     recruiterAddress?: string,
+    commissionRatePercent?: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
@@ -616,6 +619,7 @@ export function Web3Provider({
         amountXlm,
         connectorType,
         recruiterAddress,
+        commissionRatePercent,
       );
       if (!res.success) {
         return res;
@@ -626,6 +630,7 @@ export function Web3Provider({
         campaignId,
         saleAmountXlm: amountXlm,
         sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
         txHash: res.txHash,
       });
 
@@ -649,6 +654,7 @@ export function Web3Provider({
         campaignId,
         saleAmountXlm: amountXlm,
         sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
         txHash: mockTxHash,
       });
       void dispatchWebhookEvent("conversion.confirmed", {
@@ -674,6 +680,11 @@ export function Web3Provider({
   // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "claim-payout");
 
     console.log(
@@ -787,6 +798,11 @@ export function Web3Provider({
     autoSwap?: AutoSwapConfig | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
@@ -830,15 +846,24 @@ export function Web3Provider({
     },
   };
 
-  const getCampaignContract = (_address: string) => ({
+  const getCampaignContract = (address: string) => ({
     logEncryptedSale: async (
       affiliate: string,
       amount: string,
       _payload: any,
       _advKey: any,
       _affKey: any,
+      commissionRate?: number,
     ) => {
-      const res = await logSaleOnChain(1, affiliate, parseFloat(amount) || 0);
+      const parsedId = parseInt(address, 10);
+      const campaignId = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 1;
+      const res = await logSaleOnChain(
+        campaignId,
+        affiliate,
+        parseFloat(amount) || 0,
+        undefined,
+        commissionRate,
+      );
       return {
         wait: async () => res,
       };

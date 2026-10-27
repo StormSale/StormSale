@@ -188,7 +188,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
 export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
-    <ReferralTreeProvider>
+    <ReferralTreeProvider allowDemoSeed={false}>
       <ZKProofProvider>
         <AffiliateContent {...props} />
       </ZKProofProvider>

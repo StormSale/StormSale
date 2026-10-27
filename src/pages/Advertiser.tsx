@@ -76,7 +76,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
     { id: "team-management", label: "Team & Permissions", icon: ShieldCheck },
-    { id: "fraud-risk", label: "Fraud & Partner Risk", icon: ShieldAlert },
+    { id: "fraud-risk", label: "Fraud & Partner Risk (Demo)", icon: ShieldAlert },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },

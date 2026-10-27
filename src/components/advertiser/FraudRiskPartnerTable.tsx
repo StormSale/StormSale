@@ -58,6 +58,16 @@ export const FraudRiskPartnerTable: React.FC = () => {
 
   return (
     <div className="space-y-6" data-testid="fraud-risk-partner-table">
+      {/* Demo Notice Banner */}
+      <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
+          <span>
+            <strong>Demo Risk Feed Active:</strong> Showing synthetic click-to-conversion anomaly dataset. Connect a production webhook or on-chain event feed to monitor real-time campaign conversions.
+          </span>
+        </div>
+      </div>
+
       {/* 1. Anomaly & Fraud Overview Bento Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Affiliates */}

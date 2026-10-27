@@ -25,6 +25,7 @@ import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { rpcFallbackManager } from "./rpcFallback";
 import { addErrorBreadcrumb } from "./errorTracking";
 import { calculateTwoTierCommission, getRecruiterForAffiliate } from "./referralTree";
+import { isAffiliatePaused } from "./fraudRiskEngine";
 import type { TwoTierCommissionSplit } from "../types/referral";
 
 export type WalletType =
@@ -1059,13 +1060,14 @@ export async function logSaleContractCall(
   saleAmountXlm: number,
   walletType: WalletType = "freighter",
   recruiterAddress?: string,
+  commissionRatePercent: number = 10.0,
 ): Promise<{ success: boolean; txHash: string; split?: TwoTierCommissionSplit }> {
   const rel = getRecruiterForAffiliate(affiliateAddress);
   const recruiter = recruiterAddress || rel?.parentAddress;
   const overrideRate = rel?.overrideRatePercent ?? 2.0;
   const split = calculateTwoTierCommission(
     saleAmountXlm,
-    10.0,
+    commissionRatePercent,
     overrideRate,
     recruiter,
     affiliateAddress,
@@ -1083,18 +1085,14 @@ export async function logSaleContractCall(
 
   const amountStroops = BigInt(Math.floor(saleAmountXlm * 1e7));
 
+  // The deployed Soroban escrow contract's log_sale entrypoint accepts exactly 4 arguments:
+  // (advertiser: Address, campaign_id: u32, affiliate: Address, amount: i128)
   const args: xdr.ScVal[] = [
     new Address(advertiserAddress).toScVal(),
     nativeToScVal(campaignId, { type: "u32" }),
     new Address(affiliateAddress).toScVal(),
     nativeToScVal(amountStroops, { type: "i128" }),
   ];
-
-  // If two-tier referral recruiter is bound, append recruiter address & override allocation to invoke args
-  if (split.hasRecruiter && split.recruiterAddress) {
-    args.push(new Address(split.recruiterAddress).toScVal());
-    args.push(nativeToScVal(split.recruiterOverrideStroops, { type: "i128" }));
-  }
 
   const result = await invokeSorobanMethod(advertiserAddress, "log_sale", args, walletType);
   return {
@@ -1118,6 +1116,12 @@ export async function claimPayoutContractCall(
   asset?: SupportedEscrowAssetCode;
   assetAddress?: string;
 }> {
+  if (isAffiliatePaused(affiliateAddress)) {
+    throw new Error(
+      `Payout claim rejected: Affiliate address ${affiliateAddress} is paused due to fraud risk review.`,
+    );
+  }
+
   let resolvedAssetCode = assetCode;
   let resolvedAssetAddress = assetCode
     ? SUPPORTED_ESCROW_ASSETS[assetCode]?.contractAddress

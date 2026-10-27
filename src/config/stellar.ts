@@ -59,7 +59,7 @@ export const ISSUERS = {
   },
 } as const;
 
-function safeAssetContractId(asset: Asset, passphrase: string, fallback: string): string {
+export function safeAssetContractId(asset: Asset, passphrase: string, fallback: string): string {
   try {
     return asset.contractId(passphrase);
   } catch {
