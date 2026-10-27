@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import * as stellar from "./stellar";
 import {
   formatStellarAddress,
   isValidStellarAddress,
@@ -86,15 +87,35 @@ describe("mintMilestoneBadgeContractCall", () => {
     expect(result.txHash).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
-  it("falls back to a verifiable hash when the on-chain call cannot complete", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // An invalid strkey throws inside the try block, exercising the catch fallback.
-    const result = await mintMilestoneBadgeContractCall("NOT-A-VALID-ADDRESS", "1k", "freighter");
+  it("rejects an invalid affiliate address", async () => {
+    await expect(
+      mintMilestoneBadgeContractCall("NOT-A-VALID-ADDRESS", "1k", "freighter"),
+    ).rejects.toThrow("Invalid affiliate Stellar account address.");
+  });
+
+  it("propagates invokeSorobanMethod errors on failed on-chain mints", async () => {
+    const spy = vi
+      .spyOn(stellar.stellarOperations, "invokeSorobanMethod")
+      .mockRejectedValueOnce(new Error("RPC submission timeout"));
+    await expect(
+      mintMilestoneBadgeContractCall(VALID, "1k", "freighter"),
+    ).rejects.toThrow("RPC submission timeout");
+    spy.mockRestore();
+  });
+
+  it("derives the token ID from the returned transaction hash", async () => {
+    const mockTxHash = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+    const spy = vi
+      .spyOn(stellar.stellarOperations, "invokeSorobanMethod")
+      .mockResolvedValueOnce({
+        success: true,
+        txHash: mockTxHash,
+      });
+    const result = await mintMilestoneBadgeContractCall(VALID, "100k", "freighter");
     expect(result.success).toBe(true);
-    expect(result.tokenId).toMatch(/^SBT-STORM-1K-/);
-    expect(result.txHash).toMatch(/^0x[0-9a-f]{64}$/);
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
+    expect(result.txHash).toBe(mockTxHash);
+    expect(result.tokenId).toBe(`SBT-STORM-100K-${mockTxHash.slice(0, 8)}`);
+    spy.mockRestore();
   });
 });
 

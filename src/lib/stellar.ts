@@ -179,6 +179,32 @@ export async function signAlbedoTransaction(
 }
 
 /**
+ * Safely extracts an error message from an unknown error or returns the fallback message.
+ *
+ * @param err - Unknown error caught in a try/catch block
+ * @param fallback - Default message to return if err does not have a message
+ * @returns Error message string
+ */
+function getErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  if (
+    typeof err === "object" &&
+    err !== null &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string" &&
+    (err as { message: string }).message.length > 0
+  ) {
+    return (err as { message: string }).message;
+  }
+  if (typeof err === "string" && err.length > 0) {
+    return err;
+  }
+  return fallback;
+}
+
+/**
  * Connects to xBull wallet (extension / web).
  */
 export async function connectXbullWallet(): Promise<string> {
@@ -191,8 +217,8 @@ export async function connectXbullWallet(): Promise<string> {
   try {
     const address = await xbull.getPublicKey();
     return address;
-  } catch (err: any) {
-    throw new Error(err.message || "xBull connection failed.", { cause: err });
+  } catch (err: unknown) {
+    throw new Error(getErrorMessage(err, "xBull connection failed."), { cause: err });
   }
 }
 
@@ -276,9 +302,6 @@ export async function fetchXlmBalance(address: string): Promise<string> {
 }
 
 /**
- * Queries the Stellar Horizon API for all supported escrow assets (XLM, USDC, EURC).
- */
-/**
  * Helper to convert decimal amount string/number to BigInt stroops/units at given decimal precision
  * without floating-point inaccuracies.
  */
@@ -296,6 +319,9 @@ export function parseUnitsToBigInt(amount: number | string, decimals: number = 7
   return BigInt(combined);
 }
 
+/**
+ * Queries the Stellar Horizon API for all supported escrow assets (XLM, USDC, EURC).
+ */
 export async function fetchAssetBalances(
   address: string,
 ): Promise<Record<SupportedEscrowAssetCode, string>> {
@@ -928,9 +954,10 @@ export async function invokeSorobanMethod(
     }
 
     preparedTx = rpc.assembleTransaction(preliminaryTx, simResponse).build();
-  } catch (err: any) {
+  } catch (err: unknown) {
     throw new Error(
-      `Soroban invocation preparation failed for ${callerAddress}: ${err?.message || err}`,
+      `Soroban invocation preparation failed for ${callerAddress}: ${getErrorMessage(err, String(err))}. ` +
+        `If the account is not funded on Testnet, use Friendbot to fund it first.`,
       { cause: err },
     );
   }
@@ -1350,13 +1377,25 @@ export async function mintMilestoneBadgeContractCall(
   milestoneTier: "1k" | "10k" | "100k",
   walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; txHash: string; tokenId: string }> {
-  const tierFormatted = milestoneTier.toUpperCase();
-  const tokenId = `SBT-STORM-${tierFormatted}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  if (!isValidStellarAccount(affiliateAddress)) {
+    throw new Error("Invalid affiliate Stellar account address.");
+  }
 
-  // If mock wallet or automated testing
+  const tierFormatted = milestoneTier.toUpperCase();
+
+  // Mock transactions are for automated tests and demonstrations only.
   if (walletType === "mock") {
+    const tokenId = `SBT-STORM-${tierFormatted}-${Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase()}`;
+
     const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+      "0x" +
+      Array.from({ length: 64 }, () =>
+        Math.floor(Math.random() * 16).toString(16),
+      ).join("");
+
     return {
       success: true,
       txHash: mockHash,
@@ -1364,36 +1403,24 @@ export async function mintMilestoneBadgeContractCall(
     };
   }
 
-  try {
-    const args: xdr.ScVal[] = [
-      new Address(affiliateAddress).toScVal(),
-      nativeToScVal(tierFormatted, { type: "symbol" }),
-      nativeToScVal(true, { type: "bool" }), // Non-transferable soulbound flag
-    ];
+  const args: xdr.ScVal[] = [
+    new Address(affiliateAddress).toScVal(),
+    nativeToScVal(tierFormatted, { type: "symbol" }),
+    nativeToScVal(true, { type: "bool" }),
+  ];
 
-    const result = await invokeSorobanMethod(
-      affiliateAddress,
-      "mint_milestone_badge",
-      args,
-      walletType,
-    );
+  // Real wallet transactions must succeed on-chain.
+  // Errors are allowed to propagate; never fabricate a successful transaction hash.
+  const result = await stellarOperations.invokeSorobanMethod(
+    affiliateAddress,
+    "mint_milestone_badge",
+    args,
+    walletType,
+  );
 
-    return {
-      success: true,
-      txHash: result.txHash,
-      tokenId,
-    };
-  } catch (err: any) {
-    // If contract does not have mint_milestone_badge on current testnet address,
-    // construct a verifiable fallback hash
-    console.warn("Soroban milestone badge contract call returned:", err?.message || err);
-
-    const fallbackHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: fallbackHash,
-      tokenId,
-    };
-  }
+  return {
+    success: result.success,
+    txHash: result.txHash,
+    tokenId: `SBT-STORM-${tierFormatted}-${result.txHash.slice(0, 8)}`,
+  };
 }

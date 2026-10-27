@@ -417,8 +417,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         address = customAddress;
         setNetwork(STELLAR_CONFIG.network);
       } else {
-        // Mock fallback demo account with 10,000 XLM
-        address = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+        // Mock fallback demo account with 10,000 XLM (checksum-valid Ed25519 address)
+        address = customAddress || "GASTORMSALE7AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABALE";
         setNetwork("TESTNET");
         setXlmBalance("10000.00");
       }

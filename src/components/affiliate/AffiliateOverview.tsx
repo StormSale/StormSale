@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
+import { ReferralLinkCard } from "./ReferralLinkCard";
 import {
   TrendingUp,
   Users,
@@ -354,6 +355,8 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
           </Button>
         </div>
       </div>
+
+      <ReferralLinkCard />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
