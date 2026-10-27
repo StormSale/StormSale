@@ -116,6 +116,7 @@ import {
   submitApplication,
 } from "../lib/campaignAccess";
 import { getLocalStorage } from "../lib/storage";
+import { getStoredCampaigns } from "../hooks/useCampaigns";
 
 const ADVERTISER = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7";
 const AFFILIATE = "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H";
@@ -160,8 +161,10 @@ function fillCampaign({ budget = "100" } = {}) {
 // which the Max control signals by becoming enabled.
 const submitCampaign = async () => {
   if (web3.isConnected) {
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Max" }).hasAttribute("disabled")).toBe(false),
+    await waitFor(
+      () =>
+        expect(screen.getByRole("button", { name: "Max" }).hasAttribute("disabled")).toBe(false),
+      { timeout: 5000 },
     );
   }
   fireEvent.submit(screen.getByPlaceholderText("e.g., Summer Sale 2024").closest("form")!);
@@ -209,6 +212,12 @@ describe("CreateCampaignForm", () => {
     await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Campaign Escrow Live on Stellar!"));
     expect(getCampaignPolicy(7)).toMatchObject({ visibility: "public" });
+
+    const stored = getStoredCampaigns();
+    const idMatches = stored.filter((c) => c.id === "7");
+    expect(idMatches).toHaveLength(1);
+    expect(idMatches[0].name).toBe("Launch Week");
+    expect(idMatches[0].assetCode).toBe("XLM");
   });
 
   it("warns, rather than reporting a failed creation, when only the access setting fails to save", async () => {

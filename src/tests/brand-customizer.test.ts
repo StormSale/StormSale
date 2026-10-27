@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach } from "vitest";
 import {
   parseHexColor,
   calculateRelativeLuminance,
@@ -7,6 +8,8 @@ import {
   uploadBrandConfigToIpfs,
   isValidSubdomain,
   DEFAULT_BRAND_CONFIG,
+  saveBrandConfig,
+  loadBrandConfig,
 } from "../lib/branding";
 
 describe("Advertiser Brand Customizer & Dynamic Subdomains (#149)", () => {
@@ -77,6 +80,47 @@ describe("Advertiser Brand Customizer & Dynamic Subdomains (#149)", () => {
       expect(result.ipfsUri.startsWith("ipfs://bafybeih")).toBe(true);
       expect(result.cid).toBeDefined();
       expect(result.timestamp).toBeGreaterThan(0);
+    });
+  });
+
+  describe("Brand Config Storage", () => {
+    const testAddr = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const customConfig = {
+      ...DEFAULT_BRAND_CONFIG,
+      brandName: "Acme Store",
+      subdomain: "acme",
+    };
+
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("saves and loads brand config by advertiser address and subdomain", () => {
+      saveBrandConfig(testAddr, customConfig);
+
+      // Load by address
+      const loadedByAddr = loadBrandConfig(testAddr);
+      expect(loadedByAddr.brandName).toBe("Acme Store");
+
+      // Load by subdomain
+      const loadedBySub = loadBrandConfig("acme");
+      expect(loadedBySub.brandName).toBe("Acme Store");
+
+      // Load default/active when no identifier provided
+      const loadedActive = loadBrandConfig();
+      expect(loadedActive.brandName).toBe("Acme Store");
+    });
+
+    it("returns DEFAULT_BRAND_CONFIG when not found or corrupted", () => {
+      expect(loadBrandConfig("nonexistent")).toEqual(DEFAULT_BRAND_CONFIG);
+      expect(loadBrandConfig()).toEqual(DEFAULT_BRAND_CONFIG);
+
+      // Corrupted JSON
+      localStorage.setItem("stormsale_advertiser_brand_active", "invalid-json");
+      expect(loadBrandConfig()).toEqual(DEFAULT_BRAND_CONFIG);
+
+      localStorage.setItem("stormsale_advertiser_brand_subdomain_broken", "invalid-json");
+      expect(loadBrandConfig("broken")).toEqual(DEFAULT_BRAND_CONFIG);
     });
   });
 });

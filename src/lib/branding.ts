@@ -11,6 +11,8 @@ export interface AdvertiserBrandConfig {
   ctaText: string;
   contactEmail: string;
   ipfsHash?: string;
+  merchantAddress?: string;
+  advertiserAddress?: string;
   updatedAt: number;
 }
 

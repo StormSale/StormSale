@@ -57,14 +57,19 @@ export const ClaimPayouts = () => {
   const [maxSlippageBps, setMaxSlippageBps] = useState(100);
 
   useEffect(() => {
+    let cancelled = false;
     async function loadClaims() {
       const data = await fetchAffiliateMaturedClaims(userAddress || "");
+      if (cancelled) return;
       setCampaigns(data);
       // Select all matured campaigns by default
       const matured = data.filter((c) => c.status === "matured").map((c) => c.campaignId);
       setSelectedIds(matured);
     }
-    loadClaims();
+    void loadClaims();
+    return () => {
+      cancelled = true;
+    };
   }, [userAddress]);
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));

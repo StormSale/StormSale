@@ -2,6 +2,7 @@ import React from "react";
 import { type AdvertiserBrandConfig, evaluateWcagCompliance } from "../../lib/branding";
 import { Shield, CheckCircle2, ArrowRight, Sparkles, X } from "lucide-react";
 import { Button } from "../ui/button";
+import { useCampaigns } from "../../hooks/useCampaigns";
 
 interface BrandedCampaignViewProps {
   brandConfig: AdvertiserBrandConfig;
@@ -16,36 +17,37 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
 }) => {
   const contrast = evaluateWcagCompliance(brandConfig.primaryColor);
   const textColor = contrast.recommendedTextColor;
+  const merchantAddress = brandConfig.merchantAddress || brandConfig.advertiserAddress;
+  const { campaigns: fetchedCampaigns, isLoading, error } = useCampaigns({
+    advertiserAddress: merchantAddress,
+    status: "Active",
+  });
 
-  const mockCampaigns = [
-    {
-      id: 101,
-      name: "Apex Ultra Pro SaaS Launch",
-      commission: "25%",
-      avgPayout: "120 XLM",
-      escrowLocked: "5,000 XLM",
-      clearingDays: 7,
-      category: "Software & Cloud",
-    },
-    {
-      id: 102,
-      name: "Quantum Enterprise AI Bridge",
-      commission: "18%",
-      avgPayout: "240 XLM",
-      escrowLocked: "12,500 XLM",
-      clearingDays: 14,
-      category: "Enterprise AI",
-    },
-    {
-      id: 103,
-      name: "Stellar Cross-Border Remittance App",
-      commission: "30%",
-      avgPayout: "75 XLM",
-      escrowLocked: "8,200 XLM",
-      clearingDays: 3,
-      category: "Fintech",
-    },
-  ];
+  const activeCampaigns = !merchantAddress
+    ? []
+    : fetchedCampaigns.map((c) => ({
+        id: c.id,
+        name: c.name,
+        commission: `${c.commissionRate}%`,
+        escrowLocked: `${c.escrowBalance.toLocaleString()} ${c.assetCode || "XLM"}`,
+        clearingDays: c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7,
+        category: c.category || "Technology",
+      }));
+
+  const topCommission = activeCampaigns.length > 0
+    ? `${Math.max(...fetchedCampaigns.map((c) => c.commissionRate))}%`
+    : "0%";
+  const totalEscrowLocked = activeCampaigns.length > 0
+    ? `${fetchedCampaigns.reduce((acc, c) => acc + c.escrowBalance, 0).toLocaleString()} XLM`
+    : "0 XLM";
+  const clearingDaysRange = activeCampaigns.length > 0
+    ? (() => {
+        const days = fetchedCampaigns.map((c) => (c.clearingPeriodSecs ? Math.round(c.clearingPeriodSecs / 86400) : 7));
+        const minDays = Math.min(...days);
+        const maxDays = Math.max(...days);
+        return minDays === maxDays ? `${minDays} Days` : `${minDays} - ${maxDays} Days`;
+      })()
+    : "0 Days";
 
   return (
     <div
@@ -184,7 +186,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
                 className="text-2xl sm:text-3xl font-black"
                 style={{ color: brandConfig.primaryColor }}
               >
-                25%
+                {topCommission}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Top Commission Rate
@@ -195,7 +197,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
                 className="text-2xl sm:text-3xl font-black"
                 style={{ color: brandConfig.secondaryColor }}
               >
-                25,700 XLM
+                {totalEscrowLocked}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Active Escrow Locked
@@ -211,7 +213,7 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
             </div>
             <div>
               <div className="text-2xl sm:text-3xl font-black text-purple-600 dark:text-purple-400">
-                3 - 14 Days
+                {clearingDaysRange}
               </div>
               <div className="text-xs text-zinc-500 dark:text-zinc-400 font-semibold mt-1">
                 Maturity Clearing Window
@@ -240,75 +242,98 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {mockCampaigns.map((camp) => (
-            <div
-              key={camp.id}
-              className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-zinc-500 mb-2">
-                  <span className="px-2.5 py-1 bg-slate-100 dark:bg-zinc-800 rounded-full font-mono">
-                    #{camp.id}
-                  </span>
-                  <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center">
-                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                    Escrow Funded
-                  </span>
+        {isLoading ? (
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-12 text-center shadow-sm">
+            <h4 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Loading active campaigns...
+            </h4>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              Fetching campaigns from the Stellar network.
+            </p>
+          </div>
+        ) : error ? (
+          <div className="bg-white dark:bg-zinc-900 border border-rose-200 dark:border-rose-900/50 rounded-3xl p-12 text-center shadow-sm">
+            <h4 className="text-lg font-bold text-rose-600 dark:text-rose-400">
+              Failed to load campaigns
+            </h4>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              {error.message || "An error occurred while fetching campaigns."}
+            </p>
+          </div>
+        ) : activeCampaigns.length === 0 ? (
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-12 text-center shadow-sm">
+            <h4 className="text-lg font-bold text-zinc-900 dark:text-white">
+              No active campaigns available
+            </h4>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-2">
+              This merchant does not currently have any active campaigns on Stellar escrow.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {activeCampaigns.map((camp) => (
+              <div
+                key={camp.id}
+                className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm hover:shadow-xl transition-all flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-500 mb-2">
+                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-zinc-800 rounded-full font-mono">
+                      #{camp.id}
+                    </span>
+                    <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center">
+                      <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                      Escrow Funded
+                    </span>
+                  </div>
+
+                  <h4 className="text-lg font-bold text-zinc-900 dark:text-white mt-1">
+                    {camp.name}
+                  </h4>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    Category: {camp.category}
+                  </p>
+
+                  <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Commission Rate:</span>
+                      <span
+                        className="font-bold text-base"
+                        style={{ color: brandConfig.primaryColor }}
+                      >
+                        {camp.commission}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Locked Campaign Escrow:</span>
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                        {camp.escrowLocked}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-500">Clearing Maturity:</span>
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                        {camp.clearingDays} Days
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <h4 className="text-lg font-bold text-zinc-900 dark:text-white mt-1">
-                  {camp.name}
-                </h4>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Category: {camp.category}
-                </p>
-
-                <div className="mt-6 p-4 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Commission Rate:</span>
-                    <span
-                      className="font-bold text-base"
-                      style={{ color: brandConfig.primaryColor }}
-                    >
-                      {camp.commission}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Avg Affiliate Payout:</span>
-                    <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                      {camp.avgPayout}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Locked Campaign Escrow:</span>
-                    <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                      {camp.escrowLocked}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-zinc-500">Clearing Maturity:</span>
-                    <span className="font-bold text-zinc-800 dark:text-zinc-200">
-                      {camp.clearingDays} Days
-                    </span>
-                  </div>
+                <div className="mt-6">
+                  <Button
+                    style={{
+                      backgroundColor: brandConfig.primaryColor,
+                      color: textColor,
+                    }}
+                    className="w-full rounded-xl font-bold text-sm shadow hover:opacity-90"
+                  >
+                    Join Campaign as Affiliate
+                  </Button>
                 </div>
               </div>
-
-              <div className="mt-6">
-                <Button
-                  style={{
-                    backgroundColor: brandConfig.primaryColor,
-                    color: textColor,
-                  }}
-                  className="w-full rounded-xl font-bold text-sm shadow hover:opacity-90"
-                >
-                  Join Campaign as Affiliate
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Footer */}

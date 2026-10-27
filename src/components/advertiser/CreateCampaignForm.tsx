@@ -20,6 +20,7 @@ import {
 } from "../../lib/validation";
 import { CONTRACT_ADDRESSES } from "../../config/contracts";
 import { formatStellarAddress } from "../../lib/stellar";
+import { setStoredCampaigns, getStoredCampaigns, type Campaign } from "../../hooks/useCampaigns";
 import {
   Zap,
   Target,
@@ -389,6 +390,42 @@ export const CreateCampaignForm = () => {
         campaignId: campaignResult.campaignId,
         txHash: campaignResult.txHash,
       });
+
+      // Sync new campaign with centralized campaign store
+      const commissionRateNum = Number(result.data.commissionRate);
+      const clearingPeriodNum = parseInt(result.data.clearingPeriod, 10);
+      const formattedClearingPeriod =
+        clearingPeriodNum >= 86400
+          ? `${Math.round(clearingPeriodNum / 86400)} Days`
+          : `${Math.round(clearingPeriodNum / 3600)} Hours`;
+
+      const newCamp: Campaign = {
+        id: String(campaignResult.campaignId),
+        name: result.data.campaignName,
+        status: "Active",
+        commissionRate: commissionRateNum,
+        clearingPeriod: formattedClearingPeriod,
+        clearingPeriodSecs: clearingPeriodNum,
+        totalSales: 0,
+        totalRevenue: "$0",
+        totalCommissions: "$0",
+        affiliates: 0,
+        createdAt: new Date().toISOString().slice(0, 10),
+        contractAddress: CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
+        escrowInitial: budgetNum,
+        escrowBalance: budgetNum,
+        assetCode: selectedAsset,
+        advertiserAddress: userAddress || undefined,
+      };
+
+      try {
+        setStoredCampaigns([
+          newCamp,
+          ...getStoredCampaigns().filter((c) => c.id !== newCamp.id),
+        ]);
+      } catch (storageError) {
+        console.warn("Non-fatal: Failed to persist new campaign to local storage cache:", storageError);
+      }
 
       setFlowStep("success");
       // The escrow deposit just reduced the on-chain XLM balance; reload the

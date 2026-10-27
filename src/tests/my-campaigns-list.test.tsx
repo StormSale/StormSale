@@ -96,12 +96,14 @@ vi.mock("../lib/escrowAutoRefill", async (importOriginal) => {
   };
 });
 
-import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
+import { MyCampaignsList, initialMockCampaigns } from "../components/advertiser/MyCampaignsList";
 import { getLocalStorage } from "../lib/storage";
+import { setStoredCampaigns } from "../hooks/useCampaigns";
 
 describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", () => {
   beforeEach(() => {
     getLocalStorage().clear();
+    setStoredCampaigns(initialMockCampaigns);
     notifications.showNotification.mockReset();
     wallet.userAddress = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
     wallet.isConnected = true;
@@ -126,6 +128,15 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
 
   afterEach(() => {
     cleanup();
+  });
+
+  it("renders genuine empty state when advertiser has no campaigns stored", async () => {
+    getLocalStorage().clear();
+    setStoredCampaigns([]);
+    await act(async () => {
+      render(<MyCampaignsList />);
+    });
+    expect(screen.getByText(/No campaigns found/i)).toBeTruthy();
   });
 
   it("renders main dashboard header, alerts, metrics and initial campaigns list", async () => {
@@ -294,7 +305,7 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
       fireEvent.click(confirmBtn);
     });
 
-    expect(wallet.topUpCampaignEscrow).toHaveBeenCalledWith(1, 2500);
+    expect(wallet.topUpCampaignEscrow).toHaveBeenCalledWith(1, 2500, "XLM");
     expect(notifications.showNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "success",

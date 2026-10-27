@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { registerUser, fetchCampaign, fetchConversions } from "../utils/api";
+import {
+  registerUser,
+  fetchCampaign,
+  fetchConversions,
+  enforceRoleMiddleware,
+  createCampaignApi,
+  generateSep10Challenge,
+  verifySep10ChallengeResponse,
+} from "../utils/api";
 
 describe("API Boundary Validation Suite (#74)", () => {
   const validPublicKey = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
@@ -116,6 +124,127 @@ describe("API Boundary Validation Suite (#74)", () => {
 
       const res = await fetchConversions();
       expect(res).toEqual([]);
+    });
+
+    it("rejects invalid non-string campaignId", async () => {
+      // @ts-expect-error test invalid type
+      await expect(fetchConversions(123)).rejects.toThrow("Invalid campaign ID");
+    });
+  });
+
+  describe("enforceRoleMiddleware", () => {
+    it("authorizes when caller has required role", () => {
+      const res = enforceRoleMiddleware("ADVERTISER", "ADVERTISER");
+      expect(res.authorized).toBe(true);
+      expect(res.status).toBe(200);
+    });
+
+    it("authorizes when caller role is one of multiple allowed roles", () => {
+      const res = enforceRoleMiddleware("admin", ["ADVERTISER", "ADMIN"]);
+      expect(res.authorized).toBe(true);
+      expect(res.status).toBe(200);
+    });
+
+    it("rejects when caller has wrong role", () => {
+      const res = enforceRoleMiddleware("AFFILIATE", "ADVERTISER");
+      expect(res.authorized).toBe(false);
+      expect(res.status).toBe(403);
+      expect(res.error).toContain("403 Forbidden");
+    });
+
+    it("rejects when caller role is null or undefined", () => {
+      const res = enforceRoleMiddleware(null, "ADVERTISER");
+      expect(res.authorized).toBe(false);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe("createCampaignApi", () => {
+    const payload = {
+      name: "New Campaign",
+      budgetAmount: 1000,
+      commissionRatePercent: 10,
+      clearingPeriodSecs: 86400,
+    };
+
+    it("throws 403 when user is not advertiser", async () => {
+      await expect(createCampaignApi(validPublicKey, "AFFILIATE", payload)).rejects.toThrow(/403/);
+    });
+
+    it("successfully creates campaign when user is advertiser", async () => {
+      const mockResult = { success: true, campaignId: "camp-123" };
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => mockResult,
+      });
+
+      const res = await createCampaignApi(validPublicKey, "ADVERTISER", payload);
+      expect(res).toEqual(mockResult);
+    });
+
+    it("throws error when backend returns 403", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: "Forbidden role" }),
+      });
+
+      await expect(createCampaignApi(validPublicKey, "ADVERTISER", payload)).rejects.toThrow(
+        "Forbidden role",
+      );
+    });
+
+    it("throws error when backend returns 500", async () => {
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: "Server failure" }),
+      });
+
+      await expect(createCampaignApi(validPublicKey, "ADVERTISER", payload)).rejects.toThrow(
+        "Server failure",
+      );
+    });
+  });
+
+  describe("SEP-0010 helpers", () => {
+    it("generates challenge token with valid parameters", () => {
+      const challenge = generateSep10Challenge(validPublicKey, validPublicKey);
+      expect(challenge.transaction).toContain("SEP10_CHALLENGE");
+      expect(challenge.networkPassphrase).toContain("Test SDF Network");
+    });
+
+    it("throws if serverAddress or clientAddress is missing", () => {
+      expect(() => generateSep10Challenge("", validPublicKey)).toThrow();
+    });
+
+    it("verifies challenge response matching expected client address", () => {
+      const challenge = generateSep10Challenge(validPublicKey, validPublicKey);
+      expect(verifySep10ChallengeResponse(challenge.transaction, validPublicKey)).toBe(true);
+      expect(verifySep10ChallengeResponse(challenge.transaction, "GOTHERKEY")).toBe(false);
+      expect(verifySep10ChallengeResponse("", validPublicKey)).toBe(false);
+    });
+
+    it("handles signature validation edge cases and rejects tampered or empty inputs", () => {
+      const challenge = generateSep10Challenge(validPublicKey, validPublicKey);
+
+      // Empty or invalid expected client address
+      expect(verifySep10ChallengeResponse(challenge.transaction, "")).toBe(false);
+
+      // Empty or invalid signed transaction string
+      expect(verifySep10ChallengeResponse("", "")).toBe(false);
+
+      // Malformed transaction token missing client public key
+      expect(verifySep10ChallengeResponse("MALFORMED_TRANSACTION_PAYLOAD", validPublicKey)).toBe(false);
+
+      // Tampered address (altered checksum character)
+      const tamperedAddress = validPublicKey.slice(0, -1) + (validPublicKey.endsWith("A") ? "B" : "A");
+      expect(verifySep10ChallengeResponse(challenge.transaction, tamperedAddress)).toBe(false);
+
+      // Valid signed challenge must contain the client address
+      const signedPayload = `${challenge.transaction}_SIGNED_BY_${validPublicKey}`;
+      expect(verifySep10ChallengeResponse(signedPayload, validPublicKey)).toBe(true);
     });
   });
 });

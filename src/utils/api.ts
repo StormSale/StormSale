@@ -39,13 +39,19 @@ export const fetchCampaign = async (campaignId: string) => {
 
   try {
     const res = await fetch(`${API_URL}/campaigns/${encodeURIComponent(campaignId.trim())}`);
-    if (!res.ok) {
-      return null;
+    if (res.ok) {
+      const json = await res.json();
+      return campaignMetadataResponseSchema.parse(json);
     }
-    const json = await res.json();
-    return campaignMetadataResponseSchema.parse(json);
   } catch (error) {
-    console.error("Failed to fetch campaign metadata:", error);
+    console.warn("Failed to fetch campaign metadata from API, fallback to cache:", error);
+  }
+  // Fallback to centralized campaign store
+  try {
+    const { getStoredCampaigns } = await import("../hooks/useCampaigns");
+    const campaigns = getStoredCampaigns();
+    return campaigns.find((c) => c.id === campaignId.trim()) || null;
+  } catch {
     return null;
   }
 };

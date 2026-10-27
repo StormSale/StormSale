@@ -32,6 +32,11 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { formatStellarAddress } from "../../lib/stellar";
 import {
+  useCampaigns,
+  setStoredCampaigns,
+  getStoredCampaigns,
+} from "../../hooks/useCampaigns";
+import {
   type AutoTopUpConfig,
   getDefaultAutoTopUpConfig,
   getStoredAutoTopUpConfig,
@@ -57,6 +62,7 @@ import {
   formatLedgerDuration,
   extendContractInstanceTTL,
 } from "../../lib/contractTTL";
+import type { SupportedEscrowAssetCode } from "../../config/stellar";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
 
@@ -75,6 +81,7 @@ export interface Campaign {
   contractAddress: string;
   escrowInitial: number; // Initial escrow budget (XLM)
   escrowBalance: number; // Current remaining escrow balance (XLM)
+  assetCode?: string;
   isRefunded?: boolean;
   currentBalanceXlm?: number;
   initialBudgetXlm?: number;
@@ -235,7 +242,7 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
  * and refundable balance claims.
  */
 export const MyCampaignsList = () => {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
+  const { campaigns, isLoading, error, refetch } = useCampaigns({ role: "advertiser" });
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
@@ -246,17 +253,35 @@ export const MyCampaignsList = () => {
 
   // Top-Up & Allowance States
   const [autoTopUpConfigs, setAutoTopUpConfigs] = useState<Record<string, AutoTopUpConfig>>(() => {
-    const map: Record<string, AutoTopUpConfig> = {};
-    initialMockCampaigns.forEach((c) => {
-      map[c.id] = getStoredAutoTopUpConfig(c.id, c.escrowInitial);
-    });
-    return map;
+    const initial: Record<string, AutoTopUpConfig> = {};
+    for (const campaign of campaigns) {
+      initial[campaign.id] = getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+    }
+    return initial;
   });
+  const [isConfigLoaded, setIsConfigLoaded] = useState(() => campaigns.length > 0);
+
+  useEffect(() => {
+    setAutoTopUpConfigs((previous) => {
+      const next = { ...previous };
+      for (const campaign of campaigns) {
+        if (!next[campaign.id]) {
+          next[campaign.id] = getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+        }
+      }
+      return next;
+    });
+    setIsConfigLoaded(true);
+  }, [campaigns]);
 
   const [topUpInProgressId, setTopUpInProgressId] = useState<string | null>(null);
   const [isApprovingAllowance, setIsApprovingAllowance] = useState(false);
   const [isAutoCheckRunning, setIsAutoCheckRunning] = useState(false);
   const isAutoCheckRunningRef = useRef(false);
+  const campaignsRef = useRef(campaigns);
+  useEffect(() => {
+    campaignsRef.current = campaigns;
+  }, [campaigns]);
 
   // Modal Dialog States
   const [configModalCampaign, setConfigModalCampaign] = useState<Campaign | null>(null);
@@ -321,8 +346,8 @@ export const MyCampaignsList = () => {
       });
 
       if (res.success) {
-        setCampaigns((prev) =>
-          prev.map((c) =>
+        setStoredCampaigns(
+          getStoredCampaigns().map((c) =>
             c.id === campaignId
               ? {
                   ...c,
@@ -331,6 +356,7 @@ export const MyCampaignsList = () => {
               : c,
           ),
         );
+        void refetch();
 
         showNotification({
           type: "success",
@@ -386,8 +412,8 @@ export const MyCampaignsList = () => {
       });
 
       if (result.success) {
-        setCampaigns((prev) =>
-          prev.map((c) =>
+        setStoredCampaigns(
+          getStoredCampaigns().map((c) =>
             c.id === campaign.id
               ? {
                   ...c,
@@ -397,6 +423,7 @@ export const MyCampaignsList = () => {
               : c,
           ),
         );
+        void refetch();
 
         showNotification({
           type: "success",
@@ -545,18 +572,23 @@ export const MyCampaignsList = () => {
       }
 
       setTopUpInProgressId(campaign.id);
+      const asset = campaign.assetCode || "XLM";
       try {
         showNotification({
           type: "info",
           title: isAutomated ? "Executing Automated Top-Up" : "Processing Escrow Top-Up",
-          message: `Transferring ${amount.toLocaleString()} XLM into ${campaign.name} escrow contract...`,
+          message: `Transferring ${amount.toLocaleString()} ${asset} into ${campaign.name} escrow contract...`,
         });
 
-        const res = await topUpCampaignEscrow(onChainId, amount);
+        const res = await topUpCampaignEscrow(
+          onChainId,
+          amount,
+          (campaign.assetCode as SupportedEscrowAssetCode) || "XLM",
+        );
 
         // Update campaign state
-        setCampaigns((prev) =>
-          prev.map((c) =>
+        setStoredCampaigns(
+          getStoredCampaigns().map((c) =>
             c.id === campaign.id
               ? {
                   ...c,
@@ -566,6 +598,7 @@ export const MyCampaignsList = () => {
               : c,
           ),
         );
+        void refetch();
 
         // Update config tracking
         const currentCfg =
@@ -583,9 +616,9 @@ export const MyCampaignsList = () => {
         showNotification({
           type: "success",
           title: isAutomated ? "Automated Top-Up Confirmed!" : "Escrow Top-Up Successful!",
-          message: `Added ${amount.toLocaleString()} XLM to ${campaign.name}. New Escrow Balance: ${(
+          message: `Added ${amount.toLocaleString()} ${asset} to ${campaign.name}. New Escrow Balance: ${(
             campaign.escrowBalance + amount
-          ).toLocaleString()} XLM. Remaining Allowance: ${(effectiveAllowance - amount).toLocaleString()} XLM.`,
+          ).toLocaleString()} ${asset}. Remaining Allowance: ${(effectiveAllowance - amount).toLocaleString()} ${asset}.`,
         });
 
         setManualTopUpCampaign(null);
@@ -609,6 +642,7 @@ export const MyCampaignsList = () => {
       handleAuthorizeAllowance,
       topUpCampaignEscrow,
       autoTopUpConfigs,
+      refetch,
     ],
   );
 
@@ -624,11 +658,11 @@ export const MyCampaignsList = () => {
       let remainingAllowance = tokenAllowance;
 
       try {
-        for (const campaign of campaigns) {
+        for (const campaign of campaignsRef.current) {
           if (campaign.status === "Completed") continue;
           const config =
             autoTopUpConfigs[campaign.id] ||
-            getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
+            getStoredAutoTopUpConfig(campaign.id, campaign.escrowInitial);
 
           const evaluation = evaluateAutoTopUpTrigger(campaign, config, remainingAllowance);
           if (evaluation.shouldTrigger) {
@@ -658,20 +692,21 @@ export const MyCampaignsList = () => {
         setIsAutoCheckRunning(false);
       }
     },
-    [isConnected, campaigns, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
+    [isConnected, autoTopUpConfigs, tokenAllowance, executeTopUp, showNotification],
   );
 
-  // Invoke auto top-up check when wallet connects or token allowance updates
+  // Invoke auto top-up check when wallet connects or token allowance updates,
+  // guarded until saved settings are applied from storage.
   useEffect(() => {
-    if (isConnected) {
+    if (isConnected && isConfigLoaded) {
       runAutoTopUpCheck(false);
     }
-  }, [isConnected, tokenAllowance, runAutoTopUpCheck]);
+  }, [isConnected, tokenAllowance, isConfigLoaded, runAutoTopUpCheck]);
 
   // Simulate balance drop for demonstration & testing
   const simulateBalanceDrop = (campaignId: string) => {
-    setCampaigns((prev) =>
-      prev.map((c) => {
+    setStoredCampaigns(
+      getStoredCampaigns().map((c) => {
         if (c.id === campaignId) {
           const cfg =
             autoTopUpConfigs[c.id] || getDefaultAutoTopUpConfig(c.id, c.escrowInitial);
@@ -689,6 +724,7 @@ export const MyCampaignsList = () => {
         return c;
       }),
     );
+    void refetch();
 
     const targetCamp = campaigns.find((c) => c.id === campaignId);
     showNotification({
@@ -727,6 +763,7 @@ export const MyCampaignsList = () => {
       return;
     }
 
+    const asset = campaign.assetCode || "XLM";
     // Issue #104: Escrow reclamations >= $10,000 require Gnosis Safe / Stellar secondary signature
     if (isLargeRefund(campaign.escrowBalance)) {
       let proposal = getLatestProposalForCampaign(campaign.id);
@@ -747,7 +784,7 @@ export const MyCampaignsList = () => {
       showNotification({
         type: "info",
         title: "Multi-Sig Authorization Required",
-        message: `Escrow refund exceeds $10,000 policy threshold (${campaign.escrowBalance.toLocaleString()} XLM). Secondary Safe approval required.`,
+        message: `Escrow refund exceeds $10,000 policy threshold (${campaign.escrowBalance.toLocaleString()} ${asset}). Secondary Safe approval required.`,
       });
       return;
     }
@@ -759,21 +796,23 @@ export const MyCampaignsList = () => {
       showNotification({
         type: "info",
         title: "Processing Escrow Refund",
-        message: `Withdrawing ${refundAmount.toLocaleString()} XLM unused escrow on Soroban...`,
+        message: `Withdrawing ${refundAmount.toLocaleString()} ${asset} unused escrow on Soroban...`,
       });
 
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
-      setCampaigns((prev) =>
-        prev.map((c) =>
+      // Patch only the refunded record in the full shared store
+      setStoredCampaigns(
+        getStoredCampaigns().map((c) =>
           c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c,
         ),
       );
+      await refetch();
 
       showNotification({
         type: "success",
         title: "Escrow Refund Confirmed!",
-        message: `Successfully refunded ${refundAmount.toLocaleString()} XLM to ${
+        message: `Successfully refunded ${refundAmount.toLocaleString()} ${asset} to ${
           userAddress ? formatStellarAddress(userAddress) : "your wallet"
         }. Tx: ${result.txHash ? result.txHash.slice(0, 10) + "..." : "Confirmed"}`,
       });
@@ -1093,7 +1132,25 @@ export const MyCampaignsList = () => {
       </div>
 
       {/* Campaign cards */}
-      {filtered.length === 0 ? (
+      {isLoading ? (
+        <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+          <CardContent className="py-20 text-center">
+            <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin mx-auto mb-4" />
+            <p className="text-zinc-500 dark:text-zinc-400 font-medium">Loading campaigns from Stellar...</p>
+          </CardContent>
+        </Card>
+      ) : error ? (
+        <Card className="border border-rose-200 dark:border-rose-900/50 shadow-sm rounded-2xl bg-rose-50/50 dark:bg-rose-950/20">
+          <CardContent className="py-12 text-center">
+            <AlertCircle className="w-8 h-8 text-rose-500 mx-auto mb-3" />
+            <h3 className="text-lg font-bold text-rose-900 dark:text-rose-200 mb-1">Failed to load campaigns</h3>
+            <p className="text-sm text-rose-600 dark:text-rose-400 mb-4">{error.message}</p>
+            <Button onClick={() => void refetch()} variant="outline" size="sm" className="rounded-xl">
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      ) : filtered.length === 0 ? (
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
           <CardContent className="py-20 text-center">
             <div className="w-20 h-20 bg-slate-100 dark:bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-6">
@@ -1103,7 +1160,9 @@ export const MyCampaignsList = () => {
               No campaigns found
             </h3>
             <p className="text-zinc-500 dark:text-zinc-400 mb-8">
-              Try adjusting your search query or filter settings.
+              {search || statusFilter !== "All"
+                ? "Try adjusting your search query or filter settings."
+                : "You have not created any campaigns yet."}
             </p>
           </CardContent>
         </Card>
@@ -1215,7 +1274,7 @@ export const MyCampaignsList = () => {
                         <span>{campaign.escrowBalance.toLocaleString()}</span>
                         <span className="text-zinc-400 font-normal">
                           {" "}
-                          / {campaign.escrowInitial.toLocaleString()} XLM
+                          / {campaign.escrowInitial.toLocaleString()} {campaign.assetCode || "XLM"}
                         </span>
                         <span
                           className={`ml-2 text-xs font-bold ${
@@ -2088,13 +2147,14 @@ export const MyCampaignsList = () => {
             selectedCampaignForConfig.initialBudgetXlm ?? selectedCampaignForConfig.escrowInitial
           }
           onRefillComplete={(newBalanceXlm: number) => {
-            setCampaigns((prev) =>
-              prev.map((c) =>
+            setStoredCampaigns(
+              getStoredCampaigns().map((c) =>
                 c.id === selectedCampaignForConfig.id
                   ? { ...c, currentBalanceXlm: newBalanceXlm, escrowBalance: newBalanceXlm }
                   : c,
               ),
             );
+            void refetch();
           }}
         />
       )}
@@ -2109,11 +2169,12 @@ export const MyCampaignsList = () => {
           setMultiSigVersion((v) => v + 1);
         }}
         onRefundExecuted={(campaignId: string) => {
-          setCampaigns((prev) =>
-            prev.map((c) =>
+          setStoredCampaigns(
+            getStoredCampaigns().map((c) =>
               c.id === campaignId ? { ...c, escrowBalance: 0, isRefunded: true } : c,
             ),
           );
+          void refetch();
           setMultiSigVersion((v) => v + 1);
         }}
       />
