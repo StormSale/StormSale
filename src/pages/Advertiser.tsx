@@ -7,6 +7,7 @@ import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
+import { CampaignAssetLibrary } from "../components/advertiser/CampaignAssetLibrary";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
 import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
@@ -27,6 +28,7 @@ import {
   Megaphone,
   Radio,
   Palette,
+  FolderArchive,
   FileSearch,
   Layers,
   Coins,
@@ -44,6 +46,7 @@ const ADVERTISER_TABS = [
   "create-campaign",
   "my-campaigns",
   "brand-customizer",
+  "asset-library",
   "log-sale",
   "batch-sales",
   "cohort-analysis",
@@ -68,6 +71,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
+    { id: "asset-library", label: "Promotion Assets & IPFS", icon: FolderArchive },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
@@ -83,6 +87,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CreateCampaignForm />;
       case "brand-customizer":
         return <BrandCustomizer />;
+      case "asset-library":
+        return <CampaignAssetLibrary />;
       case "log-sale":
         return <LogSaleForm />;
       case "batch-sales":
@@ -436,6 +442,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-sky-500/10",
                   hoverText: "group-hover:text-sky-500",
                   hoverBorder: "hover:border-sky-500/30",
+                },
+                {
+                  label: "Promotion Assets",
+                  icon: FolderArchive,
+                  action: "asset-library",
+                  hoverBg: "group-hover:bg-purple-500/10",
+                  hoverText: "group-hover:text-purple-500",
+                  hoverBorder: "hover:border-purple-500/30",
                 },
                 {
                   label: "Grant Access",

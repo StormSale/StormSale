@@ -6,6 +6,7 @@ import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { AffiliateClickStreamHeatmap } from "../components/affiliate/ClickStreamHeatmap";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
+import { AffiliateAssetLibrary } from "../components/affiliate/AffiliateAssetLibrary";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import {
@@ -17,6 +18,7 @@ import {
   Globe2,
   Send,
   Sliders,
+  FolderArchive,
   Link2,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -37,6 +39,7 @@ const AFFILIATE_TABS = [
   "telegram-browser",
   "custom-links",
   "join-campaign",
+  "creative-assets",
   "my-sales",
   "claim-payouts",
   "settings",
@@ -58,6 +61,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
+    { id: "creative-assets", label: "Creative Assets & IPFS", icon: FolderArchive },
     { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
@@ -75,6 +79,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
         return <CustomLinksManager />;
       case "join-campaign":
         return <JoinCampaignButton />;
+      case "creative-assets":
+        return <AffiliateAssetLibrary />;
       case "apply-links":
         return <CampaignApplication />;
       case "my-sales":
