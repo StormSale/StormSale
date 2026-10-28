@@ -135,7 +135,7 @@ export type SupportedEscrowAssetCode = keyof typeof SUPPORTED_ESCROW_ASSETS;
 export const STELLAR_NETWORKS = {
   TESTNET: {
     name: "Testnet",
-    passphrase: "Test DF Network ; September 2015",
+    passphrase: "Test SDF Network ; September 2015",
     rpcUrl: "https://soroban-testnet.stellar.org",
     horizonUrl: "https://horizon-testnet.stellar.org",
   },

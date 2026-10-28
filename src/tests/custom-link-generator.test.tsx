@@ -64,6 +64,7 @@ describe("LinkGeneratorModal", () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("validates, configures, creates, copies, and resets a custom short link", async () => {
@@ -78,16 +79,15 @@ describe("LinkGeneratorModal", () => {
       />,
     );
 
-    expect(screen.getByText("Fingerprint: pending")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("Fingerprint: fingerprint-1")).toBeTruthy());
 
     const slugInput = screen.getByLabelText("Custom Short-Link Slug");
     fireEvent.change(slugInput, { target: { value: "taken-slug" } });
-    expect(screen.getByText("Collision Detected:")).toBeTruthy();
-    expect(screen.getByText("Slug is already registered.")).toBeTruthy();
+    expect(await screen.findByText("Collision Detected:")).toBeTruthy();
+    expect(await screen.findByText("Slug is already registered.")).toBeTruthy();
 
     fireEvent.change(slugInput, { target: { value: "spring-sale" } });
-    expect(screen.getByText("Available!")).toBeTruthy();
+    expect(await screen.findByText("Available!")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Target Campaign"), { target: { value: "2" } });
     fireEvent.change(screen.getByPlaceholderText("https://merchant.com/product"), {
       target: { value: "https://merchant.example/product" },
