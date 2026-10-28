@@ -856,7 +856,7 @@ export const CreateCampaignForm = () => {
                     </span>
                     <button
                       type="button"
-                      onClick={handleManualRefreshAllowance}
+                      onClick={handleRefreshAllowance}
                       disabled={isRefreshingAllowance}
                       className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors p-1"
                       title="Refresh token allowance"
@@ -1122,7 +1122,7 @@ export const CreateCampaignForm = () => {
                         variant="outline"
                         size="sm"
                         disabled={isExecuting}
-                        onClick={handleApproveAllowanceOnly}
+                        onClick={handleApproveAllowance}
                         className="text-xs h-8 rounded-lg border-zinc-300 dark:border-zinc-700 font-semibold"
                       >
                         <Lock className="w-3.5 h-3.5 mr-1" />

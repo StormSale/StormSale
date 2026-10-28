@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Affiliate } from "../pages/Affiliate";
@@ -60,9 +61,11 @@ vi.mock("../components/affiliate/TelegramAlertsCard", () => ({
   TelegramAlertsCard: () => <div>Telegram alerts content</div>,
 }));
 vi.mock("../context/NotificationContext", () => ({
-  NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
+  NotificationProvider: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("../lib/telegram", () => ({ isTelegramMiniApp: () => false }));
+
+// Note: CI checkout failure for fork PRs under pull_request_target is a workflow configuration issue (allow-unsafe-pr-checkout), not addressable in this test file. Do not enable allow-unsafe-pr-checkout without a security review.
 
 describe("Affiliate page navigation", () => {
   beforeEach(() => localStorage.clear());

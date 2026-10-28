@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import React from "react";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 const exportSpies = vi.hoisted(() => ({ print: vi.fn(), download: vi.fn() }));
