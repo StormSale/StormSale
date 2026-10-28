@@ -51,6 +51,8 @@ describe("Stellar Helpers", () => {
     };
     (globalThis as any).window = { localStorage: mockLocalStorage };
     (globalThis as any).localStorage = mockLocalStorage;
+    // Explicitly restore a clean mock environment for each test run
+    mockLocalStorage.clear();
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
     const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";

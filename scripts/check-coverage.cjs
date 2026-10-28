@@ -15,6 +15,8 @@ const { execSync } = require('child_process');
 
 const DEFAULT_THRESHOLD = 80;
 
+// Vitest v8 coverage summary is written to coverage/coverage-summary.json by `npm run test:coverage`.
+
 function parseArgs() {
   const args = process.argv.slice(2);
   let threshold = DEFAULT_THRESHOLD;
@@ -54,7 +56,7 @@ function getChangedFiles() {
 }
 
 function evaluateCoverage(summaryData, options = {}) {
-  const threshold = options.threshold ?? DEFAULT_THRESHOLD;
+      const threshold = options.threshold ?? DEFAULT_THRESHOLD;
   const targetFiles = options.targetFiles || [];
   const rootDir = process.cwd();
 
@@ -86,10 +88,10 @@ function evaluateCoverage(summaryData, options = {}) {
       continue;
     }
 
-    const linesPct = metrics.lines.pct;
-    const stmtsPct = metrics.statements.pct;
-    const branchPct = metrics.branches.pct;
-    const funcsPct = metrics.functions.pct;
+    const linesPct = metrics.lines?.pct ?? 0;
+    const stmtsPct = metrics.statements?.pct ?? 0;
+    const branchPct = metrics.branches?.pct ?? 0;
+    const funcsPct = metrics.functions?.pct ?? 0;
 
     const meetsThreshold =
       linesPct >= threshold &&
