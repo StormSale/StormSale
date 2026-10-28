@@ -13,8 +13,9 @@ vi.mock("../lib/complianceExport", async (importOriginal) => {
 });
 
 vi.mock("../components/auditor/Soc2EvidenceExport", () => ({
-  Soc2EvidenceExport: () => <div>SOC 2 export</div>,
+  Soc2EvidenceExport: () => ({ type: "div", props: { children: "SOC 2 export" } }),
 }));
+
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { NotificationProvider } from "../context/NotificationContext";
