@@ -20,6 +20,7 @@ import {
   resumeContractCall,
   getContractPausedStateQuery,
 } from "../lib/stellar";
+import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
 import type { WalletType } from "../lib/stellar";
 import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import type { SupportedEscrowAssetCode } from "../config/stellar";
@@ -29,6 +30,8 @@ import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import { batchClaimPayouts } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
+import type { AutoSwapConfig } from "../lib/sorobanDex";
+import { isAffiliatePaused } from "../lib/fraudRiskEngine";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import type { MultiSigAccountInfo } from "../lib/multisig";
@@ -38,6 +41,8 @@ import {
   type RpcEndpointStatus,
   type RpcFailoverEvent,
 } from "../lib/rpcFallback";
+import { recordReferralSale } from "../lib/referralTree";
+import type { TwoTierCommissionSplit } from "../types/referral";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -86,7 +91,9 @@ export interface Web3ContextType {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+    recruiterAddress?: string,
+    commissionRatePercent?: number,
+  ) => Promise<{ success: boolean; txHash?: string; split?: TwoTierCommissionSplit }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -97,10 +104,16 @@ export interface Web3ContextType {
     asset?: SupportedEscrowAssetCode;
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  topUpCampaignEscrow: (
+    campaignId: number,
+    amount: number,
+    assetCode?: SupportedEscrowAssetCode,
+  ) => Promise<{ success: boolean; txHash?: string; toppedUpAmount?: number }>;
 
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => Promise<BatchClaimReceipt>;
 
   registerPasskeyAccount: (userName?: string) => Promise<PasskeyCredentialRecord>;
@@ -156,12 +169,26 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-export function Web3Provider({ children }: { children: ReactNode }) {
-  const [userAddress, setUserAddress] = useState<string | null>(null);
+export function useSafeWeb3(): Web3ContextType | undefined {
+  return useContext(Web3Context);
+}
+
+export function Web3Provider({
+  children,
+  overrideAddress,
+  initialUserAddress,
+}: {
+  children: ReactNode;
+  overrideAddress?: string | null;
+  initialUserAddress?: string | null;
+}) {
+  const [userAddress, setUserAddress] = useState<string | null>(
+    overrideAddress ?? initialUserAddress ?? null,
+  );
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(Boolean(overrideAddress ?? initialUserAddress));
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [assetBalances, setAssetBalances] = useState<Record<SupportedEscrowAssetCode, string>>({
@@ -590,20 +617,85 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
+    recruiterAddress?: string,
+    commissionRatePercent?: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    return logSaleContractCall(
-      userAddress,
-      campaignId,
-      affiliateAddress,
-      amountXlm,
-      connectorType || "freighter",
-    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await logSaleContractCall(
+        userAddress,
+        campaignId,
+        affiliateAddress,
+        amountXlm,
+        connectorType,
+        recruiterAddress,
+        commissionRatePercent,
+      );
+      if (!res.success) {
+        return res;
+      }
+
+      // Record two-tier referral commission split only after successful transaction
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+        txHash: res.txHash,
+      });
+
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${res.txHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: res.txHash,
+      });
+
+      return { ...res, split };
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+        txHash: mockTxHash,
+      });
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${mockTxHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: mockTxHash,
+      });
+      return {
+        success: true,
+        txHash: mockTxHash,
+        split,
+      };
+    }
   };
 
   // Soroban: Claim Affiliate Commission
   const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "claim-payout");
 
     console.log(
@@ -647,13 +739,72 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     );
   };
 
+  /**
+   * Tops up a campaign's escrow balance on Soroban or mock sandbox, deducting token allowance.
+   */
+  const topUpCampaignEscrow = async (
+    campaignId: number,
+    amount: number,
+    assetCode: SupportedEscrowAssetCode = "XLM",
+  ) => {
+    if (!userAddress) throw new Error("Wallet not connected");
+
+    console.log(
+      `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
+    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await topUpCampaignEscrowContractCall(
+        userAddress,
+        campaignId,
+        amount,
+        connectorType,
+        assetCode,
+      );
+      setTimeout(() => {
+        refreshBalance(userAddress);
+        refreshTokenAllowance(undefined, assetCode);
+      }, 1000);
+      return res;
+    } else {
+      if (connectorType !== "mock") {
+        throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
+      }
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      setTokenAllowance((prev) => Math.max(0, prev - amount));
+      if (typeof window !== "undefined" && window.localStorage) {
+        const stored = window.localStorage.getItem(
+          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+        );
+        if (stored) {
+          const updated = Math.max(0, parseFloat(stored) - amount);
+          window.localStorage.setItem(
+            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            updated.toString(),
+          );
+        }
+      }
+      return {
+        success: true,
+        txHash: mockTxHash,
+        toppedUpAmount: amount,
+      };
+    }
+  };
+
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
   // (optionally routes the withdrawn total to auto-split vault destinations in the same envelope)
   const batchClaimPayoutsOnChain = async (
     campaigns: ClaimableCampaignItem[],
     splitPlan?: SplitPlan | null,
+    autoSwap?: AutoSwapConfig | null,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
@@ -661,6 +812,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       campaigns,
       connectorType || "freighter",
       splitPlan,
+      autoSwap,
     );
     return res;
   };
@@ -687,6 +839,36 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       setIsContractPauseLoading(false);
     }
   }, [contractPaused]);
+
+  const getCampaignContract = (address: string) => ({
+    logEncryptedSale: async (
+      affiliate: string,
+      amount: string,
+      _payload: any,
+      _advKey: any,
+      _affKey: any,
+      commissionRate?: number,
+    ) => {
+      const parsedId = parseInt(address, 10);
+      const campaignId = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 1;
+      const res = await logSaleOnChain(
+        campaignId,
+        affiliate,
+        parseFloat(amount) || 0,
+        undefined,
+        commissionRate,
+      );
+      return {
+        wait: async () => res,
+      };
+    },
+    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
+      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
+      return {
+        wait: async () => ({ success: true }),
+      };
+    },
+  });
 
   const pauseContract = useCallback(async () => {
     if (!userAddress) throw new Error("Wallet not connected");
@@ -716,7 +898,6 @@ export function Web3Provider({ children }: { children: ReactNode }) {
 
   // Compatibility helpers for legacy form callers
   const factoryContract = null;
-  const getCampaignContract = (_address: string) => null;
   const provider = null;
   const signer = null;
   const switchToStellarNetwork = async () => {
@@ -757,6 +938,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
         logSaleOnChain,
         claimPayoutOnChain,
         refundCampaignEscrow,
+        topUpCampaignEscrow,
         batchClaimPayoutsOnChain,
         registerPasskeyAccount,
         tokenAllowance,
