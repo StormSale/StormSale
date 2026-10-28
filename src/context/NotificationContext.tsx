@@ -1,4 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+/* eslint-disable react-refresh/only-export-components */
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -178,7 +187,7 @@ export function buildTransactionTimeoutNotification(
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const dismissNotification = useCallback((id: string) => {
@@ -191,10 +200,20 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 
   const pollingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  const showNotification = useCallback(
-    (notification: Omit<Notification, "id">): string => {
-      const id = Math.random().toString(36).substring(2, 11);
-      const isPersistent = notification.persistent === true || notification.duration === 0;
+  const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
+    let randomSuffix: string;
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      randomSuffix = crypto.randomUUID();
+    } else if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      const buffer = new Uint32Array(2);
+      crypto.getRandomValues(buffer);
+      randomSuffix = `${buffer[0].toString(36)}-${buffer[1].toString(36)}`;
+    } else {
+      randomSuffix = `${Date.now().toString(36)}-${(performance.now() * 1000).toString(36)}`;
+    }
+
+    const id = `toast-${Date.now()}-${randomSuffix}`;
+    const isPersistent = notification.persistent === true || notification.duration === 0;
 
     const newNotification: Notification = {
       ...notification,
@@ -319,19 +338,31 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     [notifications, notifyLowEscrowBalance],
   );
 
+  const contextValue = useMemo(
+    () => ({
+      notifications,
+      showNotification,
+      dismissNotification,
+      notifyLowEscrowBalance,
+      checkEscrowBalances,
+      clearAllNotifications,
+      notifyTransactionTimeout,
+      pollTransaction,
+    }),
+    [
+      notifications,
+      showNotification,
+      dismissNotification,
+      notifyLowEscrowBalance,
+      checkEscrowBalances,
+      clearAllNotifications,
+      notifyTransactionTimeout,
+      pollTransaction,
+    ],
+  );
+
   return (
-    <NotificationContext.Provider
-      value={{
-        notifications,
-        showNotification,
-        dismissNotification,
-        notifyLowEscrowBalance,
-        checkEscrowBalances,
-        clearAllNotifications,
-        notifyTransactionTimeout,
-        pollTransaction,
-      }}
-    >
+    <NotificationContext.Provider value={contextValue}>
       {children}
       <NotificationContainer />
     </NotificationContext.Provider>
@@ -339,8 +370,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 };
 
 interface ToastItemProps {
-  notification: Notification;
-  onDismiss: (id: string) => void;
+  readonly notification: Notification;
+  readonly onDismiss: (id: string) => void;
 }
 
 const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
@@ -443,6 +474,24 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
   const actionLabel = notification.actionLabel || notification.action?.label;
   const actionUrl = notification.actionUrl || notification.action?.url;
 
+  const renderBadge = () => {
+    if (notification.persistent) {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+          Persistent Alert
+        </span>
+      );
+    }
+    if (notification.type === "pending") {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
+          In Progress
+        </span>
+      );
+    }
+    return null;
+  };
+
   return (
     <motion.div
       layout
@@ -467,15 +516,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
             <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
               {notification.title}
             </h4>
-            {notification.persistent ? (
-              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
-                Persistent Alert
-              </span>
-            ) : notification.type === "pending" ? (
-              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
-                In Progress
-              </span>
-            ) : null}
+            {renderBadge()}
           </div>
 
           {notification.message && (
@@ -606,12 +647,12 @@ export const useNotification = () => {
   return context;
 };
 
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
+export function NotificationWrapper({ children }: { readonly children: React.ReactNode }) {
   return <NotificationProvider>{children}</NotificationProvider>;
 }
 
 export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
+  return function WrappedWithNotification(props: Readonly<P>) {
     return (
       <NotificationProvider>
         <Component {...props} />

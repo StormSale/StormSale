@@ -5,7 +5,7 @@ import fs from "fs";
 
 // Import CommonJS module functions
 // @ts-expect-error CJS module import
-import { evaluateCoverage, generateMarkdownReport } from "../../scripts/check-coverage.cjs";
+import { evaluateCoverage, evaluateDiffCoverage, generateMarkdownReport, loadLcov, parseAddedLinesFromPatch } from "../../scripts/check-coverage.cjs";
 
 interface FileMetric {
   file: string;
@@ -115,5 +115,69 @@ describe("Enforced Coverage Thresholds (#95)", () => {
     const scriptPath = path.resolve(process.cwd(), "scripts/check-coverage.cjs");
     const cmd = `node "${scriptPath}" --threshold=80 --file=node_modules/.tmp-coverage-summary.json --target=src/components/legacy/untested.tsx`;
     expect(() => execSync(cmd, { stdio: "pipe" })).toThrow();
+  });
+});
+
+describe("Diff (changed-line) coverage enforcement", () => {
+  const lcovMap = {
+    "src/foo.ts": { 3: 1, 4: 0, 5: 1, 6: 0 },
+  };
+
+  it("parses added new-file line numbers from a unified diff patch", () => {
+    const patch = ["@@ -1,3 +1,4 @@", " line1", "-line2", "+newA", "+newB", " context"].join("\n");
+    expect(parseAddedLinesFromPatch(patch)).toEqual([2, 3]);
+  });
+
+  it("ignores added lines that carry no executable instrumentation", () => {
+    const evaluation = evaluateDiffCoverage(lcovMap, [{ file: "src/foo.ts", addedLines: [3, 99] }], {
+      threshold: 80,
+    });
+    expect(evaluation.fileMetrics[0].changedExecutable).toBe(1);
+    expect(evaluation.fileMetrics[0].diff).toBe(100);
+    expect(evaluation.violations).toHaveLength(0);
+  });
+
+  it("flags a violation when covered changed lines fall below the threshold", () => {
+    const evaluation = evaluateDiffCoverage(lcovMap, [{ file: "src/foo.ts", addedLines: [3, 4, 5] }], {
+      threshold: 80,
+    });
+    const metric = evaluation.fileMetrics[0];
+    expect(metric.changedExecutable).toBe(3);
+    expect(metric.changedCovered).toBe(2);
+    expect(metric.diff).toBe(66.67);
+    expect(metric.meetsThreshold).toBe(false);
+    expect(metric.uncoveredLines).toEqual([4]);
+    expect(evaluation.violations).toHaveLength(1);
+  });
+
+  it("treats a changed file that is absent from the coverage report as passing", () => {
+    const evaluation = evaluateDiffCoverage(lcovMap, [{ file: "src/missing.ts", addedLines: [1, 2] }], {
+      threshold: 80,
+    });
+    expect(evaluation.fileMetrics[0].instrumented).toBe(false);
+    expect(evaluation.fileMetrics[0].meetsThreshold).toBe(true);
+    expect(evaluation.violations).toHaveLength(0);
+  });
+
+  it("renders a diff report with per-file rows and a failure callout", () => {
+    const evaluation = evaluateDiffCoverage(lcovMap, [{ file: "src/foo.ts", addedLines: [3, 4, 5] }], {
+      threshold: 80,
+    });
+    const report = generateMarkdownReport(evaluation);
+    expect(report).toContain("diff / changed lines");
+    expect(report).toContain("| `src/foo.ts` | 3 | 2 | **66.67%** | ❌ |");
+    expect(report).toContain("Coverage Threshold Failure");
+    expect(report).toContain("uncovered lines: 4");
+  });
+
+  it("parses an lcov.info file into a per-line hit map", () => {
+    const lcovPath = path.resolve(process.cwd(), "node_modules/.tmp-lcov.info");
+    const sf = path.resolve(process.cwd(), "src/lcov-sample.ts");
+    fs.writeFileSync(
+      lcovPath,
+      ["TN:", `SF:${sf}`, "DA:1,1", "DA:2,0", "DA:3,5", "end_of_record", ""].join("\n"),
+    );
+    const parsed = loadLcov(lcovPath);
+    expect(parsed["src/lcov-sample.ts"]).toEqual({ 1: 1, 2: 0, 3: 5 });
   });
 });
