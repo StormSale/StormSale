@@ -8,8 +8,8 @@ const mocks = vi.hoisted(() => ({
   telegramMode: false,
   throwDashboard: false,
   initTelegramWebApp: vi.fn(),
-  syncTelegramTheme: vi.fn(() => vi.fn()),
-  loadBrandConfig: vi.fn(() => ({ name: "Campaign" })),
+  syncTelegramTheme: vi.fn(),
+  loadBrandConfig: vi.fn(),
 }));
 
 vi.mock("../context/Web3Context", () => ({
@@ -113,6 +113,9 @@ describe("App routing", () => {
     mocks.isConnected = false;
     mocks.telegramMode = false;
     mocks.throwDashboard = false;
+    mocks.syncTelegramTheme.mockReset().mockImplementation(() => () => {});
+    mocks.loadBrandConfig.mockReset().mockImplementation(() => ({ name: "Campaign" }));
+    mocks.initTelegramWebApp.mockReset();
     localStorage.clear();
     window.history.replaceState({}, "", "/");
   });
@@ -120,7 +123,7 @@ describe("App routing", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
-    vi.mocked(console.error).mockRestore?.();
+    vi.restoreAllMocks();
   });
 
   it("renders the landing route and navigates through protected role pages", async () => {
