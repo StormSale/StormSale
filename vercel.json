@@ -10,6 +10,7 @@
     { "source": "/api/custom-links/resolve", "destination": "/api/custom-links/resolve" },
     { "source": "/api/custom-links/list", "destination": "/api/custom-links/list" },
     { "source": "/api/custom-links/delete", "destination": "/api/custom-links/delete" },
+    { "source": "/api/affiliate/click-stream", "destination": "/api/affiliate/click-stream" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
