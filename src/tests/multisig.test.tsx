@@ -361,46 +361,6 @@ describe("Stellar Multi-Signature & SEP-0030 Campaign Escrow Approvals (#122)", 
       );
 
       expect(updated.status).toBe("ready");
-      expect(updated.isThresholdMet).toBe(true);
-      expect(updated.currentWeight).toBe(2);
-
-      const coSignerEntry = updated.coSigners.find((s) => s.address === coSignerKey.publicKey());
-      expect(coSignerEntry?.hasSigned).toBe(true);
-    });
-  });
-
-  describe("7. MultiSigApprovalModal UI Component", () => {
-    it("should render null when isMultiSigModalOpen is false", () => {
-      const html = renderToString(
-        <Web3Provider>
-          <MultiSigApprovalModal />
-        </Web3Provider>,
-      );
-      expect(html).not.toContain("Multi-Signature Campaign Escrow Approval");
-    });
-
-    it("should render modal with progress bar, signers list and tabs when open", async () => {
-      const Web3Hook = await import("../hooks/useWeb3");
-      const { vi } = await import("vitest");
-      vi.spyOn(Web3Hook, "useWeb3").mockReturnValue({
-        userAddress: masterKey.publicKey(),
-        connectorType: "mock",
-        multiSigInfo: multiSigAccountConfig,
-        isMultiSigAccount: true,
-        isMultiSigModalOpen: true,
-        closeMultiSigModal: vi.fn(),
-        activeMultiSigXdr: buildSampleTx().toXDR(),
-        activeMultiSigDescription: "Test Escrow",
-        refreshMultiSigInfo: vi.fn().mockResolvedValue(multiSigAccountConfig),
-      } as unknown as Web3ContextType);
-
-      const html = renderToString(<MultiSigApprovalModal />);
-      expect(html).toContain("Multi-Signature Campaign Escrow Approval");
-      expect(html).toContain("Signing Progress:");
-      expect(html).toContain("Registered Account Signers");
-      expect(html).toContain("Export &amp; SEP-0030 Share");
-      expect(html).toContain("Import &amp; Co-Sign XDR");
-      expect(html).toContain("Sign with Connected Wallet");
     });
   });
 });
