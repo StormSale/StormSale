@@ -27,7 +27,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    // Escalate to any outer boundary / observer while still showing the fallback UI.
+    // Log for diagnostics; the fallback UI is rendered from getDerivedStateFromError.
     console.error("Uncaught render error:", error);
   }
 
@@ -45,7 +45,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (!error) return;
 
     try {
-      this.props.onReport?.(error, errorInfo as ErrorInfo);
+      if (errorInfo) {
+        this.props.onReport?.(error, errorInfo);
+      }
     } catch (reportError) {
       console.error("Failed to report error:", reportError);
     }
