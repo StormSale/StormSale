@@ -23,9 +23,10 @@ concurrency:
 jobs:
   # ---------------------------------------------------------------------------
   # Build + deploy an ephemeral preview environment for open PRs.
+  # Skipped on external forks where repository secrets are inaccessible.
   # ---------------------------------------------------------------------------
   preview:
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     environment:
       name: preview/pr-${{ github.event.pull_request.number }}
@@ -89,18 +90,22 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const marker = "<!-- stormsale-preview-comment -->";
             const commit = context.payload.pull_request.head.sha.slice(0, 7);
-            const body = `${marker}
-### 🌐 Ephemeral preview environment is live
-
-| | |
-| :--- | :--- |
-| **Preview URL** | ${url} |
-| **Network** | Stellar **Testnet** (default) |
-| **Commit** | \`${commit}\` |
-
-> This staging environment is torn down automatically when the PR is closed or
-> merged. Click the URL to inspect UI changes in a live browser before approving.
-`;
+            // Build the comment line by line so the YAML block stays indented
+            // while the rendered markdown starts at column 0 (no code block).
+            const body = [
+              marker,
+              "### 🌐 Ephemeral preview environment is live",
+              "",
+              "| | |",
+              "| :--- | :--- |",
+              `| **Preview URL** | ${url} |`,
+              "| **Network** | Stellar **Testnet** (default) |",
+              `| **Commit** | \`${commit}\` |`,
+              "",
+              "> This staging environment is torn down automatically when the PR is closed or",
+              "> merged. Click the URL to inspect UI changes in a live browser before approving.",
+              "",
+            ].join("\n");
 
             // Replace our previous preview comment instead of spamming the thread.
             const { data: comments } = await github.rest.issues.listComments({
@@ -130,9 +135,10 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # Teardown the ephemeral environment when the PR is closed or merged.
+  # Skipped on external forks where preview environments were not deployed.
   # ---------------------------------------------------------------------------
   teardown:
-    if: github.event.action == 'closed'
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
 
     steps:

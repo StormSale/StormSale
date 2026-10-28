@@ -9,12 +9,20 @@ import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
+import { ZKProofVerifierModal } from "./components/affiliate/ZKProofVerifierModal";
+import { parseProofFromUrl } from "./lib/zkProofEngine";
+import { parseRecruiterInviteFromUrl } from "./lib/referralTree";
+import type { ZKRevenueProof } from "./types/zkProof";
 import { loadBrandConfig } from "./lib/branding";
 import { ResourceDiagnostic } from "./components/shared/ResourceDiagnostic";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
 import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
+import { ThemeToggle } from "./components/shared/ThemeToggle";
+import { Button } from "./components/ui/button";
+import { ArrowLeft, Zap } from "lucide-react";
+import logo from "./assets/logo2.png";
 
 // Lazy-loaded routes and role-specific dashboards
 export const Landing = lazy(() => import("./pages/Landing").then((m) => ({ default: m.Landing })));
@@ -31,6 +39,11 @@ export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ defau
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
     default: m.BrandedCampaignView,
+  })),
+);
+export const AffiliateLeaderboard = lazy(() =>
+  import("./components/affiliate/AffiliateLeaderboard").then((m) => ({
+    default: m.AffiliateLeaderboard,
   })),
 );
 
@@ -69,12 +82,19 @@ const ErrorFallback = () => (
   </div>
 );
 
-const VALID_PAGES = ["dashboard", "advertiser", "affiliate", "auditor"] as const;
+const VALID_PAGES = [
+  "dashboard",
+  "advertiser",
+  "affiliate",
+  "leaderboard",
+  "milestones",
+  "auditor",
+] as const;
 
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
-  const { isConnected } = useWeb3();
+  const { isConnected, openWalletModal } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
@@ -82,6 +102,12 @@ function Router() {
     isTelegramMiniApp() ? "affiliate" : "dashboard",
     (value) => VALID_PAGES.includes(value as Page),
   );
+
+  const [isPublicLeaderboardOpen, setIsPublicLeaderboardOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("view") === "leaderboard" || params.get("tab") === "leaderboard";
+  });
 
   const prevConnectedRef = useRef(isConnected);
 
@@ -93,7 +119,14 @@ function Router() {
     }
     prevConnectedRef.current = isConnected;
   }, [isConnected, setCurrentPage]);
-
+  // Handle incoming recruiter invites (e.g. ?recruiter=G...)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const invite = parseRecruiterInviteFromUrl(window.location.href);
+    if (invite.recruiterAddress) {
+      setCurrentPage("affiliate");
+    }
+  }, [setCurrentPage]);
   const [activeBrandSubdomain, setActiveBrandSubdomain] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
@@ -103,6 +136,11 @@ function Router() {
     if (typeof window === "undefined") return false;
     const params = new URLSearchParams(window.location.search);
     return params.get("dev") === "1" || params.get("devMode") === "true";
+  });
+
+  const [proofToVerify, setProofToVerify] = useState<ZKRevenueProof | null>(() => {
+    if (typeof window === "undefined") return null;
+    return parseProofFromUrl(window.location.href);
   });
 
   const handleNavigate = (page: string) => {
@@ -126,6 +164,71 @@ function Router() {
     );
   }
 
+  if (isPublicLeaderboardOpen) {
+    return (
+      <>
+        <ConnectWalletModal />
+        <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans selection:bg-indigo-500/30">
+          <header className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
+            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsPublicLeaderboardOpen(false)}
+                  className="rounded-xl font-bold text-xs"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1.5" />
+                  Back to StormSale
+                </Button>
+                <div className="hidden sm:flex items-center space-x-2 border-l border-slate-200 dark:border-zinc-800 pl-3">
+                  <img src={logo} alt="StormSale Icon" className="h-7 w-auto object-contain" />
+                  <span className="font-black text-sm tracking-tight text-zinc-900 dark:text-white">
+                    StormSale
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <ThemeToggle />
+                {!isConnected ? (
+                  <Button
+                    onClick={openWalletModal}
+                    className="rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Connect Wallet
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      setIsPublicLeaderboardOpen(false);
+                      setCurrentPage("affiliate");
+                    }}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    Affiliate Dashboard
+                  </Button>
+                )}
+              </div>
+            </div>
+          </header>
+          <main className="container mx-auto px-4 py-8 max-w-6xl">
+            <AffiliateLeaderboard
+              onSelectMilestones={() => {
+                if (!isConnected) {
+                  openWalletModal();
+                } else {
+                  setIsPublicLeaderboardOpen(false);
+                  setCurrentPage("affiliate");
+                }
+              }}
+            />
+          </main>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <ConnectWalletModal />
@@ -144,9 +247,23 @@ function Router() {
         />
       </div>
       {devMode && <ResourceDiagnostic />}
+      <ZKProofVerifierModal
+        isOpen={Boolean(proofToVerify)}
+        onClose={() => {
+          setProofToVerify(null);
+          if (typeof window !== "undefined") {
+            const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete("verify_proof");
+            cleanUrl.searchParams.delete("proof");
+            cleanUrl.searchParams.delete("zk");
+            window.history.pushState({}, "", cleanUrl.toString());
+          }
+        }}
+        proof={proofToVerify}
+      />
       <Suspense fallback={<PageLoader />}>
         {!isConnected && !tmaMode ? (
-          <Landing />
+          <Landing onViewLeaderboard={() => setIsPublicLeaderboardOpen(true)} />
         ) : (
           <div className="min-h-screen bg-background">
             <Header onNavigate={handleNavigate} />
@@ -167,6 +284,14 @@ function Router() {
                     />
                   </Suspense>
                 </ProtectedRoute>
+              )}
+              {(currentPage === "leaderboard" || currentPage === "milestones") && (
+                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                  <Affiliate
+                    onBack={() => handleNavigate("dashboard")}
+                    initialTab={currentPage === "milestones" ? "milestones" : "leaderboard"}
+                  />
+                </Suspense>
               )}
               {currentPage === "auditor" && (
                 <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
