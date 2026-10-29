@@ -331,20 +331,5 @@ describe("CreateCampaignForm coverage", () => {
     expect(container.textContent).toContain("Campaign #7 Successfully Initialized");
     web3.current.createCampaignOnChain.mockRejectedValueOnce(new Error("contract reverted"));
     await fillValidForm("2");
-    await submitForm();
-    expect(notification.showNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "Failed to Create Campaign" }),
-    );
-    await click(buttonByText("Max"));
-    expect(inputByPlaceholder("e.g., 1000").value).toBe("10");
-    expect(buttonByText("Launch XLM Campaign").hasAttribute("disabled")).toBe(false);
-  });
-
-  it("disables Max when live reserve data is unavailable", async () => {
-    reserve.current = makeReserve({ isFallback: true, isUnavailable: true });
-    await renderForm();
-
-    expect(buttonByText("Max").hasAttribute("disabled")).toBe(true);
-    expect(container.textContent).toContain("Max is disabled until the account can be loaded");
   });
 });

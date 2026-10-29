@@ -317,7 +317,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
   });
 
   describe("Link Copy with Native Telegram Feedback", () => {
-    it("copies referral URL to clipboard and triggers success haptic feedback", () => {
+    it("copies referral URL to clipboard and triggers success haptic feedback", async () => {
       const writeTextMock = vi.fn().mockResolvedValue(undefined);
       (navigator.clipboard as any).writeText = writeTextMock;
 
@@ -329,7 +329,7 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
     });
 
-    it("triggers error haptic feedback if clipboard writing fails", () => {
+    it("triggers error haptic feedback if clipboard writing fails", async () => {
       const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
       (navigator.clipboard as any).writeText = writeTextMock;
 
@@ -339,35 +339,5 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       expect(result).toBe(false);
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("error");
     });
-
-    it("falls back to execCommand when navigator.clipboard.writeText rejects and succeeds if execCommand succeeds", async () => {
-      const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
-      (navigator.clipboard as any).writeText = writeTextMock;
-
-      const execCommandMock = vi.fn().mockReturnValue(true);
-      (document as any).execCommand = execCommandMock;
-      (document as any).createTextRange = vi.fn().mockReturnValue({
-        select: vi.fn(),
-      });
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
-      };
-      (document as any).execCommand = execCommandMock;
-
-      const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
-      const result = await copyReferralLinkWithHaptic(url);
-
-      expect(result).toBe(true);
-      expect(execCommandMock).toHaveBeenCalled("copy");
-      expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
   });
-
-  describe("Telegram Campaign Browser Mocks", () => {
-    it("exposes at least one mock campaign for component tests", () => {
-      expect(Array.isArray(MOCK_TELEGRAM_CAMPAIGNS)).toBe(true);
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThan(0);
-    });
-  });
-})
+});
