@@ -4,53 +4,84 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { AffiliateClickStreamHeatmap } from "../components/affiliate/ClickStreamHeatmap";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
+import { CampaignApplication } from "../components/affiliate/CampaignApplication";
+import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
+import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
+import { ReferralNetworkTree } from "../components/affiliate/ReferralNetworkTree";
 import {
   Users,
   TrendingUp,
   DollarSign,
   Shield,
   LayoutDashboard,
+  Globe2,
   Send,
   Sliders,
   Link2,
+  Trophy,
+  Award,
+  GitBranch,
+  ShieldCheck,
 } from "lucide-react";
 import { NotificationProvider } from "../context/NotificationContext";
+import { ReferralTreeProvider } from "../context/ReferralTreeContext";
+import { ZKProofProvider } from "../context/ZKProofContext";
 import { usePreference } from "../hooks/usePreference";
 import { motion, AnimatePresence } from "framer-motion";
 import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
+import { TelegramAlertsCard } from "../components/affiliate/TelegramAlertsCard";
+import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
 import { Button } from "../components/ui/button";
 
 interface AffiliateProps {
   onBack: () => void;
+  initialTab?: string;
 }
 
 const AFFILIATE_TABS = [
   "overview",
+  "heatmap",
+  "referral-tree",
+  "zk-portfolio",
   "telegram-browser",
   "custom-links",
+  "leaderboard",
+  "milestones",
   "join-campaign",
   "my-sales",
   "claim-payouts",
   "settings",
   "security",
+  "apply-links",
 ] as const;
 type AffiliateTab = (typeof AFFILIATE_TABS)[number];
 
-const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
+const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "overview" }) => {
   const [activeTab, setActiveTab] = usePreference<AffiliateTab>(
     "stormsale.affiliate.tab",
-    isTelegramMiniApp() ? "telegram-browser" : "overview",
+    AFFILIATE_TABS.includes(initialTab as AffiliateTab)
+      ? (initialTab as AffiliateTab)
+      : isTelegramMiniApp()
+        ? "telegram-browser"
+        : "overview",
     (v) => AFFILIATE_TABS.includes(v as AffiliateTab),
   );
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "heatmap", label: "Click Heatmap", icon: Globe2 },
+    { id: "referral-tree", label: "Referral Network (2% Override)", icon: GitBranch },
+    { id: "zk-portfolio", label: "ZK Revenue Proofs ($50K+)", icon: ShieldCheck },
     { id: "telegram-browser", label: "Telegram Campaigns", icon: Send },
     { id: "custom-links", label: "Custom Short Links", icon: Link2 },
+    { id: "leaderboard", label: "Leaderboards", icon: Trophy },
+    { id: "milestones", label: "Milestone Badges", icon: Award },
     { id: "join-campaign", label: "Join Campaign", icon: Users },
+    { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
@@ -59,22 +90,44 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "heatmap":
+        return <AffiliateClickStreamHeatmap />;
+      case "referral-tree":
+        return <ReferralNetworkTree />;
+      case "zk-portfolio":
+        return <ZKProofGenerator />;
       case "telegram-browser":
         return <TelegramCampaignBrowser />;
       case "custom-links":
         return <CustomLinksManager />;
+      case "leaderboard":
+        return <AffiliateLeaderboard onSelectMilestones={() => setActiveTab("milestones")} />;
+      case "milestones":
+        return <MilestoneBadges />;
       case "join-campaign":
         return <JoinCampaignButton />;
+      case "apply-links":
+        return <CampaignApplication />;
       case "my-sales":
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
       case "settings":
-        return <AffiliateSettings />;
+        return (
+          <div className="space-y-6">
+            <AffiliateSettings />
+            <TelegramAlertsCard />
+          </div>
+        );
       case "overview":
-        return <AffiliateOverview onNavigate={setActiveTab} />;
       default:
-        return <AffiliateOverview onNavigate={setActiveTab} />;
+        return (
+          <AffiliateOverview
+            onNavigate={setActiveTab}
+            onNavigateToLeaderboard={() => setActiveTab("leaderboard")}
+            onNavigateToMilestones={() => setActiveTab("milestones")}
+          />
+        );
     }
   };
 
@@ -135,6 +188,10 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack }) => {
 
 export const Affiliate: React.FC<AffiliateProps> = (props) => (
   <NotificationProvider>
-    <AffiliateContent {...props} />
+    <ReferralTreeProvider allowDemoSeed={false}>
+      <ZKProofProvider>
+        <AffiliateContent {...props} />
+      </ZKProofProvider>
+    </ReferralTreeProvider>
   </NotificationProvider>
 );

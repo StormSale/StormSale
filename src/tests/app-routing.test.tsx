@@ -10,10 +10,11 @@ const mocks = vi.hoisted(() => ({
   initTelegramWebApp: vi.fn(),
   syncTelegramTheme: vi.fn(() => vi.fn()),
   loadBrandConfig: vi.fn(() => ({ name: "Campaign" })),
+  openWalletModal: vi.fn(),
 }));
 
 vi.mock("../context/Web3Context", () => ({
-  useWeb3: () => ({ isConnected: mocks.isConnected }),
+  useWeb3: () => ({ isConnected: mocks.isConnected, openWalletModal: mocks.openWalletModal }),
   Web3Provider: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("../context/WalletConnectContext", () => ({
@@ -42,6 +43,7 @@ vi.mock("../components/shared/MultiSigApprovalModal", () => ({
   MultiSigApprovalModal: () => null,
 }));
 vi.mock("../components/shared/RpcStatusModal", () => ({ RpcStatusModal: () => null }));
+vi.mock("../components/shared/Header", () => ({ Header: () => null }));
 vi.mock("../components/auth/ProtectedRoute", () => ({
   ProtectedRoute: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -60,6 +62,14 @@ vi.mock("../components/shared/BrandedCampaignView", () => ({
   ),
 }));
 vi.mock("../pages/Landing", () => ({ Landing: () => <div>Landing page</div> }));
+vi.mock("../components/affiliate/AffiliateLeaderboard", () => ({
+  AffiliateLeaderboard: ({ onSelectMilestones }: { onSelectMilestones?: () => void }) => (
+    <div>
+      Public leaderboard stub
+      <button onClick={() => onSelectMilestones?.()}>Stub claim milestones</button>
+    </div>
+  ),
+}));
 vi.mock("../pages/Dashboard", () => ({
   Dashboard: ({ onNavigate }: { onNavigate: (page: string) => void }) => {
     if (mocks.throwDashboard) throw new Error("dashboard failed");
@@ -68,6 +78,8 @@ vi.mock("../pages/Dashboard", () => ({
         Dashboard page
         <button onClick={() => onNavigate("advertiser")}>Open advertiser</button>
         <button onClick={() => onNavigate("affiliate")}>Open affiliate</button>
+        <button onClick={() => onNavigate("leaderboard")}>Open leaderboard page</button>
+        <button onClick={() => onNavigate("milestones")}>Open milestones page</button>
         <button onClick={() => onNavigate("auditor")}>Open auditor</button>
         <button onClick={() => onNavigate("not-a-page")}>Invalid destination</button>
         <button
@@ -161,6 +173,45 @@ describe("App routing", () => {
   it("routes Telegram mini-app sessions to the affiliate page", async () => {
     mocks.telegramMode = true;
     render(<App />);
+    expect(await screen.findByText("Affiliate page")).toBeTruthy();
+  });
+
+  it("renders the public leaderboard view and its disconnected actions", async () => {
+    mocks.isConnected = false;
+    window.history.replaceState({}, "", "/?view=leaderboard");
+    render(<App />);
+    expect(await screen.findByText("Public leaderboard stub")).toBeTruthy();
+
+    // onSelectMilestones without a wallet should open the connect modal.
+    fireEvent.click(screen.getByRole("button", { name: "Stub claim milestones" }));
+    expect(mocks.openWalletModal).toHaveBeenCalled();
+
+    // Back to StormSale drops out of the public leaderboard view.
+    fireEvent.click(screen.getByRole("button", { name: /Back to StormSale/ }));
+    expect(await screen.findByText("Landing page")).toBeTruthy();
+  });
+
+  it("renders the public leaderboard view actions for a connected wallet", async () => {
+    mocks.isConnected = true;
+    window.history.replaceState({}, "", "/?view=leaderboard");
+    render(<App />);
+    expect(await screen.findByText("Public leaderboard stub")).toBeTruthy();
+
+    // The header CTA enters the affiliate dashboard.
+    fireEvent.click(screen.getByRole("button", { name: /Affiliate Dashboard/ }));
+    expect(await screen.findByText("Affiliate page")).toBeTruthy();
+  });
+
+  it("routes leaderboard and milestone roles to the affiliate page", async () => {
+    mocks.isConnected = true;
+    render(<App />);
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open leaderboard page" }));
+    expect(await screen.findByText("Affiliate page")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Back to dashboard" }));
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open milestones page" }));
     expect(await screen.findByText("Affiliate page")).toBeTruthy();
   });
 

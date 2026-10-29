@@ -9,7 +9,13 @@ import { WebhookManager } from "../components/advertiser/WebhookManager";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
+import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
+import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
+import { OrganizationManagement } from "../components/advertiser/OrganizationManagement";
+import { FraudRiskPartnerTable } from "../components/advertiser/FraudRiskPartnerTable";
+import { FraudRiskProvider } from "../context/FraudRiskContext";
 import { NotificationProvider } from "../context/NotificationContext";
+import { OrganizationProvider } from "../context/OrganizationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
@@ -28,6 +34,10 @@ import {
   FileSearch,
   Layers,
   Coins,
+  ClipboardList,
+  FileSpreadsheet,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -39,13 +49,17 @@ const ADVERTISER_TABS = [
   "overview",
   "create-campaign",
   "my-campaigns",
+  "team-management",
+  "fraud-risk",
   "brand-customizer",
   "log-sale",
+  "batch-sales",
   "cohort-analysis",
   "webhooks",
   "grant-access",
   "audit-logs",
   "analytics",
+  "affiliate-applications",
 ] as const;
 type AdvertiserTab = (typeof ADVERTISER_TABS)[number];
 
@@ -60,8 +74,12 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
+    { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
+    { id: "team-management", label: "Team & Permissions", icon: ShieldCheck },
+    { id: "fraud-risk", label: "Fraud & Partner Risk (Demo)", icon: ShieldAlert },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
+    { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
@@ -75,8 +93,14 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CreateCampaignForm />;
       case "brand-customizer":
         return <BrandCustomizer />;
+      case "team-management":
+        return <OrganizationManagement />;
+      case "fraud-risk":
+        return <FraudRiskPartnerTable />;
       case "log-sale":
         return <LogSaleForm />;
+      case "batch-sales":
+        return <BatchSaleUploader />;
       case "cohort-analysis":
         return <CohortVisualizer />;
       case "webhooks":
@@ -91,6 +115,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
       case "my-campaigns":
         return <MyCampaignsList />;
+      case "affiliate-applications":
+        return <AffiliateApplicationsQueue />;
       default:
         return <AdvertiserOverview onTabChange={(tab) => setActiveTab(tab as AdvertiserTab)} />;
     }
@@ -128,7 +154,11 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
 
 export const Advertiser: React.FC<AdvertiserProps> = (props) => (
   <NotificationProvider>
-    <AdvertiserContent {...props} />
+    <OrganizationProvider>
+      <FraudRiskProvider>
+        <AdvertiserContent {...props} />
+      </FraudRiskProvider>
+    </OrganizationProvider>
   </NotificationProvider>
 );
 
@@ -402,6 +432,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBorder: "hover:border-emerald-500/30",
                 },
                 {
+                  label: "Batch Sale Uploader",
+                  icon: FileSpreadsheet,
+                  action: "batch-sales",
+                  hoverBg: "group-hover:bg-indigo-500/10",
+                  hoverText: "group-hover:text-indigo-500",
+                  hoverBorder: "hover:border-indigo-500/30",
+                },
+                {
                   label: "Webhooks",
                   icon: Radio,
                   action: "webhooks",
@@ -424,6 +462,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-amber-500/10",
                   hoverText: "group-hover:text-amber-500",
                   hoverBorder: "hover:border-amber-500/30",
+                },
+                {
+                  label: "Team Permissions",
+                  icon: Users,
+                  action: "team-management",
+                  hoverBg: "group-hover:bg-purple-500/10",
+                  hoverText: "group-hover:text-purple-500",
+                  hoverBorder: "hover:border-purple-500/30",
                 },
               ].map((action, index) => {
                 const IconComponent = action.icon;

@@ -50,6 +50,23 @@ export const stellarPublicKeySchema = z
     },
   );
 
+/** `username*domain.com` SEP-0002 federation address. */
+const FEDERATION_ADDRESS_PATTERN =
+  /^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?\*[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i;
+
+/**
+ * A recipient entered as either a Stellar public key (G…) or a federation
+ * address. Federation addresses are resolved to a G… account before any
+ * contract call, where the resolved value is still validated as a public key.
+ */
+export const stellarRecipientSchema = z
+  .string()
+  .trim()
+  .refine((val) => StrKey.isValidEd25519PublicKey(val) || FEDERATION_ADDRESS_PATTERN.test(val), {
+    message:
+      "Must be a valid 56-character Stellar public key starting with G, or a name*domain federation address",
+  });
+
 /**
  * Soroban contract address only (C…). Used for campaign contract addresses.
  */
@@ -74,6 +91,18 @@ export const xlmAmountSchema = z
   });
 
 /** Positive integer ID (sale ID, campaign ID). */
+/**
+ * An on-chain campaign id: a whole number that fits the contract's u32.
+ * A larger value would be rejected by the contract call, so it is refused
+ * here with a message instead of failing as an unhandled rejection.
+ */
+export const campaignIdSchema = z
+  .string()
+  .trim()
+  .refine((val) => /^\d+$/.test(val) && Number(val) <= 0xffffffff, {
+    message: "Campaign ID must be a whole number up to 4294967295",
+  });
+
 export const positiveIntSchema = z
   .string()
   .trim()
@@ -85,6 +114,17 @@ export const positiveIntSchema = z
 // ---------------------------------------------------------------------------
 // Form schemas
 // ---------------------------------------------------------------------------
+
+/**
+ * Matches a plain, non-negative decimal amount such as `1000`, `12.5` or `.5`.
+ * Exponent notation (`1e3`), signs, hex and whitespace are rejected so that the
+ * value the user sees is exactly the value that is validated and escrowed.
+ */
+export const PLAIN_DECIMAL_AMOUNT_PATTERN = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+export function isPlainDecimalAmount(value: string): boolean {
+  return PLAIN_DECIMAL_AMOUNT_PATTERN.test(value.trim());
+}
 
 /**
  * CreateCampaignForm generator with asset decimal precision enforcement.
@@ -114,6 +154,9 @@ export const getCreateCampaignSchema = (maxDecimals: number = 7) =>
       .min(1, "Budget is required")
       .refine((val) => !isNaN(Number(val)) && isFinite(Number(val)), {
         message: "Must be a valid number",
+      })
+      .refine((val) => isPlainDecimalAmount(val), {
+        message: "Enter a plain decimal amount (e.g. 1000 or 12.5), without exponent notation",
       })
       .refine((val) => Number(val) > 0, { message: "Budget must be a positive number" })
       .refine(
@@ -149,9 +192,11 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>;
  * contract: log_sale(campaignId, affiliateAddress, amountXlm)
  */
 export const logSaleSchema = z.object({
-  campaignAddress: sorobanContractSchema.or(stellarAddressSchema),
+  // The on-chain campaign id (what private-campaign access is keyed on), or
+  // a contract/account address.
+  campaignAddress: campaignIdSchema.or(sorobanContractSchema).or(stellarAddressSchema),
 
-  affiliateAddress: stellarPublicKeySchema,
+  affiliateAddress: stellarRecipientSchema,
 
   saleAmount: xlmAmountSchema,
 
@@ -171,7 +216,7 @@ export const grantAccessSchema = z.object({
 
   saleId: positiveIntSchema,
 
-  auditorAddress: stellarPublicKeySchema,
+  auditorAddress: stellarRecipientSchema,
 });
 
 export type GrantAccessInput = z.infer<typeof grantAccessSchema>;
