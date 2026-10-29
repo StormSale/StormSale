@@ -378,6 +378,38 @@ export const MyCampaignsList = () => {
     lastSlackDispatchRef.current[campaign.id] = now;
     try {
       await sendSlackMessage({
+        text: message,
+        blocks: [
+          {
+            type: "section",
+            text: { type: "mrkdwn", text: `:warning: *${message}*` },
+          },
+        ],
+      });
+      appendSlackLog({ campaignName: campaign.name, message, status: "sent" });
+    } catch (err: any) {
+      appendSlackLog({ campaignName: campaign.name, message: `${message} (failed: ${err.message})`, status: "failed" });
+    }
+
+    try {
+      await sendSlackMessage({
+        text: message,
+        blocks: [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: `:warning: *${message}*`,
+            },
+          },
+        ],
+      });
+      appendSlackLog({ campaignName: campaign.name, message, status: "sent" });
+    } catch (err: any) {
+      appendSlackLog({ campaignName: campaign.name, message: `${message} (failed: ${err.message})`, status: "failed" });
+    }
+    try {
+      await sendSlackMessage({
         text: `:warning: ${message}`,
         blocks: [
           {
