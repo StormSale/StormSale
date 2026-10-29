@@ -46,6 +46,23 @@ export default tseslint.config(
     },
   },
   {
+    files: ["plugins/**/*.js"],
+    plugins: {
+      prettier: prettier,
+    },
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+    rules: {
+      "prettier/prettier": "warn",
+    },
+  },
+  {
     files: ["scripts/**/*.{js,mjs,cjs}"],
     languageOptions: {
       ecmaVersion: 2022,
