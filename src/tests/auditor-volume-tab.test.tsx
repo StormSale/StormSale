@@ -30,14 +30,22 @@ vi.mock("../components/auditor/AuditHistory", () => ({
 
 const TAB_KEY = "stormsale.auditor.tab";
 
-const createStorage = () => {
+const createStorage = (): Storage => {
   const store = new Map<string, string>();
   return {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => void store.set(key, value),
-    removeItem: (key: string) => void store.delete(key),
+    get length() {
+      return store.size;
+    },
     clear: () => store.clear(),
-  };
+    getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      store.set(key, String(value));
+    },
+  } as Storage;
 };
 
 const renderAuditorOnTab = (tab: string) => {

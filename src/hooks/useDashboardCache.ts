@@ -56,7 +56,7 @@ async function writeDashboardCache(next: DashboardMetrics): Promise<void> {
 export function useDashboardCache() {
   const queryClient = useQueryClient();
 
-  const query = useQuery<DashboardMetrics>({ // code
+  const query = useQuery<DashboardMetrics>({
     queryKey: dashboardQueryKey,
     queryFn: readDashboardCache,
     initialData: DEFAULT_METRICS,

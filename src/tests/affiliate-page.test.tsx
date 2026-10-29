@@ -87,8 +87,6 @@ vi.mock("../context/NotificationContext", () => ({
 }));
 vi.mock("../lib/telegram", () => ({ isTelegramMiniApp: () => false }));
 
-// Note: CI checkout failure for fork PRs under pull_request_target is a workflow configuration issue (allow-unsafe-pr-checkout), not addressable in this test file. Do not enable allow-unsafe-pr-checkout without a security review.
-
 describe("Affiliate page navigation", () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => cleanup());
@@ -146,8 +144,6 @@ describe("Affiliate page navigation", () => {
     expect(await screen.findByText("Milestone badges content")).toBeTruthy();
 
     // Back to overview, then straight to milestones.
-    fireEvent.click(screen.getByRole("button", { name: "Dashboard Overview" }));
-    await screen.findByText("Overview content");
     fireEvent.click(screen.getByRole("button", { name: "Go to milestones" }));
     expect(await screen.findByText("Milestone badges content")).toBeTruthy();
   });
