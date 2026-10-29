@@ -182,7 +182,7 @@ export const CreateCampaignForm = () => {
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
     if (isConnected && userAddress) {
-      refreshTokenAllowance(undefined, selectedAsset).then((val) => {
+      refreshTokenAllowance(undefined, selectedAsset).then((val: number) => {
         setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
       });
     }

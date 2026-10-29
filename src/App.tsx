@@ -2,7 +2,7 @@ import { Suspense, useState, useEffect, useRef, lazy } from "react";
 import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { NotificationProvider } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";

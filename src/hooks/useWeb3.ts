@@ -1,17 +1,11 @@
-import * as Web3ContextModule from "../context/Web3Context";
+import { useWeb3 as useWebContext } from "../context/WebContext";
 
-export const useWeb3 = () => {
-  return Web3ContextModule.useWeb3();
-};
+export const useWeb3 = useWebContext;
 
 export const useSafeWeb3 = () => {
-  if (typeof (Web3ContextModule as any).useSafeWeb3 === "function") {
-    return (Web3ContextModule as any).useSafeWeb3();
-  }
   try {
-    return Web3ContextModule.useWeb3();
+    return useWebContext();
   } catch {
     return undefined;
   }
 };
-

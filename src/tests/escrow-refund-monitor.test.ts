@@ -49,7 +49,7 @@ describe("[Advertiser] Real-time Escrow & Refund Monitor (#37)", () => {
     });
 
     it("executes refund contract call on Soroban returning valid txHash", async () => {
-      const testAdvertiser = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
+      const testAdvertiser = "GASTORMSALE7TESTNET7AAFFILIATE7MERCHANT7ESCROW7XLM77777";
       const campaignId = 4;
 
       const result = await refundCampaignEscrowContractCall(testAdvertiser, campaignId, "mock");

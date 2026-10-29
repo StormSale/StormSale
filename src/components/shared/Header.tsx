@@ -57,9 +57,11 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     openMultiSigModal,
     activeRpcEndpoint,
     openRpcModal,
+    pendingTxCount = 0,
+    isSequenceSyncing = false,
     network,
     connectorType,
-  } = useWeb3();
+  } = useWeb3() as any;
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
@@ -226,6 +228,17 @@ export const Header = ({ onNavigate }: HeaderProps) => {
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
+              {(pendingTxCount > 0 || isSequenceSyncing) && (
+                <div
+                  className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50 rounded-xl"
+                  title={isSequenceSyncing ? "Resyncing sequence from Horizon" : `${pendingTxCount} transaction(s) queued`}
+                >
+                  <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                  <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                    {isSequenceSyncing ? "SYNCING" : `${pendingTxCount} QUEUED`}
+                  </span>
+                </div>
+              )}
               <UserMenu onNavigate={onNavigate} />
 
               {isMultiSigAccount && (

@@ -2,15 +2,6 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
 
-vi.mock("@radix-ui/react-dialog", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@radix-ui/react-dialog")>();
-  return {
-    ...actual,
-    Portal: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="dialog-portal">{children}</div>
-    ),
-  };
-});
 import {
   LARGE_REFUND_THRESHOLD,
   MULTISIG_STORAGE_KEY,
