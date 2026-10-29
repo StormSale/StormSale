@@ -1,4 +1,4 @@
-import { Suspense, useState, useEffect, useRef, lazy } from "react";
+import React, { Suspense, useState, useEffect, useRef, lazy } from "react";
 import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
@@ -62,6 +62,115 @@ export function PageLoader() {
       </p>
     </div>
   );
+}
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error?: Error;
+}
+
+export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("Unhandled error caught by ErrorBoundary:", error, info);
+  }
+
+  handleReport = () => {
+    const error = this.state.error;
+    const payload = {
+      message: error ? error.message : "Unknown error",
+      stack: error ? error.stack : undefined,
+      url: typeof window !== "undefined" ? window.location.href : undefined,
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+      timestamp: new Date().toISOString(),
+    };
+    const summary = `Runtime error report\n\n${JSON.stringify(payload, null, 2)}`;
+    console.error("reported", payload);
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        navigator.clipboard.writeText(summary).catch(() => undefined);
+      }
+    } catch {
+      // clipboard may be unavailable; still logged above
+    }
+  };
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: undefined });
+  };
+
+  handleReload = () => {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="min-h-screen flex items-center justify-center p-6 bg-background text-foreground"
+        >
+          <div className="max-w-lg w-full text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/10">
+              <span aria-hidden="true" className="text-2xl font-bold text-red-500">
+                !
+              </span>
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              An unexpected error occurred. You can report it to help us fix the issue,
+              then reload or try again.
+            </p>
+            {this.state.error && (
+              <pre className="mb-4 max-h-40 overflow-auto rounded bg-muted p-3 text-left text-xs text-muted-foreground">
+                {this.state.error.message}
+              </pre>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={this.handleReport}
+                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                Report
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="px-4 py-2 border border-muted-foreground/30 rounded hover:bg-muted"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={this.handleReload}
+                className="px-4 py-2 border border-muted-foreground/30 rounded hover:bg-muted"
+              >
+                Reload
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 const ErrorFallback = () => (
@@ -303,15 +412,15 @@ function App() {
 
   if (isShortLinkRoute) {
     return (
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <ErrorBoundary>
         <ShortLinkRedirect />
-      </Sentry.ErrorBoundary>
+      </ErrorBoundary>
     );
   }
 
   return (
     <NotificationWrapper>
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <ErrorBoundary>
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
@@ -321,7 +430,7 @@ function App() {
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>
-      </Sentry.ErrorBoundary>
+      </ErrorBoundary>
     </NotificationWrapper>
   );
 }
