@@ -1,0 +1,22 @@
+{
+  "name": "stormsale/woocommerce",
+  "description": "StormSale WooCommerce affiliate referral tracking and verified Stellar conversion logging.",
+  "type": "wordpress-plugin",
+  "license": "MIT",
+  "require": {
+    "php": ">=7.4"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "classmap": ["includes/"]
+  },
+  "scripts": {
+    "test": "phpunit",
+    "lint": "find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 -P4 php -l"
+  },
+  "config": {
+    "sort-packages": true
+  }
+}
