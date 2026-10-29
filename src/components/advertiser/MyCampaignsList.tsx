@@ -26,10 +26,12 @@ import {
   Settings,
   Pause,
   Play,
+  Lock,
 } from "lucide-react";
 import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import { formatStellarAddress } from "../../lib/stellar";
 import {
   type AutoTopUpConfig,
@@ -281,6 +283,8 @@ export const MyCampaignsList = () => {
     connectorType,
   } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
+  const canRefillEscrow = hasCapability("escrow:refill");
 
   /**
    * Determines whether a campaign's escrow balance has fallen below 10% of initial escrow.
@@ -373,6 +377,14 @@ export const MyCampaignsList = () => {
   );
 
   const handleQuickRefill = async (campaign: Campaign, amountXlm: number = 500) => {
+    if (!hasCapability("escrow:refill")) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to refill campaign escrow. Finance or Admin role required.`,
+      });
+      return;
+    }
     setRefillingId(campaign.id);
     try {
       showNotification({
@@ -459,6 +471,14 @@ export const MyCampaignsList = () => {
         });
         return;
       }
+      if (!canRefillEscrow) {
+        showNotification({
+          type: "error",
+          title: "Permission Denied",
+          message: `Your current role (${currentRole}) lacks permission to authorize escrow allowance. Finance or Admin role required.`,
+        });
+        return;
+      }
       if (amountToApprove <= 0) return;
 
       setIsApprovingAllowance(true);
@@ -490,7 +510,7 @@ export const MyCampaignsList = () => {
         setIsApprovingAllowance(false);
       }
     },
-    [isConnected, showNotification, approveTokenAllowance, refreshTokenAllowance],
+    [isConnected, canRefillEscrow, currentRole, showNotification, approveTokenAllowance, refreshTokenAllowance],
   );
 
   /**
@@ -508,6 +528,15 @@ export const MyCampaignsList = () => {
           type: "error",
           title: "Wallet Not Connected",
           message: "Please connect your wallet to execute escrow top-up.",
+        });
+        return false;
+      }
+
+      if (!canRefillEscrow) {
+        showNotification({
+          type: "error",
+          title: "Permission Denied",
+          message: `Your current role (${currentRole}) lacks permission to refill campaign escrow. Finance or Admin role required.`,
         });
         return false;
       }
@@ -607,6 +636,8 @@ export const MyCampaignsList = () => {
     },
     [
       isConnected,
+      canRefillEscrow,
+      currentRole,
       tokenAllowance,
       showNotification,
       handleAuthorizeAllowance,
@@ -703,6 +734,15 @@ export const MyCampaignsList = () => {
 
   // Refund handler for completed campaigns
   const handleRefund = async (campaign: Campaign) => {
+    if (!hasCapability("escrow:refund")) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to execute escrow refunds. Finance or Admin role required.`,
+      });
+      return;
+    }
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -885,7 +925,7 @@ export const MyCampaignsList = () => {
                   handleQuickRefill(lowReserveCampaigns[0], 500);
                 }
               }}
-              disabled={refillingId !== null}
+              disabled={refillingId !== null || !canRefillEscrow}
               className="w-full md:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-2xl px-6 py-3 shadow-md shadow-amber-600/20 flex items-center justify-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
@@ -1354,7 +1394,7 @@ export const MyCampaignsList = () => {
                             onClick={() =>
                               handleAuthorizeAllowance(Math.max(5000, autoCfg.topUpAmount))
                             }
-                            disabled={isApprovingAllowance}
+                            disabled={isApprovingAllowance || !canRefillEscrow}
                             className="h-7 text-xs font-bold rounded-lg bg-amber-600 hover:bg-amber-700 text-white shrink-0"
                           >
                             Pre-Authorize
@@ -1370,7 +1410,7 @@ export const MyCampaignsList = () => {
                           </div>
                           <Button
                             size="sm"
-                            disabled={isTopUpThis}
+                            disabled={isTopUpThis || !canRefillEscrow}
                             onClick={() => executeTopUp(campaign, autoCfg.topUpAmount, true)}
                             className="h-7 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
                           >
@@ -1411,7 +1451,7 @@ export const MyCampaignsList = () => {
                       )}
                       onOpenSettings={() => setSelectedCampaignForConfig(campaign)}
                       onQuickRefill={() => handleQuickRefill(campaign, 500)}
-                      isRefilling={refillingId === campaign.id}
+                      isRefilling={refillingId === campaign.id || !canRefillEscrow}
                       className="mb-3"
                     />
                   )}
@@ -1468,18 +1508,33 @@ export const MyCampaignsList = () => {
                         ) : isLargeRefund(campaign.escrowBalance) ? (
                           (() => {
                             const proposal = getLatestProposalForCampaign(campaign.id);
+                            const canRefund = hasCapability("escrow:refund");
                             if (proposal && proposal.status === "approved") {
                               return (
                                 <Button
                                   type="button"
+                                  disabled={!canRefund}
                                   onClick={() => {
+                                    if (!canRefund) return;
                                     setActiveMultiSigProposal(proposal);
                                     setIsMultiSigModalOpen(true);
                                   }}
-                                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                  className={`w-full h-11 ${
+                                    canRefund
+                                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                                      : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                  } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                                 >
-                                  <CheckCircle2 className="w-4 h-4" />
-                                  <span>Release Multi-Sig Escrow (Approved · 2/2)</span>
+                                  {canRefund ? (
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  ) : (
+                                    <Lock className="w-4 h-4 text-amber-500" />
+                                  )}
+                                  <span>
+                                    {canRefund
+                                      ? "Release Multi-Sig Escrow (Approved · 2/2)"
+                                      : `Release Multi-Sig Locked (${currentRole})`}
+                                  </span>
                                 </Button>
                               );
                             }
@@ -1487,16 +1542,27 @@ export const MyCampaignsList = () => {
                               return (
                                 <Button
                                   type="button"
+                                  disabled={!canRefund}
                                   onClick={() => {
+                                    if (!canRefund) return;
                                     setActiveMultiSigProposal(proposal);
                                     setIsMultiSigModalOpen(true);
                                   }}
-                                  className="w-full h-11 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                  className={`w-full h-11 ${
+                                    canRefund
+                                      ? "bg-amber-600 hover:bg-amber-700 text-white"
+                                      : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                  } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                                 >
-                                  <Shield className="w-4 h-4" />
+                                  {canRefund ? (
+                                    <Shield className="w-4 h-4" />
+                                  ) : (
+                                    <Lock className="w-4 h-4 text-amber-500" />
+                                  )}
                                   <span>
-                                    Track Multi-Sig Approval (
-                                    {campaign.escrowBalance.toLocaleString()} XLM · 1/2)
+                                    {canRefund
+                                      ? `Track Multi-Sig Approval (${campaign.escrowBalance.toLocaleString()} XLM · 1/2)`
+                                      : `Track Multi-Sig Locked (${currentRole})`}
                                   </span>
                                 </Button>
                               );
@@ -1504,11 +1570,24 @@ export const MyCampaignsList = () => {
                             return (
                               <Button
                                 type="button"
+                                disabled={!canRefund}
                                 onClick={() => handleRefund(campaign)}
-                                className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                                className={`w-full h-11 ${
+                                  canRefund
+                                    ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                                } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                               >
-                                <Shield className="w-4 h-4" />
-                                <span>Refund Unused Escrow (&gt; $10k Multi-Sig)</span>
+                                {canRefund ? (
+                                  <Shield className="w-4 h-4" />
+                                ) : (
+                                  <Lock className="w-4 h-4 text-amber-500" />
+                                )}
+                                <span>
+                                  {canRefund
+                                    ? "Refund Unused Escrow (> $10k Multi-Sig)"
+                                    : `Refund Locked (${currentRole})`}
+                                </span>
                               </Button>
                             );
                           })()
@@ -1517,13 +1596,23 @@ export const MyCampaignsList = () => {
                             type="button"
                             loading={isRefundingThis}
                             cooldown
+                            disabled={!hasCapability("escrow:refund") || isRefundingThis}
                             onClick={() => handleRefund(campaign)}
-                            className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
+                            className={`w-full h-11 ${
+                              hasCapability("escrow:refund")
+                                ? "bg-indigo-600 hover:bg-indigo-700 text-white"
+                                : "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                            } font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2`}
                           >
                             {isRefundingThis ? (
                               <div className="flex items-center space-x-2">
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 <span>Refunding Unused Escrow...</span>
+                              </div>
+                            ) : !hasCapability("escrow:refund") ? (
+                              <div className="flex items-center space-x-2">
+                                <Lock className="w-4 h-4 text-amber-500" />
+                                <span>Refund Locked ({currentRole})</span>
                               </div>
                             ) : (
                               <div className="flex items-center space-x-2">
@@ -1561,11 +1650,12 @@ export const MyCampaignsList = () => {
                         <div className="flex gap-2">
                           <Button
                             type="button"
+                            disabled={!canRefillEscrow}
                             onClick={() => {
                               setManualTopUpCampaign(campaign);
                               setManualTopUpAmount(String(autoCfg.topUpAmount || 1000));
                             }}
-                            className="flex-1 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm flex items-center justify-center gap-1.5"
+                            className="flex-1 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm flex items-center justify-center gap-1.5 disabled:opacity-50"
                           >
                             <Coins className="w-4 h-4" />
                             <span>Top Up Escrow</span>
@@ -1955,7 +2045,7 @@ export const MyCampaignsList = () => {
                     <Button
                       size="sm"
                       onClick={() => handleAuthorizeAllowance(parseFloat(customAllowanceAmount) || 5000)}
-                      disabled={isApprovingAllowance}
+                      disabled={isApprovingAllowance || !canRefillEscrow}
                       className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
                     >
                       {isApprovingAllowance ? "Approving..." : "Pre-Authorize"}
@@ -2079,7 +2169,7 @@ export const MyCampaignsList = () => {
                 <Button
                   size="sm"
                   onClick={() => handleAuthorizeAllowance(parseFloat(manualTopUpAmount) || 2000)}
-                  disabled={isApprovingAllowance}
+                  disabled={isApprovingAllowance || !canRefillEscrow}
                   className="w-full h-8 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs"
                 >
                   {isApprovingAllowance ? "Approving Allowance..." : "Approve Required Allowance"}
@@ -2098,7 +2188,7 @@ export const MyCampaignsList = () => {
               </Button>
               <Button
                 type="button"
-                disabled={topUpInProgressId === manualTopUpCampaign.id}
+                disabled={topUpInProgressId === manualTopUpCampaign.id || !canRefillEscrow}
                 onClick={() =>
                   executeTopUp(manualTopUpCampaign, parseFloat(manualTopUpAmount) || 0, false)
                 }
