@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderToString } from "react-dom/server";
 import { Keypair } from "@stellar/stellar-sdk";
@@ -150,6 +151,7 @@ describe("[Web3] FederatedAddressInput resolution states (#126)", () => {
       // The user retyped, so the effect cleanup cancels this lookup mid-flight.
       cancel();
       release(record);
+      await vi.advanceTimersByTimeAsync(0);
       await Promise.resolve();
 
       expect(onResult).not.toHaveBeenCalled();

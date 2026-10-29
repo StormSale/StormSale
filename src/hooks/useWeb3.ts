@@ -14,4 +14,3 @@ export const useSafeWeb3 = () => {
     return undefined;
   }
 };
-
