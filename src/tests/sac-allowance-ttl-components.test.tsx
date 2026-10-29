@@ -8,12 +8,18 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { StorageTTLHealthIndicator } from "../components/advertiser/StorageTTLHealthIndicator";
 import { EscrowTopUpModal } from "../components/advertiser/EscrowTopUpModal";
 import { ContractIntegrityModal } from "../components/shared/ContractIntegrityModal";
+import { Header } from "../components/shared/Header";
 import { AffiliatePerformanceCharts } from "../components/affiliate/AffiliatePerformanceCharts";
 import type { StorageTTLInfo, SACSimulationFeedback } from "../lib/stellar";
 
 const mockWeb3 = {
   isConnected: true,
   userAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+  network: "TESTNET",
+  connectorType: "mock",
+  openRpcModal: vi.fn(),
+  connectWallet: vi.fn(),
+  disconnectWallet: vi.fn(),
   getStorageTTL: vi.fn(),
   extendStorageTTL: vi.fn(),
   checkTopUpAllowance: vi.fn(),
@@ -28,6 +34,10 @@ const mockNotification = {
 
 vi.mock("../hooks/useWeb3", () => ({
   useWeb3: () => mockWeb3,
+}));
+
+vi.mock("../hooks/useTelegram", () => ({
+  useTelegram: () => ({ isTelegram: false, user: null, platform: null }),
 }));
 
 vi.mock("../context/NotificationContext", () => ({
@@ -435,6 +445,22 @@ describe("SAC Allowance, TTL & Affiliate Component Suite", () => {
       }
 
       expect(screen.getByText(/Historical Payout & Clearing Ledger/i)).toBeTruthy();
+    });
+  });
+
+  describe("Header Component with Contract Integrity Integration", () => {
+    it("opens and closes contract integrity modal from verified contract button", async () => {
+      render(<Header />);
+      const integrityBtn = screen.getByRole("button", {
+        name: "Soroban Verified Contract - Click to inspect integrity",
+      });
+      expect(integrityBtn).toBeTruthy();
+      fireEvent.click(integrityBtn);
+
+      expect(await screen.findByText(/Verified Protocol Deployment/i)).toBeTruthy();
+
+      const closeBtn = screen.getByRole("button", { name: "Close dialog" });
+      fireEvent.click(closeBtn);
     });
   });
 });

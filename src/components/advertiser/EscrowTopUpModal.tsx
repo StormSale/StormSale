@@ -187,6 +187,7 @@ export const EscrowTopUpModal: React.FC<EscrowTopUpModalProps> = ({
         {/* Close button */}
         <button
           onClick={onClose}
+          aria-label="Close modal"
           className="absolute top-6 right-6 p-2 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
         >
           <X className="w-5 h-5" />

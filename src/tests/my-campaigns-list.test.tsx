@@ -21,6 +21,11 @@ vi.mock("../config/stellar", () => ({
     USDC: { code: "USDC", name: "USD Coin", decimals: 7, contractAddress: "CUSDC" },
     EURC: { code: "EURC", name: "Euro Coin", decimals: 7, contractAddress: "CEURC" },
   },
+  SAC_TOKENS: {
+    USDC: { symbol: "USDC", name: "USD Coin", contractId: "CUSDC", decimals: 7 },
+    EURC: { symbol: "EURC", name: "Euro Coin", contractId: "CEURC", decimals: 7 },
+    XLM: { symbol: "XLM", name: "Stellar Lumens", contractId: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC", decimals: 7 },
+  },
   NETWORK_ESCROW_ASSETS: {
     TESTNET: {},
     PUBLIC: {},
@@ -659,5 +664,27 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
         title: "Refund Failed",
       }),
     );
+  });
+
+  it("opens and closes the Soroban SAC Token Allowance Delegation & Top-Up modal", async () => {
+    await act(async () => {
+      render(<MyCampaignsList />);
+    });
+
+    const topUpButtons = screen.getAllByTitle("Soroban SAC Token Allowance Delegation & Top-Up");
+    expect(topUpButtons.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      fireEvent.click(topUpButtons[0]);
+    });
+
+    // The modal opens and renders its content
+    expect(screen.getByText("Top Up Campaign Escrow")).toBeTruthy();
+
+    // Close the modal
+    const closeBtn = screen.getByRole("button", { name: "Close modal" });
+    await act(async () => {
+      fireEvent.click(closeBtn);
+    });
   });
 });

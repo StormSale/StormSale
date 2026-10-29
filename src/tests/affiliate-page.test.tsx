@@ -80,6 +80,9 @@ vi.mock("../components/affiliate/AffiliateSettings", () => ({
 vi.mock("../components/affiliate/TelegramAlertsCard", () => ({
   TelegramAlertsCard: () => <div>Telegram alerts content</div>,
 }));
+vi.mock("../components/affiliate/AffiliatePerformanceCharts", () => ({
+  AffiliatePerformanceCharts: () => <div>Performance charts content</div>,
+}));
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
   useNotification: () => ({ showNotification: () => "", dismissNotification: () => {} }),
@@ -115,6 +118,9 @@ describe("Affiliate page navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Claim Payouts" }));
     expect(await screen.findByText("Payout content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Performance Analytics" }));
+    expect(await screen.findByText("Performance charts content")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Personalized Settings" }));
     expect(await screen.findByText("Affiliate settings content")).toBeTruthy();

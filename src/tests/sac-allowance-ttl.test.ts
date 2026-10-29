@@ -8,6 +8,8 @@ import {
   topUpCampaignEscrowContractCall,
   getCampaignStorageTTL,
   extendCampaignStorageTTL,
+  signSEP0010Challenge,
+  connectXbullWallet,
   _resetMockState,
   _setMockAllowance,
 } from "../lib/stellar";
@@ -224,6 +226,71 @@ describe("Soroban Asset Contract (SAC) Allowance & TTL State Management Suite", 
       const refreshedTTL = await getCampaignStorageTTL(escrowSpenderContract);
       expect(refreshedTTL.status).toBe("healthy");
       expect(refreshedTTL.remainingLedgers).toBe(142500);
+    });
+
+    it("handles contract invocations and state updates for allowance, top-up, and extend_ttl", async () => {
+      _setMockAllowance("custom-cache-key", BigInt(12345678));
+
+      // approveSACDelegation via mock mode
+      const approveRes = await approveSACDelegation(
+        advertiserWallet,
+        escrowSpenderContract,
+        SAC_TOKENS.USDC.contractId,
+        1500,
+        undefined,
+        "USDC",
+        "mock",
+      );
+      expect(approveRes.success).toBe(true);
+      expect(approveRes.simulationFeedback).toBeDefined();
+
+      // topUpCampaignEscrowContractCall via mock mode
+      const topUpRes = await topUpCampaignEscrowContractCall(
+        advertiserWallet,
+        101,
+        500,
+        "USDC",
+        "mock",
+      );
+      expect(topUpRes.success).toBe(true);
+
+      // extendCampaignStorageTTL via mock mode
+      const extendRes = await extendCampaignStorageTTL(
+        advertiserWallet,
+        escrowSpenderContract,
+        50000,
+        "mock",
+      );
+      expect(extendRes.success).toBe(true);
+      expect(extendRes.ttlInfo).toBeDefined();
+    });
+
+    it("exercises signSEP0010Challenge and connectXbullWallet error handling", async () => {
+      // Mock SEP0010 challenge sign
+      const signed = await signSEP0010Challenge("AAAABBBBCCCC", "mock");
+      expect(signed).toContain("AAAABBBBCCCC.signed_mock");
+
+      // Freighter fallback challenge sign
+      const signedFreighter = await signSEP0010Challenge("AAAABBBBCCCC", "freighter");
+      expect(signedFreighter).toBeDefined();
+
+      // connectXbullWallet error propagation when extension rejects
+      const globalAny = globalThis as any;
+      const originalXBull = globalAny.window?.xBullSDK;
+      if (!globalAny.window) globalAny.window = {};
+      globalAny.window.xBullSDK = {
+        getPublicKey: async () => {
+          throw new Error("Rejected by xBull wallet user");
+        },
+      };
+
+      await expect(connectXbullWallet()).rejects.toThrow(/Rejected by xBull wallet user/);
+
+      if (originalXBull) {
+        globalAny.window.xBullSDK = originalXBull;
+      } else {
+        delete globalAny.window.xBullSDK;
+      }
     });
   });
 });

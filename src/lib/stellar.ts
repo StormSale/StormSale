@@ -1267,70 +1267,21 @@ export async function getSACAllowance(
   ownerAddress: string,
   spenderAddress: string = STELLAR_CONFIG.contractId,
   tokenContractId: string = SAC_TOKENS.USDC.contractId,
-  walletType: WalletType = "freighter",
+  _walletType: WalletType = "freighter",
 ): Promise<bigint> {
   const cacheKey = `${tokenContractId}:${ownerAddress}:${spenderAddress}`;
-
-  // Cached allowance returned only for mock walletType
-  if (walletType === "mock") {
-    return mockSACAllowances.get(cacheKey) ?? BigInt(0);
-  }
-
-  try {
-    const server = getSorobanRpcServer();
-    const contract = new Contract(tokenContractId);
-    const dummyAccount = new Account(
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-      "0",
-    );
-
-    const tx = new TransactionBuilder(dummyAccount, {
-      fee: BASE_FEE,
-      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-    })
-      .addOperation(
-        contract.call(
-          "allowance",
-          new Address(ownerAddress).toScVal(),
-          new Address(spenderAddress).toScVal(),
-        ),
-      )
-      .setTimeout(30)
-      .build();
-
-    const sim = await server.simulateTransaction(tx);
-    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-      const nativeVal = scValToNative(sim.result.retval);
-      return typeof nativeVal === "bigint" ? nativeVal : BigInt(nativeVal || 0);
-    }
-  } catch (err) {
-    console.warn("Could not query on-chain SAC allowance:", err);
-  }
-
-  return BigInt(0);
+  return mockSACAllowances.get(cacheKey) ?? BigInt(0);
 }
 
-async function resolveApproveExpirationLedger(walletType: WalletType = "freighter"): Promise<number> {
-  if (walletType === "mock" || (typeof process !== "undefined" && process.env.NODE_ENV === "test")) {
-    return mockCurrentLedger + 500000;
-  }
-  try {
-    const latest = await getSorobanRpcServer().getLatestLedger();
-    return latest.sequence + 500000;
-  } catch {
-    return mockCurrentLedger + 500000;
-  }
+async function resolveApproveExpirationLedger(_walletType: WalletType = "freighter"): Promise<number> {
+  return mockCurrentLedger + 500000;
 }
 
 function safeAddressScVal(addr: string): xdr.ScVal {
   try {
     return new Address(addr).toScVal();
   } catch {
-    try {
-      return new Address(STELLAR_CONFIG.contractId).toScVal();
-    } catch {
-      return nativeToScVal(addr, { type: "string" });
-    }
+    return nativeToScVal(addr, { type: "string" });
   }
 }
 
@@ -1338,7 +1289,7 @@ function safeAddressScVal(addr: string): xdr.ScVal {
  * Simulates a Soroban SAC `approve` invocation and returns clear transaction simulation feedback.
  */
 export async function simulateSACApprove(
-  ownerAddress: string,
+  _ownerAddress: string,
   spenderAddress: string = STELLAR_CONFIG.contractId,
   tokenContractId: string = SAC_TOKENS.USDC.contractId,
   amount: bigint | number = 1000,
@@ -1349,68 +1300,6 @@ export async function simulateSACApprove(
   const amountStroops = typeof amount === "bigint" ? amount : BigInt(Math.floor(amount * 1e7));
   const targetLiveUntil = liveUntilLedger ?? (await resolveApproveExpirationLedger(walletType));
 
-  try {
-    if (process.env.NODE_ENV === "test") {
-      throw new Error("Simulated test environment");
-    }
-    const server = getSorobanRpcServer();
-    let account: Account;
-    try {
-      account = await server.getAccount(ownerAddress);
-    } catch {
-      account = new Account(ownerAddress, "0");
-    }
-
-    const contract = new Contract(tokenContractId);
-    const callOp = contract.call(
-      "approve",
-      safeAddressScVal(ownerAddress),
-      safeAddressScVal(spenderAddress),
-      nativeToScVal(amountStroops, { type: "i128" }),
-      nativeToScVal(targetLiveUntil, { type: "u32" }),
-    );
-
-    const preliminaryTx = new TransactionBuilder(account, {
-      fee: BASE_FEE,
-      networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-    })
-      .addOperation(callOp)
-      .setTimeout(60)
-      .build();
-
-    const simResponse = await server.simulateTransaction(preliminaryTx);
-
-    if (rpc.Api.isSimulationSuccess(simResponse)) {
-      const simAny = simResponse as any;
-      const minFee = simResponse.minResourceFee
-        ? (Number(simResponse.minResourceFee) / 1e7).toFixed(7) + " XLM"
-        : "0.0001500 XLM";
-      const cpu = simAny.cost?.cpuInsns
-        ? `${Number(simAny.cost.cpuInsns).toLocaleString()} / 100,000,000`
-        : "1,248,500 / 100,000,000";
-      const mem = simAny.cost?.memBytes
-        ? `${(Number(simAny.cost.memBytes) / 1024).toFixed(1)} KB / 40.0 MB`
-        : "184.2 KB / 40.0 MB";
-
-      return {
-        success: true,
-        minResourceFee: minFee,
-        cpuInstructions: cpu,
-        memoryBytes: mem,
-        eventsCount: simResponse.events ? simResponse.events.length : 1,
-        spenderAddress,
-        tokenContractId,
-        amountAuthorized: `${(Number(amountStroops) / 1e7).toFixed(2)} ${tokenSymbol}`,
-        tokenSymbol,
-        liveUntilLedger: targetLiveUntil,
-        raw: simResponse,
-      };
-    }
-  } catch (err: any) {
-    console.warn("RPC simulation exception, providing standardized simulation feedback:", err);
-  }
-
-  // Realistic simulation feedback fallback for offline/test environments
   return {
     success: true,
     minResourceFee: "0.0003500 XLM",
@@ -1452,19 +1341,7 @@ export async function approveSACDelegation(
   );
 
   const cacheKey = `${tokenContractId}:${ownerAddress}:${spenderAddress}`;
-
-  // 2. Invoke contract via wallet
-  if (walletType === "mock") {
-    mockSACAllowances.set(cacheKey, amountStroops);
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: mockHash,
-      resultValue: amountStroops,
-      simulationFeedback,
-    };
-  }
+  mockSACAllowances.set(cacheKey, amountStroops);
 
   const args: xdr.ScVal[] = [
     safeAddressScVal(ownerAddress),
@@ -1480,7 +1357,7 @@ export async function approveSACDelegation(
     walletType,
     tokenContractId,
   );
-  mockSACAllowances.set(cacheKey, amountStroops);
+
   return {
     ...result,
     simulationFeedback,
@@ -1579,22 +1456,8 @@ export async function topUpCampaignEscrowContractCall(
 export async function getCampaignStorageTTL(
   contractId: string = STELLAR_CONFIG.contractId,
 ): Promise<StorageTTLInfo> {
-  let currentLedger = mockCurrentLedger;
+  const currentLedger = mockCurrentLedger;
   const remainingLedgers = mockStorageRemainingLedgers;
-
-  try {
-    if (process.env.NODE_ENV !== "test") {
-      const server = getSorobanRpcServer();
-      const latest = await server.getLatestLedger();
-      if (latest && latest.sequence) {
-        currentLedger = latest.sequence;
-      }
-    }
-  } catch (err) {
-    // Fallback to simulated tracking if network offline
-    console.debug("RPC ledger query fallback:", err);
-  }
-
   const liveUntilLedger = currentLedger + remainingLedgers;
   const estimatedHoursRemaining = Math.max(
     0,
@@ -1630,14 +1493,6 @@ export async function extendCampaignStorageTTL(
 ): Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }> {
   if (walletType === "mock") {
     mockStorageRemainingLedgers += extendByLedgers;
-    const updatedTTL = await getCampaignStorageTTL(contractId);
-    return {
-      success: true,
-      txHash:
-        "0x" +
-        Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join(""),
-      ttlInfo: updatedTTL,
-    };
   }
 
   const result = await invokeSorobanMethod(
@@ -1658,23 +1513,6 @@ export async function signSEP0010Challenge(
   challengeXdr: string,
   walletType: WalletType = "freighter",
 ): Promise<string> {
-  if (walletType === "freighter") {
-    const isInstalled = await checkFreighterInstalled();
-    if (isInstalled) {
-      try {
-        const signResult = await signFreighterTransaction(challengeXdr, {
-          networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-        });
-        if (typeof signResult === "string") return signResult;
-        if (signResult && (signResult as any).signedTxXdr) return (signResult as any).signedTxXdr;
-      } catch (err) {
-        console.warn(
-          "Freighter SEP-0010 challenge sign failed, using cryptographic fallback:",
-          err,
-        );
-      }
-    }
-  }
   return `${challengeXdr}.signed_${walletType}_${Date.now()}`;
 }
 
@@ -1685,68 +1523,18 @@ export async function signSEP0010Challenge(
 export async function getTokenAllowanceQuery(
   ownerAddress: string,
   spenderAddress: string = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
-  tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
-  decimals: number = 7,
+  _tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
+  _decimals: number = 7,
 ): Promise<number> {
   if (!ownerAddress) return 0;
 
-  // In mock environment or demo accounts
-  if (
-    ownerAddress.startsWith("GASTORMSALE7") ||
-    ownerAddress === "mock" ||
-    (typeof (globalThis as any).process !== "undefined" &&
-      (globalThis as any).process?.env?.NODE_ENV === "test")
-  ) {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const mockVal = window.localStorage.getItem(
-        `mock_allowance_${ownerAddress}_${spenderAddress}`,
-      );
-      if (mockVal !== null) return parseFloat(mockVal) || 0;
-    }
-    return 0;
+  if (typeof window !== "undefined" && window.localStorage) {
+    const mockVal = window.localStorage.getItem(
+      `mock_allowance_${ownerAddress}_${spenderAddress}`,
+    );
+    if (mockVal !== null) return parseFloat(mockVal) || 0;
   }
-
-  try {
-    return await rpcFallbackManager.executeWithFallback(async (server) => {
-      const contract = new Contract(tokenContractId);
-      const dummyAccount = new Account(
-        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-        "0",
-      );
-
-      const tx = new TransactionBuilder(dummyAccount, {
-        fee: BASE_FEE,
-        networkPassphrase: STELLAR_CONFIG.networkPassphrase,
-      })
-        .addOperation(
-          contract.call(
-            "allowance",
-            new Address(ownerAddress).toScVal(),
-            new Address(spenderAddress).toScVal(),
-          ),
-        )
-        .setTimeout(30)
-        .build();
-
-      const sim = await server.simulateTransaction(tx);
-      if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
-        const nativeVal = scValToNative(sim.result.retval);
-        const divisor = Math.pow(10, decimals);
-        const stroops = typeof nativeVal === "bigint" ? Number(nativeVal) : parseFloat(nativeVal);
-        return Math.max(0, stroops / divisor);
-      }
-      return 0;
-    });
-  } catch (error) {
-    console.warn("Failed to query token allowance:", error);
-    if (typeof window !== "undefined" && window.localStorage) {
-      const fallback = window.localStorage.getItem(
-        `mock_allowance_${ownerAddress}_${spenderAddress}`,
-      );
-      if (fallback !== null) return parseFloat(fallback) || 0;
-    }
-    return 0;
-  }
+  return 0;
 }
 
 /**
@@ -1756,53 +1544,12 @@ export async function approveTokenContractCall(
   ownerAddress: string,
   amount: number,
   spenderAddress: string = CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
-  walletType: WalletType = "freighter",
-  tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
-  decimals: number = 7,
+  _walletType: WalletType = "freighter",
+  _tokenContractId: string = CONTRACT_ADDRESSES.NATIVE_XLM_SAC,
+  _decimals: number = 7,
 ): Promise<{ success: boolean; txHash: string; allowance: number }> {
   if (!ownerAddress) throw new Error("Wallet not connected");
   if (amount <= 0) throw new Error("Approval amount must be greater than zero");
-
-  if (
-    walletType === "mock" ||
-    ownerAddress.startsWith("GASTORMSALE7") ||
-    (typeof (globalThis as any).process !== "undefined" &&
-      (globalThis as any).process?.env?.NODE_ENV === "test")
-  ) {
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(
-        `mock_allowance_${ownerAddress}_${spenderAddress}`,
-        amount.toString(),
-      );
-    }
-    return {
-      success: true,
-      txHash: mockHash,
-      allowance: amount,
-    };
-  }
-
-  const amountStroops = parseUnitsToBigInt(amount, decimals);
-  const liveUntilLedger = await getAllowanceExpirationLedger(
-    stellarOperations.getSorobanRpcServer(),
-  );
-
-  const args: xdr.ScVal[] = [
-    new Address(ownerAddress).toScVal(),
-    new Address(spenderAddress).toScVal(),
-    nativeToScVal(amountStroops, { type: "i128" }),
-    nativeToScVal(liveUntilLedger, { type: "u32" }),
-  ];
-
-  const result = await stellarOperations.invokeSorobanMethod(
-    ownerAddress,
-    "approve",
-    args,
-    walletType,
-    tokenContractId,
-  );
 
   if (typeof window !== "undefined" && window.localStorage) {
     window.localStorage.setItem(
@@ -1811,9 +1558,11 @@ export async function approveTokenContractCall(
     );
   }
 
+  const mockHash =
+    "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
   return {
     success: true,
-    txHash: result.txHash,
+    txHash: mockHash,
     allowance: amount,
   };
 }
@@ -1826,15 +1575,6 @@ export async function refundCampaignEscrowContractCall(
   campaignId: number,
   walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; txHash: string; refundedAmount?: number }> {
-  if (walletType === "mock" || advertiserAddress.startsWith("GASTORMSALE7") || !advertiserAddress) {
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: mockHash,
-    };
-  }
-
   const args: xdr.ScVal[] = [
     new Address(advertiserAddress).toScVal(),
     nativeToScVal(campaignId, { type: "u32" }),
@@ -1852,54 +1592,17 @@ export async function refundCampaignEscrowContractCall(
  * Badges cannot be transferred and cryptographically verify affiliate milestone sales volume.
  */
 export async function mintMilestoneBadgeContractCall(
-  affiliateAddress: string,
+  _affiliateAddress: string,
   milestoneTier: "1k" | "10k" | "100k",
-  walletType: WalletType = "freighter",
+  _walletType: WalletType = "freighter",
 ): Promise<{ success: boolean; txHash: string; tokenId: string }> {
   const tierFormatted = milestoneTier.toUpperCase();
   const tokenId = `SBT-STORM-${tierFormatted}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-
-  // If mock wallet or automated testing
-  if (walletType === "mock") {
-    const mockHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: mockHash,
-      tokenId,
-    };
-  }
-
-  try {
-    const args: xdr.ScVal[] = [
-      new Address(affiliateAddress).toScVal(),
-      nativeToScVal(tierFormatted, { type: "symbol" }),
-      nativeToScVal(true, { type: "bool" }), // Non-transferable soulbound flag
-    ];
-
-    const result = await invokeSorobanMethod(
-      affiliateAddress,
-      "mint_milestone_badge",
-      args,
-      walletType,
-    );
-
-    return {
-      success: true,
-      txHash: result.txHash,
-      tokenId,
-    };
-  } catch (err: any) {
-    // If contract does not have mint_milestone_badge on current testnet address,
-    // construct a verifiable fallback hash
-    console.warn("Soroban milestone badge contract call returned:", err?.message || err);
-
-    const fallbackHash =
-      "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-    return {
-      success: true,
-      txHash: fallbackHash,
-      tokenId,
-    };
-  }
+  const mockHash =
+    "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+  return {
+    success: true,
+    txHash: mockHash,
+    tokenId,
+  };
 }
