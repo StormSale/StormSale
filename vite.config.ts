@@ -1,7 +1,16 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import { visualizer } from "rollup-plugin-visualizer";
+// Optional visualizer import
+let visualizerPlugin: any = null;
+try {
+  const mod = await import("rollup-plugin-visualizer");
+  if (mod?.visualizer) {
+    visualizerPlugin = mod.visualizer({ open: false, gzipSize: true, brotliSize: true });
+  }
+} catch {
+  // Optional when running in test environments without devDependencies installed
+}
 import { subresourceIntegrity } from "./src/lib/vite/subresource-integrity-plugin.js";
 import { STATIC_CSP_HEADER } from "./src/config/csp.ts";
 
@@ -22,7 +31,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     subresourceIntegrity(),
-    visualizer({ open: false, gzipSize: true, brotliSize: true }),
+    ...(visualizerPlugin ? [visualizerPlugin] : []),
   ],
   resolve: {
     dedupe: ["react", "react-dom"],

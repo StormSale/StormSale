@@ -4,6 +4,7 @@ import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
 import { SalesList } from "../components/affiliate/SalesList";
 import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import { AffiliatePerformanceCharts } from "../components/affiliate/AffiliatePerformanceCharts";
 import { AffiliateClickStreamHeatmap } from "../components/affiliate/ClickStreamHeatmap";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
@@ -20,6 +21,7 @@ import {
   Globe2,
   Send,
   Sliders,
+  BarChart3,
   Link2,
   Trophy,
   Award,
@@ -54,6 +56,7 @@ const AFFILIATE_TABS = [
   "join-campaign",
   "my-sales",
   "claim-payouts",
+  "performance",
   "settings",
   "security",
   "apply-links",
@@ -84,6 +87,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
     { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
+    { id: "performance", label: "Performance Analytics", icon: BarChart3 },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
     { id: "security", label: "Security & Keys", icon: Shield },
   ];
@@ -112,6 +116,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "performance":
+        return <AffiliatePerformanceCharts />;
       case "settings":
         return (
           <div className="space-y-6">

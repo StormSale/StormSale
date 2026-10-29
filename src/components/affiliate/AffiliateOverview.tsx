@@ -26,6 +26,7 @@ import {
   GitBranch,
   Lock,
 } from "lucide-react";
+import { AffiliatePerformanceCharts } from "./AffiliatePerformanceCharts";
 import { useWeb3 } from "../../context/Web3Context";
 import { getAffiliateProfile } from "../../lib/affiliateLeaderboard";
 import { VerifiedRevenueBadge } from "./VerifiedRevenueBadge";
@@ -360,6 +361,9 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
           </Button>
         </div>
       </div>
+
+      {/* Interactive Performance Trends & Balance Widgets (Issue #48) */}
+      <AffiliatePerformanceCharts />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

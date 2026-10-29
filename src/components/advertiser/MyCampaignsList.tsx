@@ -53,6 +53,8 @@ import {
   initiateMultiSigRefund,
 } from "../../lib/multiSigSafe";
 import { MultiSigRefundModal } from "./MultiSigRefundModal";
+import { StorageTTLHealthIndicator } from "./StorageTTLHealthIndicator";
+import { EscrowTopUpModal } from "./EscrowTopUpModal";
 import { ContractTTLBadge } from "./ContractTTLBadge";
 import {
   calculateTTLHealth,
@@ -240,6 +242,7 @@ export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
+  const [topUpTarget, setTopUpTarget] = useState<{ id: number; name: string } | null>(null);
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
   const [activeMultiSigProposal, setActiveMultiSigProposal] =
     useState<MultiSigRefundProposal | null>(null);
@@ -1208,13 +1211,19 @@ export const MyCampaignsList = () => {
                       </div>
                     </div>
 
-                    <div className="flex flex-col items-end gap-1.5">
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <span
                         className={`inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full shrink-0 ${cfg.badge}`}
                       >
                         <div className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
                         {campaign.status}
                       </span>
+
+                      <StorageTTLHealthIndicator
+                        compact
+                        autoExtend={false}
+                        contractId={campaign.contractAddress}
+                      />
 
                       {/* Visual Alert Badge at < 10% balance */}
                       {isLowBalance && (
@@ -1655,6 +1664,23 @@ export const MyCampaignsList = () => {
                           <Button
                             type="button"
                             variant="outline"
+                            disabled={isNaN(parseInt(campaign.id, 10)) || parseInt(campaign.id, 10) <= 0}
+                            onClick={() => {
+                              const parsedId = parseInt(campaign.id, 10);
+                              if (!isNaN(parsedId) && parsedId > 0) {
+                                setTopUpTarget({ id: parsedId, name: campaign.name });
+                              }
+                            }}
+                            title="Soroban SAC Token Allowance Delegation & Top-Up"
+                            className="h-10 px-3 rounded-xl border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Zap className="w-4 h-4" />
+                            <span className="hidden sm:inline">SAC</span>
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
                             onClick={() => openConfigModal(campaign)}
                             title="Configure Automated Escrow Top-Up"
                             className="h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
@@ -1710,6 +1736,16 @@ export const MyCampaignsList = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Escrow Top-Up & SAC Allowance Modal */}
+      {topUpTarget && (
+        <EscrowTopUpModal
+          isOpen={Boolean(topUpTarget)}
+          campaignId={topUpTarget.id}
+          campaignName={topUpTarget.name}
+          onClose={() => setTopUpTarget(null)}
+        />
       )}
 
       {/* MODAL 1: Automated Escrow Top-Up Settings Dialog */}

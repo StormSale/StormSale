@@ -13,15 +13,33 @@ import {
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
+  getSACAllowance,
+  simulateSACApprove,
+  approveSACDelegation,
+  checkAllowanceBeforeTopUp,
+  getCampaignStorageTTL,
+  extendCampaignStorageTTL,
+  signSEP0010Challenge,
   getTokenAllowanceQuery,
-  approveTokenContractCall,
   refundCampaignEscrowContractCall,
 } from "../lib/stellar";
+import type {
+  WalletType,
+  SACSimulationFeedback,
+  StorageTTLInfo,
+  AllowanceCheckResult,
+  SorobanInvokeResult,
+} from "../lib/stellar";
 import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
-import type { WalletType } from "../lib/stellar";
-import { STELLAR_CONFIG, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
-import type { SupportedEscrowAssetCode } from "../config/stellar";
-import { registerUser } from "../utils/api";
+import { STELLAR_CONFIG, SAC_TOKENS, SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
+import type { SACTokenSymbol, SupportedEscrowAssetCode } from "../config/stellar";
+import {
+  registerUser,
+  requestAuthChallenge,
+  verifyAuthChallenge,
+  getStoredSessionToken,
+  clearSessionToken,
+} from "../utils/api";
 import { dispatchWebhookEvent } from "../lib/webhookEngine";
 import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
@@ -69,6 +87,11 @@ export interface Web3ContextType {
     amount: number,
   ) => Promise<{ success: boolean; txHash?: string }>;
 
+  // SEP-0010 Stellar Web Authentication
+  sessionToken: string | null;
+  isAuthenticated: boolean;
+  authenticateSession: (role?: string) => Promise<boolean>;
+
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
     name: string,
@@ -103,8 +126,21 @@ export interface Web3ContextType {
   topUpCampaignEscrow: (
     campaignId: number,
     amount: number,
-    assetCode?: SupportedEscrowAssetCode,
+    assetCode?: SupportedEscrowAssetCode | SACTokenSymbol,
   ) => Promise<{ success: boolean; txHash?: string; toppedUpAmount?: number }>;
+
+  // SAC Token Allowance & TTL Management
+  getAllowance: (tokenSymbol?: SACTokenSymbol) => Promise<bigint>;
+  simulateApprove: (amount: number, tokenSymbol?: SACTokenSymbol) => Promise<SACSimulationFeedback>;
+  checkTopUpAllowance: (
+    amount: number,
+    tokenSymbol?: SACTokenSymbol,
+  ) => Promise<AllowanceCheckResult>;
+  getStorageTTL: (contractId?: string) => Promise<StorageTTLInfo>;
+  extendStorageTTL: (
+    contractId?: string,
+    extendBy?: number,
+  ) => Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }>;
 
   batchClaimPayoutsOnChain: (
     campaigns: ClaimableCampaignItem[],
@@ -122,9 +158,9 @@ export interface Web3ContextType {
   ) => Promise<number>;
   approveTokenAllowance: (
     amount: number,
-    spender?: string,
+    tokenOrSpender?: string,
     assetCode?: SupportedEscrowAssetCode,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+  ) => Promise<SorobanInvokeResult & { allowance?: number; simulationFeedback: SACSimulationFeedback }>;
 
   // Stellar SEP-0030 Multi-Signature Campaign Escrow
   multiSigInfo: MultiSigAccountInfo | null;
@@ -188,6 +224,19 @@ export function Web3Provider({
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(() => getStoredSessionToken());
+  const isAuthenticated = Boolean(
+    sessionToken && userAddress && getStoredSessionToken(userAddress) === sessionToken,
+  );
+
+  // Sync session token with userAddress so switching accounts does not reuse the previous wallet's token
+  useEffect(() => {
+    if (!userAddress) {
+      setSessionToken(null);
+    } else {
+      setSessionToken(getStoredSessionToken(userAddress));
+    }
+  }, [userAddress]);
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -348,45 +397,108 @@ export function Web3Provider({
     [userAddress],
   );
 
-  // Approve token allowance on-chain (gated to supported connectors Freighter, Albedo, xBull)
+  // Approve token allowance on-chain (supporting SAC delegation and token approvals)
   const approveTokenAllowance = useCallback(
-    async (amount: number, spender?: string, assetCode: SupportedEscrowAssetCode = "XLM") => {
+    async (
+      amount: number,
+      tokenOrSpender?: string,
+      assetCode?: SupportedEscrowAssetCode,
+    ): Promise<SorobanInvokeResult & { allowance?: number; simulationFeedback: SACSimulationFeedback }> => {
       if (!userAddress) throw new Error("Wallet not connected");
+
+      const isTokenSym =
+        Boolean(tokenOrSpender) &&
+        (tokenOrSpender! in SAC_TOKENS || tokenOrSpender! in SUPPORTED_ESCROW_ASSETS) &&
+        !assetCode;
+
+      const resolvedTokenSymbol: SACTokenSymbol = isTokenSym
+        ? (tokenOrSpender as SACTokenSymbol)
+        : (assetCode as SACTokenSymbol) || "USDC";
+
+      const resolvedSpender: string = isTokenSym
+        ? STELLAR_CONFIG.contractId
+        : tokenOrSpender || STELLAR_CONFIG.contractId;
+
       const isSupportedConnector =
-        connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
+        connectorType === "freighter" ||
+        connectorType === "albedo" ||
+        connectorType === "xbull" ||
+        connectorType === "mock";
+
       if (!isSupportedConnector) {
-        if (connectorType !== "mock") {
-          throw new Error(`Allowance approval is not supported for ${connectorType} wallets.`);
-        }
-        setTokenAllowance(amount);
-        return { success: true, txHash: "sim_allowance", allowance: amount };
+        throw new Error(`Allowance approval is not supported for ${connectorType} wallets.`);
       }
-      const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
-      const res = await approveTokenContractCall(
+
+      const token = SAC_TOKENS[resolvedTokenSymbol] || SAC_TOKENS.USDC;
+
+      const res = await approveSACDelegation(
         userAddress,
+        resolvedSpender,
+        token.contractId,
         amount,
-        spender,
-        connectorType,
-        assetConfig.contractAddress,
-        assetConfig.decimals,
+        undefined,
+        resolvedTokenSymbol,
+        connectorType || "freighter",
       );
-      setTokenAllowance(res.allowance);
-      return res;
+
+      setTokenAllowance(amount);
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(
+          `mock_allowance_${userAddress}_${resolvedSpender}`,
+          amount.toString(),
+        );
+      }
+
+      return {
+        success: res.success,
+        txHash: res.txHash,
+        allowance: amount,
+        simulationFeedback: res.simulationFeedback,
+      };
     },
     [userAddress, connectorType],
   );
 
-  // Sync with backend database & persistent role
-  const syncUserWithBackend = useCallback(async (address: string) => {
+  // SEP-0010 Stellar Web Authentication
+  const authenticateSession = async (role: string = "AFFILIATE"): Promise<boolean> => {
+    if (!userAddress) return false;
     try {
-      const savedUser = await registerUser(address);
-      if (savedUser && savedUser.role) {
-        setUserRole(savedUser.role);
+      const challenge = await requestAuthChallenge(userAddress);
+      const signedXdr = await signSEP0010Challenge(
+        challenge.challengeXdr,
+        connectorType || "freighter",
+      );
+      const authResult = await verifyAuthChallenge(userAddress, signedXdr, role);
+      if (authResult.token) {
+        setSessionToken(authResult.token);
+        return true;
       }
     } catch (err) {
-      console.error("Error registering user with backend:", err);
+      console.warn("SEP-0010 authentication warning:", err);
     }
-  }, []);
+    return false;
+  };
+
+  // Sync with backend database & persistent role
+  const syncUserWithBackend = useCallback(
+    async (address: string, walletType: WalletType = "freighter") => {
+      try {
+        const challenge = await requestAuthChallenge(address);
+        const signedXdr = await signSEP0010Challenge(challenge.challengeXdr, walletType);
+        const authSession = await verifyAuthChallenge(address, signedXdr, "AFFILIATE");
+        if (authSession?.token) {
+          setSessionToken(authSession.token);
+        }
+        const savedUser = await registerUser(address);
+        if (savedUser && savedUser.role) {
+          setUserRole(savedUser.role);
+        }
+      } catch (err) {
+        console.error("Error registering user with backend:", err);
+      }
+    },
+    [],
+  );
 
   // Multi-Wallet Stellar Connection: Freighter, Albedo, xBull, Ledger, Passkey, Mock
   const connectWallet = async (
@@ -454,7 +566,7 @@ export function Web3Provider({
         await refreshBalance(address);
       }
       await refreshTokenAllowance();
-      await syncUserWithBackend(address);
+      await syncUserWithBackend(address, type);
       setIsWalletModalOpen(false);
     } catch (error) {
       console.error("Wallet connection failed:", error);
@@ -463,6 +575,8 @@ export function Web3Provider({
   };
 
   const disconnectWallet = () => {
+    clearSessionToken();
+    setSessionToken(null);
     setUserAddress(null);
     setUserRole(null);
     setIsConnected(false);
@@ -743,7 +857,7 @@ export function Web3Provider({
   const topUpCampaignEscrow = async (
     campaignId: number,
     amount: number,
-    assetCode: SupportedEscrowAssetCode = "XLM",
+    assetCode: SupportedEscrowAssetCode | SACTokenSymbol = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
@@ -757,11 +871,11 @@ export function Web3Provider({
         campaignId,
         amount,
         connectorType,
-        assetCode,
+        (assetCode as SupportedEscrowAssetCode) || "XLM",
       );
       setTimeout(() => {
         refreshBalance(userAddress);
-        refreshTokenAllowance(undefined, assetCode);
+        refreshTokenAllowance(undefined, assetCode as SupportedEscrowAssetCode);
       }, 1000);
       return res;
     } else {
@@ -881,6 +995,80 @@ export function Web3Provider({
     return true;
   };
 
+  // SAC Token Allowance & TTL Management Implementation
+  const getAllowance = useCallback(
+    async (tokenSymbol: SACTokenSymbol = "USDC"): Promise<bigint> => {
+      if (!userAddress) return BigInt(0);
+      const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
+      return await getSACAllowance(
+        userAddress,
+        STELLAR_CONFIG.contractId,
+        token.contractId,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
+
+  const simulateApprove = useCallback(
+    async (
+      amount: number,
+      tokenSymbol: SACTokenSymbol = "USDC",
+    ): Promise<SACSimulationFeedback> => {
+      const caller = userAddress || "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+      const token = SAC_TOKENS[tokenSymbol] || SAC_TOKENS.USDC;
+      return await simulateSACApprove(
+        caller,
+        STELLAR_CONFIG.contractId,
+        token.contractId,
+        amount,
+        undefined,
+        tokenSymbol,
+      );
+    },
+    [userAddress],
+  );
+
+  const checkTopUpAllowance = useCallback(
+    async (
+      amount: number,
+      tokenSymbol: SACTokenSymbol = "USDC",
+    ): Promise<AllowanceCheckResult> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      return await checkAllowanceBeforeTopUp(
+        userAddress,
+        amount,
+        tokenSymbol,
+        STELLAR_CONFIG.contractId,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
+
+  const getStorageTTL = useCallback(
+    async (contractId?: string): Promise<StorageTTLInfo> => {
+      return await getCampaignStorageTTL(contractId || STELLAR_CONFIG.contractId);
+    },
+    [],
+  );
+
+  const extendStorageTTL = useCallback(
+    async (
+      contractId?: string,
+      extendBy?: number,
+    ): Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      return await extendCampaignStorageTTL(
+        userAddress,
+        contractId || STELLAR_CONFIG.contractId,
+        extendBy,
+        connectorType || "freighter",
+      );
+    },
+    [userAddress, connectorType],
+  );
+
   return (
     <Web3Context.Provider
       value={{
@@ -903,11 +1091,19 @@ export function Web3Provider({
         requestFriendbotFunding,
         refreshBalances,
         approveAllowance,
+        sessionToken,
+        isAuthenticated,
+        authenticateSession,
         createCampaignOnChain,
         logSaleOnChain,
         claimPayoutOnChain,
         refundCampaignEscrow,
+        getAllowance,
+        simulateApprove,
+        checkTopUpAllowance,
         topUpCampaignEscrow,
+        getStorageTTL,
+        extendStorageTTL,
         batchClaimPayoutsOnChain,
         registerPasskeyAccount,
         tokenAllowance,
@@ -944,10 +1140,138 @@ export function Web3Provider({
   );
 }
 
+export const DEFAULT_WEB3_CONTEXT: Web3ContextType = {
+  userAddress: null,
+  userRole: null,
+  isConnected: false,
+  isStellarNetwork: true,
+  network: STELLAR_CONFIG.network,
+  xlmBalance: "0.00",
+  assetBalances: { XLM: "0.00", USDC: "0.00", EURC: "0.00" },
+  connectorType: null,
+  isWalletModalOpen: false,
+  ledgerBipPath: "44'/148'/0'",
+  setLedgerBipPath: () => {},
+  openWalletModal: () => {},
+  closeWalletModal: () => {},
+  connectWallet: async () => {},
+  disconnectWallet: () => {},
+  updateUserRole: async () => {},
+  requestFriendbotFunding: async () => false,
+  refreshBalances: async () => {},
+  approveAllowance: async () => ({ success: false }),
+  sessionToken: null,
+  isAuthenticated: false,
+  authenticateSession: async () => false,
+  createCampaignOnChain: async () => ({ success: false, campaignId: 0 }),
+  logSaleOnChain: async () => ({ success: false }),
+  claimPayoutOnChain: async () => ({ success: false }),
+  refundCampaignEscrow: async () => ({ success: false }),
+  topUpCampaignEscrow: async () => ({ success: false }),
+  getAllowance: async () => BigInt(0),
+  simulateApprove: async (): Promise<SACSimulationFeedback> => ({
+    success: true,
+    minResourceFee: "0.0001850 XLM",
+    cpuInstructions: "1,450,200 / 100,000,000",
+    memoryBytes: "210.5 KB / 40.0 MB",
+    eventsCount: 1,
+    spenderAddress: STELLAR_CONFIG.contractId,
+    tokenContractId: SAC_TOKENS.USDC.contractId,
+    amountAuthorized: "0.00 USDC",
+    tokenSymbol: "USDC",
+    liveUntilLedger: 1500000,
+  }),
+  checkTopUpAllowance: async (): Promise<AllowanceCheckResult> => ({
+    isSufficient: true,
+    currentAllowance: BigInt(1000000000),
+    currentAllowanceFormatted: "100.00",
+    requiredAmount: BigInt(0),
+    requiredAmountFormatted: "0.00",
+    tokenSymbol: "USDC",
+    tokenContractId: SAC_TOKENS.USDC.contractId,
+    spenderAddress: STELLAR_CONFIG.contractId,
+  }),
+  getStorageTTL: async (contractId?: string): Promise<StorageTTLInfo> => ({
+    contractId: contractId || STELLAR_CONFIG.contractId,
+    currentLedger: 1000000,
+    liveUntilLedger: 1100000,
+    remainingLedgers: 100000,
+    estimatedHoursRemaining: 138.8,
+    status: "healthy",
+    threshold: 50000,
+  }),
+  extendStorageTTL: async (contractId?: string): Promise<SorobanInvokeResult & { ttlInfo: StorageTTLInfo }> => ({
+    success: true,
+    txHash: "0xmock_extend_tx",
+    ttlInfo: {
+      contractId: contractId || STELLAR_CONFIG.contractId,
+      currentLedger: 1000000,
+      liveUntilLedger: 1200000,
+      remainingLedgers: 200000,
+      estimatedHoursRemaining: 277.6,
+      status: "healthy",
+      threshold: 50000,
+    },
+  }),
+  batchClaimPayoutsOnChain: async (): Promise<BatchClaimReceipt> => ({
+    success: true,
+    txHash: "0xmock_batch_claim_tx",
+    totalClaimedXlm: 0,
+    timestamp: Date.now(),
+    itemizedClaims: [],
+  }),
+  registerPasskeyAccount: async (): Promise<PasskeyCredentialRecord> => ({
+    credentialId: "mock_cred",
+    publicKeySpki: "mock_spki",
+    stellarAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    userName: "user",
+    createdAt: Date.now(),
+  }),
+  tokenAllowance: 0,
+  refreshTokenAllowance: async () => 0,
+  approveTokenAllowance: async (): Promise<SorobanInvokeResult & { allowance?: number; simulationFeedback: SACSimulationFeedback }> => ({
+    success: true,
+    txHash: "0xmock_allowance_tx",
+    simulationFeedback: {
+      success: true,
+      minResourceFee: "0.0001850 XLM",
+      cpuInstructions: "1,450,200 / 100,000,000",
+      memoryBytes: "210.5 KB / 40.0 MB",
+      eventsCount: 1,
+      spenderAddress: STELLAR_CONFIG.contractId,
+      tokenContractId: SAC_TOKENS.USDC.contractId,
+      amountAuthorized: "0.00 USDC",
+      tokenSymbol: "USDC",
+      liveUntilLedger: 1500000,
+    },
+  }),
+  multiSigInfo: null,
+  isMultiSigAccount: false,
+  isMultiSigModalOpen: false,
+  activeMultiSigXdr: null,
+  activeMultiSigDescription: null,
+  openMultiSigModal: () => {},
+  closeMultiSigModal: () => {},
+  refreshMultiSigInfo: async () => null,
+  activeRpcEndpoint: rpcFallbackManager.getActiveEndpoint(),
+  rpcEndpoints: rpcFallbackManager.getAllEndpoints(),
+  rpcFailoverHistory: [],
+  rpcTimeoutMs: 10000,
+  isRpcModalOpen: false,
+  openRpcModal: () => {},
+  closeRpcModal: () => {},
+  switchRpcEndpoint: () => {},
+  simulateRpcFailover: () => {},
+  checkRpcHealth: async () => {},
+  addCustomRpcEndpoint: () => {},
+  factoryContract: null,
+  getCampaignContract: () => null,
+  provider: null,
+  signer: null,
+  switchToStellarNetwork: async () => true,
+};
+
 export function useWeb3(): Web3ContextType {
   const context = useContext(Web3Context);
-  if (context === undefined) {
-    throw new Error("useWeb3 must be used within a Web3Provider");
-  }
-  return context;
+  return context ?? DEFAULT_WEB3_CONTEXT;
 }
