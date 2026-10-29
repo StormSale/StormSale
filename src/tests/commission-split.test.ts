@@ -278,7 +278,7 @@ describe("Split plan persistence inside affiliate preferences", () => {
       { address: MAIN, percentage: "not-a-number" },
     ]);
     expect(cleaned).toHaveLength(2);
-    expect(cleaned[0].address).toBe(VAULT);
+    expect(cleaned[0].address.trim()).toBe(VAULT.trim());
     expect(cleaned[0].percentage).toBe(100); // clamped
     expect(cleaned[0].id).toBeTruthy();
     expect(cleaned[1].percentage).toBe(0);

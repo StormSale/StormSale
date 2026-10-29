@@ -8,6 +8,7 @@ import {
   verifySep10ChallengeResponse,
 } from "../utils/api";
 import * as Web3ContextModule from "../hooks/useWeb3";
+import { Admin } from "../pages/Admin";
 
 describe("Role-Based Access Control (RBAC) & Route Guards Suite (#110)", () => {
   beforeEach(() => {
@@ -119,6 +120,39 @@ describe("Role-Based Access Control (RBAC) & Route Guards Suite (#110)", () => {
       expect(html).toContain("private-dashboard");
       expect(html).toContain("Welcome Advertiser");
       expect(html).not.toContain("unauthorized-banner");
+    });
+  });
+
+  describe("Admin Emergency Kill-Switch UI", () => {
+    it("hides the Emergency Pause UI from non-admin roles", () => {
+      vi.spyOn(Web3ContextModule, "useWeb3").mockReturnValue({
+        isConnected: true,
+        userAddress: "GBBD47IF6LWK7P7MDEV6GL4C5S4UON3PFFVHG4Z377V5GLR7BGBFLA5",
+        userRole: "ADVERTISER",
+        openWalletModal: vi.fn(),
+        updateUserRole: vi.fn(),
+      } as any);
+
+      const html = renderToString(<Admin />);
+
+      expect(html).not.toContain('data-testid="emergency-pause-panel"');
+      expect(html).not.toContain("Emergency Pause");
+    });
+
+    it("renders a prominent Emergency Pause UI for admins", () => {
+      vi.spyOn(Web3ContextModule, "useWeb3").mockReturnValue({
+        isConnected: true,
+        userAddress: "GBBD47IF6LWK7P7MDEV6GL4C5S4UON3PFFVHG4Z377V5GLR7BGBFLA5",
+        userRole: "ADMIN",
+        openWalletModal: vi.fn(),
+        updateUserRole: vi.fn(),
+      } as any);
+
+      const html = renderToString(<Admin />);
+
+      expect(html).toContain('data-testid="emergency-pause-panel"');
+      expect(html).toContain("Emergency Pause");
+      expect(html).toContain("Pause Contracts");
     });
   });
 

@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { usePreference } from "../../hooks/usePreference";
@@ -24,6 +25,8 @@ interface SidebarProps {
   className?: string;
   onBack?: () => void;
   roleName: string;
+  isAdmin?: boolean;
+  onEmergencyPause?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -33,6 +36,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   className,
   onBack,
   roleName,
+  isAdmin = false,
+  onEmergencyPause,
 }) => {
   const [isCollapsed, setIsCollapsed] = usePreference<boolean>(
     "stormsale.sidebar.collapsed",
@@ -40,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     (v) => typeof v === "boolean",
   );
 
+  const [isPauseConfirmOpen, setIsPauseConfirmOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const { disconnectWallet } = useWeb3();
 
@@ -148,6 +154,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   );
                 })}
               </div>
+
+              {isAdmin && onEmergencyPause && (
+                <div className="pt-3 mt-3 border-t border-rose-200 dark:border-rose-900/40">
+                  <div className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-wider mb-2 px-1">
+                    Admin Controls
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsMobileDrawerOpen(false);
+                      setIsPauseConfirmOpen(true);
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl flex items-center space-x-3 text-left transition-colors font-bold text-xs sm:text-sm bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+                  >
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span className="truncate">Emergency Pause</span>
+                  </button>
+                </div>
+              )}
 
               <div className="pt-3 mt-3 border-t border-slate-100 dark:border-zinc-800 flex items-center justify-between">
                 {onBack && (
@@ -303,6 +327,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
+        {isAdmin && onEmergencyPause && (
+          <div className="px-4 pb-2">
+            <Button
+              variant="ghost"
+              onClick={() => setIsPauseConfirmOpen(true)}
+              className={cn(
+                "w-full h-12 rounded-xl transition-all duration-200 group flex items-center border border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/40 hover:text-rose-700 dark:hover:text-rose-300",
+                isCollapsed ? "justify-center px-0" : "justify-start px-4",
+              )}
+              title="Emergency Pause"
+            >
+              <AlertTriangle
+                className={cn(
+                  "w-5 h-5 shrink-0 transition-transform duration-200 group-hover:scale-110",
+                  !isCollapsed && "mr-3",
+                )}
+              />
+              {!isCollapsed && (
+                <motion.span
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="font-bold truncate"
+                >
+                  Emergency Pause
+                </motion.span>
+              )}
+            </Button>
+          </div>
+        )}
+
         <div className="p-4 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-3">
           <Button
             variant="ghost"
@@ -356,6 +410,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </motion.div>
+
+      <AnimatePresence>
+        {isPauseConfirmOpen && isAdmin && onEmergencyPause && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setIsPauseConfirmOpen(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white dark:bg-zinc-950 border border-rose-200 dark:border-rose-900/50 rounded-2xl shadow-2xl p-6"
+            >
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-10 h-10 bg-rose-600 rounded-xl flex items-center justify-center shadow-md">
+                  <AlertTriangle className="w-5 h-5 text-white" />
+                </div>
+                <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+                  Confirm Emergency Pause
+                </h3>
+              </div>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-6">
+                This will pause all platform contracts immediately. This action
+                affects every user and should only be used in an emergency.
+              </p>
+              <div className="flex items-center justify-end space-x-3">
+                <Button
+                  variant="ghost"
+                  onClick={() => setIsPauseConfirmOpen(false)}
+                  className="rounded-xl font-semibold"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => {
+                    onEmergencyPause();
+                    setIsPauseConfirmOpen(false);
+                  }}
+                  className="rounded-xl font-bold bg-rose-600 hover:bg-rose-700 text-white"
+                >
+                  Pause Contracts
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 };

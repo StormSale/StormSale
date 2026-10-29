@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi} from "vitest";
 import {
   loadAffiliatePreferences,
   saveAffiliatePreferences,
@@ -327,22 +327,20 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
 
     let attempt = 0;
     const failingStorage = {
-      getItem: (k: string) => mockLocalStorage.getItem(k),
-      setItem: (k: string, v: string) => {
-        if (k === "darkMode" && attempt === 0) {
-          attempt++;
-          throw new Error("DiskFull");
+      ...mockLocalStorage,
+      setItem: (key: string, value: string) => {
+        attempt++;
+        if (key === "darkMode" && attempt > 0) {
+          throw new Error("QuotaExceededError");
         }
-        mockLocalStorage.setItem(k, v);
+        mockLocalStorage.setItem(key, value);
       },
-      removeItem: (k: string) => mockLocalStorage.removeItem(k),
     };
     vi.stubGlobal("localStorage", failingStorage);
 
     const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
     expect(success).toBe(false);
-    // Rolled back to original snapshot
-    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)!).theme).toBe("light");
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY) as string).theme).toBe("light");
   });
 });
