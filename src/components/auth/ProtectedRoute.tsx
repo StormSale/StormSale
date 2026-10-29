@@ -283,7 +283,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     const handleSwitchRole = async () => {
       setIsRegistering(true);
       try {
-        await updateUserRole(primaryRequired);
+        await updateUserRole(primaryRequired as ProtocolRole);
       } catch (err) {
         console.error("Failed to switch role:", err);
       } finally {
@@ -307,86 +307,47 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
               <h3 className="text-base sm:text-lg font-black text-rose-950 dark:text-rose-200">
                 Access Restricted: Direct Page Bypass Detected
               </h3>
-              <p className="text-xs sm:text-sm text-rose-800 dark:text-rose-300/80 leading-relaxed">
-                Your connected wallet is registered as{" "}
-                <span className="font-bold underline decoration-rose-400">{userRoleDisplay}</span>.
-                Direct navigation to the private{" "}
-                <span className="font-bold uppercase">{primaryRequired}</span> dashboard is
-                restricted under Role-Based Access Control policies.
+              <p className="text-xs sm:text-sm text-rose-800 dark:text-rose-300/80">
+                Your current role ({userRoleDisplay}) is not permitted to view this page.
               </p>
-              {adminOnly && (
-                <p className="text-xs sm:text-sm text-rose-800 dark:text-rose-300/80 leading-relaxed font-semibold">
-                  This area is restricted to platform administrators only.
-                </p>
-              )}
             </div>
           </div>
 
-          {/* Wallet and Role Status Details */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 space-y-2.5">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium">Connected Wallet</span>
-              <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                {formatStellarAddress(userAddress || "")}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium">
-                Active Session Role
-              </span>
-              <span className="font-bold px-2 py-0.5 rounded-full bg-slate-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200 uppercase text-[10px]">
-                {userRoleDisplay}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400 font-medium">
-                Required Authorization
-              </span>
-              <span className="font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 uppercase text-[10px]">
-                {effectiveAllowedRoles.join(" OR ")}
-              </span>
-            </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
-            <Button
-              onClick={() => onNavigate && onNavigate(userRole.toLowerCase())}
-              className="w-full sm:flex-1 h-12 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-white font-bold text-xs sm:text-sm shadow-md"
-            >
-              <span>{`Go to My ${userRoleDisplay} Dashboard`}</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              onClick={handleSwitchRole}
-              disabled={isRegistering}
-              hidden={adminOnly}
-              className="w-full sm:flex-1 h-12 rounded-xl border-slate-200 dark:border-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 font-bold text-xs sm:text-sm text-zinc-800 dark:text-zinc-200 flex items-center justify-center gap-2"
-            >
-              {isRegistering ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-              )}
-              <span>{`Switch Role to ${primaryRequired}`}</span>
-            </Button>
-
+          <div className="flex flex-col sm:flex-row items-center gap-3">
             {onNavigate && (
               <Button
-                variant="ghost"
+                variant="outline"
                 onClick={() => onNavigate("dashboard")}
-                className="w-full sm:w-auto h-12 px-4 rounded-xl text-xs font-semibold text-zinc-500 hover:text-zinc-900 dark:hover:text-white"
+                className="w-full sm:w-auto h-12 px-5 rounded-xl border-slate-200 dark:border-zinc-800 font-semibold text-xs"
               >
-                Back to Home
+                Back to Dashboard
               </Button>
             )}
+            <Button
+              onClick={handleSwitchRole}
+              disabled={isRegistering}
+              className="w-full sm:flex-1 h-12 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-sm flex items-center justify-center gap-2"
+            >
+              {isRegistering ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Switching Role...</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="w-4 h-4" />
+                  <span>{`Switch to ${ROLE_METADATA[primaryRequired as ProtocolRole]?.title ?? primaryRequired}`}</span>
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </div>
     );
   }
 
-  // 4. Authorized State: Pass-through
+  // 4. Authorized: render protected content
   return <>{children}</>;
 };
+
+export default ProtectedRoute;

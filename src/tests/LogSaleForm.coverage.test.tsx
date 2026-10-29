@@ -213,6 +213,7 @@ describe("LogSaleForm coverage", () => {
       expect.objectContaining({ title: "Logging Failed", message: "simulation failed" }),
     );
   });
+
   describe("Telegram conversion alerts", () => {
     const HASH = "ab".repeat(32);
     const confirmWith = (txHash: string) =>
