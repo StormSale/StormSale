@@ -9,7 +9,6 @@ import {
   fetchXlmBalance,
   fetchAssetBalances,
   approveTokenAllowance as approveTokenAllowanceCall,
-  fundTestnetAccount,
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
@@ -495,7 +494,13 @@ export function Web3Provider({
 
   const requestFriendbotFunding = async (): Promise<boolean> => {
     if (!userAddress) return false;
-    const ok = await fundTestnetAccount(userAddress);
+    let ok = false;
+    try {
+      const res = await fetch(`https://friendbot.stellar.org?addr=${encodeURIComponent(userAddress)}`);
+      ok = res.ok;
+    } catch {
+      ok = false;
+    }
     if (ok) {
       setTimeout(() => refreshBalance(userAddress), 2000);
     }
