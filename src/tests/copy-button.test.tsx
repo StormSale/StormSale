@@ -8,7 +8,7 @@ import {
 } from "../components/ui/copy-button";
 
 describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
-  const originalNavigator = globalThis.navigator;
+  const originalNav = (globalThis as any).navigator;
   const originalDocument = (globalThis as any).document;
 
   const setNavigator = (value: any) => {
@@ -32,7 +32,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   });
 
   afterEach(() => {
-    setNavigator(originalNavigator);
+    setNavigator(originalNav);
     setDocument(originalDocument);
   });
 
@@ -50,9 +50,9 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         },
       });
 
-      const result = await copyToClipboard("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      const result = await copyToClipboard("GB6M6OEXMAMPLESTELLARPUBLICKEY");
       expect(result).toBe(true);
-      expect(mockWriteText).toHaveBeenCalledWith("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      expect(mockWriteText).toHaveBeenCalledWith("GB6M6OEXMAMPLESTELLARPUBLICKEY");
     });
 
     it("falls back to document.execCommand when navigator.clipboard throws", async () => {
@@ -123,7 +123,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         }),
       });
 
-      const result = await copyToClipboard("GB6M4OFAIL");
+      const result = await copyToClipboard("GB6M6OFAIL");
       expect(result).toBe(false);
     });
   });
@@ -132,7 +132,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
     it("renders CopyButton with custom label and accessible attributes", () => {
       const html = renderToString(
         <CopyButton
-          text="GB6M4OEXAMPLESTELLARPUBLICKEY"
+          text="GB6M6OEXMAMPLESTELLARPUBLICKEY"
           label="Copy Public Key"
           copiedLabel="Copied Address!"
         />,
@@ -146,7 +146,11 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
 
     it("renders CopyButton in icon-only mode when specified", () => {
       const html = renderToString(
-        <CopyButton text="GB6M4OEXAMPLESTELLARPUBLICKEY" iconOnly={true} size="icon" />,
+        <CopyButton
+          text="GB6M6OEXAMPLESTELLARPUBLICKEY"
+          iconOnly={true}
+          size="icon"
+        />,
       );
 
       expect(html).toContain("h-8 w-8");

@@ -11,6 +11,14 @@ import {
   STORAGE_PREFIX,
 } from "../lib/storage";
 
+// NOTE: The encrypted storage layer is async and may rely on Web Crypto.
+// Ensure a crypto implementation is available in the test environment.
+if (typeof globalThis.crypto === "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { webcrypto } = require("node:crypto");
+  (globalThis as any).crypto = webcrypto;
+}
+
 describe("Encrypted Local Cache Layer Suite", () => {
   const storage = getLocalStorage();
 

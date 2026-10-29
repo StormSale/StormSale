@@ -46,7 +46,7 @@ describe("Secure Decrypt & Key Envelope (#49)", () => {
   it("round-trips key wrap/unwrap with the same identifier", async () => {
     const key = await generateAESKey();
     const identifier = await getPublicKeyForAddress(
-      "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4OAT4AQH3ZLLFLA5",
     );
     const wrapped = await wrapAESKey(key, identifier);
     const unwrapped = await unwrapAESKey(wrapped, identifier);
