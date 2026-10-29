@@ -56,6 +56,17 @@ function normalizeHeaderValue(value) {
 }
 
 /**
+ * Returns true when the policy contains the required directive as a complete
+ * directive, so extra sources in the same directive do not match.
+ */
+function hasExactDirective(policy, directive) {
+  const target = normalizeHeaderValue(directive);
+  return normalizeHeaderValue(policy)
+    .split(";")
+    .some((part) => part.trim() === target);
+}
+
+/**
  * Reads the headers declared by vercel.json.
  * The `/(.*)` block applies to every route, which is the one that must carry
  * the security headers.
@@ -100,7 +111,10 @@ function evaluateHeaders(headers) {
     const present = entry !== undefined && entry !== null;
     const actualValue = present ? entry.value : null;
     const matches =
-      present && normalizeHeaderValue(actualValue) === normalizeHeaderValue(required.value);
+      present &&
+      (required.key === "Content-Security-Policy"
+        ? hasExactDirective(actualValue, required.value)
+        : normalizeHeaderValue(actualValue) === normalizeHeaderValue(required.value));
     const always = present ? entry.always !== false : false;
 
     return {
@@ -217,6 +231,7 @@ module.exports = {
   VERCEL_CONFIG_PATH,
   NGINX_CONFIG_PATH,
   normalizeHeaderValue,
+  hasExactDirective,
   readVercelHeaders,
   readNginxHeaders,
   evaluateHeaders,
