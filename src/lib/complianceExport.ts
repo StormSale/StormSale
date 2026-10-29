@@ -296,163 +296,7 @@ export function generateBrandedPDFHtml(report: SignedAuditReport): string {
 <head>
   <meta charset="UTF-8">
   <title>StormSale Regulatory Compliance Audit Report - ${report.reportId}</title>
-  <style>
-    @page { size: A4 portrait; margin: 16mm 14mm 16mm 14mm; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: #18181b;
-      margin: 0;
-      padding: 24px;
-      line-height: 1.5;
-      background: #fff;
-    }
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      border-bottom: 2px solid #4f46e5;
-      padding-bottom: 16px;
-      margin-bottom: 24px;
-    }
-    .logo-badge {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .logo-icon {
-      width: 44px;
-      height: 44px;
-      background: #18181b;
-      color: #fff;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: 900;
-      font-size: 20px;
-      letter-spacing: -1px;
-    }
-    .brand-title {
-      font-size: 22px;
-      font-weight: 800;
-      letter-spacing: -0.5px;
-      color: #18181b;
-      margin: 0;
-    }
-    .brand-subtitle {
-      font-size: 11px;
-      text-transform: uppercase;
-      font-weight: 700;
-      color: #4f46e5;
-      margin: 2px 0 0 0;
-      letter-spacing: 1px;
-    }
-    .report-meta {
-      text-align: right;
-      font-size: 11px;
-      color: #71717a;
-    }
-    .report-id {
-      font-size: 13px;
-      font-weight: 800;
-      color: #18181b;
-      font-family: monospace;
-    }
-    .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 12px;
-      margin-bottom: 24px;
-    }
-    .kpi-card {
-      background: #f4f4f5;
-      border: 1px solid #e4e4e7;
-      border-radius: 12px;
-      padding: 12px;
-      text-align: center;
-    }
-    .kpi-val {
-      font-size: 20px;
-      font-weight: 800;
-      color: #18181b;
-    }
-    .kpi-lbl {
-      font-size: 10px;
-      text-transform: uppercase;
-      font-weight: 700;
-      color: #71717a;
-      margin-top: 2px;
-    }
-    h3 {
-      font-size: 13px;
-      text-transform: uppercase;
-      font-weight: 800;
-      letter-spacing: 0.5px;
-      color: #27272a;
-      margin: 20px 0 10px 0;
-      border-bottom: 1px solid #e4e4e7;
-      padding-bottom: 6px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-      margin-bottom: 20px;
-    }
-    th {
-      background: #f4f4f5;
-      color: #52525b;
-      text-align: left;
-      padding: 8px 10px;
-      font-weight: 700;
-      border-bottom: 1px solid #d4d4d8;
-    }
-    td {
-      padding: 8px 10px;
-      border-bottom: 1px solid #f4f4f5;
-      vertical-align: top;
-    }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 9999px;
-      font-size: 9px;
-      font-weight: 800;
-      text-transform: uppercase;
-    }
-    .badge-compliant { background: #dcfce7; color: #15803d; }
-    .badge-review { background: #fef3c7; color: #b45309; }
-    .badge-verified { background: #dcfce7; color: #15803d; }
-    .badge-denied { background: #fee2e2; color: #b91c1c; }
-    .badge-pending { background: #f4f4f5; color: #52525b; }
-    .security-seal {
-      margin-top: 24px;
-      border: 1px solid #c7d2fe;
-      background: #eef2ff;
-      border-radius: 12px;
-      padding: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 10px;
-      color: #3730a3;
-    }
-    .hash-text {
-      font-family: monospace;
-      font-size: 10px;
-      font-weight: 700;
-      color: #1e1b4b;
-      word-break: break-all;
-    }
-    .footer {
-      margin-top: 24px;
-      text-align: center;
-      font-size: 10px;
-      color: #a1a1aa;
-      border-top: 1px solid #e4e4e7;
-      padding-top: 12px;
-    }
-  </style>
+  <link rel="stylesheet" href="/compliance-report.css">
 </head>
 <body>
   <div class="header">
@@ -472,15 +316,15 @@ export function generateBrandedPDFHtml(report: SignedAuditReport): string {
 
   <div class="kpi-row">
     <div class="kpi-card">
-      <div class="kpi-val" style="color: #4f46e5;">${report.metrics.complianceScore}%</div>
+      <div class="kpi-val kpi-val-primary">${report.metrics.complianceScore}%</div>
       <div class="kpi-lbl">Compliance Score</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-val" style="color: #16a34a;">${report.metrics.compliantCount} / ${report.metrics.totalStandards}</div>
+      <div class="kpi-val kpi-val-success">${report.metrics.compliantCount} / ${report.metrics.totalStandards}</div>
       <div class="kpi-lbl">Standards Compliant</div>
     </div>
     <div class="kpi-card">
-      <div class="kpi-val" style="color: #d97706;">${report.metrics.reviewNeededCount}</div>
+      <div class="kpi-val kpi-val-warning">${report.metrics.reviewNeededCount}</div>
       <div class="kpi-lbl">Reviews Needed</div>
     </div>
     <div class="kpi-card">
@@ -504,7 +348,7 @@ export function generateBrandedPDFHtml(report: SignedAuditReport): string {
       ${report.standards
         .map(
           (s) => `<tr>
-            <td style="font-weight: bold;">${s.standard}</td>
+            <td class="cell-bold">${s.standard}</td>
             <td>${s.category}</td>
             <td><span class="badge ${s.status === "Compliant" ? "badge-compliant" : "badge-review"}">${s.status}</span></td>
             <td>${s.lastChecked}</td>
@@ -531,9 +375,9 @@ export function generateBrandedPDFHtml(report: SignedAuditReport): string {
       ${report.auditRecords
         .map(
           (r) => `<tr>
-            <td style="font-family: monospace; font-weight: bold;">#${r.saleId}</td>
+            <td class="cell-mono-bold">#${r.saleId}</td>
             <td>${r.campaign}</td>
-            <td style="font-family: monospace; color: #71717a;">${r.campaignAddress}</td>
+            <td class="cell-mono-muted">${r.campaignAddress}</td>
             <td><span class="badge ${
               r.status === "Verified"
                 ? "badge-verified"
@@ -551,14 +395,14 @@ export function generateBrandedPDFHtml(report: SignedAuditReport): string {
 
   <div class="security-seal">
     <div>
-      <div style="font-weight: 800; font-size: 11px;">🔒 Cryptographic Auditor Signature & Tamper-Evident Seal</div>
-      <div style="margin-top: 4px;">SHA-256 Checksum: <span class="hash-text">${report.cryptoSignature.digestHash}</span></div>
-      <div style="margin-top: 2px;">Certificate ID: <span class="hash-text">${report.cryptoSignature.signatureCert}</span></div>
-      <div style="margin-top: 2px;">Auditor Stellar Key: <span class="hash-text">${report.auditor.address}</span></div>
+      <div class="seal-title">🔒 Cryptographic Auditor Signature & Tamper-Evident Seal</div>
+      <div class="seal-item-mt4">SHA-256 Checksum: <span class="hash-text">${report.cryptoSignature.digestHash}</span></div>
+      <div class="seal-item-mt2">Certificate ID: <span class="hash-text">${report.cryptoSignature.signatureCert}</span></div>
+      <div class="seal-item-mt2">Auditor Stellar Key: <span class="hash-text">${report.auditor.address}</span></div>
     </div>
-    <div style="text-align: right; border-left: 1px solid #c7d2fe; padding-left: 16px;">
-      <div style="font-size: 16px; font-weight: 900; color: #4338ca;">VERIFIED</div>
-      <div style="font-size: 9px; text-transform: uppercase;">Stellar Ledger Guard</div>
+    <div class="seal-status-box">
+      <div class="seal-status-verified">VERIFIED</div>
+      <div class="seal-status-label">Stellar Ledger Guard</div>
     </div>
   </div>
 
@@ -579,9 +423,22 @@ export function printOrSavePDF(htmlContent: string): void {
   printWindow.document.write(htmlContent);
   printWindow.document.close();
   printWindow.focus();
-  setTimeout(() => {
+  let printed = false;
+  const triggerPrint = () => {
+    if (printed) return;
+    printed = true;
     printWindow.print();
-  }, 250);
+  };
+  const link = printWindow.document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
+  if (link) {
+    link.onload = triggerPrint;
+    link.onerror = () => {
+      console.error("Failed to load compliance report stylesheet.");
+    };
+  } else {
+    printWindow.onload = triggerPrint;
+  }
+  setTimeout(triggerPrint, 500);
 }
 
 /**

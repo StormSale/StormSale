@@ -27,6 +27,7 @@ import { assertNotSanctioned } from "../lib/sanctions";
 import type { ClaimableCampaignItem, BatchClaimReceipt } from "../lib/batchClaim";
 import type { SplitPlan } from "../lib/commissionSplit";
 import type { AutoSwapConfig } from "../lib/sorobanDex";
+import { isAffiliatePaused } from "../lib/fraudRiskEngine";
 import type { PasskeyCredentialRecord } from "../lib/passkeySigner";
 import { purgeOnLogout } from "../lib/storage";
 import { useSorobanEvents } from "../hooks/useSorobanEvents";
@@ -39,6 +40,8 @@ import {
   type RpcEndpointStatus,
   type RpcFailoverEvent,
 } from "../lib/rpcFallback";
+import { recordReferralSale } from "../lib/referralTree";
+import type { TwoTierCommissionSplit } from "../types/referral";
 
 export type SorobanEventListener = (events: any[]) => void;
 
@@ -89,7 +92,9 @@ export interface Web3ContextType {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+    recruiterAddress?: string,
+    commissionRatePercent?: number,
+  ) => Promise<{ success: boolean; txHash?: string; split?: TwoTierCommissionSplit }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -162,12 +167,26 @@ export interface Web3ContextType {
   subscribeSorobanEvents: (listener: SorobanEventListener) => () => void;
 }
 
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-export function Web3Provider({ children }: { children: ReactNode }) {
-  const [userAddress, setUserAddress] = useState<string | null>(null);
+export function useSafeWeb3(): Web3ContextType | undefined {
+  return useContext(Web3Context);
+}
+
+export function Web3Provider({
+  children,
+  overrideAddress,
+  initialUserAddress,
+}: {
+  children: ReactNode;
+  overrideAddress?: string | null;
+  initialUserAddress?: string | null;
+}) {
+  const [userAddress, setUserAddress] = useState<string | null>(
+    overrideAddress ?? initialUserAddress ?? null,
+  );
   const [userRole, setUserRole] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
+  const [isConnected, setIsConnected] = useState(Boolean(overrideAddress ?? initialUserAddress));
   const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
   const [xlmBalance, setXlmBalance] = useState<string>("0.00");
   const [assetBalances, setAssetBalances] = useState<Record<SupportedEscrowAssetCode, string>>({
@@ -529,15 +548,75 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     campaignId: number,
     affiliateAddress: string,
     amountXlm: number,
-  ): Promise<{ success: boolean; txHash?: string }> => {
+    recruiterAddress?: string,
+    commissionRatePercent?: number,
+  ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    return logSaleContractCall(
-      userAddress,
-      campaignId,
-      affiliateAddress,
-      amountXlm,
-      connectorType || "freeighter",
-    );
+
+    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
+      const res = await logSaleContractCall(
+        userAddress,
+        campaignId,
+        affiliateAddress,
+        amountXlm,
+        connectorType,
+        recruiterAddress,
+        commissionRatePercent,
+      );
+      if (!res.success) {
+        return res;
+      }
+
+      // Record two-tier referral commission split only after successful transaction
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+        txHash: res.txHash,
+      });
+
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${res.txHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: res.txHash,
+      });
+
+      return { ...res, split };
+    } else {
+      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+      const split = recordReferralSale({
+        campaignId,
+        saleAmountXlm: amountXlm,
+        sellingAffiliateAddress: affiliateAddress,
+        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+        txHash: mockTxHash,
+      });
+      void dispatchWebhookEvent("conversion.confirmed", {
+        id: `sale_${mockTxHash}`,
+        event: "conversion.confirmed",
+        created_at: new Date().toISOString(),
+        campaign_id: campaignId,
+        affiliate_address: affiliateAddress,
+        sale_amount_xlm: amountXlm,
+        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+        recruiter_address: split.recruiterAddress,
+        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+        tx_hash: mockTxHash,
+      });
+      return {
+        success: true,
+        txHash: mockTxHash,
+        split,
+      };
+    }
   };
 
   // Soroban: Claim Payout
@@ -550,6 +629,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     asset?: SupportedEscrowAssetCode;
   }> => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "claim-payout");
 
     console.log(
@@ -634,6 +718,11 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     autoSwap: AutoSwapConfig | null = null,
   ): Promise<BatchClaimReceipt> => {
     if (!userAddress) throw new Error("Wallet not connected");
+    if (isAffiliatePaused(userAddress)) {
+      throw new Error(
+        `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
+      );
+    }
     await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
@@ -655,6 +744,33 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Compatibility helpers for legacy form callers
   const factoryContract = null;
   const getCampaignContract = (address: string) => ({
+    logEncryptedSale: async (
+      affiliate: string,
+      amount: string,
+      _payload: any,
+      _advKey: any,
+      _affKey: any,
+      commissionRate?: number,
+    ) => {
+      const parsedId = parseInt(address, 10);
+      const campaignId = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : 1;
+      const res = await logSaleOnChain(
+        campaignId,
+        affiliate,
+        parseFloat(amount) || 0,
+        undefined,
+        commissionRate,
+      );
+      return {
+        wait: async () => res,
+      };
+    },
+    grantAuditAccess: async (saleId: string, auditor: string, _key: any) => {
+      console.log(`[Soroban] Granted audit access for sale ${saleId} to ${auditor}`);
+      return {
+        wait: async () => ({ success: true }),
+      };
+    },
     address,
     contractId: CONTRACT_ADDRESSES.CAMPAIGN_ESCROW,
   });

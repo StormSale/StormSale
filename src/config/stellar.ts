@@ -75,24 +75,48 @@ export const ISSUERS = {
   },
 } as const;
 
+export function safeAssetContractId(asset: Asset, passphrase: string, fallback: string): string {
+  try {
+    return asset.contractId(passphrase);
+  } catch {
+    return fallback;
+  }
+}
+
 export const NETWORK_ESCROW_ASSETS = {
   TESTNET: {
     USDC: {
-      contractAddress: new Asset("USDC", ISSUERS.TESTNET.USDC).contractId(Networks.TESTNET),
+      contractAddress: safeAssetContractId(
+        new Asset("USDC", ISSUERS.TESTNET.USDC),
+        Networks.TESTNET,
+        "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+      ),
       issuer: ISSUERS.TESTNET.USDC,
     },
     EURC: {
-      contractAddress: new Asset("EURC", ISSUERS.TESTNET.EURC).contractId(Networks.TESTNET),
+      contractAddress: safeAssetContractId(
+        new Asset("EURC", ISSUERS.TESTNET.EURC),
+        Networks.TESTNET,
+        "CCUUDM434BMZMYWYDITHFXHDMIVTGGD6T2I5UKNX5BSLXLW7HVR4MCGZ",
+      ),
       issuer: ISSUERS.TESTNET.EURC,
     },
   },
   PUBLIC: {
     USDC: {
-      contractAddress: new Asset("USDC", ISSUERS.PUBLIC.USDC).contractId(Networks.PUBLIC),
+      contractAddress: safeAssetContractId(
+        new Asset("USDC", ISSUERS.PUBLIC.USDC),
+        Networks.PUBLIC,
+        "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75",
+      ),
       issuer: ISSUERS.PUBLIC.USDC,
     },
     EURC: {
-      contractAddress: new Asset("EURC", ISSUERS.PUBLIC.EURC).contractId(Networks.PUBLIC),
+      contractAddress: safeAssetContractId(
+        new Asset("EURC", ISSUERS.PUBLIC.EURC),
+        Networks.PUBLIC,
+        "CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV",
+      ),
       issuer: ISSUERS.PUBLIC.EURC,
     },
   },
@@ -103,25 +127,29 @@ export function getSupportedEscrowAssets(
 ): Record<"XLM" | "USDC" | "EURC", EscrowAsset> {
   const net = network === "PUBLIC" ? "PUBLIC" : "TESTNET";
   const passphrase = net === "PUBLIC" ? Networks.PUBLIC : Networks.TESTNET;
+  const xlmFallback =
+    net === "PUBLIC"
+      ? "CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA"
+      : "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
   return {
     XLM: {
       code: "XLM",
       name: "Stellar Lumens",
       decimals: 7,
-      contractAddress: Asset.native().contractId(passphrase),
+      contractAddress: safeAssetContractId(Asset.native(), passphrase, xlmFallback),
     },
     USDC: {
       code: "USDC",
       name: "USD Coin (Circle SAC)",
       decimals: 7,
-      contractAddress: new Asset("USDC", ISSUERS[net].USDC).contractId(passphrase),
+      contractAddress: NETWORK_ESCROW_ASSETS[net].USDC.contractAddress,
       issuer: ISSUERS[net].USDC,
     },
     EURC: {
       code: "EURC",
       name: "Euro Coin (Circle SAC)",
       decimals: 7,
-      contractAddress: new Asset("EURC", ISSUERS[net].EURC).contractId(passphrase),
+      contractAddress: NETWORK_ESCROW_ASSETS[net].EURC.contractAddress,
       issuer: ISSUERS[net].EURC,
     },
   };

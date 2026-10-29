@@ -151,6 +151,7 @@ describe("LogSaleForm coverage", () => {
       "encrypted-payload",
       "advertiser-wrapped",
       "affiliate-wrapped",
+      10,
     );
     expect(webhookMocks.triggerConversionPostback).toHaveBeenCalledWith(
       expect.objectContaining({ affiliateAddress: AFFILIATE, campaignAddress: CAMPAIGN }),
