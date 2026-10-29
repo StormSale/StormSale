@@ -20,6 +20,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { SorobanEventStream, type SorobanStreamStatus } from "../services/sorobanEventStream";
 
 export type NotificationType = "success" | "error" | "warning" | "info" | "pending";
 
@@ -57,6 +58,8 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  streamStatus: SorobanStreamStatus;
+  lastEventAt: number | null;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -116,10 +119,65 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+/**
+ * Maps a Soroban contract event topic to a user-facing toast notification.
+ * Returns null when the topic is not one we surface to the user.
+ */
+export function buildSorobanEventNotification(
+  topic: string,
+  payload: Record<string, unknown>,
+): Omit<Notification, "id"> | null {
+  const campaignName =
+    typeof payload.campaignName === "string" ? payload.campaignName : undefined;
+  const campaignId =
+    typeof payload.campaignId === "string" ? payload.campaignId : undefined;
+  const amount = typeof payload.amount === "number" ? payload.amount : undefined;
+
+  switch (topic) {
+    case "create_campaign":
+      return {
+        type: "info",
+        title: "New Campaign Created",
+        message: campaignName
+          ? `Campaign "${campaignName}" is now live on-chain.`
+          : "A new campaign was created on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    case "log_sale":
+      return {
+        type: "success",
+        title: "Sale Logged",
+        message:
+          amount !== undefined
+            ? `A sale of ${amount.toLocaleString()} XLM was recorded on-chain.`
+            : "A new sale was recorded on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    case "claim_payout":
+      return {
+        type: "success",
+        title: "Payout Claimed",
+        message:
+          amount !== undefined
+            ? `A payout of ${amount.toLocaleString()} XLM was claimed.`
+            : "A payout was claimed on-chain.",
+        campaignId,
+        duration: 6000,
+      };
+    default:
+      return null;
+  }
+}
+
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [streamStatus, setStreamStatus] = useState<SorobanStreamStatus>("polling");
+  const [lastEventAt, setLastEventAt] = useState<number | null>(null);
+  const streamRef = useRef<SorobanEventStream | null>(null);
 
   const dismissNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -152,6 +210,36 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
     };
     setNotifications((prev) => [...prev, newNotification]);
     return id;
+  }, []);
+
+  // Wire up the Soroban RPC event stream once on mount.
+  useEffect(() => {
+    const stream = new SorobanEventStream({
+      topics: ["create_campaign", "log_sale", "claim_payout"],
+      onStatusChange: (status) => setStreamStatus(status),
+      onEvent: (event) => {
+        setLastEventAt(Date.now());
+        const payload = buildSorobanEventNotification(event.topic, event.payload);
+        if (payload) {
+          showNotification(payload);
+        }
+        // Dispatch a global event so query layers can re-validate lightweight data.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("soroban:event", {
+              detail: { topic: event.topic, payload: event.payload },
+            }),
+          );
+        }
+      },
+    });
+    streamRef.current = stream;
+    stream.start();
+    return () => {
+      stream.stop();
+      streamRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
@@ -200,6 +288,8 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       notifyLowEscrowBalance,
       checkEscrowBalances,
       clearAllNotifications,
+      streamStatus,
+      lastEventAt,
     }),
     [
       notifications,
@@ -208,6 +298,8 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       notifyLowEscrowBalance,
       checkEscrowBalances,
       clearAllNotifications,
+      streamStatus,
+      lastEventAt,
     ],
   );
 
@@ -215,7 +307,45 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
     <NotificationContext.Provider value={contextValue}>
       {children}
       <NotificationContainer />
+      <StreamStatusPill status={streamStatus} />
     </NotificationContext.Provider>
+  );
+};
+
+const STREAM_STATUS_META: Record<
+  SorobanStreamStatus,
+  { label: string; dot: string; pill: string }
+> = {
+  connected: {
+    label: "Connected",
+    dot: "bg-emerald-500",
+    pill: "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
+  },
+  polling: {
+    label: "Polling",
+    dot: "bg-indigo-500",
+    pill: "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800",
+  },
+  reconnecting: {
+    label: "Reconnecting",
+    dot: "bg-amber-500 animate-pulse",
+    pill: "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-800",
+  },
+};
+
+const StreamStatusPill: React.FC<{ status: SorobanStreamStatus }> = ({ status }) => {
+  const meta = STREAM_STATUS_META[status];
+  return (
+    <div className="fixed bottom-4 right-4 z-40">
+      <span
+        role="status"
+        aria-live="polite"
+        className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold shadow-lg backdrop-blur-md ${meta.pill}`}
+      >
+        <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+        {meta.label}
+      </span>
+    </div>
   );
 };
 
@@ -473,9 +603,9 @@ const NotificationContainer: React.FC = () => {
   );
 };
 
-export const useNotification = () => {
+export const useNotification = (): NotificationContextType => {
   const context = useContext(NotificationContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useNotification must be used within a NotificationProvider");
   }
   return context;

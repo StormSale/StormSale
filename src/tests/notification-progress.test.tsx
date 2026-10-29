@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { type NotificationType } from "../context/NotificationContext";
+
+type NotificationType = "success" | "error" | "warning" | "info" | "pending";
 
 describe("[UI] Toast Notification & Progress System Suite (#12)", () => {
   beforeEach(() => {
@@ -89,6 +90,24 @@ describe("[UI] Toast Notification & Progress System Suite (#12)", () => {
       const progressPercent = Math.round(progressRatio * 100);
 
       expect(progressPercent).toBe(50);
+    });
+
+    it("advances progress over time using fake timers", () => {
+      const totalDuration = 5000;
+      let elapsed = 0;
+
+      const timer = setInterval(() => {
+        elapsed += 1000;
+      }, 1000);
+
+      vi.advanceTimersByTime(3000);
+      clearInterval(timer);
+
+      const remainingTime = Math.max(totalDuration - elapsed, 0);
+      const progressPercent = Math.round((remainingTime / totalDuration) * 100);
+
+      expect(elapsed).toBe(3000);
+      expect(progressPercent).toBe(40);
     });
   });
 });

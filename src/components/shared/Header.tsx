@@ -1,6 +1,7 @@
 import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
+import { useSorobanEvents } from "../../hooks/useSorobanEvents";
 import { ThemeToggle } from "./ThemeToggle";
 import { TerminologyTooltip, TerminologyGuideButton } from "../ui/tooltip";
 import {
@@ -10,6 +11,9 @@ import {
   Coins,
   ShieldCheck,
   Send,
+  Radio,
+  Loader2,
+  RefreshCw,
   Activity,
   Network,
   LoaderCircle,
@@ -61,6 +65,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     connectorType,
   } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
+  const { status = "polling", lastEventAt } = useSorobanEvents() ?? {};
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
   const [networkSwitchMessage, setNetworkSwitchMessage] = useState<string | null>(null);
@@ -128,6 +133,33 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     { label: "Contact", href: "#community" },
   ];
 
+  const statusConfig = {
+    connected: {
+      label: "Connected",
+      dotClass: "bg-emerald-500",
+      textClass: "text-emerald-600 dark:text-emerald-400",
+      bgClass: "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/50",
+      Icon: Radio,
+    },
+    polling: {
+      label: "Polling",
+      dotClass: "bg-amber-500",
+      textClass: "text-amber-600 dark:text-amber-400",
+      bgClass: "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50",
+      Icon: Loader2,
+    },
+    reconnecting: {
+      label: "Reconnecting",
+      dotClass: "bg-rose-500",
+      textClass: "text-rose-600 dark:text-rose-400",
+      bgClass: "bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/50",
+      Icon: RefreshCw,
+    },
+  } as const;
+
+  const currentStatus = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.polling;
+  const StatusIcon = currentStatus.Icon;
+
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md shadow-sm tma-safe-top">
       <div className="container mx-auto px-4 py-3 sm:py-4 flex justify-between items-center">
@@ -146,6 +178,18 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               {user ? (user.username ? `@${user.username}` : user.first_name) : `TMA (${platform})`}
             </span>
           )}
+          <span
+            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${currentStatus.bgClass} ${currentStatus.textClass}`}
+            title={lastEventAt ? `Last event: ${new Date(lastEventAt).toLocaleTimeString()}` : "Awaiting on-chain events"}
+            aria-live="polite"
+          >
+            <span className="relative flex h-2 w-2">
+              <span className={`absolute inline-flex h-full w-full rounded-full ${currentStatus.dotClass} opacity-75 animate-ping`} />
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${currentStatus.dotClass}`} />
+            </span>
+            <StatusIcon className={`w-3 h-3 ${status === "polling" ? "animate-spin" : ""}`} />
+            {currentStatus.label}
+          </span>
         </div>
 
         {/* Desktop Nav Links */}
@@ -398,6 +442,19 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   {item.label}
                 </a>
               ))}
+            </div>
+
+            <div className={`flex items-center justify-between px-3 py-2 rounded-xl border text-xs font-bold ${currentStatus.bgClass} ${currentStatus.textClass}`}>
+              <span className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${currentStatus.dotClass}`} />
+                <StatusIcon className={`w-3 h-3 ${status === "polling" ? "animate-spin" : ""}`} />
+                {currentStatus.label}
+              </span>
+              {lastEventAt && (
+                <span className="text-[10px] font-mono opacity-70">
+                  {new Date(lastEventAt).toLocaleTimeString()}
+                </span>
+              )}
             </div>
 
             <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">

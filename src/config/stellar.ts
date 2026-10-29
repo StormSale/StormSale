@@ -1,4 +1,4 @@
-/**
+/*
  * Stellar & Soroban Network Configuration for StormSale
  */
 export const STELLAR_CONFIG = {
@@ -12,10 +12,26 @@ export const STELLAR_CONFIG = {
   // Deployed Soroban Contract ID on Stellar Testnet
   contractId:
     import.meta.env.VITE_STORMSALE_CONTRACT_ID ||
-    "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "CDLZFC3SYJYDZT7K67ZV75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
 
   nativeAsset: "XLM",
   nativeDecimals: 7,
+
+  // Real-time Soroban event streaming settings
+  events: {
+    // Topic filter strings the polling worker subscribes to.
+    topics: ["create_campaign", "log_sale", "claim_payout"] as const,
+    // Base interval between polls when the tab is visible and healthy.
+    pollIntervalMs: 5000,
+    // Maximum backoff delay. When the tab is blurred the worker saturates at this value.
+    maxBackoffMs: 30_000,
+    // Backoff multiplier applied on each consecutive failure.
+    backoffMultiplier: 2,
+    // Number of ledgers to scan back on the very first poll.
+    initialLookbackLedgers: 100,
+    // Maximum number of events requested per poll.
+    pageSize: 100,
+  },
 
   // Stellar protocol base reserve (XLM).
   // The minimum account reserve is (2 + subentries) * baseReserveXlm,
@@ -158,3 +174,5 @@ export const STELLAR_NETWORKS = {
     horizonUrl: "https://horizon.stellar.org",
   },
 };
+
+export type StellarEventTopic = (typeof STELLAR_CONFIG.events.topics)[number];

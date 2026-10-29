@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   formatStellarAddress,
   isValidStellarAddress,
@@ -23,7 +23,7 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Soroban contract IDs (C...)", () => {
-    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMPQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
@@ -97,4 +97,3 @@ describe("mintMilestoneBadgeContractCall", () => {
     warn.mockRestore();
   });
 });
-

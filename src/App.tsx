@@ -3,7 +3,10 @@ import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { useWeb3 } from "./hooks/useWeb3";
+import { SorobanConnectionPill } from "./components/shared/SorobanConnectionPill";
+import { SorobanEventToaster } from "./components/shared/SorobanEventToaster";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
@@ -247,6 +250,9 @@ function Router() {
           <Landing onViewLeaderboard={() => setIsPublicLeaderboardOpen(true)} />
         ) : (
           <div className="min-h-screen bg-background">
+            <div className="flex justify-end px-4 pt-4">
+              <SorobanConnectionPill />
+            </div>
             <Header onNavigate={handleNavigate} />
             <main>
               {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
@@ -315,9 +321,12 @@ function App() {
         <Web3Provider>
           <WalletConnectProvider>
             <NotificationProvider>
-              <TooltipProvider delayDuration={300}>
-                <Router />
-              </TooltipProvider>
+              <SorobanEventsProvider>
+                <SorobanEventToaster />
+                <TooltipProvider delayDuration={300}>
+                  <Router />
+                </TooltipProvider>
+              </SorobanEventsProvider>
             </NotificationProvider>
           </WalletConnectProvider>
         </Web3Provider>
