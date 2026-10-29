@@ -9,6 +9,7 @@ import {
   type CustomerConversion,
 } from "../../lib/cohortAnalysis";
 import { fetchConversions } from "../../utils/api";
+import { FraudRiskBadge } from "./FraudRiskBadge";
 import {
   Download,
   Filter,
@@ -608,6 +609,13 @@ export const CohortVisualizer: React.FC<CohortVisualizerProps> = ({
                     title={partner.affiliateAddress}
                   >
                     {partner.affiliateAddress}
+                  </div>
+
+                  <div className="pt-1">
+                    <FraudRiskBadge
+                      affiliateAddress={partner.affiliateAddress}
+                      affiliateName={partner.affiliateName}
+                    />
                   </div>
 
                   <div className="space-y-2 pt-2 border-t border-slate-200/60 dark:border-zinc-800 text-xs">

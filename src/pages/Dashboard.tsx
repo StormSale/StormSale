@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Wallet,
   Activity,
+  Trophy,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -204,14 +205,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
 
       <div className="container mx-auto px-4 pt-8 sm:pt-16">
         {/* Title */}
-        <div className="mb-8 sm:mb-12">
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter mb-2 sm:mb-4 text-zinc-900 dark:text-white">
-            Select Your Role
-          </h1>
-          <p className="text-sm sm:text-lg text-zinc-500 dark:text-zinc-400 font-medium max-w-xl">
-            Choose your primary persona to interact with the protocol. This will configure your
-            dashboard and smart contract permissions.
-          </p>
+        <div className="mb-8 sm:mb-12 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tighter mb-2 sm:mb-4 text-zinc-900 dark:text-white">
+              Select Your Role
+            </h1>
+            <p className="text-sm sm:text-lg text-zinc-500 dark:text-zinc-400 font-medium max-w-xl">
+              Choose your primary persona to interact with the protocol. This will configure your
+              dashboard and smart contract permissions.
+            </p>
+          </div>
+          <Button
+            onClick={() => onNavigate("leaderboard")}
+            variant="outline"
+            className="self-start sm:self-auto rounded-2xl border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-300 font-extrabold h-12 px-5 shadow-sm text-xs sm:text-sm flex items-center gap-2 shrink-0"
+          >
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <span>Affiliate Leaderboard & Badges</span>
+          </Button>
         </div>
 
         {/* Role Cards Grid */}

@@ -6,10 +6,41 @@ import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 const mocks = vi.hoisted(() => ({
   useWeb3: vi.fn(),
   toDataURL: vi.fn(),
+  getAffiliateProfile: vi.fn(),
 }));
 
 vi.mock("../context/Web3Context", () => ({ useWeb3: mocks.useWeb3 }));
 vi.mock("qrcode", () => ({ default: { toDataURL: mocks.toDataURL } }));
+vi.mock("../lib/affiliateLeaderboard", () => ({
+  getAffiliateProfile: mocks.getAffiliateProfile,
+}));
+
+const profileFixture = {
+  rank: 7,
+  address: "Gaffiliate-wallet",
+  maskedAddress: "Gaff...wallet",
+  pseudonym: "Affiliate 7",
+  isPrivacyMasked: false,
+  avatarSeed: "seed",
+  weeklyGrossSales: 100,
+  monthlyGrossSales: 1200,
+  allTimeGrossSales: 5000,
+  verifiedSalesCount: 12,
+  conversionRate: 3.2,
+  commissionEarnedXlm: 400,
+  activeCampaigns: 8,
+  claimedBadges: [],
+  joinedAt: "2025-01-01",
+  unlockedTiers: ["1k"],
+  nextMilestoneProgress: {
+    nextTier: "10k",
+    nextTierName: "Rising Star",
+    targetSales: 10000,
+    currentSales: 1200,
+    remainingSales: 8800,
+    progressPercentage: 12,
+  },
+};
 
 describe("AffiliateOverview", () => {
   const writeText = vi.fn();
@@ -17,6 +48,7 @@ describe("AffiliateOverview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useWeb3.mockReturnValue({ userAddress: "Gaffiliate-wallet" });
+    mocks.getAffiliateProfile.mockReturnValue(profileFixture);
     mocks.toDataURL.mockResolvedValue("data:image/png;base64,qr");
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
@@ -39,17 +71,29 @@ describe("AffiliateOverview", () => {
 
   it("renders affiliate metrics and navigates through every quick action", () => {
     const onNavigate = vi.fn();
-    render(<AffiliateOverview onNavigate={onNavigate} />);
+    const onNavigateToLeaderboard = vi.fn();
+    const onNavigateToMilestones = vi.fn();
+    render(
+      <AffiliateOverview
+        onNavigate={onNavigate}
+        onNavigateToLeaderboard={onNavigateToLeaderboard}
+        onNavigateToMilestones={onNavigateToMilestones}
+      />,
+    );
 
     expect(screen.getByText("Affiliate Dashboard")).toBeTruthy();
     expect(screen.getByText("Recent Payouts")).toBeTruthy();
     expect(screen.getByText("Performance Tips")).toBeTruthy();
     expect(screen.getByText("Your QR code appears here")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: /Affiliate Leaderboard/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Milestone Badges/ }));
     fireEvent.click(screen.getByRole("button", { name: /Custom Short Links/ }));
     fireEvent.click(screen.getByRole("button", { name: /Join New Campaign/ }));
     fireEvent.click(screen.getByRole("button", { name: /Track Performance/ }));
     fireEvent.click(screen.getByRole("button", { name: /Withdraw Earnings/ }));
+    expect(onNavigateToLeaderboard).toHaveBeenCalledTimes(1);
+    expect(onNavigateToMilestones).toHaveBeenCalledTimes(1);
     expect(onNavigate.mock.calls).toEqual([
       ["custom-links"],
       ["join-campaign"],

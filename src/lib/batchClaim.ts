@@ -25,6 +25,7 @@ import {
   toAutoSwapReceipt,
   buildSwapOperations,
 } from "./sorobanDex";
+import { isAffiliatePaused } from "./fraudRiskEngine";
 const MOCK_AFFILIATE_ADDRESS = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 
 function isPlausibleStellarAddress(address: string): boolean {
@@ -189,6 +190,11 @@ export async function executeBatchCommissionClaim(
   validateClaimItems(campaignsToClaim);
   if (!isPlausibleStellarAddress(affiliateAddress)) {
     throw new Error("Invalid affiliate address for batch claim.");
+  }
+  if (isAffiliatePaused(affiliateAddress)) {
+    throw new Error(
+      `Payout claim rejected: Affiliate address ${affiliateAddress} is paused due to fraud risk review.`,
+    );
   }
 
   const totalClaimedXlm = calculateTotalClaimableXlm(campaignsToClaim);
