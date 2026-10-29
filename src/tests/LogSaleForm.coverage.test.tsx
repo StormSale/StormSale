@@ -91,6 +91,7 @@ beforeEach(() => {
   cryptoMocks.generateAESKey.mockResolvedValue("aes-key");
   cryptoMocks.encryptPayload.mockResolvedValue("encrypted-payload");
   cryptoMocks.getPublicKeyForAddress.mockResolvedValue("public-key");
+  cryptoMocks.wrapAESKey.mockReset();
   cryptoMocks.wrapAESKey
     .mockResolvedValueOnce("advertiser-wrapped")
     .mockResolvedValueOnce("affiliate-wrapped");

@@ -150,6 +150,8 @@ The test-only field is not included in live event payloads.
 
 For conversion tracking without editing store source code, a GTM Community Template is planned for the `dev` branch. The template is intended to define input fields for Campaign ID, Order Value Variable, and Currency, and to fire on standard GTM "Purchase" and "Custom Event" triggers while passing GTM sandbox permission checks. Pull requests implementing this integration must target the `dev` branch, not `main`.
 
+Note on CI: the `Malware, Payload & Supply Chain Guard` workflow (`.github/workflows/malware-defense.yml`) runs in a `pull_request_target` context and must not check out fork pull request code with base-repository secrets. The `actions/checkout@v4` step in that workflow must keep `allow-unsafe-pr-checkout: false`; enabling it is not an acceptable fix for this check failure. Fork contributors should expect this check to be skipped or to require a maintainer-run review rather than executing fork code with base-repository secrets.
+
 ## Zapier template
 
 [`zapier-conversion-to-slack.json`](./zapier-conversion-to-slack.json) provides a
