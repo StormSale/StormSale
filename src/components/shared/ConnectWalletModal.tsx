@@ -585,7 +585,7 @@ export const ConnectWalletModal: React.FC = () => {
                         type="button"
                         onClick={() => handleSelectWallet(option.id)}
                         disabled={connectingType !== null}
-                        className={`w-full text-left rounded-2xl border p-4 transition-all ${option.borderHover} disabled:opacity-60}`}
+                        className={`w-full text-left rounded-2xl border p-4 transition-all ${option.borderHover} disabled:opacity-60`}
                       >
                         <div className="flex items-center gap-3">
                           <div

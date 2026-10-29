@@ -335,66 +335,42 @@ export const DialogResourceDiagnostic = ({
   }
 
   return (
-    <div
-      data-testid="resource-diagnostic"
-      className={cn("mt-2 rounded-md border bg-muted/40", className)}
-    >
+    <div className={cn("rounded-xl border border-zinc-200 dark:border-zinc-800 text-sm", className)}>
       <button
         type="button"
         onClick={toggle}
         aria-expanded={isOpen}
-        aria-controls="resource-diagnostic-panel"
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-medium"
+        className="flex w-full items-center justify-between px-3 py-2 font-medium"
       >
-        <span className="flex items-center gap-2">
-          Resource Diagnostic
-          {diagnostics.warnings.length > 0 ? (
-            <span
-              className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs font-semibold text-amber-700"
-              data-testid="resource-warning-count"
-            >
-              {diagnostics.warnings.length} warning
-              {diagnostics.warnings.length === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </span>
-        {isOpen ? (
-          <ChevronUp className="h-4 w-4" />
-        ) : (
-          <ChevronDown className="h-4 w-4" />
-        )}
+        <span>Soroban resource diagnostics</span>
+        {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
       </button>
-      {isOpen ? (
-        <div
-          id="resource-diagnostic-panel"
-          className="space-y-2 border-t px-3 py-2 text-sm"
-        >
-          <dl className="grid grid-cols-1 gap-1 sm:grid-cols-2">
-            {rows.map((row) => (
-              <div key={row.label} className="flex items-baseline justify-between gap-2">
-                <dt className="text-muted-foreground">{row.label}</dt>
-                <dd className="font-mono text-right" data-testid={row.testId}>
-                  {row.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          {diagnostics.warnings.length > 0 ? (
-            <ul
-              className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700"
-              data-testid="resource-warnings"
-            >
-              {diagnostics.warnings.map((warning) => (
-                <li key={warning}>⚠ {warning}</li>
-              ))}
-            </ul>
-          ) : (
+      {isOpen && (
+        <div className="space-y-2 px-3 pb-3">
+          {diagnostics.resources.contractFunction && (
             <p className="text-xs text-muted-foreground">
-              Resource footprint is within the recommended budgets.
+              Function: {diagnostics.resources.contractFunction}
             </p>
           )}
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {rows.map((row) => (
+              <React.Fragment key={row.label}>
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd data-testid={row.testId} className="font-mono text-right">
+                  {row.value}
+                </dd>
+              </React.Fragment>
+            ))}
+          </dl>
+          {diagnostics.warnings.length > 0 && (
+            <ul className="list-disc space-y-1 pl-5 text-xs text-amber-600 dark:text-amber-400">
+              {diagnostics.warnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };
@@ -404,12 +380,11 @@ export {
   Dialog,
   DialogPortal,
   DialogOverlay,
-  DialogClose,
   DialogTrigger,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogFooter,
   DialogTitle,
   DialogDescription,
-  dialogVariants,
 };

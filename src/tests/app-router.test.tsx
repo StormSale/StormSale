@@ -142,7 +142,7 @@ describe("App router integration", () => {
     expect(await screen.findByText("Dashboard page")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open invalid page" }));
-    expect(screen.getByText("Dashboard page")).toBeTruthy();
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
     view.unmount();
   });
 
@@ -181,5 +181,6 @@ describe("App router integration", () => {
       configurable: true,
       value: originalLocation,
     });
+    errorSpy.mockRestore();
   });
 });

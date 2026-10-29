@@ -16,7 +16,20 @@ vi.mock("../context/WalletConnectContext", () => ({
 vi.mock("qrcode", () => ({ default: qr }));
 vi.mock("framer-motion", () => {
   const MotionComponent = (props: any) => {
-    const { initial, animate, exit, transition, ...rest } = props;
+    const {
+      initial,
+      animate,
+      exit,
+      transition,
+      whileHover,
+      whileTap,
+      whileFocus,
+      whileInView,
+      layout,
+      layoutId,
+      variants,
+      ...rest
+    } = props;
     return <div {...rest} />;
   };
   return {
