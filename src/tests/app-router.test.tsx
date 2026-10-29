@@ -11,6 +11,8 @@ const mockState = vi.hoisted(() => ({
   cleanupTheme: vi.fn(),
 }));
 
+const originalLocation = window.location;
+
 vi.mock("../context/Web3Context", () => ({
   Web3Provider: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -98,6 +100,10 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  Object.defineProperty(window, "location", {
+    configurable: true,
+    value: originalLocation,
+  });
 });
 
 beforeEach(() => {
@@ -166,17 +172,16 @@ describe("App router integration", () => {
     mockState.throwLanding = true;
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const reload = vi.fn();
-    const testWindow = Object.create(window) as Window;
-    Object.defineProperty(testWindow, "location", {
+    Object.defineProperty(window, "location", {
       configurable: true,
-      value: { ...window.location, reload },
+      value: { ...originalLocation, reload },
     });
-    vi.stubGlobal("window", testWindow);
 
     render(<App />);
     expect(await screen.findByText("Something went wrong")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     expect(reload).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 });
