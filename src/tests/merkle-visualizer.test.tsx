@@ -27,22 +27,18 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
       </NotificationProvider>,
     );
 
-    // Title and audit headers
     expect(html).toContain("Interactive Merkle Tree Proof Visualizer");
     expect(html).toContain("Auditor Enterprise");
     expect(html).toContain("Soroban Verified");
 
-    // Default batch 0 campaign
     expect(html).toContain("BATCH-2026-05-16-01");
     expect(html).toContain("Tech Gadgets Pro");
     expect(html).toContain("Leaves (Binary Tree)");
     expect(html).toContain("On-Chain Merkle Root (Soroban Escrow State)");
 
-    // Search and upload controls
     expect(html).toContain("Enter or paste Transaction Hash");
     expect(html).toContain("Upload Tx Hash / Receipt");
 
-    // Stepper controls
     expect(html).toContain("Step-by-Step SHA-256 Inclusion Proof Validation");
     expect(html).toContain("Export Audit Proof JSON");
   });
@@ -61,7 +57,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
   });
 
   it("renders matched batch when initialSaleId or initialTxHash matches an order", () => {
-    // Sale #988 belongs to Batch 1 (Web3 Masterclass)
     const htmlSale = renderToString(
       <NotificationProvider>
         <MerkleTreeVisualizer initialSaleId="988" />
@@ -71,7 +66,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     expect(htmlSale).not.toContain("No Settlement Batch Found");
     expect(htmlSale).toContain(`#${SAMPLE_SETTLEMENT_BATCHES[1].ledgerSequence.toLocaleString()}`);
 
-    // Matching by transaction hash in Batch 2
     const targetTx = SAMPLE_SETTLEMENT_BATCHES[2].orders[0].txHash;
     const htmlTx = renderToString(
       <NotificationProvider>
@@ -93,7 +87,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
   });
 
   it("disables Export Audit Proof JSON button and shows neutral prompt when verificationResult is null", () => {
-    // When rendered without precomputed verificationResult (SSR initial render)
     const html = renderToString(
       <NotificationProvider>
         <MerkleTreeVisualizer />
@@ -108,7 +101,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     const targetTx = SAMPLE_SETTLEMENT_BATCHES[0].orders[2].txHash;
     const tree = await buildMerkleTree(SAMPLE_SETTLEMENT_BATCHES[0].orders);
 
-    // 1. JSON receipt with txHash
     const jsonReceipt = JSON.stringify({
       orderId: "ORD-9403",
       txHash: targetTx,
@@ -118,13 +110,11 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     expect(candidateFromJson).toBe(targetTx);
     expect(findLeafByTxHash(tree, candidateFromJson!)?.index).toBe(2);
 
-    // 2. CSV line
     const csvLine = `ORD-9403,${targetTx},450,2026-05-16`;
     const candidateFromCsv = parseTransactionHashFromReceipt(csvLine, false);
     expect(candidateFromCsv).toBe(targetTx);
     expect(findLeafByTxHash(tree, candidateFromCsv!)?.index).toBe(2);
 
-    // 3. Plaintext without 0x
     const raw64 = targetTx.replace(/^0x/, "");
     const candidateFromRaw = parseTransactionHashFromReceipt(raw64, false);
     expect(candidateFromRaw).toBe(targetTx);
@@ -136,13 +126,11 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     const tree = await buildMerkleTree(batch.orders);
     const proof = await generateMerkleProof(tree, 0, batch.contractRootHash);
 
-    // Untampered verification succeeds
     const untamperedResult = await verifyMerkleProofStepByStep(proof, batch.contractRootHash);
     expect(untamperedResult.isValid).toBe(true);
     expect(untamperedResult.computedRoot).toBe(batch.contractRootHash);
     expect(untamperedResult.verifiedSteps.every((s) => s.isVerified)).toBe(true);
 
-    // Tampered leaf hash (simulating flipped bit in tamper test mode)
     const originalLeaf = proof.leafHash;
     const flippedFirstChar =
       originalLeaf[0] === "a" ? `b${originalLeaf.slice(1)}` : `a${originalLeaf.slice(1)}`;
@@ -153,7 +141,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
       flippedFirstChar,
     );
 
-    // Tampered verification fails step 1 and final root match
     expect(tamperedResult.isValid).toBe(false);
     expect(tamperedResult.computedRoot).not.toBe(batch.contractRootHash);
     expect(tamperedResult.verifiedSteps[0].isVerified).toBe(false);
@@ -166,7 +153,7 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
   });
 
   it("formats audit proof export payload with full cryptographic verification details", async () => {
-    const batch = SAMPLE_SETTLEMENT_BATCHES[1]; // Web3 Masterclass
+    const batch = SAMPLE_SETTLEMENT_BATCHES[1];
     const tree = await buildMerkleTree(batch.orders);
     const proof = await generateMerkleProof(tree, 1, batch.contractRootHash);
     const verification = await verifyMerkleProofStepByStep(proof, batch.contractRootHash);
@@ -195,18 +182,15 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
   });
 
   it("filters batches by organization tenancy using filterBatchesForOrg", () => {
-    // Northwind has sales 1042 and 1100 -> Batch 0 & Batch 2
     const northwindBatches = filterBatchesForOrg("northwind-assurance");
     expect(northwindBatches.some((b) => b.campaignName === "Tech Gadgets Pro")).toBe(true);
     expect(northwindBatches.some((b) => b.campaignName === "Summer Sale 2026")).toBe(true);
     expect(northwindBatches.some((b) => b.campaignName === "Web3 Masterclass")).toBe(false);
 
-    // Helix has sale 988 -> Batch 1
     const helixBatches = filterBatchesForOrg("helix-compliance");
     expect(helixBatches.some((b) => b.campaignName === "Web3 Masterclass")).toBe(true);
     expect(helixBatches.some((b) => b.campaignName === "Tech Gadgets Pro")).toBe(false);
 
-    // When no organizationId is passed, returns all batches
     const allBatches = filterBatchesForOrg(undefined);
     expect(allBatches.length).toBe(SAMPLE_SETTLEMENT_BATCHES.length);
   });
@@ -218,7 +202,6 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
       </NotificationProvider>,
     );
 
-    // Only Helix's batch should be in the select options
     expect(html).toContain("Web3 Masterclass");
     expect(html).not.toContain("Tech Gadgets Pro (8 Conversions)");
   });
@@ -236,4 +219,3 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     expect(html).toContain("Interactive Merkle Tree Proof Explorer");
   });
 });
-

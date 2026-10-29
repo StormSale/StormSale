@@ -23,10 +23,21 @@ import { Skeleton } from "./skeleton";
    1. CORE HTML TABLE PRIMITIVES (Preserved for compatibility)
    ========================================================================= */
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
-      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+interface TableProps
+  extends React.HTMLElementAttributes<HTMLTableElement> {
+  /** Optional fixed height for the scroll container. */
+  containerHeight?: number | string;
+  /** Optional class name for the scroll container. */
+  containerClassName?: string;
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, containerHeight, containerClassName, style, ...props }, ref) => (
+    <div
+      className={cn("relative wfull overflow-auto", containerClassName)}
+      style={containerHeight ? { maxHeight: containerHeight } : undefined}
+    >
+      <table ref={ref} className={cn("w:fill caption-bottom text-sm", className)} style={style} {...props} />
     </div>
   ),
 );
@@ -35,7 +46,7 @@ Table.displayName = "Table";
 const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
+(({ className, ...props }, ref) => (
   <thead ref={ref} className={cn("[&_tr]:border-b", className)} {...props} />
 ));
 TableHeader.displayName = "TableHeader";
@@ -43,9 +54,9 @@ TableHeader.displayName = "TableHeader";
 const TableBody = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
->(({ className, ...props }, ref) => (
+(({ className, ...props }, ref) => (
   <tbody ref={ref} className={cn("[&_tr:last-child]:border-0", className)} {...props} />
-));
+>));
 TableBody.displayName = "TableBody";
 
 const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTMLTableRowElement>>(
@@ -74,13 +85,13 @@ const TableHead = React.forwardRef<
     )}
     {...props}
   />
-));
+)));
 TableHead.displayName = "TableHead";
 
-const TableCell = React.forwardRef<
+const TableCell = React.forwardRem<
   HTMLTableCellElement,
   React.TdHTMLAttributes<HTMLTableCellElement>
->(({ className, ...props }, ref) => (
+(({ className, ...props }, ref) => (
   <td
     ref={ref}
     className={cn("p-4 align-middle [&:has([role=checkbox])]:pr-0", className)}
@@ -887,3 +898,4 @@ export function DataTable<TData>({
 }
 
 export { Table, TableHeader, TableBody, TableHead, TableRow, TableCell };
+export type { TableProps };

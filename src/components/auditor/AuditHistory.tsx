@@ -1,4 +1,5 @@
-import type { ComponentType } from "react";
+import type { ComponentType, UIEvent } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Card,
   CardContent,
@@ -13,11 +14,9 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  FileText,
   Download,
   Filter,
   Eye,
-  GitFork,
 } from "lucide-react";
 import { getExportAuditHistory } from "../../lib/auditor/exportService";
 
@@ -32,6 +31,7 @@ interface AuditRecord {
   saleId: string;
   campaign: string;
   campaignAddress: string;
+  walletAddress: string;
   status: AuditStatus;
   timestamp: string;
   notes: string;
@@ -42,6 +42,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "1042",
     campaign: "Tech Gadgets Pro",
     campaignAddress: "CA7Q...1234",
+    walletAddress: "GABCD...WXYZ",
     status: "Verified",
     timestamp: "2026-05-16 08:12",
     notes: "Full decryption performed",
@@ -50,6 +51,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "988",
     campaign: "Web3 Masterclass",
     campaignAddress: "CB9E...5678",
+    walletAddress: "GEFGH...IJKL",
     status: "Verified",
     timestamp: "2026-05-15 14:30",
     notes: "Compliance check passed",
@@ -58,6 +60,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "776",
     campaign: "Crypto Tools Suite",
     campaignAddress: "CC2K...9012",
+    walletAddress: "GMNOP...QRST",
     status: "Denied",
     timestamp: "2026-05-13 10:05",
     notes: "Key not authorized by advertiser",
@@ -66,6 +69,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "654",
     campaign: "DeFi Starter Pack",
     campaignAddress: "CD4M...3456",
+    walletAddress: "GUVWX...YZAB",
     status: "Verified",
     timestamp: "2026-05-10 17:45",
     notes: "Regulatory audit complete",
@@ -74,6 +78,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "512",
     campaign: "NFT Drop Alpha",
     campaignAddress: "CE6P...7890",
+    walletAddress: "GABCD...WXYZ",
     status: "Pending",
     timestamp: "2026-05-09 09:20",
     notes: "Awaiting advertiser approval",
@@ -82,6 +87,7 @@ const ALL_AUDIT_RECORDS: AuditRecord[] = [
     saleId: "489",
     campaign: "Summer Sale 2024",
     campaignAddress: "CF8R...2345",
+    walletAddress: "GEFGH...IJKL",
     status: "Verified",
     timestamp: "2026-05-07 13:10",
     notes: "Standard audit review",
@@ -109,6 +115,10 @@ const statusConfig: Record<
   },
 };
 
+const ROW_HEIGHT = 96;
+const OVERSCAN = 4;
+const VIEWPORT_HEIGHT = 480;
+
 export const AuditHistory: React.FC<AuditHistoryProps> = ({
   onTabChange,
   onViewMerkleProof,
@@ -116,21 +126,46 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
   const { org } = useAuditorTenancy();
   // Tenant boundary: the trail only ever shows this organization's sales.
   const auditRecords = recordsScopedToOrg(org.id, ALL_AUDIT_RECORDS);
-  const dynamicRecords: AuditRecord[] = [
-    ...getExportAuditHistory().map((evt) => ({
-      saleId: `SOC2-${evt.id.slice(0, 6)}`,
-      campaign: `SOC 2 Evidence Pack (${evt.filename})`,
-      campaignAddress: evt.exporterAddress,
-      status: "Verified" as AuditStatus,
-      timestamp: evt.timestamp.slice(0, 16).replace("T", " "),
-      notes: `Root: ${evt.rootDigest.slice(0, 12)}... (${evt.totalFiles} files bundled)`,
-    })),
-    ...auditRecords,
-  ];
+  const exportRecords: AuditRecord[] = getExportAuditHistory().map((evt) => ({
+    saleId: `SOC2-${evt.id.slice(0, 6)}`,
+    campaign: `SOC 2 Evidence Pack (${evt.filename})`,
+    campaignAddress: evt.exporterAddress,
+    walletAddress: evt.exporterAddress,
+    status: "Verified" as AuditStatus,
+    timestamp: evt.timestamp.slice(0, 16).replace("T", " "),
+    notes: `Root: ${evt.rootDigest.slice(0, 12)}... (${evt.totalFiles} files bundled)`,
+  }));
+  const dynamicRecords: AuditRecord[] = useMemo(
+    () => [...exportRecords, ...auditRecords],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [org.id]
+  );
 
   const verified = dynamicRecords.filter((r) => r.status === "Verified").length;
   const denied = dynamicRecords.filter((r) => r.status === "Denied").length;
   const pending = dynamicRecords.filter((r) => r.status === "Pending").length;
+
+  const [walletFilter, setWalletFilter] = useState("");
+  const [scrollTop, setScrollTop] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const filteredRecords = useMemo(() => {
+    const query = walletFilter.trim().toLowerCase();
+    if (!query) return dynamicRecords;
+    return dynamicRecords.filter((r) => r.walletAddress.toLowerCase().includes(query));
+  }, [dynamicRecords, walletFilter]);
+
+  const totalHeight = filteredRecords.length * ROW_HEIGHT;
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const endIndex = Math.min(
+    filteredRecords.length,
+    Math.ceil((scrollTop + VIEWPORT_HEIGHT) / ROW_HEIGHT) + OVERSCAN
+  );
+  const visibleRecords = filteredRecords.slice(startIndex, endIndex);
+
+  const handleScroll = (e: UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  };
 
   return (
     <div className="space-y-6">
@@ -165,6 +200,21 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
         </div>
       </div>
 
+      {/* Wallet filter */}
+      <div className="flex items-center gap-3">
+        <input
+          type="text"
+          value={walletFilter}
+          onChange={(e) => {
+            setWalletFilter(e.target.value);
+            setScrollTop(0);
+            if (scrollRef.current) scrollRef.current.scrollTop = 0;
+          }}
+          placeholder="Filter by wallet address..."
+          className="h-10 w-full max-w-sm rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 px-4 text-sm font-medium text-zinc-900 dark:text-white placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+        />
+      </div>
+
       {/* Summary pills */}
       <div className="flex flex-wrap gap-3">
         <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-full">
@@ -192,91 +242,61 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
             All Audit Records
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            {dynamicRecords.length} total entries logged on-chain for this
+            {filteredRecords.length} total entries logged on-chain for this
             organization
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-            {auditRecords.length === 0 && (
-              <p className="px-8 py-10 text-sm font-medium text-zinc-400 dark:text-zinc-500 text-center">
-                No audit records exist within the {org.shortName} scope.
-              </p>
-            )}
-            {dynamicRecords.map((record, i) => {
-              const cfg = statusConfig[record.status];
-              const StatusIcon = cfg.icon;
-              return (
-                <div
-                  key={i}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-8 py-5 hover:bg-slate-50/50 dark:hover:bg-zinc-900/30 transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                        record.status === "Verified"
-                          ? "bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20"
-                          : record.status === "Denied"
-                            ? "bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20"
-                            : "bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20"
-                      }`}
-                    >
-                      <StatusIcon
-                        className={`w-5 h-5 ${
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="overflow-y-auto"
+            style={{ height: VIEWPORT_HEIGHT }}
+          >
+            <div style={{ height: totalHeight, position: "relative" }}>
+              {filteredRecords.length === 0 && (
+                <p className="px-8 py-10 text-sm font-medium text-zinc-400 dark:text-zinc-500 text-center">
+                  No audit records exist within the {org.shortName} scope.
+                </p>
+              )}
+              {visibleRecords.map((record, i) => {
+                const cfg = statusConfig[record.status];
+                const StatusIcon = cfg.icon;
+                const absoluteIndex = startIndex + i;
+                return (
+                  <div
+                    key={`${record.saleId}-${absoluteIndex}`}
+                    className="absolute left-0 right-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-8 py-5 border-b border-slate-100 dark:border-zinc-800/50 hover:bg-slate-50/50 dark:hover:bg-zinc-900/30 transition-colors"
+                    style={{ top: absoluteIndex * ROW_HEIGHT, height: ROW_HEIGHT }}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                           record.status === "Verified"
-                            ? "text-indigo-600 dark:text-indigo-400"
+                            ? "bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20"
                             : record.status === "Denied"
-                              ? "text-red-500 dark:text-red-400"
-                              : "text-amber-600 dark:text-amber-400"
+                              ? "bg-red-50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20"
+                              : "bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20"
                         }`}
-                      />
-                    </div>
-                    <div>
-                      <div className="font-bold text-sm text-zinc-900 dark:text-white">
-                        {record.campaign}
-                      </div>
-                      <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        Sale #{record.saleId} · {record.campaignAddress}
-                      </div>
-                      <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-1">
-                        <FileText className="w-3 h-3" />
-                        {record.notes}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 sm:flex-col sm:items-end">
-                    <span
-                      className={`inline-flex text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${cfg.badge}`}
-                    >
-                      {cfg.label}
-                    </span>
-                    <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500">
-                      {record.timestamp}
-                    </div>
-                    {record.status === "Verified" && (onViewMerkleProof || onTabChange) && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          if (onViewMerkleProof) {
-                            onViewMerkleProof(record.saleId, record.campaign);
-                          } else if (onTabChange) {
-                            onTabChange("merkle");
-                          }
-                        }}
-                        className="h-6 px-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 flex items-center gap-1"
                       >
-                        <GitFork className="w-3 h-3" />
-                        Merkle Proof
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-};
+                        <StatusIcon
+                          className={`w-5 h-5 ${
+                            record.status === "Verified"
+                              ? "text-indigo-600 dark:text-indigo-400"
+                              : record.status === "Denied"
+                                ? "text-red-500 dark:text-red-400"
+                                : "text-amber-600 dark:text-amber-400"
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-zinc-900 dark:text-white">
+                          {record.campaign}
+                        </div>
+                        <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
+                          Sale #{record.saleId} · {record.campaignAddress}
+                        </div>
+                        <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
+                          Wallet {record.walletAddress}
+                        </div>
+                        <div className="text-xs font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
