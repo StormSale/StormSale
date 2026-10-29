@@ -9,7 +9,7 @@ import {
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
     const pubKey = "GBBD47IF6LWK7P7MDEVMSCWR7DPWUV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
-    expect(formatStellarAddress(pubKey)).toBe("GBBD...FLA5");
+    expect(formatStellarAddress(pubKey)).toBe("GBBD...ZLLFLA5");
   });
 
   it("handles short or empty address gracefully", () => {

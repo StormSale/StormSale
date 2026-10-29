@@ -52,6 +52,8 @@ const renderAuditorOnTab = (tab: string) => {
 describe("Auditor page — Financial Volume tab (#61)", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createStorage());
+    captured.onTabChange = undefined;
+    captured.onViewMerkleProof = undefined;
   });
 
   afterEach(() => {
