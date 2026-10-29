@@ -206,9 +206,17 @@ function evaluateCoverage(summaryData, options = {}) {
       : fullPath.replace(/\\/g, '/');
     if (!isCoverageRelevant(relativePath)) continue;
 
-    const linesPct = metrics.lines.pct;
-    const stmtsPct = metrics.statements.pct;
-    const meetsThreshold = linesPct >= threshold || stmtsPct >= threshold;
+    const linesPct = metrics.lines?.pct ?? 0;
+    const stmtsPct = metrics.statements?.pct ?? 0;
+    const branchPct = metrics.branches?.pct ?? 0;
+    const funcsPct = metrics.functions?.pct ?? 0;
+
+    const meetsThreshold =
+      linesPct >= threshold &&
+      stmtsPct >= threshold &&
+      branchPct >= threshold &&
+      funcsPct >= threshold;
+
     const metric = {
       file: relativePath,
       lines: linesPct,
@@ -218,11 +226,18 @@ function evaluateCoverage(summaryData, options = {}) {
       meetsThreshold,
     };
     fileMetrics.push(metric);
-    if (targetFiles.length > 0 && targetFiles.some((tf) => relativePath.includes(tf)) && !meetsThreshold) {
+
+    // Enforce threshold for targeted files, or for all files when no targets specified
+    if (targetFiles.length > 0) {
+      if (targetFiles.some((tf) => relativePath.includes(tf)) && !meetsThreshold) {
+        violations.push(metric);
+      }
+    } else if (!meetsThreshold) {
       violations.push(metric);
     }
   }
 
+  // Sort by file path
   fileMetrics.sort((a, b) => a.file.localeCompare(b.file));
   return { threshold, total: summaryData.total, fileMetrics, violations };
 }
@@ -239,8 +254,13 @@ function generateMarkdownReport(evaluation) {
   if (total) {
     md += `| Scope | Statements | Branches | Functions | Lines | Status |\n`;
     md += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
-    const linesPassed = total.lines.pct >= threshold;
-    md += `| **Overall Codebase** | ${total.statements.pct}% | ${total.branches.pct}% | ${total.functions.pct}% | **${total.lines.pct}%** | ${linesPassed ? '✅ Passed' : '⚠️ Below Threshold'} |\n\n`;
+    const totalPassed =
+      total.lines.pct >= threshold &&
+      total.statements.pct >= threshold &&
+      total.branches.pct >= threshold &&
+      total.functions.pct >= threshold;
+    const statusIcon = totalPassed ? '✅ Passed' : '⚠️ Below Threshold';
+    md += `| **Overall Codebase** | ${total.statements.pct}% | ${total.branches.pct}% | ${total.functions.pct}% | **${total.lines.pct}%** | ${statusIcon} |\n\n`;
   }
 
   if (isDiff) {
@@ -273,14 +293,14 @@ function generateMarkdownReport(evaluation) {
   md += `| File | Statements | Branches | Functions | Lines | Status |\n`;
   md += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
   for (const m of fileMetrics) {
-    const icon = m.lines >= threshold ? '✅' : '❌';
+    const icon = m.meetsThreshold ? '✅' : '❌';
     md += `| \`${m.file}\` | ${m.statements}% | ${m.branches}% | ${m.functions}% | **${m.lines}%** | ${icon} |\n`;
   }
   if (violations.length > 0) {
     md += `\n> [!CAUTION]\n`;
     md += `> **Coverage Threshold Failure**: ${violations.length} target file(s) dropped below the required ${threshold}% threshold:\n`;
     for (const v of violations) {
-      md += `> - \`${v.file}\`: ${v.lines}% lines (required >= ${threshold}%)\n`;
+      md += `> - \`${v.file}\`: lines ${v.lines}%, statements ${v.statements}%, branches ${v.branches}%, functions ${v.functions}% (all required >= ${threshold}%)\n`;
     }
   }
 
