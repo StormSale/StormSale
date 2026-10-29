@@ -36,8 +36,8 @@ jobs:
       - name: Checkout PR code
         uses: actions/checkout@v4
         with:
-          # Build the contributor's HEAD so secrets can never leak into forks'
-          # code paths beyond this trusted deployment step.
+          # Build the contributor's HEAD. This workflow runs under the
+          # `pull_request` event, which withholds secrets from fork PRs.
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node.js

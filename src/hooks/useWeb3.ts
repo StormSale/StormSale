@@ -15,3 +15,6 @@ export const useSafeWeb3 = () => {
   }
 };
 
+export const useWeb3 = useWeb3Context;
+
+export default useWeb3;

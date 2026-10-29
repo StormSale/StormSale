@@ -35,7 +35,7 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      external: ["@ledgerhq/hw-transport-webhid", "@ledgerhq/hw-app-str"],
+      external: ["@ledgerhq/hw-transport-webhd", "@ledgerhq/hw-app-str"],
       output: {
         manualChunks: (id) => {
           if (id.includes("@stellar/stellar-sdk") || id.includes("@stellar/freighter-api")) {
@@ -53,6 +53,9 @@ export default defineConfig({
   },
   test: {
     globals: true,
+    environment: "jsdom",
+    setupFiles: ["./tests/setup.ts"],
+    include: ["tests/**/*.{test,spec}.{ts,tsx}", "src/**/*.{test,spec}.{ts,tsx}"],
     testTimeout: 20000,
     hookTimeout: 20000,
     coverage: {
