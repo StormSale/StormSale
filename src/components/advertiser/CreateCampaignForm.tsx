@@ -13,6 +13,7 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useAccountReserve } from "../../hooks/useAccountReserve";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import {
   getCreateCampaignSchema,
   getFieldErrors,
@@ -120,6 +121,8 @@ export const CreateCampaignForm = () => {
     openMultiSigModal,
   } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
+  const canCreateCampaign = hasCapability("campaign:create");
 
   // Numeric calculations
   const parsedBudget = parseFloat(budget);
@@ -229,6 +232,15 @@ export const CreateCampaignForm = () => {
 
   // Step 1: Approve Token Allowance Only
   const handleApproveAllowanceOnly = async () => {
+    if (!canCreateCampaign) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not authorized to create campaigns or approve allowances.`,
+      });
+      return;
+    }
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -287,6 +299,15 @@ export const CreateCampaignForm = () => {
   const handleSequentialApproveAndCreate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrors({});
+
+    if (!canCreateCampaign) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not permitted to create campaigns. Requires Admin or Editor role.`,
+      });
+      return;
+    }
 
     const result = getCreateCampaignSchema(maxDecimals).safeParse({
       campaignName,
@@ -502,20 +523,44 @@ export const CreateCampaignForm = () => {
           </div>
         </CardHeader>
 
-        <CardContent className="p-8 space-y-6">
-          {/* Campaign Name */}
-          <InputField
-            label="Campaign Name"
-            icon={Target}
-            error={errors.campaignName}
-          >
-            <Input
-              placeholder="e.g., Summer Sale 2025"
-              value={campaignName}
-              onChange={(e) => setCampaignName(e.target.value)}
-              disabled={isExecuting}
-            />
-          </InputField>
+        <CardContent className="px-8 pb-8">
+          {!canCreateCampaign && (
+            <div
+              className="p-4 mb-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-3"
+              data-testid="campaign-create-locked-banner"
+              role="alert"
+            >
+              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <div className="font-bold">Campaign Creation Locked</div>
+                <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                  Your active role is <strong>{currentRole}</strong>. Creating smart contract
+                  campaigns is restricted to <strong>Admin</strong> or{" "}
+                  <strong>Editor / Marketing Manager</strong>.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSequentialApproveAndCreate} noValidate>
+            <div className="space-y-8">
+              <InputField
+                label="Campaign Name"
+                description="Give your campaign a recognizable name"
+                error={errors.campaignName}
+                required
+              >
+                <Input
+                  value={campaignName}
+                  onChange={(e) => {
+                    setCampaignName(e.target.value);
+                    if (errors.campaignName) setErrors((prev) => ({ ...prev, campaignName: "" }));
+                  }}
+                  placeholder="e.g., Summer Sale 2024"
+                  variant={errors.campaignName ? "error" : "default"}
+                  className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                />
+              </InputField>
 
               <InputField
                 label="Escrow Settlement Currency"
@@ -1114,15 +1159,21 @@ export const CreateCampaignForm = () => {
                       type="submit"
                       loading={isExecuting}
                       cooldown
-                      disabled={isReserveBlocked}
+                      disabled={isExecuting || !canCreateCampaign || isReserveBlocked}
                       title={
                         exceedsSpendable
                           ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
                           : undefined
                       }
                       className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white text-base md:text-lg font-bold shadow-lg shadow-indigo-600/20 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="btn-approve-and-create"
                     >
-                      {flowStep === "approving" ? (
+                      {!canCreateCampaign ? (
+                        <div className="flex items-center justify-center space-x-2">
+                          <Lock className="w-5 h-5" />
+                          <span>Action Locked ({currentRole} Restricted)</span>
+                        </div>
+                      ) : flowStep === "approving" ? (
                         <div className="flex items-center space-x-3">
                           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                           <span>Step 1/2: Approving {selectedAsset} Allowance...</span>
@@ -1149,9 +1200,9 @@ export const CreateCampaignForm = () => {
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={isExecuting}
+                        disabled={isExecuting || !canCreateCampaign}
                         onClick={handleApproveAllowanceOnly}
-                        className="text-xs h-8 rounded-lg border-zinc-300 dark:border-zinc-700 font-semibold"
+                        className="text-xs h-8 rounded-lg border-zinc-300 dark:border-zinc-700 font-semibold disabled:opacity-50"
                       >
                         <Lock className="w-3.5 h-3.5 mr-1" />
                         Approve Allowance Only
@@ -1163,15 +1214,21 @@ export const CreateCampaignForm = () => {
                     type="submit"
                     loading={isExecuting}
                     cooldown
-                    disabled={isReserveBlocked}
+                    disabled={isExecuting || !canCreateCampaign || isReserveBlocked}
                     title={
                       exceedsSpendable
                         ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
                         : undefined
                     }
                     className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="btn-create-campaign"
                   >
-                    {flowStep === "creating" ? (
+                    {!canCreateCampaign ? (
+                      <div className="flex items-center space-x-2">
+                        <Lock className="w-5 h-5" />
+                        <span>Action Locked ({currentRole} Restricted)</span>
+                      </div>
+                    ) : flowStep === "creating" ? (
                       <div className="flex items-center space-x-3">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         <span>Step 2/2: Deploying {selectedAsset} Campaign Escrow...</span>

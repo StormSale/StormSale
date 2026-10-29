@@ -379,7 +379,7 @@ describe("LogSaleForm", () => {
 
     await waitFor(() => expect(titles()).toContain("Sale Logged Successfully!"));
     expect(web3.getCampaignContract).toHaveBeenCalledWith("7");
-    expect(logSale).toHaveBeenCalledWith(AFFILIATE, "25", "cipher", "wrapped", "wrapped");
+    expect(logSale).toHaveBeenCalledWith(AFFILIATE, "25", "cipher", "wrapped", "wrapped", 10);
     expect(titles()).toContain("Webhooks Dispatched");
     expect(webhooks.dispatchWebhookEvent).toHaveBeenCalledWith(
       "conversion.created",

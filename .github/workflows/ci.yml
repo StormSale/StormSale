@@ -42,7 +42,7 @@ jobs:
         script: |
           const fs = require('fs');
           const path = require('path');
-          const { evaluateCoverage, generateMarkdownReport } = require(path.resolve('scripts/check-coverage.cjs'));
+          const { evaluateDiffCoverage, generateMarkdownReport, loadLcov, parseAddedLinesFromPatch, isCoverageRelevant } = require(path.resolve('scripts/check-coverage.cjs'));
 
           let summary = "### 🧪 Unit Test Execution Audit\n\n";
           try {
@@ -79,27 +79,49 @@ jobs:
 
             // Coverage Evaluation & File-by-File Metrics
             let coverageFailed = false;
-            if (fs.existsSync('coverage/coverage-summary.json')) {
-              const coverageData = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
-              
-              let targetFiles = [];
+            if (fs.existsSync('coverage/lcov.info')) {
+              const lcovMap = loadLcov('coverage/lcov.info');
+
+              let targets = [];
               if (context.payload.pull_request) {
                 try {
                   const { data: prFiles } = await github.rest.pulls.listFiles({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     pull_number: context.payload.pull_request.number,
+                    per_page: 100,
                   });
-                  targetFiles = prFiles.map(f => f.filename).filter(f => (f.endsWith('.ts') || f.endsWith('.tsx')) && !f.includes('.test.') && !f.startsWith('src/tests/'));
+                  targets = prFiles
+                    .filter((f) => isCoverageRelevant(f.filename))
+                    .map((f) => ({ file: f.filename, addedLines: parseAddedLinesFromPatch(f.patch) }));
                 } catch (e) {
-                  console.log("Could not list PR files via API: " + e.message);
+                  core.setFailed("Could not list PR files for diff coverage: " + e.message);
+                  return;
+                }
+              } else {
+                // Push to a protected branch: derive changed lines from git.
+                const { execSync } = require('child_process');
+                try {
+                  const base = context.payload.repository.default_branch || 'dev';
+                  execSync(`git fetch --no-tags origin ${base}`, { stdio: 'ignore' });
+                  const { computeChangedTargetsFromGit } = require(path.resolve('scripts/check-coverage.cjs'));
+                  targets = computeChangedTargetsFromGit(`origin/${base}`);
+                } catch (e) {
+                  console.log("Could not compute changed files via git: " + e.message);
                 }
               }
 
-              const evaluation = evaluateCoverage(coverageData, {
+              const evaluation = evaluateDiffCoverage(lcovMap, targets, {
                 threshold: 80,
-                targetFiles,
               });
+
+              try {
+                if (fs.existsSync('coverage/coverage-summary.json')) {
+                  evaluation.total = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8')).total;
+                }
+              } catch (e) {
+                console.log("Could not read coverage summary: " + e.message);
+              }
 
               const coverageMd = generateMarkdownReport(evaluation);
               summary += `\n---\n\n` + coverageMd;
@@ -108,7 +130,7 @@ jobs:
                 coverageFailed = true;
               }
             } else {
-              summary += `\n> [!WARNING]\n> Coverage summary not found. Ensure Vitest ran with --coverage.\n`;
+              summary += `\n> [!WARNING]\n> LCOV coverage report not found. Ensure Vitest ran with --coverage.\n`;
             }
 
             // Write to GitHub Actions Step Summary (visible in Checks tab)
@@ -119,7 +141,7 @@ jobs:
             }
 
             if (coverageFailed) {
-              core.setFailed(`Coverage threshold check failed: PR dropped below 80% threshold on modified files.`);
+              core.setFailed(`Coverage threshold check failed: PR added lines dropped below 80% coverage.`);
             }
           } catch (err) {
             core.setFailed("Error processing test audit results: " + err.message);

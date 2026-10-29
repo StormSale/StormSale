@@ -1,4 +1,13 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
+/* eslint-disable react-refresh/only-export-components */
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import type { ReactNode } from "react";
 import {
   CheckCircle2,
@@ -115,7 +124,7 @@ const OPTIMISTIC_TIMEOUT_MS = 30000;
 
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const optimisticTimersRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const optimisticSnapshotsRef = React.useRef<Record<string, Notification>>({});
@@ -129,7 +138,18 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
   }, []);
 
   const showNotification = useCallback((notification: Omit<Notification, "id">): string => {
-    const id = Math.random().toString(36).substring(2, 11);
+    let randomSuffix: string;
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      randomSuffix = crypto.randomUUID();
+    } else if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+      const buffer = new Uint32Array(2);
+      crypto.getRandomValues(buffer);
+      randomSuffix = `${buffer[0].toString(36)}-${buffer[1].toString(36)}`;
+    } else {
+      randomSuffix = `${Date.now().toString(36)}-${(performance.now() * 1000).toString(36)}`;
+    }
+
+    const id = `toast-${Date.now()}-${randomSuffix}`;
     const isPersistent = notification.persistent === true || notification.duration === 0;
 
     const newNotification: Notification = {
@@ -138,37 +158,12 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
       persistent: isPersistent,
       duration: isPersistent ? 0 : (notification.duration ?? 5000),
     };
-
     setNotifications((prev) => [...prev, newNotification]);
     return id;
   }, []);
 
-  // Instantly surfaces an optimistic notification (<50ms) that can be reverted on txn failure.
-  const showOptimisticNotification = (notification: Omit<Notification, "id">): string => {
-    const id = Math.random().toString(36).substring(2, 11);
-    const optimisticNotification: Notification = {
-      ...notification,
-      id,
-      type: notification.type || "info",
-      title: notification.title,
-      persistent: false,
-      duration: 0,
-      optimistic: true,
-    };
-
-    optimisticSnapshotsRef.current[id] = optimisticNotification;
-    setNotifications((prev) => [...prev, optimisticNotification]);
-
-    // Safety net: auto-revert if the txn never resolves (e.g. dropped/replaced).
-    optimisticTimersRef.current[id] = setTimeout(() => {
-      resolveOptimisticNotification(id, false, "Transaction timed out");
-    }, OPTIMISTIC_TIMEOUT_MS);
-
-    return id;
-  };
-
   // Confirms or reverts an optimistic notification based on txn outcome.
-  const resolveOptimisticNotification = (id: string, success: boolean, errorMessage?: string) => {
+  const resolveOptimisticNotification = useCallback((id: string, success: boolean, errorMessage?: string) => {
     const timer = optimisticTimersRef.current[id];
     if (timer) {
       clearTimeout(timer);
@@ -212,7 +207,31 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
           : n,
       );
     });
-  };
+  }, []);
+
+  // Instantly surfaces an optimistic notification (<50ms) that can be reverted on txn failure.
+  const showOptimisticNotification = useCallback((notification: Omit<Notification, "id">): string => {
+    const id = Math.random().toString(36).substring(2, 11);
+    const optimisticNotification: Notification = {
+      ...notification,
+      id,
+      type: notification.type || "info",
+      title: notification.title,
+      persistent: false,
+      duration: 0,
+      optimistic: true,
+    };
+
+    optimisticSnapshotsRef.current[id] = optimisticNotification;
+    setNotifications((prev) => [...prev, optimisticNotification]);
+
+    // Safety net: auto-revert if the txn never resolves (e.g. dropped/replaced).
+    optimisticTimersRef.current[id] = setTimeout(() => {
+      resolveOptimisticNotification(id, false, "Transaction timed out");
+    }, OPTIMISTIC_TIMEOUT_MS);
+
+    return id;
+  }, [resolveOptimisticNotification]);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = useCallback(
@@ -252,19 +271,31 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
     [notifications, notifyLowEscrowBalance],
   );
 
+  const contextValue = useMemo(
+    () => ({
+      notifications,
+      showNotification,
+      dismissNotification,
+      notifyLowEscrowBalance,
+      checkEscrowBalances,
+      clearAllNotifications,
+      showOptimisticNotification,
+      resolveOptimisticNotification,
+    }),
+    [
+      notifications,
+      showNotification,
+      dismissNotification,
+      notifyLowEscrowBalance,
+      checkEscrowBalances,
+      clearAllNotifications,
+      showOptimisticNotification,
+      resolveOptimisticNotification,
+    ],
+  );
+
   return (
-    <NotificationContext.Provider
-      value={{
-        notifications,
-        showNotification,
-        dismissNotification,
-        notifyLowEscrowBalance,
-        checkEscrowBalances,
-        clearAllNotifications,
-        showOptimisticNotification,
-        resolveOptimisticNotification,
-      }}
-    >
+    <NotificationContext.Provider value={contextValue}>
       {children}
       <NotificationContainer />
     </NotificationContext.Provider>
@@ -272,8 +303,8 @@ export const NotificationProvider: React.FC<{ children: ReactNode }> = ({ childr
 };
 
 interface ToastItemProps {
-  notification: Notification;
-  onDismiss: (id: string) => void;
+  readonly notification: Notification;
+  readonly onDismiss: (id: string) => void;
 }
 
 const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
@@ -376,6 +407,31 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
   const actionLabel = notification.actionLabel || notification.action?.label;
   const actionUrl = notification.actionUrl || notification.action?.url;
 
+  const renderBadge = () => {
+    if (notification.persistent) {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
+          Persistent Alert
+        </span>
+      );
+    }
+    if (notification.type === "pending") {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
+          In Progress
+        </span>
+      );
+    }
+    if (notification.optimistic) {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
+          Pending
+        </span>
+      );
+    }
+    return null;
+  };
+
   return (
     <motion.div
       layout
@@ -405,20 +461,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
             <h4 className="font-bold text-sm text-zinc-900 dark:text-white leading-tight">
               {notification.title}
             </h4>
-            {notification.persistent ? (
-              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0">
-                Persistent Alert
-              </span>
-            ) : notification.type === "pending" ? (
-              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
-                In Progress
-              </span>
-            ) : null}
-            {notification.optimistic && (
-              <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
-                Pending
-              </span>
-            )}
+            {renderBadge()}
           </div>
 
           {notification.message && (
@@ -533,12 +576,12 @@ export const useNotification = () => {
   return context;
 };
 
-export function NotificationWrapper({ children }: { children: React.ReactNode }) {
+export function NotificationWrapper({ children }: { readonly children: React.ReactNode }) {
   return <NotificationProvider>{children}</NotificationProvider>;
 }
 
 export function withNotification<P extends object>(Component: React.ComponentType<P>) {
-  return function WrappedWithNotification(props: P) {
+  return function WrappedWithNotification(props: Readonly<P>) {
     return (
       <NotificationProvider>
         <Component {...props} />
