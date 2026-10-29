@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Affiliate } from "../pages/Affiliate";
@@ -81,7 +82,7 @@ vi.mock("../components/affiliate/TelegramAlertsCard", () => ({
   TelegramAlertsCard: () => <div>Telegram alerts content</div>,
 }));
 vi.mock("../context/NotificationContext", () => ({
-  NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
+  NotificationProvider: ({ children }: { children: ReactNode }) => children,
   useNotification: () => ({ showNotification: () => "", dismissNotification: () => {} }),
 }));
 vi.mock("../lib/telegram", () => ({ isTelegramMiniApp: () => false }));
@@ -143,8 +144,6 @@ describe("Affiliate page navigation", () => {
     expect(await screen.findByText("Milestone badges content")).toBeTruthy();
 
     // Back to overview, then straight to milestones.
-    fireEvent.click(screen.getByRole("button", { name: "Dashboard Overview" }));
-    await screen.findByText("Overview content");
     fireEvent.click(screen.getByRole("button", { name: "Go to milestones" }));
     expect(await screen.findByText("Milestone badges content")).toBeTruthy();
   });

@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { queryClient } from "../lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -32,6 +34,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     xlmBalance,
     connectorType,
   } = useWeb3();
+
+  const { data: roleData, refetch: refetchRole } = useQuery({
+    queryKey: ["userRole", userAddress],
+    queryFn: async () => ({ role: null }),
+    enabled: isConnected && !!userAddress,
+  });
+
   const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
@@ -61,6 +70,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     setIsSigning(true);
     try {
       await updateUserRole(roleId.toUpperCase());
+      await queryClient.invalidateQueries({ queryKey: ["userRole", userAddress] });
       await persistMetrics({ userRole: roleId.toUpperCase(), isConnected: true });
       onNavigate(roleId);
     } catch (error) {
@@ -68,12 +78,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     } finally {
       setIsSigning(false);
     }
+    void refetchRole();
   };
 
   const formatAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
 
+  const activeRole = roleData?.role ?? null;
   const roles = [
     {
       id: "advertiser",
@@ -92,6 +104,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       bgClass: "bg-indigo-50 dark:bg-indigo-900/20",
       features: [
         "Deploy Soroban Smart Contracts",
+        "Auto-refetch role state",
         "Log Encrypted Sales",
         "Manage Affiliate Payouts",
       ],
@@ -166,6 +179,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
               <div className="text-xs sm:text-sm font-black text-zinc-900 dark:text-white flex items-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
                 Stellar {network || "Testnet"}
+                {activeRole && <span className="ml-2 text-[10px] uppercase text-indigo-500">{activeRole}</span>}
               </div>
             </div>
           </div>
