@@ -6,6 +6,7 @@ import { ClaimPayouts } from "../components/affiliate/ClaimPayouts";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
 import { AffiliateClickStreamHeatmap } from "../components/affiliate/ClickStreamHeatmap";
 import { TelegramCampaignBrowser } from "../components/affiliate/TelegramCampaignBrowser";
+import { BrowseCampaigns } from "../components/affiliate/BrowseCampaigns";
 import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
@@ -20,6 +21,7 @@ import {
   Globe2,
   Send,
   Sliders,
+  Compass,
   Link2,
   Trophy,
   Award,
@@ -44,6 +46,7 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "browse-campaigns",
   "heatmap",
   "referral-tree",
   "zk-portfolio",
@@ -73,6 +76,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "browse-campaigns", label: "Browse Marketplace", icon: Compass },
     { id: "heatmap", label: "Click Heatmap", icon: Globe2 },
     { id: "referral-tree", label: "Referral Network (2% Override)", icon: GitBranch },
     { id: "zk-portfolio", label: "ZK Revenue Proofs ($50K+)", icon: ShieldCheck },
@@ -90,6 +94,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
   const renderContent = () => {
     switch (activeTab) {
+      case "browse-campaigns":
+        return <BrowseCampaigns />;
       case "heatmap":
         return <AffiliateClickStreamHeatmap />;
       case "referral-tree":

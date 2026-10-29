@@ -95,6 +95,8 @@ describe("Affiliate page navigation", () => {
     render(<Affiliate onBack={onBack} />);
     expect(screen.getByText("Overview content")).toBeTruthy();
 
+    fireEvent.click(screen.getByRole("button", { name: "Browse Marketplace" }));
+    expect(await screen.findByText("Browse campaigns content")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Click Heatmap" }));
     expect(await screen.findByText("Click heatmap content")).toBeTruthy();
 
