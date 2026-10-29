@@ -41,6 +41,8 @@ export interface Notification {
   actionUrl?: string;
   onAction?: () => void;
   campaignId?: string;
+  optimistic?: boolean;
+  txHash?: string;
 }
 
 export interface NotificationContextType {
@@ -57,6 +59,8 @@ export interface NotificationContextType {
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
+  showOptimisticNotification: (notification: Omit<Notification, "id">) => string;
+  resolveOptimisticNotification: (id: string, success: boolean, errorMessage?: string) => void;
 }
 
 export interface EscrowMonitoredCampaign {
@@ -116,10 +120,14 @@ export function buildLowEscrowNotification(params: {
   };
 }
 
+const OPTIMISTIC_TIMEOUT_MS = 30000;
+
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const optimisticTimersRef = React.useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const optimisticSnapshotsRef = React.useRef<Record<string, Notification>>({});
 
   const dismissNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((notification) => notification.id !== id));
@@ -153,6 +161,77 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
     setNotifications((prev) => [...prev, newNotification]);
     return id;
   }, []);
+
+  // Confirms or reverts an optimistic notification based on txn outcome.
+  const resolveOptimisticNotification = useCallback((id: string, success: boolean, errorMessage?: string) => {
+    const timer = optimisticTimersRef.current[id];
+    if (timer) {
+      clearTimeout(timer);
+      delete optimisticTimersRef.current[id];
+    }
+
+    const snapshot = optimisticSnapshotsRef.current[id];
+    delete optimisticSnapshotsRef.current[id];
+
+    setNotifications((prev) => {
+      const existing = prev.find((n) => n.id === id);
+      if (!existing) return prev;
+
+      if (success) {
+        return prev.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                optimistic: false,
+                type: "success",
+                title: snapshot?.title ? `${snapshot.title} confirmed` : "Transaction confirmed",
+                duration: 5000,
+                persistent: false,
+              }
+            : n,
+        );
+      }
+
+      // Revert: replace optimistic entry with an error notification.
+      return prev.map((n) =>
+        n.id === id
+          ? {
+              ...n,
+              optimistic: false,
+              type: "error",
+              title: snapshot?.title ? `${snapshot.title} failed` : "Transaction failed",
+              message: errorMessage || "The transaction was rejected or failed. State has been reverted.",
+              duration: 7000,
+              persistent: false,
+            }
+          : n,
+      );
+    });
+  }, []);
+
+  // Instantly surfaces an optimistic notification (<50ms) that can be reverted on txn failure.
+  const showOptimisticNotification = useCallback((notification: Omit<Notification, "id">): string => {
+    const id = Math.random().toString(36).substring(2, 11);
+    const optimisticNotification: Notification = {
+      ...notification,
+      id,
+      type: notification.type || "info",
+      title: notification.title,
+      persistent: false,
+      duration: 0,
+      optimistic: true,
+    };
+
+    optimisticSnapshotsRef.current[id] = optimisticNotification;
+    setNotifications((prev) => [...prev, optimisticNotification]);
+
+    // Safety net: auto-revert if the txn never resolves (e.g. dropped/replaced).
+    optimisticTimersRef.current[id] = setTimeout(() => {
+      resolveOptimisticNotification(id, false, "Transaction timed out");
+    }, OPTIMISTIC_TIMEOUT_MS);
+
+    return id;
+  }, [resolveOptimisticNotification]);
 
   // Dedicated helper to trigger persistent low-escrow toast alerts with top-up action
   const notifyLowEscrowBalance = useCallback(
@@ -200,6 +279,8 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       notifyLowEscrowBalance,
       checkEscrowBalances,
       clearAllNotifications,
+      showOptimisticNotification,
+      resolveOptimisticNotification,
     }),
     [
       notifications,
@@ -208,6 +289,8 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       notifyLowEscrowBalance,
       checkEscrowBalances,
       clearAllNotifications,
+      showOptimisticNotification,
+      resolveOptimisticNotification,
     ],
   );
 
@@ -339,6 +422,13 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
         </span>
       );
     }
+    if (notification.optimistic) {
+      return (
+        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shrink-0">
+          Pending
+        </span>
+      );
+    }
     return null;
   };
 
@@ -358,6 +448,11 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
       className={`relative p-4 rounded-2xl border shadow-xl backdrop-blur-md overflow-hidden pointer-events-auto ${getBackgroundColor(
         notification.type,
       )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
+      style={
+        notification.optimistic
+          ? { opacity: 0.85, transition: "opacity 120ms ease-out" }
+          : undefined
+      }
     >
       <div className="flex items-start space-x-3">
         {getIcon(notification.type)}

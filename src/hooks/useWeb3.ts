@@ -15,3 +15,6 @@ export const useSafeWeb3 = () => {
   }
 };
 
+export const useWeb3 = useWeb3Context;
+
+export type Web3ContextValue = ReturnType<typeof useWeb3Context>;

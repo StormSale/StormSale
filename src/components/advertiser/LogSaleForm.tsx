@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useRef, useMemo } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -41,6 +41,18 @@ export const LogSaleForm = () => {
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Optimistic UI state: tracks an in-flight optimistic sale entry so it can
+  // be reverted if the on-chain transaction fails.
+  const [optimisticSale, setOptimisticSale] = useState<{
+    id: string;
+    affiliateAddress: string;
+    saleAmount: string;
+    campaignAddress: string;
+    customerData: string;
+    status: "pending" | "confirmed";
+  } | null>(null);
+  const revertRef = useRef<(() => void) | null>(null);
 
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
@@ -156,6 +168,32 @@ export const LogSaleForm = () => {
       }
     }
 
+    // --- Optimistic UI: apply instant (<50ms) feedback before the network
+    // round-trip. Snapshot the current form values so we can restore them if
+    // the transaction fails.
+    const snapshot = {
+      affiliateAddress,
+      saleAmount,
+      campaignAddress,
+      customerData,
+    };
+    const optimisticId = `OPT_${Date.now()}`;
+    setOptimisticSale({
+      id: optimisticId,
+      affiliateAddress: data.affiliateAddress,
+      saleAmount: data.saleAmount,
+      campaignAddress: data.campaignAddress,
+      customerData: data.customerData || "",
+      status: "pending",
+    });
+    revertRef.current = () => {
+      setOptimisticSale(null);
+      setAffiliateAddress(snapshot.affiliateAddress);
+      setSaleAmount(snapshot.saleAmount);
+      setCampaignAddress(snapshot.campaignAddress);
+      setCustomerData(snapshot.customerData);
+    };
+
     try {
       const campaignContract = getCampaignContract(data.campaignAddress);
 
@@ -199,6 +237,12 @@ export const LogSaleForm = () => {
       );
 
       const waitResult = await tx.wait();
+
+      // Transaction confirmed — promote the optimistic entry to confirmed.
+      setOptimisticSale((prev) =>
+        prev ? { ...prev, status: "confirmed" } : prev,
+      );
+      revertRef.current = null;
 
       const postbackTxHash =
         waitResult?.txHash || tx?.hash || tx?.id || "PENDING_CONFIRMED_LEDGER_TX";
@@ -286,14 +330,33 @@ export const LogSaleForm = () => {
     } catch (error: unknown) {
       console.error("Error logging sale:", error);
 
+      // --- Revert optimistic state on failure so the UI reflects reality.
+      if (revertRef.current) {
+        revertRef.current();
+        revertRef.current = null;
+      }
+
       showNotification({
         type: "error",
         title: "Logging Failed",
         message: error instanceof Error ? error.message : "Failed to log sale.",
       });
     } finally {
+      revertRef.current = null;
       setIsLoading(false);
     }
+  };
+
+  const handleCancelOptimistic = () => {
+    if (revertRef.current) {
+      revertRef.current();
+      revertRef.current = null;
+    }
+    showNotification({
+      type: "info",
+      title: "Sale Cancelled",
+      message: "Optimistic sale entry was reverted.",
+    });
   };
 
   if (mode === "batch") {

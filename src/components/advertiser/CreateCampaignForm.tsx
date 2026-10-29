@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputField } from "../../components/ui/input-group";
@@ -73,7 +73,13 @@ export const toStroops = (value: string | number): bigint => {
 };
 
 export type FlowStep =
-  "idle" | "checking" | "approving" | "approved" | "creating" | "success" | "error";
+  | "idle"
+  | "checking"
+  | "approving"
+  | "approved"
+  | "creating"
+  | "success"
+  | "error";
 
 export const CreateCampaignForm = () => {
   const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
@@ -91,6 +97,10 @@ export const CreateCampaignForm = () => {
     campaignId: number;
     txHash?: string;
   } | null>(null);
+
+  // Optimistic UI: track pending optimistic state so it can be reverted on failure
+  const [optimisticAllowance, setOptimisticAllowance] = useState<number | null>(null);
+  const optimisticAllowanceRef = useRef<number | null>(null);
 
   const [assetAllowances, setAssetAllowances] = useState<Record<SupportedEscrowAssetCode, number>>({
     XLM: 0,
@@ -131,7 +141,8 @@ export const CreateCampaignForm = () => {
     fracDigits <= maxDecimals,
   );
   const budgetNum = isValidBudget ? parsedBudget : 0;
-  const currentAssetAllowance = assetAllowances[selectedAsset] ?? tokenAllowance;
+  const currentAssetAllowance =
+    optimisticAllowance ?? assetAllowances[selectedAsset] ?? tokenAllowance;
   const isAllowanceSufficient = isConnected && isValidBudget && currentAssetAllowance >= budgetNum;
   const allowanceDeficit = Math.max(0, budgetNum - currentAssetAllowance);
   const isExecuting = flowStep === "approving" || flowStep === "creating";
@@ -179,12 +190,28 @@ export const CreateCampaignForm = () => {
     setBudget(formatXlm(spendableXlm));
   };
 
+  // Keep ref in sync so revert logic can read latest optimistic value without stale closures
+  useEffect(() => {
+    optimisticAllowanceRef.current = optimisticAllowance;
+  }, [optimisticAllowance]);
+
+  const applyOptimisticAllowance = (value: number) => {
+    setOptimisticAllowance(value);
+    optimisticAllowanceRef.current = value;
+  };
+
+  const revertOptimisticAllowance = () => {
+    setOptimisticAllowance(null);
+    optimisticAllowanceRef.current = null;
+  };
+
   // Poll or refresh allowance on address change, mount, or asset switch
   useEffect(() => {
     if (isConnected && userAddress) {
       refreshTokenAllowance(undefined, selectedAsset).then((val) => {
         setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: val }));
       });
+      revertOptimisticAllowance();
     }
   }, [isConnected, userAddress, selectedAsset, refreshTokenAllowance]);
 
@@ -236,6 +263,7 @@ export const CreateCampaignForm = () => {
     }
 
     setFlowStep("approving");
+    applyOptimisticAllowance(budgetNum);
     try {
       showNotification({
         type: "info",
@@ -245,6 +273,7 @@ export const CreateCampaignForm = () => {
 
       const res = await approveTokenAllowance(budgetNum, undefined, selectedAsset);
       setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: budgetNum }));
+      revertOptimisticAllowance();
 
       showNotification({
         type: "success",
@@ -256,6 +285,7 @@ export const CreateCampaignForm = () => {
       setFlowStep("approved");
     } catch (error: any) {
       console.error("Error approving allowance:", error);
+      revertOptimisticAllowance();
       showNotification({
         type: "error",
         title: "Approval Failed",
@@ -328,6 +358,7 @@ export const CreateCampaignForm = () => {
     // Step 1: If allowance is insufficient, execute approval first
     if (!isAllowanceSufficient) {
       setFlowStep("approving");
+      applyOptimisticAllowance(budgetNum);
       try {
         showNotification({
           type: "info",
@@ -337,6 +368,7 @@ export const CreateCampaignForm = () => {
 
         await approveTokenAllowance(budgetNum, undefined, selectedAsset);
         setAssetAllowances((prev) => ({ ...prev, [selectedAsset]: budgetNum }));
+        revertOptimisticAllowance();
 
         showNotification({
           type: "success",
@@ -346,6 +378,7 @@ export const CreateCampaignForm = () => {
         setFlowStep("approved");
       } catch (error: any) {
         console.error("Error during sequential approval step:", error);
+        revertOptimisticAllowance();
         showNotification({
           type: "error",
           title: "Step 1 Failed (Approval)",
@@ -423,6 +456,7 @@ export const CreateCampaignForm = () => {
       setIsPrivate(false);
     } catch (error: any) {
       console.error("Error creating campaign:", error);
+      revertOptimisticAllowance();
       showNotification({
         type: "error",
         title: "Failed to Create Campaign",
@@ -451,7 +485,7 @@ export const CreateCampaignForm = () => {
                 Campaign #{lastCreatedCampaign.campaignId} Successfully Initialized
               </h5>
               <p className="text-xs text-emerald-800 dark:text-emerald-300 mt-0.5">
-                On-chain escrow is funded and ready to record affiliate conversions in{" "}
+                On-chain escrow is funded and ready to record affiliate conversions in {" "}
                 {selectedAsset}.
               </p>
               {lastCreatedCampaign.txHash && (
@@ -475,15 +509,15 @@ export const CreateCampaignForm = () => {
       <Card className="border-0 shadow-xl bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-3xl overflow-hidden">
         <CardHeader className="p-8 border-b border-slate-100 dark:border-zinc-800/80">
           <div className="flex items-center space-x-4">
-            <div className="w-14 h-14 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center shadow-md">
+            <div className="w-14 h-14 bg-zinc-900 dark:bg-indigo-600 rounded-xl flex items-center justify-center">
               <Zap className="w-7 h-7 text-white" />
             </div>
             <div>
               <CardTitle className="text-2xl font-bold text-zinc-900 dark:text-white">
                 Create Campaign & Escrow Funding
               </CardTitle>
-              <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                Configure affiliate rates, budget allowance, and on-chain escrow
+              <CardDescription className="text-slate-600 dark:text-zinc-400 mtt-1">
+                Deploy an on-chain escrow campaign on Stellar
               </CardDescription>
             </div>
           </div>
@@ -1197,19 +1231,18 @@ export const CreateCampaignForm = () => {
                     ) : flowStep === "creating" ? (
                       <div className="flex items-center space-x-3">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        <span>Creating {selectedAsset} Campaign Escrow...</span>
+                        <span>Step 2/2: Deploying {selectedAsset} Campaign Escrow...</span>
                       </div>
                     ) : (
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center justify-center space-x-2">
                         <Zap className="w-5 h-5" />
-                        <span>Launch {selectedAsset} Campaign (Escrow Ready)</span>
+                        <span>Launch {selectedAsset} Campaign</span>
+                        <ArrowRight className="w-4 h-4 ml-1 opacity-80" />
                       </div>
                     )}
                   </Button>
                 )}
               </div>
-            </div>
-          </form>
         </CardContent>
       </Card>
     </div>
