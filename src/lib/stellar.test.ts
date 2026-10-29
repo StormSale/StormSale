@@ -8,7 +8,7 @@ import {
 
 describe("Stellar Helpers", () => {
   it("formats Stellar public key with middle truncation", () => {
-    const pubKey = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const pubKey = "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4OAT4AQH3ZLLFLA5";
     expect(formatStellarAddress(pubKey)).toBe("GBBD...FLA5");
   });
 
@@ -18,18 +18,18 @@ describe("Stellar Helpers", () => {
   });
 
   it("validates valid Stellar public keys (G...)", () => {
-    const validG = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+    const validG = "GBBD47IF6LWK7P7MDEVMCWR7DPUWV3NY3DTQEVFL4OAT4AQH3ZLLFLA5";
     expect(isValidStellarAddress(validG)).toBe(true);
   });
 
   it("validates valid Soroban contract IDs (C...)", () => {
-    const validC = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+    const validC = "CDLZFC3SYJYDZT7K67Z75HIPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
   it("rejects invalid addresses like EVM 0x or wrong lengths", () => {
-    expect(isValidStellarAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")).toBe(false);
-    expect(isValidStellarAddress("GBBD123")).toBe(false);
+    expect(isValidStellarAddress("0x742d35cc6634C0532925a3b844Bc454e4438f44e")).toBe(false);
+    expect(isValidStellarAddress("GBD123")).toBe(false);
     expect(isValidStellarAddress("")).toBe(false);
   });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -16,6 +16,7 @@ import {
   Sparkles,
   Loader2,
   X,
+  ChevronDown,
   Repeat,
   Lock,
 } from "lucide-react";
@@ -37,6 +38,12 @@ import {
 import { isAffiliatePaused, fetchAuthoritativeAffiliatePauseState } from "../../lib/fraudRiskEngine";
 import { motion, AnimatePresence } from "framer-motion";
 
+export interface ResourceDiagnostic {
+  minResourceFee: number;
+  cpuInstructions: number;
+  memoryBytes: number;
+}
+
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
 const SLIPPAGE_PRESETS = [50, 100, 300];
 
@@ -49,6 +56,9 @@ export const ClaimPayouts = () => {
   const [isBatchClaiming, setIsBatchClaiming] = useState(false);
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
+  const [showResourceDiagnostic, setShowResourceDiagnostic] = useState(false);
+  const [isDevMode, setIsDevMode] = useState(false);
+  const [resourceDiagnostic, setResourceDiagnostic] = useState<ResourceDiagnostic | null>(null);
 
   const [isFrozen, setIsFrozen] = useState(() => (userAddress ? isAffiliatePaused(userAddress) : false));
 
@@ -82,6 +92,13 @@ export const ClaimPayouts = () => {
     }
     loadClaims();
   }, [userAddress]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const devFlag = window.localStorage.getItem("devMode") === "true";
+      setIsDevMode(devFlag);
+    }
+  }, []);
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
@@ -123,6 +140,21 @@ export const ClaimPayouts = () => {
     );
   };
 
+  const resourceWarnings = useMemo(() => {
+    if (!resourceDiagnostic) return [] as string[];
+    const warnings: string[] = [];
+    if (resourceDiagnostic.cpuInstructions > 100_000_000) {
+      warnings.push("High CPU instruction count — consider optimizing contract footprint.");
+    }
+    if (resourceDiagnostic.memoryBytes > 40 * 1024 * 1024) {
+      warnings.push("Memory usage exceeds recommended budget — review contract state reads.");
+    }
+    if (resourceDiagnostic.minResourceFee > 1_000_000) {
+      warnings.push("Resource fee is elevated — batch size may be unoptimized.");
+    }
+    return warnings;
+  }, [resourceDiagnostic]);
+
   // 1-Click Automated Batch Claim Dispatcher
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
@@ -149,6 +181,9 @@ export const ClaimPayouts = () => {
       const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
       const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan, autoSwapConfig);
       setReceipt(resultReceipt);
+      if (resultReceipt.resourceDiagnostic) {
+        setResourceDiagnostic(resultReceipt.resourceDiagnostic);
+      }
 
       // Mark claimed campaigns
       setCampaigns((prev) =>
@@ -199,6 +234,9 @@ export const ClaimPayouts = () => {
     try {
       const target = campaigns.find((c) => c.campaignId === campaignId);
       const res = await claimPayoutOnChain(campaignId, target?.assetCode);
+      if (res.resourceDiagnostic) {
+        setResourceDiagnostic(res.resourceDiagnostic);
+      }
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
@@ -231,6 +269,86 @@ export const ClaimPayouts = () => {
           Matured commissions cleared by Soroban smart contract escrow are ready to withdraw.
         </p>
       </div>
+
+      {/* Dev Mode Toggle & Resource Diagnostic Accordion */}
+      {isDevMode && (
+        <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowResourceDiagnostic((prev) => !prev)}
+            className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-slate-50 dark:hover:bg-zinc-900/70 transition-colors"
+          >
+            <div className="flex items-center space-x-2">
+              <Zap className="w-4 h-4 text-indigo-500" />
+              <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                Resource Diagnostic
+              </span>
+              {resourceWarnings.length > 0 && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400">
+                  {resourceWarnings.length} Warning{resourceWarnings.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <ChevronDown
+              className={`w-4 h-4 text-zinc-400 transition-transform ${
+                showResourceDiagnostic ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {showResourceDiagnostic && (
+            <div className="px-5 pb-5 pt-1 border-t border-slate-100 dark:border-zinc-800/60 space-y-3">
+              {resourceDiagnostic ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800">
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-500">
+                        Min Resource Fee
+                      </div>
+                      <div className="text-sm font-black font-mono text-zinc-900 dark:text-white mt-1">
+                        {resourceDiagnostic.minResourceFee} stroops
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800">
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-500">
+                        CPU Instructions
+                      </div>
+                      <div className="text-sm font-black font-mono text-zinc-900 dark:text-white mt-1">
+                        {resourceDiagnostic.cpuInstructions.toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/50 border border-slate-100 dark:border-zinc-800">
+                      <div className="text-[10px] uppercase font-bold tracking-wider text-zinc-500">
+                        Memory Bytes
+                      </div>
+                      <div className="text-sm font-black font-mono text-zinc-900 dark:text-white mt-1">
+                        {resourceDiagnostic.memoryBytes.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                  {resourceWarnings.length > 0 && (
+                    <div className="space-y-1.5">
+                      {resourceWarnings.map((warning) => (
+                        <div
+                          key={warning}
+                          className="text-xs font-medium text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/40 rounded-lg px-3 py-2"
+                        >
+                          {warning}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  No simulation data yet. Run a claim to inspect CPU and memory resource
+                  consumption.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Frozen Alert Banner (#152) */}
       {isFrozen && (

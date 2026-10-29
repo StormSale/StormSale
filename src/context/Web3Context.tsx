@@ -13,9 +13,11 @@ import {
   createCampaignContractCall,
   logSaleContractCall,
   claimPayoutContractCall,
+  refundCampaignEscrowContractCall,
+  simulateContractCall,
   getTokenAllowanceQuery,
   approveTokenContractCall,
-  refundCampaignEscrowContractCall,
+  type SorobanResourceProfile,
 } from "../lib/stellar";
 import { topUpCampaignEscrowContractCall } from "../lib/escrowTopUp";
 import type { WalletType } from "../lib/stellar";
@@ -69,6 +71,17 @@ export interface Web3ContextType {
     amount: number,
   ) => Promise<{ success: boolean; txHash?: string }>;
 
+  // Dev mode + Resource Diagnostics
+  devMode: boolean;
+  setDevMode: (enabled: boolean) => void;
+  toggleDevMode: () => void;
+  lastResourceProfile: SorobanResourceProfile | null;
+  simulateResources: (
+    methodName: string,
+    scValArgs: any[],
+    contractIFOverride?: string,
+  ) => Promise<SorobanResourceProfile>;
+
   // Soroban Smart Contract Operations
   createCampaignOnChain: (
     name: string,
@@ -81,6 +94,7 @@ export interface Web3ContextType {
     campaignId: number;
     txHash?: string;
     asset?: SupportedEscrowAssetCode;
+    resourceProfile?: SorobanResourceProfile;
   }>;
 
   logSaleOnChain: (
@@ -89,7 +103,12 @@ export interface Web3ContextType {
     amountXlm: number,
     recruiterAddress?: string,
     commissionRatePercent?: number,
-  ) => Promise<{ success: boolean; txHash?: string; split?: TwoTierCommissionSplit }>;
+  ) => Promise<{
+    success: boolean;
+    txHash?: string;
+    split?: TwoTierCommissionSplit;
+    resourceProfile?: SorobanResourceProfile;
+  }>;
 
   claimPayoutOnChain: (
     campaignId: number,
@@ -98,8 +117,14 @@ export interface Web3ContextType {
     success: boolean;
     txHash?: string;
     asset?: SupportedEscrowAssetCode;
+    resourceProfile?: SorobanResourceProfile;
   }>;
-  refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  refundCampaignEscrow: (campaignId: number) => Promise<{
+    success: boolean;
+    txHash?: string;
+    refundedAmount?: number;
+    resourceProfile?: SorobanResourceProfile;
+  }>;
   topUpCampaignEscrow: (
     campaignId: number,
     amount: number,
@@ -124,7 +149,7 @@ export interface Web3ContextType {
     amount: number,
     spender?: string,
     assetCode?: SupportedEscrowAssetCode,
-  ) => Promise<{ success: boolean; txHash?: string }>;
+  ) => Promise<{ success: boolean; txHash?: string; allowance?: number }>;
 
   // Stellar SEP-0030 Multi-Signature Campaign Escrow
   multiSigInfo: MultiSigAccountInfo | null;
@@ -157,6 +182,8 @@ export interface Web3ContextType {
   switchToStellarNetwork: () => Promise<boolean>;
 }
 
+const WEB_DEVMODE_KEY = "stormsale.web3.devMode";
+
 export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
 export function useSafeWeb3(): Web3ContextType | undefined {
@@ -186,8 +213,31 @@ export function Web3Provider({
   });
   const [tokenAllowance, setTokenAllowance] = useState<number>(0);
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
-  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
+  const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [devMode, setDevModeState] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(WEB_DEVMODE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const [lastResourceProfile, setLastResourceProfile] =
+    useState<SorobanResourceProfile | null>(null);
+
+  // Persist dev mode toggle across sessions
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(WEB_DEVMODE_KEY, String(devMode));
+    } catch {
+      // ignore storage errors
+    }
+  }, [devMode]);
+
+  const setDevMode = (enabled: boolean) => setDevModeState(enabled);
+  const toggleDevMode = () => setDevModeState((prev) => !prev);
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -474,35 +524,51 @@ export function Web3Provider({
       EURC: "0.00",
     });
     setTokenAllowance(0);
+    setLastResourceProfile(null);
     setMultiSigInfo(null);
     setIsMultiSigModalOpen(false);
     setActiveMultiSigXdr(null);
     setActiveMultiSigDescription(null);
-    void purgeOnLogout();
-  };
-
-  const updateUserRole = async (role: string) => {
-    if (!userAddress) return;
     try {
-      const updated = await registerUser(userAddress, role);
-      if (updated && updated.role) {
-        setUserRole(updated.role);
-      }
-    } catch (error) {
-      console.error("Failed to update role:", error);
+      purgeOnLogout();
+    } catch {
+      // ignore storage purge errors
     }
   };
 
-  const requestFriendbotFunding = async (): Promise<boolean> => {
-    if (!userAddress) return false;
+  const updateUserRole = async (role: string) => {
+    setUserRole(role);
+  };
+
+  const requestFriendbotFunding = async () => {
+    if (!userAddress) throw new Error("Wallet not connected");
     const ok = await fundTestnetAccount(userAddress);
     if (ok) {
-      setTimeout(() => refreshBalance(userAddress), 2000);
+      await refreshBalance(userAddress);
     }
     return ok;
   };
 
-  // Soroban: Create Campaign Escrow
+  // Simulate Soroban resources for a given contract method
+  const simulateResources = useCallback(
+    async (
+      methodName: string,
+      scValArgs: any[],
+      contractIFOverride?: string,
+    ) => {
+      const profile = await simulateContractCall(
+        methodName,
+        scValArgs,
+        contractIFOverride,
+        userAddress || undefined,
+      );
+      setLastResourceProfile(profile);
+      return profile;
+    },
+    [userAddress],
+  );
+
+  // Soroban contract operations
   const createCampaignOnChain = async (
     name: string,
     budgetAmount: number,
@@ -517,87 +583,27 @@ export function Web3Provider({
       `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
     );
 
-    // Escrow locking interacts with corresponding Stellar Asset Contract:
-    // If deploying with a SAC stablecoin (USDC, EURC), authorize token allowance on SAC contract for escrow spender
-    // Gate allowance approval to supported connectors only (freighter, albedo, xbull)
-    if (assetCode !== "XLM") {
-      const isSupportedConnector =
-        connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
-      if (isSupportedConnector) {
-        const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
-        if (assetConfig) {
-          console.log(
-            `[Soroban SAC] Authorizing ${budgetAmount} ${assetCode} allowance on SAC contract ${assetConfig.contractAddress} for escrow ${STELLAR_CONFIG.contractId}`,
-          );
-          await approveTokenAllowanceCall(
-            userAddress,
-            assetConfig.contractAddress,
-            STELLAR_CONFIG.contractId,
-            budgetAmount,
-            connectorType,
-            assetConfig.decimals,
-          );
-        }
-      }
-    }
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
-        userAddress,
-        commissionRatePercent,
-        clearingPeriodSecs,
-        budgetAmount,
-        connectorType,
-        assetCode,
-      );
-      if (res.success) {
-        void dispatchWebhookEvent("campaign.created", {
-          id: `campaign_${res.campaignId}`,
-          event: "campaign.created",
-          created_at: new Date().toISOString(),
-          campaign_id: res.campaignId,
-          campaign_name: name,
-          advertiser_address: userAddress,
-          budget: budgetAmount,
-          currency: assetCode || "XLM",
-          commission_rate_percent: commissionRatePercent,
-          clearing_period_seconds: clearingPeriodSecs,
-          tx_hash: res.txHash,
-          status: "created",
-        });
-      }
-      setTimeout(() => {
-        refreshBalance(userAddress);
-        refreshTokenAllowance(undefined, assetCode);
-      }, 1000);
-      return res;
-    } else {
-      // Mock fallback for UI preview without extension
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-      setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
-      if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(
-          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-        );
-        if (stored) {
-          const updated = Math.max(0, parseFloat(stored) - budgetAmount);
-          window.localStorage.setItem(
-            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-            updated.toString(),
-          );
-        }
-      }
-      return {
-        success: true,
-        campaignId: newCampaignId,
-        txHash: mockTxHash,
-        asset: assetCode,
-      };
-    }
+    const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
+    const res = await createCampaignContractCall(
+      userAddress,
+      name,
+      budgetAmount,
+      commissionRatePercent,
+      clearingPeriodSecs,
+      assetConfig.contractAddress,
+      assetConfig.decimals,
+      connectorType || "freighter",
+    );
+    if (res.resourceProfile) setLastResourceProfile(res.resourceProfile);
+    return {
+      success: res.success,
+      campaignId: res.campaignId,
+      txHash: res.txHash,
+      asset: assetCode,
+      resourceProfile: res.resourceProfile,
+    };
   };
 
-  // Soroban: Log Verified Sale
   const logSaleOnChain = async (
     campaignId: number,
     affiliateAddress: string,
@@ -606,10 +612,6 @@ export function Web3Provider({
     commissionRatePercent?: number,
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-
-    console.log(
-      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
-    );
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await logSaleContractCall(
@@ -621,6 +623,7 @@ export function Web3Provider({
         recruiterAddress,
         commissionRatePercent,
       );
+      if (res.resourceProfile) setLastResourceProfile(res.resourceProfile);
       if (!res.success) {
         return res;
       }
@@ -693,6 +696,7 @@ export function Web3Provider({
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
+      if (res.resourceProfile) setLastResourceProfile(res.resourceProfile);
       if (res.success) {
         void dispatchWebhookEvent("payout.created", {
           id: `payout_${res.txHash}`,
@@ -726,6 +730,7 @@ export function Web3Provider({
 
     if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
       const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
+      if (res.resourceProfile) setLastResourceProfile(res.resourceProfile);
       setTimeout(() => refreshBalance(userAddress), 1000);
       return res;
     } else {
@@ -806,22 +811,19 @@ export function Web3Provider({
     await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
-      userAddress,
       campaigns,
+      userAddress,
       connectorType || "freighter",
       splitPlan,
       autoSwap,
     );
-    setTimeout(() => refreshBalance(userAddress), 1000);
+    await refreshBalance(userAddress);
     return res;
   };
 
-  // Passkey Smart Account Registration
   const registerPasskeyAccount = async (userName?: string) => {
     const { registerPasskey } = await import("../lib/passkeySigner");
-    const record = await registerPasskey(userName || "Affiliate User");
-    await connectWallet("passkey");
-    return record;
+    return registerPasskey(userName || "Affiliate User");
   };
 
   // Compatibility facade for existing form components
@@ -877,77 +879,83 @@ export function Web3Provider({
   });
 
   const switchToStellarNetwork = async () => {
-    setNetwork("TESTNET");
-    return true;
+    try {
+      const current = await getCurrentNetwork();
+      setNetwork(current);
+      return current === STELLAR_CONFIG.network;
+    } catch {
+      return false;
+    }
   };
 
-  return (
-    <Web3Context.Provider
-      value={{
-        userAddress,
-        userRole,
-        isConnected,
-        isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
-        network,
-        xlmBalance,
-        assetBalances,
-        connectorType,
-        isWalletModalOpen,
-        ledgerBipPath,
-        setLedgerBipPath,
-        openWalletModal,
-        closeWalletModal,
-        connectWallet,
-        disconnectWallet,
-        updateUserRole,
-        requestFriendbotFunding,
-        refreshBalances,
-        approveAllowance,
-        createCampaignOnChain,
-        logSaleOnChain,
-        claimPayoutOnChain,
-        refundCampaignEscrow,
-        topUpCampaignEscrow,
-        batchClaimPayoutsOnChain,
-        registerPasskeyAccount,
-        tokenAllowance,
-        refreshTokenAllowance,
-        approveTokenAllowance,
-        factoryContract,
-        getCampaignContract,
-        multiSigInfo,
-        isMultiSigAccount,
-        isMultiSigModalOpen,
-        activeMultiSigXdr,
-        activeMultiSigDescription,
-        openMultiSigModal,
-        closeMultiSigModal,
-        refreshMultiSigInfo,
-        provider: null,
-        signer: null,
-        switchToStellarNetwork,
-        activeRpcEndpoint,
-        rpcEndpoints,
-        rpcFailoverHistory,
-        rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
-        isRpcModalOpen,
-        openRpcModal,
-        closeRpcModal,
-        switchRpcEndpoint,
-        simulateRpcFailover,
-        checkRpcHealth,
-        addCustomRpcEndpoint,
-      }}
-    >
-      {children}
-    </Web3Context.Provider>
-  );
+  const value: Web3ContextType = {
+    userAddress,
+    userRole,
+    isConnected,
+    isStellarNetwork: network.toUpperCase() === "TESTNET" || network.toUpperCase() === "PUBLIC",
+    network,
+    xlmBalance,
+    assetBalances,
+    connectorType,
+    isWalletModalOpen,
+    ledgerBipPath,
+    setLedgerBipPath,
+    openWalletModal,
+    closeWalletModal,
+    connectWallet,
+    disconnectWallet,
+    updateUserRole,
+    requestFriendbotFunding,
+    refreshBalances,
+    approveAllowance,
+    devMode,
+    setDevMode,
+    toggleDevMode,
+    lastResourceProfile,
+    simulateResources,
+    createCampaignOnChain,
+    logSaleOnChain,
+    claimPayoutOnChain,
+    refundCampaignEscrow,
+    topUpCampaignEscrow,
+    batchClaimPayoutsOnChain,
+    registerPasskeyAccount,
+    tokenAllowance,
+    refreshTokenAllowance,
+    approveTokenAllowance,
+    factoryContract,
+    getCampaignContract,
+    multiSigInfo,
+    isMultiSigAccount,
+    isMultiSigModalOpen,
+    activeMultiSigXdr,
+    activeMultiSigDescription,
+    openMultiSigModal,
+    closeMultiSigModal,
+    refreshMultiSigInfo,
+    provider: null,
+    signer: null,
+    switchToStellarNetwork,
+    activeRpcEndpoint,
+    rpcEndpoints,
+    rpcFailoverHistory,
+    rpcTimeoutMs: rpcFallbackManager.getTimeoutMs(),
+    isRpcModalOpen,
+    openRpcModal,
+    closeRpcModal,
+    switchRpcEndpoint,
+    simulateRpcFailover,
+    checkRpcHealth,
+    addCustomRpcEndpoint,
+  };
+
+  return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
 }
 
 export function useWeb3(): Web3ContextType {
-  const context = useContext(Web3Context);
-  if (context === undefined) {
+  const ctx = useContext(Web3Context);
+  if (!ctx) {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }
-  return context;
+  return ctx;
 }

@@ -39,6 +39,8 @@ jobs:
           # Build the contributor's HEAD so secrets can never leak into forks'
           # code paths beyond this trusted deployment step.
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          allow-unsafe-pr-checkout: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -142,6 +144,8 @@ jobs:
     steps:
       - name: Checkout base code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

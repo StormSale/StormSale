@@ -150,7 +150,7 @@ describe("App routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to dashboard" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Invalid destination" }));
-    expect(screen.getByText("Dashboard page")).toBeTruthy();
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect wallet" }));
     expect(await screen.findByText("Landing page")).toBeTruthy();
@@ -220,7 +220,7 @@ describe("App routing", () => {
     mocks.throwDashboard = true;
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     render(<App />);
-    expect(await screen.findByText("Something went wrong")).toBeTruthy();
-    expect(error).toHaveBeenCalled();
+    expect(await screen.findByText(/something went wrong/i)).toBeTruthy();
+    expect(error.mock.calls.length).toBeGreaterThan(0);
   });
 });

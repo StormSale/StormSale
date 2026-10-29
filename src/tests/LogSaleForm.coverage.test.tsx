@@ -223,6 +223,7 @@ describe("LogSaleForm coverage", () => {
         }),
       });
 
+
     it("asks the server to alert the affiliate with the confirmed hash only", async () => {
       confirmWith(HASH);
       await render();

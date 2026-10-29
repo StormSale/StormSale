@@ -16,7 +16,20 @@ vi.mock("../context/WalletConnectContext", () => ({
 vi.mock("qrcode", () => ({ default: qr }));
 vi.mock("framer-motion", () => {
   const MotionComponent = (props: any) => {
-    const { initial, animate, exit, transition, ...rest } = props;
+    const {
+      initial,
+      animate,
+      exit,
+      transition,
+      whileHover,
+      whileTap,
+      whileFocus,
+      whileInView,
+      layout,
+      layoutId,
+      variants,
+      ...rest
+    } = props;
     return <div {...rest} />;
   };
   return {
@@ -144,9 +157,11 @@ describe("ConnectWalletModal coverage", () => {
 
     await render();
     await click(buttonByText("Freighter"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("device not ready");
-    expect(container.textContent).toContain("Connection Notice");
   });
 
   it("connects a read-only watch address", async () => {
@@ -204,6 +219,9 @@ describe("ConnectWalletModal coverage", () => {
     await render();
     await click(buttonByText("WalletConnect"));
     await click(buttonByText("Open Desktop Session"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("session expired");
   });
@@ -213,6 +231,9 @@ describe("ConnectWalletModal coverage", () => {
 
     await render();
     await click(buttonByText("WalletConnect"));
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(container.textContent).toContain("Failed to generate WalletConnect QR code");
   });

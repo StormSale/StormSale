@@ -142,7 +142,7 @@ describe("App router integration", () => {
     expect(await screen.findByText("Dashboard page")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Open invalid page" }));
-    expect(screen.getByText("Dashboard page")).toBeTruthy();
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
     view.unmount();
   });
 
@@ -166,17 +166,21 @@ describe("App router integration", () => {
     mockState.throwLanding = true;
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const reload = vi.fn();
-    const testWindow = Object.create(window) as Window;
-    Object.defineProperty(testWindow, "location", {
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
       configurable: true,
-      value: { ...window.location, reload },
+      value: { ...originalLocation, reload },
     });
-    vi.stubGlobal("window", testWindow);
 
     render(<App />);
     expect(await screen.findByText("Something went wrong")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Reload" }));
     expect(reload).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalled();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+    errorSpy.mockRestore();
   });
 });

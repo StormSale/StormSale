@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
 import {
@@ -16,6 +16,8 @@ import {
   Fingerprint,
   Usb,
   ChevronDown,
+  Cpu,
+  Activity,
   RefreshCw,
   QrCode,
 } from "lucide-react";
@@ -25,6 +27,59 @@ import { CopyButton } from "../ui/copy-button";
 import { FederatedAddressInput } from "./FederatedAddressInput";
 import { resolveRecipient } from "../../lib/stellar";
 import type { WalletType } from "../../lib/stellar";
+
+export interface SorobanSimulationResult {
+  minResourceFee: number;
+  cpuInstructions: number;
+  memoryBytes: number;
+  ledgerReadBytes: number;
+  ledgerWriteBytes: number;
+}
+
+export interface ResourceDiagnostic {
+  minResourceFee: number;
+  cpuInstructions: number;
+  memoryBytes: number;
+  ledgerReadBytes: number;
+  ledgerWriteBytes: number;
+  ratio: number;
+  warnings: string[];
+}
+
+const CPU_LIMIT = 100_000_000;
+const MEMORY_LIMIT = 40 * 1024 * 1024;
+const LEDGER_WRITE_LIMIT = 100_000;
+const LEDGER_READ_LIMIT = 500_000;
+
+export const buildResourceDiagnostic = (
+  simulationData: SorobanSimulationResult | null,
+): ResourceDiagnostic | null => {
+  if (!simulationData) return null;
+  const { minResourceFee, cpuInstructions, memoryBytes, ledgerReadBytes, ledgerWriteBytes } =
+    simulationData;
+  const warnings: string[] = [];
+  if (cpuInstructions > CPU_LIMIT) {
+    warnings.push("High CPU instruction count — contract footprint may be unoptimized.");
+  }
+  if (memoryBytes > MEMORY_LIMIT) {
+    warnings.push("Memory usage exceeds 40MB — consider reducing contract state size.");
+  }
+  if (ledgerWriteBytes > LEDGER_WRITE_LIMIT) {
+    warnings.push("Large ledger write footprint — batch or minimize storage writes.");
+  }
+  if (ledgerReadBytes > LEDGER_READ_LIMIT) {
+    warnings.push("Heavy ledger read footprint — cache or reduce cross-contract calls.");
+  }
+  return {
+    minResourceFee,
+    cpuInstructions,
+    memoryBytes,
+    ledgerReadBytes,
+    ledgerWriteBytes,
+    ratio: cpuInstructions / CPU_LIMIT,
+    warnings,
+  };
+};
 
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
@@ -37,7 +92,7 @@ export const ConnectWalletModal: React.FC = () => {
   // WalletConnect QR State
   const [showQrView, setShowQrView] = useState(false);
   const [wcUri, setWcUri] = useState<string>("");
-  const [qrDataUrl, setQrDataUrl] = useState<string>("");
+  const [qrDataUrl, setQrDataUrl] = useState<string>("u");
   const [isGeneratingQr, setIsGeneratingQr] = useState<boolean>(false);
 
   // Ledger hardware path state
@@ -45,6 +100,11 @@ export const ConnectWalletModal: React.FC = () => {
   const [ledgerAccountIndex, setLedgerAccountIndex] = useState(0);
   const [customBipPath, setCustomBipPath] = useState("m/44'/148'/0'");
   const [useCustomPath, setUseCustomPath] = useState(false);
+
+  // Soroban resource diagnostic state
+  const [showResourceDiagnostic, setShowResourceDiagnostic] = useState(false);
+  const [devModeEnabled, setDevModeEnabled] = useState(false);
+  const [simulationData, setSimulationData] = useState<SorobanSimulationResult | null>(null);
 
   // Generate dynamic WalletConnect pairing URI and QR Code
   const generateWalletConnectUri = useCallback(async () => {
@@ -87,6 +147,8 @@ export const ConnectWalletModal: React.FC = () => {
     closeWalletModal();
   }, [closeWalletModal]);
 
+  const resourceDiagnostic = useMemo(() => buildResourceDiagnostic(simulationData), [simulationData]);
+
   if (!isWalletModalOpen) return null;
 
   const getActiveBipPath = () => {
@@ -127,7 +189,8 @@ export const ConnectWalletModal: React.FC = () => {
         }
         await connectWallet("readonly", resolution.address);
       } else if (type === "ledger") {
-        await connectWallet("ledger", undefined, getActiveBipPath());
+        const bipPath = getActiveBipPath();
+        await connectWallet("ledger", undefined, bipPath);
       } else {
         await connectWallet(type);
       }
@@ -161,7 +224,7 @@ export const ConnectWalletModal: React.FC = () => {
     {
       id: "passkey" as WalletType,
       name: "Continue with Passkey",
-      badge: "FaceID / Fingerprint",
+      badge: "FaceID/ Fingerprint",
       badgeColor: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/20",
       description:
         "Zero-install smart wallet. Sign instantly using Apple FaceID, TouchID, or Android biometrics with sponsored platform gas.",
@@ -193,7 +256,7 @@ export const ConnectWalletModal: React.FC = () => {
         "Official Stellar Development Foundation wallet extension for Chrome, Brave, & Firefox.",
       icon: Shield,
       accent: "from-purple-500 to-indigo-600",
-      borderHover: "hover:border-purple-500/50 hover:bg-purple-50/50 dark:hover:bg-purple-950/20",
+      borderHover: "hover:border-purple-500/55 hover:bg-purple-50/50 dark:hover:bg-purple-950/20",
     },
     {
       id: "albedo" as WalletType,
@@ -237,7 +300,7 @@ export const ConnectWalletModal: React.FC = () => {
         "Scan QR code with MetaMask, TrustWallet, LOBSTR, or any WalletConnect mobile app.",
       icon: QrCode,
       accent: "from-indigo-600 to-blue-600",
-      borderHover: "hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
+      borderHover: "hover:border-indigo-500/55 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
     },
   ];
 
@@ -278,22 +341,18 @@ export const ConnectWalletModal: React.FC = () => {
                 <div className="flex items-center space-x-2">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
                   <span className="text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                    Stellar Network • Soroban Smart Accounts
+                    Stellar Network — Soroban Smart Accounts
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight mt-1">
                   {showQrView ? "Scan WalletConnect QR" : "Connect Stellar Wallet"}
                 </h2>
-                <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  {showQrView
-                    ? "Scan this code with any WalletConnect compatible mobile app."
-                    : "Select your preferred hardware, biometric passkey, or extension wallet."}
-                </p>
               </div>
             </div>
             <button
+              type="button"
               onClick={handleClose}
-              aria-label="Close modal"
+              aria-label="Close wallet modal"
               className="p-2 rounded-xl text-zinc-400 hover:text-zinc-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -456,178 +515,284 @@ export const ConnectWalletModal: React.FC = () => {
                 </button>
               </div>
             </div>
-          ) : (
-            /* VIEW 2: Standard Wallet List */
-            <div className="p-6 space-y-3 max-h-[60vh] overflow-y-auto">
-              {walletOptions.map((wallet) => {
-                const Icon = wallet.icon;
-                const isBusy = connectingType === wallet.id;
-
-                return (
-                  <div key={wallet.id} className="space-y-2">
-                    <button
-                      disabled={connectingType !== null}
-                      onClick={() => handleSelectWallet(wallet.id)}
-                      className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
-                        isBusy ? "opacity-70 pointer-events-none" : ""
-                      }`}
-                    >
-                      <div
-                        className={`w-11 h-11 rounded-2xl bg-gradient-to-br ${wallet.accent} flex items-center justify-center text-white shadow-md shrink-0 group-hover:scale-105 transition-transform`}
-                      >
-                        {isBusy ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <Icon className="w-5 h-5" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm sm:text-base text-zinc-900 dark:text-white truncate">
-                            {wallet.name}
-                          </span>
-                          <span
-                            className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${wallet.badgeColor}`}
-                          >
-                            {wallet.badge}
-                          </span>
-                        </div>
-                        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 line-clamp-2 leading-relaxed">
-                          {wallet.description}
-                        </p>
-                      </div>
-                      <ArrowRight className="w-4 h-4 text-zinc-400 group-hover:text-zinc-900 dark:group-hover:text-white group-hover:translate-x-1 transition-all shrink-0" />
-                    </button>
-
-                    {/* Ledger Derivation Path Customizer Accordion */}
-                    {wallet.id === "ledger" && (
-                      <div className="px-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowLedgerSettings(!showLedgerSettings)}
-                          className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 flex items-center space-x-1 transition-colors"
-                        >
-                          <span>Derivation Path: {getActiveBipPath()}</span>
-                          <ChevronDown
-                            className={`w-3.5 h-3.5 transition-transform ${showLedgerSettings ? "rotate-180" : ""}`}
-                          />
-                        </button>
-
-                        {showLedgerSettings && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            className="mt-2 p-3.5 bg-slate-100/70 dark:bg-zinc-800/60 rounded-xl border border-slate-200 dark:border-zinc-700/60 space-y-2 text-xs"
-                          >
-                            <div className="font-bold text-zinc-800 dark:text-zinc-200">
-                              BIP-44 Derivation Path Selection
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              {[0, 1, 2].map((idx) => (
-                                <button
-                                  key={idx}
-                                  type="button"
-                                  onClick={() => {
-                                    setLedgerAccountIndex(idx);
-                                    setUseCustomPath(false);
-                                  }}
-                                  className={`px-2.5 py-1 rounded-lg font-mono text-[11px] font-bold transition-colors ${
-                                    !useCustomPath && ledgerAccountIndex === idx
-                                      ? "bg-emerald-600 text-white"
-                                      : "bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700"
-                                  }`}
-                                >
-                                  Account #{idx} (m/44'/148'/{idx}')
-                                </button>
-                              ))}
-                            </div>
-
-                            <div className="pt-1">
-                              <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">
-                                Or Custom BIP-44 Path
-                              </label>
-                              <input
-                                type="text"
-                                value={customBipPath}
-                                onChange={(e) => {
-                                  setCustomBipPath(e.target.value);
-                                  setUseCustomPath(true);
-                                }}
-                                placeholder="m/44'/148'/0'"
-                                className="w-full px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs font-mono text-zinc-900 dark:text-white"
-                              />
-                            </div>
-                          </motion.div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* Read-Only Stellar Address Option */}
-              <div className="pt-2">
-                {!showReadOnlyInput ? (
-                  <button
-                    onClick={() => setShowReadOnlyInput(true)}
-                    className="w-full py-2.5 px-3 rounded-xl border border-dashed border-slate-300 dark:border-zinc-700 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:border-zinc-400 dark:hover:border-zinc-600 flex items-center justify-center space-x-2 transition-colors"
-                  >
-                    <Key className="w-3.5 h-3.5 text-zinc-400" />
-                    <span>Or enter Stellar Public Key (Read-Only Watch Mode)</span>
-                  </button>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    className="p-4 bg-slate-50 dark:bg-zinc-800/50 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-2.5"
-                  >
-                    <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                      Stellar Public Key (G...) or Federation Address
-                    </label>
-                    <FederatedAddressInput
-                      value={customKey}
-                      onChange={setCustomKey}
-                      placeholder="GXXXX... or alice*stormsale.io"
-                      inputClassName="h-auto px-3 py-2 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl text-xs"
-                    />
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => setShowReadOnlyInput(false)}
-                        className="px-3 py-1.5 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => handleSelectWallet("readonly")}
-                        className="px-4 py-1.5 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-xs font-bold rounded-xl"
-                      >
-                        Connect Watch Key
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </div>
-            </div>
           )}
 
-          {/* Footer Note */}
-          <div className="p-4 bg-slate-50 dark:bg-zinc-950/60 border-t border-slate-100 dark:border-zinc-800/80 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
-            <span className="flex items-center">
-              <Shield className="w-3.5 h-3.5 mr-1.5 text-indigo-500" />
-              Non-custodial, WebHID & WebAuthn P-256
-            </span>
-            <a
-              href="https://stellar.org/soroban"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center font-medium transition-colors"
+          {/* Body */}
+          <div className="p-6 space-y-3 max-h-[70vh] overflow-y-auto">
+            {showQrView ? (
+              <div className="flex flex-col items-center space-y-4">
+                {isGeneratingQr ? (
+                  <div className="flex flex-col items-center space-y-3 py-12">
+                    <Loader2 className="h-8 w-8 animate-spin text-indigo-500" />
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      Generating secure pairing code…
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {qrDataUrl && (
+                      <img
+                        src={qrDataUrl}
+                        alt="WalletConnect pairing QR code"
+                        className="h-64 w-64 rounded-xl border border-slate-200 dark:border-zinc-700"
+                      />
+                    )}
+                    <div className="w-full space-y-2">
+                      <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+                        Open your WalletConnect-compatible app and scan this code.
+                      </p>
+                      <div className="flex items-center gap-2 rounded-xl border border-slate-200 dark:border-zinc-700 p-2">
+                        <code className="flex-1 truncate text-xs text-zinc-600 dark:text-zinc-300">
+                          {wcUri}
+                        </code>
+                        <CopyButton value={wcUri} />
+                      </div>
+                    </div>
+                    <div className="flex w-full gap-2">
+                      <button
+                        type="button"
+                        onClick={generateWalletConnectUri}
+                        className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 dark:border-zinc-700 py-2.5 text-sm font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        Refresh
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCompleteWalletConnect}
+                        disabled={connectingType === "walletconnect"}
+                        className="flex-1 inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+                      >
+                        {connectingType === "walletconnect" ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4" />
+                        )}
+                        I Connected
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {walletOptions.map((option) => {
+                  const Icon = option.icon;
+                  const isActive = connectingType === option.id;
+                  return (
+                    <div key={String(option.id)}>
+                      <button
+                        type="button"
+                        onClick={() => handleSelectWallet(option.id)}
+                        disabled={connectingType !== null}
+                        className={`w-full text-left rounded-2xl border p-4 transition-all ${option.borderHover} disabled:opacity-60`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`flex h-10 w-10 shrink-0 aitems-center justify-center rounded-xl bg-gradient-to-br ${option.accent} text-white`}
+                          >
+                            {isActive ? (
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                            ) : (
+                              <Icon className="h-5 w-5" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center flex-wrap gap-2">
+                              <span className="text-sm font-bold text-zinc-900 dark:text-white">
+                                {option.name}
+                              </span>
+                              <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${option.badgeColor}`}>
+                                {option.badge}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                              {option.description}
+                            </p>
+                          </div>
+                          {option.hasSettings && (
+                            <button
+                              type="button"
+                              onClick={(e: React.MouseEvent) => {
+                                e.stopPropagation();
+                                setShowLedgerSettings((prev) => !prev);
+                              }}
+                              aria-label="Toggle Ledger advanced settings"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-white"
+                            >
+                              <ChevronDown
+                                className={`transition-transform ${showLedgerSettings ? "rotate-180" : ""}`}
+                              />
+                            </button>
+                          )}
+                        </div>
+                      </button>
+
+                      {option.id === "ledger" && showLedgerSettings && (
+                        <div className="mt-2 rounded-xl border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-850/50 p-3 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">
+                              Account Index
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setLedgerAccountIndex((prev) => Math.max(0, prev - 1))}
+                                className="h-7 w-7 rounded-lg border border-slate-200 dark:border-zinc-700 text-sm font-bold text-zinc-700 dark:text-zinc-200"
+                              >
+                                −
+                              </button>
+                              <span className="w-8 text-center text-sm font-mono text-zinc-900 dark:text-white">
+                                {ledgerAccountIndex}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setLedgerAccountIndex((prev) => prev + 1)}
+                                className="h-7 w-7 rounded-lg border border-slate-200 dark:border-zinc-700 text-sm font-bold text-zinc-700 dark:text-zinc-200"
+                              >
+                                +
+
+                              </button>
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                            <input
+                              type="checkbox"
+                              checked={useCustomPath}
+                              onChange={(e) => setUseCustomPath(e.target.checked)}
+                            />
+                            Use custom BIP 44' path
+                          </label>
+                          {useCustomPath && (
+                            <input
+                              type="text"
+                              value={customBipPath}
+                              onChange={(e) => setCustomBipPath(e.target.value)}
+                              className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-2 text-xs font-mono text-zinc-900 dark:text-white"
+                            />
+                          )}
+                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                            Active path: <span className="font-mono">{getActiveBipPath()}</span>
+                          </p>
+                        </div>
+                      )}
+
+                      {option.id === "readonly" && showReadOnlyInput && (
+                        <div className="mt-2 space-y-2">
+                          <input
+                            type="text"
+                            value={customKey}
+                            onChange={(e) => setCustomKey(e.target.value)}
+                            placeholder="G... 56-character public key"
+                            className="w-full rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-3 text-sm font-mono text-zinc-900 dark:text-white"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Soroban Resource Diagnostic */}
+          <div className="border-t border-slate-100 dark:border-zinc-800/80 p-4">
+            <button
+              type="button"
+              onClick={() => setShowResourceDiagnostic((prev) => !prev)}
+              className="flex w-full items-center justify-between text-xs font-semibold text-zinc-500 dark:text-zinc-400"
             >
-              Powered by Soroban
-              <ExternalLink className="w-3 h-3 ml-1" />
-            </a>
+              <span className="inline-flex items-center gap-2">
+                <Cpu className="h-4 w_4" />
+                Soroban Resource Profiler
+              </span>
+              <ChevronDown
+                className={`transition-transform ${showResourceDiagnostic ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {showResourceDiagnostic && (
+              <div className="mt-3 space-y-3">
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={devModeEnabled}
+                    onChange={(e) => setDevModeEnabled(e.target.checked)}
+                  />
+                  Enable dev mode resource simulation
+                </label>
+
+                {devModeEnabled && (
+                  <div className="space-y-2">
+                    {resourceDiagnostic ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="rounded-lg border border-slate-200 dark:border-zinc-700 p-2">
+                            <div className="text-zinc-500 dark:text-zinc-400">Min Resource Fee</div>
+                            <div className="font-mono font-semibold text-zinc-900 dark:text-white">
+                              {resourceDiagnostic.minResourceFee}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 dark:border-zinc-700 p-2">
+                            <div className="text-zinc-500 dark:text-zinc-400">CPU Instructions</div>
+                            <div className="font-mono font-semibold text-zinc-900 dark:text-white">
+                              {resourceDiagnostic.cpuInstructions.toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 dark:border-zinc-700 p-2">
+                            <div className="text-zinc-500 dark:text-zinc-400">Memory Bytes</div>
+                            <div className="font-mono font-semibold text-zinc-900 dark:text-white">
+                              {resourceDiagnostic.memoryBytes.toLocaleString()}
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-slate-200 dark:border-zinc-700 p-2">
+                            <div className="text-zinc-500 dark:text-zinc-400">Ledger Read / Write</div>
+                            <div className="font-mono font-semibold text-zinc-900 dark:text-white">
+                              {resourceDiagnostic.ledgerReadBytes.toLocaleString()} /
+                              {resourceDiagnostic.ledgerWriteBytes.toLocaleString()}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                            <span>CPU budget usage</span>
+                            <span>{Math.round(resourceDiagnostic.ratio * 100)}%</span>
+                          </div>
+                          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
+                            <div
+                              className={`h-full rounded-full ${resourceDiagnostic.ratio > 1 ? "bg-red-500" : resourceDiagnostic.ratio > 0.8 ? "bg-amber-500" : "bg-emerald-500"}`}
+                              style={{ width: `${Math.min(100, Math.round(resourceDiagnostic.ratio * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                        {resourceDiagnostic.warnings.length > 0 && (
+                          <ul className="space-y-1">
+                            {resourceDiagnostic.warnings.map((warning) => (
+                              <li
+                                key={warning}
+                                className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400"
+                              >
+                                <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                                {warning}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </>
+                    ) : (
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        No simulation data yet. Run a contract simulation to profile gas and Soroban resource budgets.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </motion.div>
       </div>
     </AnimatePresence>
   );
 };
+
+export default ConnectWalletModal;
