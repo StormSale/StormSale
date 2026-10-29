@@ -37,10 +37,23 @@ import {
   Globe,
   TriangleAlert,
   Wallet,
+  Layers,
+  Plus,
+  Trash2,
+  TrendingUp,
+  Award,
+  Sliders,
 } from "lucide-react";
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+import {
+  type CommissionTier,
+  DEFAULT_COMMISSION_TIERS,
+  validateCommissionTiers,
+  resolveTierForSales,
+  mapTiersToScValVec,
+} from "../../lib/commissionTiers";
 
 const STROOPS_PER_XLM_DIGITS = 7;
 
@@ -77,6 +90,7 @@ export type FlowStep =
 
 export const CreateCampaignForm = () => {
   const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
+  const [commissionType, setCommissionType] = useState<"flat" | "tiered">("flat");
   const [commissionRate, setCommissionRate] = useState("");
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
@@ -84,6 +98,9 @@ export const CreateCampaignForm = () => {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [flowStep, setFlowStep] = useState<FlowStep>("idle");
   const [isRefreshingAllowance, setIsRefreshingAllowance] = useState(false);
+  // Multi-Level Commission Tiers
+  const [tiers, setTiers] = useState<CommissionTier[]>(DEFAULT_COMMISSION_TIERS);
+  const [simulatedSales, setSimulatedSales] = useState<number>(100);
   // Private campaigns require affiliates to apply and be approved before they
   // can generate tracking links or be credited with sales.
   const [isPrivate, setIsPrivate] = useState(false);
@@ -265,6 +282,103 @@ export const CreateCampaignForm = () => {
     }
   };
 
+  // Tier updates
+  const handleUpdateTier = (id: string, field: keyof CommissionTier, value: string | number) => {
+    setTiers((prev) => prev.map((tier) => (tier.id === id ? { ...tier, [field]: value } : tier)));
+  };
+
+  const handleAddTier = () => {
+    const highestTier = tiers.reduce(
+      (max, t) => (t.minSales > max.minSales ? t : max),
+      tiers[0] || { minSales: 0, commissionRate: 10 },
+    );
+    const newMinSales = highestTier.minSales + 50;
+    const newRate = Math.min(50, highestTier.commissionRate + 5);
+
+    const newTier: CommissionTier = {
+      id: `tier-${Date.now()}`,
+      name: `Tier ${tiers.length + 1}`,
+      minSales: newMinSales,
+      commissionRate: newRate,
+      description: `Unlocked at >${newMinSales} sales`,
+    };
+
+    setTiers((prev) => [...prev, newTier]);
+  };
+
+  const handleRemoveTier = (id: string) => {
+    if (tiers.length <= 1) {
+      showNotification({
+        type: "warning",
+        title: "Tier Limit",
+        message: "You must maintain at least one commission tier.",
+      });
+      return;
+    }
+    setTiers((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const handleApplyPreset = (preset: "standard" | "aggressive" | "highTicket") => {
+    if (preset === "standard") {
+      setTiers(DEFAULT_COMMISSION_TIERS);
+    } else if (preset === "aggressive") {
+      setTiers([
+        {
+          id: "tier-1",
+          name: "Starter Tier",
+          minSales: 0,
+          commissionRate: 8,
+          description: "Starter commission",
+        },
+        {
+          id: "tier-2",
+          name: "Rising Star",
+          minSales: 25,
+          commissionRate: 14,
+          description: "Rapid growth tier",
+        },
+        {
+          id: "tier-3",
+          name: "Power Affiliate",
+          minSales: 100,
+          commissionRate: 22,
+          description: "High volume (>100 sales)",
+        },
+      ]);
+    } else {
+      setTiers([
+        {
+          id: "tier-1",
+          name: "Standard Volume",
+          minSales: 0,
+          commissionRate: 5,
+          description: "Standard ticket rate",
+        },
+        {
+          id: "tier-2",
+          name: "Pro Marketer",
+          minSales: 20,
+          commissionRate: 10,
+          description: "20+ high-ticket units",
+        },
+        {
+          id: "tier-3",
+          name: "VIP Partner",
+          minSales: 50,
+          commissionRate: 15,
+          description: "VIP volume (>50 sales)",
+        },
+      ]);
+    }
+  };
+
+  const validationResult = validateCommissionTiers(tiers);
+  const simulationResult = resolveTierForSales(
+    simulatedSales,
+    tiers,
+    parseFloat(commissionRate) || 10,
+  );
+
   // Sequential Two-Step Execution: "Step 1: Approve" -> "Step 2: Create Escrow"
   const handleSequentialApproveAndCreate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -279,9 +393,28 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    if (commissionType === "tiered") {
+      const tierCheck = validateCommissionTiers(tiers);
+      if (!tierCheck.valid) {
+        showNotification({
+          type: "error",
+          title: "Invalid Commission Tiers",
+          message: tierCheck.error || "Please check your tier configuration.",
+        });
+        return;
+      }
+    }
+
+    const effectiveCommissionRate =
+      commissionType === "tiered"
+        ? String(
+            tiers.find((t) => t.minSales === 0)?.commissionRate || tiers[0]?.commissionRate || 10,
+          )
+        : commissionRate;
+
     const result = getCreateCampaignSchema(maxDecimals).safeParse({
       campaignName,
-      commissionRate,
+      commissionRate: effectiveCommissionRate,
       budget,
       clearingPeriod,
     });
@@ -365,6 +498,10 @@ export const CreateCampaignForm = () => {
         message: `Locking ${budgetNum} ${selectedAsset} budget and creating campaign on Stellar...`,
       });
 
+      if (commissionType === "tiered") {
+        mapTiersToScValVec(tiers);
+      }
+
       const campaignResult = await createCampaignOnChain(
         result.data.campaignName,
         budgetNum,
@@ -438,6 +575,10 @@ export const CreateCampaignForm = () => {
     { label: "7 Days", value: "604800" },
     { label: "30 Days", value: "2592000" },
   ];
+
+  const sortedTiers = [...tiers].sort((a, b) => a.minSales - b.minSales);
+  const minTierRate = sortedTiers[0]?.commissionRate ?? 10;
+  const maxTierRate = sortedTiers[sortedTiers.length - 1]?.commissionRate ?? 10;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -604,38 +745,308 @@ export const CreateCampaignForm = () => {
                 </div>
               </InputField>
 
-              <div className="grid md:grid-cols-2 gap-6">
-                <InputField
-                  label={
-                    <span className="inline-flex items-center gap-1.5">
-                      Commission Rate
-                      <TerminologyTooltip term="commission_rate" iconOnly />
+              {/* Commission Structure Mode Selector */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-semibold text-zinc-900 dark:text-white flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Commission Structure Mode
+                  </label>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Reward affiliates based on sales milestones
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-1.5 bg-slate-100 dark:bg-zinc-950 rounded-2xl border border-slate-200 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setCommissionType("tiered")}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
+                      commissionType === "tiered"
+                        ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-slate-200/50 dark:border-zinc-700"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                    }`}
+                  >
+                    <Award className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    Tiered Performance Rates
+                    <span className="ml-1 text-[10px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-semibold px-2 py-0.5 rounded-full">
+                      Recommended
                     </span>
-                  }
-                  description="Percentage commission for affiliates (1–50%)"
-                  error={errors.commissionRate}
-                  required
-                >
-                  <div className="relative">
-                    <Input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={commissionRate}
-                      onChange={(e) => {
-                        setCommissionRate(e.target.value);
-                        if (errors.commissionRate)
-                          setErrors((prev) => ({ ...prev, commissionRate: "" }));
-                      }}
-                      placeholder="e.g., 15 for 15%"
-                      variant={errors.commissionRate ? "error" : "default"}
-                      className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                    />
-                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
-                      %
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCommissionType("flat")}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold transition-all ${
+                      commissionType === "flat"
+                        ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm border border-slate-200/50 dark:border-zinc-700"
+                        : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                    }`}
+                  >
+                    <Target className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                    Flat Commission Rate
+                  </button>
+                </div>
+              </div>
+
+              {/* Tier Configuration Section */}
+              {commissionType === "tiered" && (
+                <div className="space-y-6 p-6 rounded-3xl bg-slate-50/80 dark:bg-zinc-950/60 border border-slate-200 dark:border-zinc-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-bold text-zinc-900 dark:text-white flex items-center gap-2">
+                        <TrendingUp className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                        Affiliate Performance Tiers
+                      </h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                        Define milestone thresholds (e.g. &gt;100 sales) and tiered commission
+                        percentages
+                      </p>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-zinc-400 font-medium">Presets:</span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleApplyPreset("standard")}
+                        className="h-8 text-xs rounded-lg border-slate-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800"
+                      >
+                        Standard 4-Tier
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleApplyPreset("aggressive")}
+                        className="h-8 text-xs rounded-lg border-slate-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800"
+                      >
+                        Aggressive Scale
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleApplyPreset("highTicket")}
+                        className="h-8 text-xs rounded-lg border-slate-200 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800"
+                      >
+                        High-Ticket
+                      </Button>
                     </div>
                   </div>
-                </InputField>
+
+                  {/* Tiers List */}
+                  <div className="space-y-3">
+                    {tiers.map((tier, index) => {
+                      const isBaseTier = tier.minSales === 0;
+                      return (
+                        <div
+                          key={tier.id}
+                          className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-sm transition-all hover:border-indigo-200 dark:hover:border-indigo-900/40"
+                        >
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                            <div className="md:col-span-4 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 text-xs font-black">
+                                  {index + 1}
+                                </span>
+                                <Input
+                                  value={tier.name}
+                                  onChange={(e) =>
+                                    handleUpdateTier(tier.id, "name", e.target.value)
+                                  }
+                                  placeholder="Tier Name"
+                                  className="h-10 text-sm font-semibold border-slate-200 dark:border-zinc-800 rounded-lg"
+                                  required
+                                />
+                              </div>
+                            </div>
+
+                            <div className="md:col-span-4 space-y-1">
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={tier.minSales}
+                                  onChange={(e) =>
+                                    handleUpdateTier(
+                                      tier.id,
+                                      "minSales",
+                                      parseInt(e.target.value) || 0,
+                                    )
+                                  }
+                                  placeholder="0"
+                                  disabled={isBaseTier && index === 0}
+                                  className="h-10 pr-20 border-slate-200 dark:border-zinc-800 rounded-lg font-medium text-sm"
+                                  required
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-zinc-400 pointer-events-none">
+                                  {tier.minSales === 0 ? "0 (Base)" : `>${tier.minSales} sales`}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="md:col-span-3 space-y-1">
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  min="1"
+                                  max="50"
+                                  value={tier.commissionRate}
+                                  onChange={(e) =>
+                                    handleUpdateTier(
+                                      tier.id,
+                                      "commissionRate",
+                                      parseFloat(e.target.value) || 1,
+                                    )
+                                  }
+                                  placeholder="15"
+                                  className="h-10 pr-8 border-slate-200 dark:border-zinc-800 rounded-lg font-medium text-sm"
+                                  required
+                                />
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-zinc-400">
+                                  %
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="md:col-span-1 flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveTier(tier.id)}
+                                disabled={tiers.length <= 1 || (isBaseTier && index === 0)}
+                                className="h-10 w-10 p-0 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg disabled:opacity-30"
+                                title={isBaseTier ? "Base tier cannot be removed" : "Remove tier"}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add Tier Action */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAddTier}
+                      className="w-full sm:w-auto h-11 border-dashed border-2 border-slate-300 dark:border-zinc-700 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-xl font-semibold text-sm flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      Add Performance Tier
+                    </Button>
+
+                    {!validationResult.valid && (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        <span>{validationResult.error}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Interactive Performance Simulator */}
+                  <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/40 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs font-bold text-indigo-900 dark:text-indigo-200">
+                        <Sliders className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                        Affiliate Performance Simulator
+                      </div>
+                      <span className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold">
+                        Simulating {simulatedSales} Sales
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                      <input
+                        type="range"
+                        min="0"
+                        max="300"
+                        step="5"
+                        aria-label="Simulated sales slider"
+                        value={simulatedSales}
+                        onChange={(e) => setSimulatedSales(parseInt(e.target.value) || 0)}
+                        className="flex-1 h-2 bg-indigo-200 dark:bg-indigo-900/60 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                      />
+                      <Input
+                        type="number"
+                        min="0"
+                        max="1000"
+                        aria-label="Simulated sales count"
+                        value={simulatedSales}
+                        onChange={(e) =>
+                          setSimulatedSales(Math.max(0, parseInt(e.target.value) || 0))
+                        }
+                        className="w-20 h-9 text-xs font-bold text-center border-indigo-200 dark:border-indigo-800 rounded-lg bg-white dark:bg-zinc-900"
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs pt-1 border-t border-indigo-100/60 dark:border-indigo-900/40 gap-2">
+                      <div className="flex items-center gap-2 text-zinc-700 dark:text-zinc-300">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span>
+                          Active Tier:{" "}
+                          <strong className="text-indigo-600 dark:text-indigo-400 font-bold">
+                            {simulationResult.tier?.name || "Base Tier"}
+                          </strong>{" "}
+                          ({simulationResult.commissionRate}% Commission)
+                        </span>
+                      </div>
+
+                      {simulationResult.nextTier && (
+                        <div className="text-zinc-500 dark:text-zinc-400">
+                          {simulationResult.salesToNextTier} more sales to reach{" "}
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+                            {simulationResult.nextTier.name} (
+                            {simulationResult.nextTier.commissionRate}%)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid md:grid-cols-2 gap-6">
+                {commissionType === "flat" && (
+                  <InputField
+                    label={
+                      <span className="inline-flex items-center gap-1.5">
+                        Commission Rate
+                        <TerminologyTooltip term="commission_rate" iconOnly />
+                      </span>
+                    }
+                    description="Percentage commission for affiliates (1–50%)"
+                    error={errors.commissionRate}
+                    required
+                  >
+                    <div className="relative">
+                      <Input
+                        type="number"
+                        min="1"
+                        max="50"
+                        value={commissionRate}
+                        onChange={(e) => {
+                          setCommissionRate(e.target.value);
+                          if (errors.commissionRate)
+                            setErrors((prev) => ({ ...prev, commissionRate: "" }));
+                        }}
+                        placeholder="e.g., 15 for 15%"
+                        variant={errors.commissionRate ? "error" : "default"}
+                        className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
+                      />
+                      <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
+                        %
+                      </div>
+                    </div>
+                  </InputField>
+                )}
 
                 <InputField
                   label={
@@ -1064,23 +1475,25 @@ export const CreateCampaignForm = () => {
               </div>
 
               {/* Summary Card */}
-              <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50">
-                <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs mb-4">
+              <div className="bg-slate-50 dark:bg-zinc-950/50 p-6 rounded-2xl border border-slate-100 dark:border-zinc-800/50 space-y-4">
+                <h4 className="font-bold text-zinc-900 dark:text-white uppercase tracking-wider text-xs">
                   Campaign Summary
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
                   <div className="space-y-2">
                     <div className="flex items-center text-zinc-500 dark:text-zinc-400 font-medium">
-                      <Target className="w-4 h-4 mr-2" />
-                      Commission Rate
+                      <Target className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
+                      Commission Structure
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
-                      {commissionRate || "0"}%
+                      {commissionType === "tiered"
+                        ? `${minTierRate}% - ${maxTierRate}% (${sortedTiers.length} Tiers)`
+                        : `${commissionRate || "0"}% Flat`}
                     </div>
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center text-zinc-500 dark:text-zinc-400 font-medium">
-                      <Clock className="w-4 h-4 mr-2" />
+                      <Clock className="w-4 h-4 mr-2 text-indigo-600 dark:text-indigo-400" />
                       Clearing Period
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
@@ -1097,6 +1510,27 @@ export const CreateCampaignForm = () => {
                     </div>
                   </div>
                 </div>
+
+                {commissionType === "tiered" && (
+                  <div className="pt-3 border-t border-slate-200/60 dark:border-zinc-800/60 flex items-center gap-2 flex-wrap text-xs">
+                    <span className="text-zinc-400 font-semibold">Tier Ladder:</span>
+                    {sortedTiers.map((t) => (
+                      <span
+                        key={t.id}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium"
+                      >
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                          {t.name}:
+                        </span>
+                        <span>{t.minSales === 0 ? "Base" : `>${t.minSales} sales`}</span>
+                        <span className="text-zinc-400">→</span>
+                        <strong className="text-zinc-900 dark:text-white">
+                          {t.commissionRate}%
+                        </strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* ACTION BUTTONS: Sequential 1-Click vs Step-by-Step */}
