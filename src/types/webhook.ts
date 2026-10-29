@@ -6,7 +6,9 @@ export type WebhookEventType =
   | "campaign.funded"
   | "commission.escrowed"
   | "payout.claimed"
-  | "ping.test";
+  | "ping.test"
+  | "gtm.purchase"
+  | "gtm.custom_event";
 
 export type DeliveryStatus = "queued" | "delivering" | "delivered" | "retrying" | "failed";
 

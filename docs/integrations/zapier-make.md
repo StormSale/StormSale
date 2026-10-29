@@ -146,6 +146,10 @@ The test-only field is not included in live event payloads.
   page scripts. Use this only with trusted development destinations. Production
   secrets should be stored and used only by a server-side delivery service.
 
+## Google Tag Manager (GTM) Community Template
+
+For conversion tracking without editing store source code, a GTM Community Template is planned for the `dev` branch. The template is intended to define input fields for Campaign ID, Order Value Variable, and Currency, and to fire on standard GTM "Purchase" and "Custom Event" triggers while passing GTM sandbox permission checks. Pull requests implementing this integration must target the `dev` branch, not `main`.
+
 ## Zapier template
 
 [`zapier-conversion-to-slack.json`](./zapier-conversion-to-slack.json) provides a
