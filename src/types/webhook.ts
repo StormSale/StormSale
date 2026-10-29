@@ -6,11 +6,15 @@ export type WebhookEventType =
   | "campaign.funded"
   | "commission.escrowed"
   | "payout.claimed"
-  | "ping.test";
+  | "ping.test"
+  | "escrow.low_balance"
+  | "conversion.high_value";
 
 export type DeliveryStatus = "queued" | "delivering" | "delivered" | "retrying" | "failed";
 
 export type SimulationMode = "live" | "mock_200" | "mock_500" | "mock_503" | "mock_flaky";
+
+export type WebhookChannelType = "generic" | "slack";
 
 export interface WebhookEndpoint {
   id: string;
@@ -26,6 +30,9 @@ export interface WebhookEndpoint {
   totalDeliveries: number;
   lastDeliveryStatus?: "delivered" | "retrying" | "failed";
   lastDeliveryAt?: string;
+  channelType?: WebhookChannelType;
+  rateLimitPerMinute?: number;
+  lowBalanceThresholdPercent?: number;
 }
 
 export interface WebhookDeliveryAttempt {
@@ -68,6 +75,48 @@ export interface ConversionPayloadData {
   ledgerTimestamp: string;
   customerRef?: string;
   status: "CONFIRMED_ON_LEDGER";
+}
+
+export interface EscrowLowBalancePayloadData {
+  campaignAddress: string;
+  advertiserAddress: string;
+  currency: string;
+  remainingBalance: string | number;
+  initialBudget: string | number;
+  remainingPercent: number;
+  thresholdPercent: number;
+  campaignUrl: string;
+  topUpUrl: string;
+}
+
+export interface SlackBlockKitAction {
+  type: "button";
+  text: { type: "plain_text"; text: string; emoji?: boolean };
+  url: string;
+  action_id: string;
+}
+
+export interface SlackBlockKitBlock {
+  type: "header" | "section" | "actions" | "context" | "divider";
+  text?: { type: "plain_text" | "mrkdwn"; text: string; emoji?: boolean };
+  fields?: { type: "mrkdwn"; text: string }[];
+  elements?: SlackBlockKitAction[];
+}
+
+export interface SlackWebhookMessage {
+  text: string;
+  blocks: SlackBlockKitBlock[];
+}
+
+export interface WebhookNotificationLog {
+  id: string;
+  webhookId: string;
+  event: WebhookEventType;
+  message: string;
+  sentAt: string;
+  status: "sent" | "rate_limited" | "failed";
+  httpStatusCode?: number;
+  error?: string;
 }
 
 export interface WebhookSignatureVerificationResult {
