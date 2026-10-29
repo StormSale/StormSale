@@ -21,7 +21,11 @@ const REQUIRED_SECURITY_HEADERS = [
     value: "max-age=63072000; includeSubDomains; preload",
   },
   { key: "X-Frame-Options", value: "DENY" },
-  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+  {
+    key: "Content-Security-Policy",
+    value:
+      "default-src 'self'; script-src 'self' https://telegram.org; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org https://testnet.stellar.blockdaemon.com https://mainnet.stellar.blockdaemon.com https://stellar-testnet.publicnode.com https://stellar.publicnode.com https://horizon.testnet.stellar.blockdaemon.com https://horizon.blockdaemon.com https://public.chainalysis.com https://api.crm.stormsale-demo.org https://billing-webhook.stormsale-demo.org; object-src 'none'; base-uri 'self'; form-action 'self'; frame-src 'none'; frame-ancestors 'none'",
+  },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
   { key: "X-XSS-Protection", value: "0" },
