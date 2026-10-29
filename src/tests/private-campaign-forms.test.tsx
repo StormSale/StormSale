@@ -18,7 +18,10 @@ const web3 = vi.hoisted(() => ({
   approveTokenAllowance: vi.fn(),
   getCampaignContract: vi.fn(),
   tokenAllowance: 0,
-  assetBalances: { XLM: "100.00", USDC: "50.00", EURC: "0.00" },
+  // Native balance must clear the 100 XLM budget plus the minimum reserve for
+  // the reserve-aware submit guard to allow the campaign.
+  xlmBalance: "500.00",
+  assetBalances: { XLM: "500.00", USDC: "50.00", EURC: "0.00" },
 }));
 const notify = vi.hoisted(() => vi.fn());
 const crypto = vi.hoisted(() => ({
@@ -75,6 +78,31 @@ vi.mock("../lib/stellar", () => ({
       error: "Enter a valid G... public key or name*domain.com federation address.",
     };
   }),
+  // useAccountReserve needs the reserve math; Horizon is unavailable here, so
+  // the hook falls back to the wallet balance exposed by the mocked context.
+  calculateReserveBreakdown: (balanceXlm: number | string, subentries: number) => {
+    const parsed = typeof balanceXlm === "number" ? balanceXlm : parseFloat(balanceXlm);
+    const balance = Number.isFinite(parsed) ? parsed : 0;
+    const baseReserveXlm = 0.5;
+    const reserveXlm = (2 + Math.max(0, subentries)) * baseReserveXlm;
+    return {
+      balanceXlm: balance,
+      subentries,
+      baseReserveXlm,
+      reserveXlm,
+      spendableXlm: Math.max(0, balance - reserveXlm),
+      numSponsoring: 0,
+      numSponsored: 0,
+    };
+  },
+  fetchStellarAccountDetails: vi.fn(async () => ({
+    exists: false,
+    balanceXlm: 0,
+    subentries: 0,
+    trustlineCount: 0,
+    numSponsoring: 0,
+    numSponsored: 0,
+  })),
 }));
 vi.mock("../lib/crypto", () => crypto);
 vi.mock("../lib/webhookEngine", () => webhooks);
@@ -128,13 +156,21 @@ function fillCampaign({ budget = "100" } = {}) {
   fireEvent.click(screen.getByRole("button", { name: "24 Hours" }));
 }
 
-const submitCampaign = () =>
+// The reserve-aware submit guard waits for the account reserve lookup to settle,
+// which the Max control signals by becoming enabled.
+const submitCampaign = async () => {
+  if (web3.isConnected) {
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Max" }).hasAttribute("disabled")).toBe(false),
+    );
+  }
   fireEvent.submit(screen.getByPlaceholderText("e.g., Summer Sale 2024").closest("form")!);
+};
 
 describe("CreateCampaignForm", () => {
   it("reports validation errors without touching the chain", async () => {
     render(<CreateCampaignForm />);
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Validation Error"));
     expect(web3.createCampaignOnChain).not.toHaveBeenCalled();
   });
@@ -143,7 +179,7 @@ describe("CreateCampaignForm", () => {
     Object.assign(web3, { isConnected: false, userAddress: null });
     render(<CreateCampaignForm />);
     fillCampaign();
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Wallet Not Connected"));
   });
 
@@ -154,7 +190,7 @@ describe("CreateCampaignForm", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("true");
 
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Private Campaign Live on Stellar!"));
     expect(web3.approveTokenAllowance).toHaveBeenCalledWith(100, undefined, "XLM");
     expect(web3.createCampaignOnChain).toHaveBeenCalledWith("Launch Week", 100, 10, 86400, "XLM");
@@ -170,7 +206,7 @@ describe("CreateCampaignForm", () => {
   it("records a public campaign when the toggle is left off", async () => {
     render(<CreateCampaignForm />);
     fillCampaign();
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Campaign Escrow Live on Stellar!"));
     expect(getCampaignPolicy(7)).toMatchObject({ visibility: "public" });
   });
@@ -185,7 +221,7 @@ describe("CreateCampaignForm", () => {
     render(<CreateCampaignForm />);
     fillCampaign();
     fireEvent.click(screen.getByRole("switch"));
-    submitCampaign();
+    await submitCampaign();
 
     await waitFor(() => expect(titles()).toContain("Campaign Created — Access Setting Not Saved"));
     expect(titles()).toContain("Campaign Escrow Live on Stellar!");
@@ -198,7 +234,7 @@ describe("CreateCampaignForm", () => {
     web3.approveTokenAllowance.mockRejectedValue(new Error("user declined"));
     render(<CreateCampaignForm />);
     fillCampaign();
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Step 1 Failed (Approval)"));
     expect(web3.createCampaignOnChain).not.toHaveBeenCalled();
   });
@@ -208,7 +244,7 @@ describe("CreateCampaignForm", () => {
     web3.createCampaignOnChain.mockRejectedValue(new Error("simulation failed"));
     render(<CreateCampaignForm />);
     fillCampaign();
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Failed to Create Campaign"));
     expect(getCampaignPolicy(7)).toBeNull();
   });
@@ -219,7 +255,7 @@ describe("CreateCampaignForm", () => {
     await waitFor(() => expect(web3.refreshTokenAllowance).toHaveBeenCalled());
     fillCampaign();
     await screen.findByText(/Escrow Ready/);
-    submitCampaign();
+    await submitCampaign();
     await waitFor(() => expect(titles()).toContain("Campaign Escrow Live on Stellar!"));
     expect(web3.approveTokenAllowance).not.toHaveBeenCalled();
   });
@@ -343,7 +379,7 @@ describe("LogSaleForm", () => {
 
     await waitFor(() => expect(titles()).toContain("Sale Logged Successfully!"));
     expect(web3.getCampaignContract).toHaveBeenCalledWith("7");
-    expect(logSale).toHaveBeenCalledWith(AFFILIATE, "25", "cipher", "wrapped", "wrapped");
+    expect(logSale).toHaveBeenCalledWith(AFFILIATE, "25", "cipher", "wrapped", "wrapped", 10);
     expect(titles()).toContain("Webhooks Dispatched");
     expect(webhooks.dispatchWebhookEvent).toHaveBeenCalledWith(
       "conversion.created",

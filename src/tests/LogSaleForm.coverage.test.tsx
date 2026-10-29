@@ -16,6 +16,7 @@ const webhookMocks = vi.hoisted(() => ({
   triggerConversionPostback: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
 }));
+const telegramMocks = vi.hoisted(() => ({ notifyTelegramConversion: vi.fn() }));
 const stellarMocks = vi.hoisted(() => ({
   resolveRecipient: vi.fn(),
   resolveFederatedAddress: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("../context/NotificationContext", () => ({
 }));
 vi.mock("../lib/crypto", () => cryptoMocks);
 vi.mock("../lib/webhookEngine", () => webhookMocks);
+vi.mock("../lib/telegramClient", () => telegramMocks);
 vi.mock("../lib/stellar", async (importOriginal) => {
   const actual = await importOriginal<any>();
   return {
@@ -78,10 +80,7 @@ async function render() {
 }
 
 async function fill(affiliate = AFFILIATE, amount = "100.5") {
-  setInput(
-    inputByPlaceholder("Campaign ID (e.g. 1) or CCAMPAIGN... contract address"),
-    CAMPAIGN,
-  );
+  setInput(inputByPlaceholder("Campaign ID (e.g. 1) or CCAMPAIGN... contract address"), CAMPAIGN);
   setInput(inputByPlaceholder("GAFFILIATE... or alice*stormsale.io"), affiliate);
   setInput(inputByPlaceholder("e.g., 100.50"), amount);
 }
@@ -96,6 +95,7 @@ beforeEach(() => {
     .mockResolvedValueOnce("affiliate-wrapped");
   webhookMocks.triggerConversionPostback.mockResolvedValue([{ id: "hook-1" }]);
   webhookMocks.dispatchWebhookEvent.mockReturnValue(undefined);
+  telegramMocks.notifyTelegramConversion.mockResolvedValue("sent");
   stellarMocks.resolveRecipient.mockResolvedValue({ status: "federated", address: AFFILIATE });
   stellarMocks.resolveFederatedAddress.mockResolvedValue({
     accountId: AFFILIATE,
@@ -151,6 +151,7 @@ describe("LogSaleForm coverage", () => {
       "encrypted-payload",
       "advertiser-wrapped",
       "affiliate-wrapped",
+      10,
     );
     expect(webhookMocks.triggerConversionPostback).toHaveBeenCalledWith(
       expect.objectContaining({ affiliateAddress: AFFILIATE, campaignAddress: CAMPAIGN }),
@@ -212,5 +213,64 @@ describe("LogSaleForm coverage", () => {
     expect(notification.showNotification).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Logging Failed", message: "simulation failed" }),
     );
+  });
+  describe("Telegram conversion alerts", () => {
+    const HASH = "ab".repeat(32);
+    const confirmWith = (txHash: string) =>
+      web3.current.getCampaignContract.mockReturnValue({
+        logEncryptedSale: vi.fn().mockResolvedValue({
+          wait: vi.fn().mockResolvedValue({ txHash }),
+        }),
+      });
+
+    it("asks the server to alert the affiliate with the confirmed hash only", async () => {
+      confirmWith(HASH);
+      await render();
+      await fill();
+      await submit();
+
+      expect(telegramMocks.notifyTelegramConversion).toHaveBeenCalledWith(HASH);
+      expect(notification.showNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Telegram Alert Not Sent" }),
+      );
+    });
+
+    it("skips the alert when there is no real transaction hash", async () => {
+      await render();
+      await fill();
+      await submit();
+
+      expect(telegramMocks.notifyTelegramConversion).not.toHaveBeenCalled();
+    });
+
+    it("warns the advertiser when the affiliate's alert could not be delivered", async () => {
+      confirmWith(HASH);
+      telegramMocks.notifyTelegramConversion.mockResolvedValue("send_failed");
+      await render();
+      await fill();
+      await submit();
+
+      expect(notification.showNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "warning", title: "Telegram Alert Not Sent" }),
+      );
+      expect(notification.showNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Sale Logged Successfully!" }),
+      );
+    });
+
+    it("only logs request failures", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      confirmWith(HASH);
+      telegramMocks.notifyTelegramConversion.mockResolvedValue("error");
+      await render();
+      await fill();
+      await submit();
+
+      expect(warn).toHaveBeenCalledWith("Telegram alert request failed.");
+      expect(notification.showNotification).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Telegram Alert Not Sent" }),
+      );
+      warn.mockRestore();
+    });
   });
 });

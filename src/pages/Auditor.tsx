@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { AuditorOverview } from "../components/auditor/AuditorOverview";
 import { VerifyAccess } from "../components/auditor/VerifyAccess";
@@ -9,6 +8,7 @@ import { MerkleTreeVisualizer } from "../components/auditor/MerkleTreeVisualizer
 import { Soc2EvidenceExport } from "../components/auditor/Soc2EvidenceExport";
 import { NetworkRiskVisualizer } from "../components/auditor/NetworkRiskVisualizer";
 import { FraudScoreDashboard } from "../components/auditor/FraudScoreDashboard";
+import PlatformVolumeWidget from "../components/auditor/PlatformVolumeWidget";
 import { Sidebar } from "../components/shared/Sidebar";
 import { NotificationProvider } from "../context/NotificationContext";
 import { usePreference } from "../hooks/usePreference";
@@ -29,6 +29,7 @@ import {
   KeyRound,
   Lock,
   Gauge,
+  TrendingUp,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,6 +40,7 @@ interface AuditorProps {
 
 const AUDITOR_TABS = [
   "overview",
+  "volume",
   "verify",
   "history",
   "checklist",
@@ -128,6 +130,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "volume", label: "Financial Volume", icon: TrendingUp },
     { id: "merkle", label: "Merkle Tree Proofs", icon: GitFork },
     { id: "verify", label: "Verify Access", icon: Eye },
     { id: "history", label: "Audit History", icon: ClipboardList },
@@ -155,6 +158,9 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "volume":
+        return <PlatformVolumeWidget />;
+
       case "merkle":
         return (
           <MerkleTreeVisualizer
