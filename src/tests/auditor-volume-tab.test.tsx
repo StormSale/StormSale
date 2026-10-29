@@ -30,16 +30,6 @@ vi.mock("../components/auditor/AuditHistory", () => ({
 
 const TAB_KEY = "stormsale.auditor.tab";
 
-const createStorage = () => {
-  const store = new Map<string, string>();
-  return {
-    getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => void store.set(key, value),
-    removeItem: (key: string) => void store.delete(key),
-    clear: () => store.clear(),
-  };
-};
-
 const renderAuditorOnTab = (tab: string) => {
   localStorage.setItem(TAB_KEY, JSON.stringify({ v: 1, value: tab }));
   return renderToString(
@@ -51,11 +41,7 @@ const renderAuditorOnTab = (tab: string) => {
 
 describe("Auditor page — Financial Volume tab (#61)", () => {
   beforeEach(() => {
-    vi.stubGlobal("localStorage", createStorage());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
+    localStorage.clear();
   });
 
   it("lists the Financial Volume tab in the sidebar", () => {

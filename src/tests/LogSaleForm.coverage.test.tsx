@@ -137,7 +137,7 @@ describe("LogSaleForm coverage", () => {
     expect(cryptoMocks.generateAESKey).not.toHaveBeenCalled();
   });
 
-  it("encrypts the sale, logs it on-chain, and dispatches webhooks", async () => {
+      it("encrypts the sale, logs it on-chain, and dispatches webhooks", async () => {
     const logEncryptedSale = vi.fn().mockResolvedValue({ wait: vi.fn().mockResolvedValue({}) });
     web3.current.getCampaignContract.mockReturnValue({ logEncryptedSale });
 
