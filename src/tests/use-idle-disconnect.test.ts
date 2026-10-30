@@ -157,6 +157,38 @@ describe("useIdleDisconnect hook lifecycle (#83)", () => {
     expect(result.current.isWarningOpen).toBe(false);
   });
 
+  it("still warns and disconnects when localStorage is unavailable", () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+
+    const { result, onDisconnect } = setup();
+
+    advance(6_000);
+    expect(result.current.isWarningOpen).toBe(true);
+
+    advance(4_000);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+
+    getItem.mockRestore();
+    setItem.mockRestore();
+  });
+
+  it("recovers from a removed storage key using its in-memory timestamp", () => {
+    const { result, onDisconnect } = setup();
+
+    advance(3_000);
+    localStorage.removeItem(KEY);
+    advance(3_000);
+    expect(result.current.isWarningOpen).toBe(true);
+
+    advance(4_000);
+    expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+
   it("only exposes the window test helper in development builds", () => {
     const dev = setup();
     expect(typeof window.__triggerIdleWarningTest).toBe("function");

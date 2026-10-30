@@ -58,9 +58,11 @@ export function useIdleDisconnect({
     onManualDisconnectRef.current = onManualDisconnect;
   }, [onDisconnect, onExtend, onManualDisconnect]);
 
-  // Synchronize initial last activity from localStorage or current time
+  // Read the shared activity timestamp. Returns 0 when it is missing, invalid or
+  // storage is blocked, so the caller falls back to its in-memory timestamp
+  // instead of treating the session as freshly active.
   const getStoredActivity = useCallback((): number => {
-    if (typeof window === "undefined") return Date.now();
+    if (typeof window === "undefined") return 0;
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
@@ -70,7 +72,7 @@ export function useIdleDisconnect({
     } catch {
       // Ignore localStorage access restrictions
     }
-    return Date.now();
+    return 0;
   }, [storageKey]);
 
   const updateStoredActivity = useCallback(
@@ -196,7 +198,13 @@ export function useIdleDisconnect({
 
       const now = Date.now();
       const currentStored = getStoredActivity();
-      const lastActive = Math.max(lastActivityRef.current || currentStored, currentStored);
+      const lastActive = Math.max(lastActivityRef.current, currentStored);
+      if (lastActive <= 0) {
+        // No baseline at all (should not happen after connect); start one now
+        // rather than reporting an expired or perpetually fresh session.
+        updateStoredActivity(now);
+        return;
+      }
       const state = calculateIdleSessionState(lastActive, now, timeoutMs, warningMs);
 
       if (state.isIdleExpired) {
@@ -218,7 +226,7 @@ export function useIdleDisconnect({
     }, 1000);
 
     return () => clearInterval(checkInterval);
-  }, [isConnected, timeoutMs, warningMs, getStoredActivity]);
+  }, [isConnected, timeoutMs, warningMs, getStoredActivity, updateStoredActivity]);
 
   // Expose test helper on window for local development only. In a production
   // build any script on the page could call it to force a disconnect.

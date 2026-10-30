@@ -9,10 +9,9 @@ import {
 } from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
-import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
-import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
@@ -100,11 +99,8 @@ const VALID_PAGES = [
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
-  const { isConnected, disconnectWallet } = useWeb3();
+  const { isConnected, openWalletModal, disconnectWallet } = useWeb3();
   const { showNotification } = useNotification();
-  const [currentPage, setCurrentPage] = useState("dashboard");
-  const { isConnected } = useWeb3();
-  const { isConnected, openWalletModal } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
@@ -141,6 +137,11 @@ function Router() {
     if (typeof window === "undefined") return null;
     const params = new URLSearchParams(window.location.search);
     return params.get("brand") || params.get("c") || null;
+  });
+
+  const [proofToVerify, setProofToVerify] = useState<ZKRevenueProof | null>(() => {
+    if (typeof window === "undefined") return null;
+    return parseProofFromUrl(window.location.href);
   });
 
   const { isWarningOpen, remainingSeconds, extendSession, handleManualDisconnect } =
@@ -185,54 +186,14 @@ function Router() {
       new URLSearchParams(window.location.search).get("timeout_preview") === "1",
   );
 
-  return (
-    <>
-      <SessionTimeoutModal
-        isOpen={isWarningOpen || isPreviewOpen}
-        remainingSeconds={remainingSeconds}
-        onExtend={isWarningOpen ? extendSession : () => setIsPreviewOpen(false)}
-        onDisconnect={isWarningOpen ? handleManualDisconnect : () => setIsPreviewOpen(false)}
-      />
-      {activeBrandSubdomain ? (
-        <Suspense fallback={<PageLoader />}>
-          <BrandedCampaignView
-            brandConfig={loadBrandConfig(activeBrandSubdomain)}
-            onClose={() => {
-              setActiveBrandSubdomain(null);
-              window.history.pushState({}, "", window.location.pathname);
-            }}
-            isStandalone
-          />
-        </Suspense>
-      ) : (
-        <>
-          <ConnectWalletModal />
-          <Suspense fallback={<PageLoader />}>
-            {!isConnected ? (
-              <Landing />
-            ) : (
-              <div className="min-h-screen bg-background">
-                <main>
-                  {currentPage === "dashboard" && <Dashboard onNavigate={setCurrentPage} />}
-                  {currentPage === "advertiser" && (
-                    <Advertiser onBack={() => setCurrentPage("dashboard")} />
-                  )}
-                  {currentPage === "affiliate" && (
-                    <Affiliate onBack={() => setCurrentPage("dashboard")} />
-                  )}
-                  {currentPage === "auditor" && (
-                    <Auditor onBack={() => setCurrentPage("dashboard")} />
-                  )}
-                </main>
-              </div>
-            )}
-          </Suspense>
-        </>
-      )}
-  const [proofToVerify, setProofToVerify] = useState<ZKRevenueProof | null>(() => {
-    if (typeof window === "undefined") return null;
-    return parseProofFromUrl(window.location.href);
-  });
+  const sessionTimeoutModal = (
+    <SessionTimeoutModal
+      isOpen={isWarningOpen || isPreviewOpen}
+      remainingSeconds={remainingSeconds}
+      onExtend={isWarningOpen ? extendSession : () => setIsPreviewOpen(false)}
+      onDisconnect={isWarningOpen ? handleManualDisconnect : () => setIsPreviewOpen(false)}
+    />
+  );
 
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
@@ -259,6 +220,7 @@ function Router() {
     return (
       <>
         <ConnectWalletModal />
+        {sessionTimeoutModal}
         <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans selection:bg-indigo-500/30">
           <header className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
@@ -323,6 +285,7 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
+      {sessionTimeoutModal}
       <MultiSigApprovalModal />
       <RpcStatusModal />
       <ZKProofVerifierModal
