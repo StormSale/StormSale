@@ -1,4 +1,18 @@
 {
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "@vercel/node@5"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/custom-links/register", "destination": "/api/custom-links/register" },
+    { "source": "/api/custom-links/availability", "destination": "/api/custom-links/availability" },
+    { "source": "/api/custom-links/resolve", "destination": "/api/custom-links/resolve" },
+    { "source": "/api/custom-links/list", "destination": "/api/custom-links/list" },
+    { "source": "/api/custom-links/delete", "destination": "/api/custom-links/delete" },
+    { "source": "/api/affiliate/click-stream", "destination": "/api/affiliate/click-stream" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -10,10 +24,6 @@
         {
           "key": "X-Frame-Options",
           "value": "DENY"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'none'"
         },
         {
           "key": "X-Content-Type-Options",
@@ -30,6 +40,10 @@
         {
           "key": "Referrer-Policy",
           "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' https://telegram.org; connect-src 'self' https://*.stellar.org https://albedo.link https://stellar.expert; img-src 'self' data: blob: https://images.unsplash.com https://i.pravatar.cc https://stellar.expert https://albedo.link https://xbull.app; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'self' https://albedo.link;"
         }
       ]
     }

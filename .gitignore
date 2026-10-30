@@ -19,6 +19,7 @@ label_issues.js
 !scripts/generate-auditor-key.mjs
 !scripts/check-coverage.cjs
 !scripts/check-security-headers.cjs
+!scripts/malware-scanner.cjs
 coverage/
 coverage-audit-report.md
 !.github/scripts/
@@ -42,3 +43,9 @@ test-results/
 playwright-report/
 blob-report/
 lens/
+
+# Playwright
+test-results/
+playwright-report/
+e2e-results.json
+stats.html
