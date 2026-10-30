@@ -15,7 +15,7 @@
  *   404      — { error: "Slug not found" }
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getRedisClient, slugKey, affiliateKey } from "../_lib/redis";
+import { getRedisClient, slugKey, affiliateKey, clickEventsKey } from "../_lib/redis";
 import type { CustomShortLink } from "../../src/types/affiliateLink";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -47,6 +47,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   await redis.del(slugKey(rawSlug));
+  // Drop the link's click stream with it so no orphaned analytics remain.
+  await redis.del(clickEventsKey(rawSlug));
   await redis.srem(affiliateKey(wallet), rawSlug);
 
   return res.status(200).json({ deleted: true, slug: rawSlug });
