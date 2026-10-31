@@ -97,4 +97,37 @@ describe("Dashboard leaderboard shortcut", () => {
     fireEvent.click(screen.getByRole("button", { name: /Affiliate Leaderboard & Badges/ }));
     expect(onNavigate).toHaveBeenCalledWith("leaderboard");
   });
+
+  it("expands a role card and cancels selection", () => {
+    render(<Dashboard onNavigate={vi.fn()} />);
+    const advertiserCard = screen.getByText("Advertiser");
+    fireEvent.click(advertiserCard);
+    const cancelButton = screen.getByText("Cancel");
+    expect(cancelButton).toBeTruthy();
+    fireEvent.click(cancelButton);
+  });
+
+  it("expands a role card and assumes role", async () => {
+    const updateUserRole = vi.fn().mockResolvedValue(undefined);
+    const onNavigate = vi.fn();
+    mocks.useWeb3.mockReturnValue({
+      userAddress: "GA123",
+      userRole: null,
+      updateUserRole,
+      isConnected: true,
+      disconnectWallet: vi.fn(),
+      network: "testnet",
+      xlmBalance: "100",
+      connectorType: "freighter",
+    });
+
+    render(<Dashboard onNavigate={onNavigate} />);
+    const affiliateCard = screen.getByText("Affiliate");
+    fireEvent.click(affiliateCard);
+    const assumeButton = screen.getByText(/Sign & Assume Role/);
+    expect(assumeButton).toBeTruthy();
+    fireEvent.click(assumeButton);
+    expect(updateUserRole).toHaveBeenCalledWith("AFFILIATE");
+  });
 });
+

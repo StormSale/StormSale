@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
@@ -22,6 +23,7 @@ interface DashboardProps {
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
+  const { t } = useTranslation();
   const {
     userAddress,
     userRole,
@@ -77,9 +79,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
   const roles = [
     {
       id: "advertiser",
-      title: "Advertiser",
-      description:
+      title: t("dashboard.roleAdvertiserTitle", "Advertiser"),
+      description: t(
+        "dashboard.roleAdvertiserDesc",
         "Create campaigns, log sales, and manage your affiliate programs securely on-chain.",
+      ),
       icon: Megaphone,
       colorClasses: {
         border: "border-indigo-500/50",
@@ -100,9 +104,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     },
     {
       id: "affiliate",
-      title: "Affiliate",
-      description:
+      title: t("dashboard.roleAffiliateTitle", "Affiliate"),
+      description: t(
+        "dashboard.roleAffiliateDesc",
         "Join campaigns, track sales, and claim your commissions securely with fast payouts.",
+      ),
       icon: Users,
       colorClasses: {
         border: "border-emerald-500/50",
@@ -119,9 +125,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     },
     {
       id: "auditor",
-      title: "Auditor",
-      description:
+      title: t("dashboard.roleAuditorTitle", "Auditor"),
+      description: t(
+        "dashboard.roleAuditorDesc",
         "Access encrypted sale data with proper authorization and compliance verification.",
+      ),
       icon: Eye,
       colorClasses: {
         border: "border-slate-500/50",
@@ -161,7 +169,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
             </div>
             <div>
               <div className="text-[10px] sm:text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                Network
+                {t("dashboard.network", "Network")}
               </div>
               <div className="text-xs sm:text-sm font-black text-zinc-900 dark:text-white flex items-center">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
@@ -196,7 +204,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                 size="sm"
                 className="h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl font-bold text-xs"
               >
-                Disconnect
+                {t("header.disconnect", "Disconnect")}
               </Button>
             )}
           </div>
@@ -316,7 +324,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                                 variant="outline"
                                 className="flex-1 h-12 rounded-xl font-bold"
                               >
-                                Cancel
+                                {t("common.cancel", "Cancel")}
                               </Button>
                               <Button
                                 onClick={(e) => {
@@ -326,7 +334,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
                                 disabled={isSigning}
                                 className={`flex-[2] h-12 rounded-xl font-bold text-white shadow-lg ${role.colorClasses.bgHover} ${role.colorClasses.shadowBtn}`}
                               >
-                                {isSigning ? "Signing..." : "Sign & Assume Role"}
+                                {isSigning
+                                  ? t("common.loading", "Signing...")
+                                  : t("dashboard.assumeRole", "Sign & Assume Role")}
                               </Button>
                             </div>
                           </div>

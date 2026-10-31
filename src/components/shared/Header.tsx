@@ -2,6 +2,8 @@ import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
+import { LanguageSelector } from "./LanguageSelector";
+import { useTranslation } from "react-i18next";
 import { TerminologyTooltip, TerminologyGuideButton } from "../ui/tooltip";
 import {
   Wallet,
@@ -46,6 +48,7 @@ export const resolveWalletNetwork = async (
  * Application header with wallet navigation, status indicators, and network verification controls.
  */
 export const Header = ({ onNavigate }: HeaderProps) => {
+  const { t } = useTranslation();
   const {
     userAddress,
     openWalletModal,
@@ -117,15 +120,15 @@ export const Header = ({ onNavigate }: HeaderProps) => {
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
   const navLinks = [
-    { label: "Home", href: "/" },
-    { label: "About Us", href: "#about-us" },
-    { label: "Features", href: "#features" },
-    { label: "How it Works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "Stats", href: "#stats" },
-    { label: "Community", href: "#community" },
-    { label: "FAQ", href: "#faq" },
-    { label: "Contact", href: "#community" },
+    { label: t("nav.home", "Home"), href: "/" },
+    { label: t("nav.aboutUs", "About Us"), href: "#about-us" },
+    { label: t("nav.features", "Features"), href: "#features" },
+    { label: t("nav.howItWorks", "How it Works"), href: "#how-it-works" },
+    { label: t("nav.pricing", "Pricing"), href: "#pricing" },
+    { label: t("nav.stats", "Stats"), href: "#stats" },
+    { label: t("nav.community", "Community"), href: "#community" },
+    { label: t("nav.faq", "FAQ"), href: "#faq" },
+    { label: t("nav.contact", "Contact"), href: "#community" },
   ];
 
   return (
@@ -222,6 +225,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               </span>
             )}
           </button>
+          <LanguageSelector />
           <ThemeToggle />
 
           {isConnected ? (
@@ -247,7 +251,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               className="h-10 px-5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all"
             >
               <Wallet className="w-4 h-4 mr-2" />
-              Connect Wallet
+              {t("header.connectWallet", "Connect Wallet")}
             </Button>
           )}
         </div>
@@ -307,7 +311,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               className="h-9 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
             >
               <Wallet className="w-3.5 h-3.5 mr-1" />
-              Connect
+              {t("header.connectWallet", "Connect")}
             </Button>
           ) : (
             <UserMenu compact onNavigate={onNavigate} />
@@ -410,7 +414,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   }}
                   className="w-full rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                 >
-                  Disconnect Wallet
+                  {t("header.disconnectWallet", "Disconnect Wallet")}
                 </Button>
               ) : (
                 <Button
@@ -421,7 +425,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
                 >
                   <Wallet className="w-3.5 h-3.5 mr-2" />
-                  Select Stellar Wallet
+                  {t("header.selectStellarWallet", "Select Stellar Wallet")}
                 </Button>
               )}
             </div>

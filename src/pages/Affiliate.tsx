@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Sidebar } from "../components/shared/Sidebar";
 import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { JoinCampaignButton } from "../components/affiliate/JoinCampaignButton";
@@ -61,6 +62,7 @@ const AFFILIATE_TABS = [
 type AffiliateTab = (typeof AFFILIATE_TABS)[number];
 
 const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "overview" }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = usePreference<AffiliateTab>(
     "stormsale.affiliate.tab",
     AFFILIATE_TABS.includes(initialTab as AffiliateTab)
@@ -138,7 +140,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
         onTabChange={(tab) => setActiveTab(tab as AffiliateTab)}
         tabs={tabs}
         onBack={onBack}
-        roleName="Affiliate Pro"
+        roleName={t("affiliate.roleName", "Affiliate Pro")}
       />
 
       {/* Main Content Area */}
@@ -148,10 +150,11 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
           <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-zinc-800">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                Affiliate Pro Portal
+                {t("affiliate.title", "Affiliate Portal")}
               </span>
               <h2 className="text-xl font-bold text-zinc-900 dark:text-white capitalize">
-                {tabs.find((t) => t.id === activeTab)?.label || "Dashboard Overview"}
+                {tabs.find((tab) => tab.id === activeTab)?.label ||
+                  t("affiliate.dashboardOverview", "Dashboard Overview")}
               </h2>
             </div>
             <div className="flex items-center space-x-3">
@@ -160,11 +163,13 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
                 variant={activeTab === "settings" ? "default" : "outline"}
                 size="sm"
                 onClick={() => setActiveTab("settings")}
-                aria-label="Preferences"
+                aria-label={t("affiliate.preferences", "Preferences")}
                 className="rounded-xl h-10 px-4 font-semibold text-xs flex items-center space-x-1.5 border border-slate-200 dark:border-zinc-800"
               >
                 <Sliders className="w-4 h-4" />
-                <span className="hidden sm:inline">Preferences</span>
+                <span className="hidden sm:inline">
+                  {t("affiliate.preferences", "Preferences")}
+                </span>
               </Button>
             </div>
           </div>

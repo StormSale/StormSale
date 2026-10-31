@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useTranslation } from "react-i18next";
 import QRCode from "qrcode";
 import {
   Card,
@@ -56,6 +57,7 @@ async function createEncryptedAffiliateUrl(affiliate: string, campaignId: string
 }
 
 const AffiliateLinkGenerator = () => {
+  const { t } = useTranslation();
   const { userAddress } = useWeb3();
   const [campaignId, setCampaignId] = useState("");
   const [affiliateOverride, setAffiliateOverride] = useState<string | null>(null);
@@ -70,7 +72,12 @@ const AffiliateLinkGenerator = () => {
     setShareUrl("");
     setQrDataUrl("");
     if (!affiliateAddress.trim() || !campaignId.trim()) {
-      setMessage("Enter an affiliate wallet and campaign ID to create a link.");
+      setMessage(
+        t(
+          "dashboard.enterAffiliateWallet",
+          "Enter an affiliate wallet and campaign ID to create a link.",
+        ),
+      );
       return;
     }
     setIsGenerating(true);
@@ -84,20 +91,30 @@ const AffiliateLinkGenerator = () => {
       });
       setShareUrl(nextUrl);
       setQrDataUrl(qr);
-      setMessage("Encrypted link and QR code are ready.");
+      setMessage(t("dashboard.linkReady", "Encrypted link and QR code are ready."));
     } catch {
-      setMessage("Could not create your link. Use a secure (HTTPS) connection and try again.");
+      setMessage(
+        t(
+          "dashboard.linkError",
+          "Could not create your link. Use a secure (HTTPS) connection and try again.",
+        ),
+      );
     } finally {
       setIsGenerating(false);
     }
-  }, [affiliateAddress, campaignId]);
+  }, [affiliateAddress, campaignId, t]);
 
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
-      setMessage("Link copied to clipboard.");
+      setMessage(t("dashboard.linkCopied", "Link copied to clipboard."));
     } catch {
-      setMessage("Clipboard access is unavailable. Select and copy the link below.");
+      setMessage(
+        t(
+          "dashboard.clipboardUnavailable",
+          "Clipboard access is unavailable. Select and copy the link below.",
+        ),
+      );
     }
   };
 
@@ -110,10 +127,13 @@ const AffiliateLinkGenerator = () => {
           </div>
           <div>
             <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Encrypted link & QR code
+              {t("dashboard.encryptedLinkTitle", "Encrypted link & QR code")}
             </CardTitle>
             <CardDescription className="mt-1 text-zinc-500 dark:text-zinc-400">
-              Create a private, campaign-specific tracking link to share anywhere.
+              {t(
+                "dashboard.encryptedLinkSubtitle",
+                "Create a private, campaign-specific tracking link to share anywhere.",
+              )}
             </CardDescription>
           </div>
         </div>
@@ -126,7 +146,7 @@ const AffiliateLinkGenerator = () => {
                 htmlFor="affiliate-wallet"
                 className="mb-1.5 block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
               >
-                Affiliate wallet
+                {t("dashboard.affiliateWalletLabel", "Affiliate wallet")}
               </label>
               <input
                 id="affiliate-wallet"
@@ -141,7 +161,7 @@ const AffiliateLinkGenerator = () => {
                 htmlFor="campaign-id"
                 className="mb-1.5 block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
               >
-                Campaign ID
+                {t("dashboard.campaignIdLabel", "Campaign ID")}
               </label>
               <input
                 id="campaign-id"
@@ -158,10 +178,10 @@ const AffiliateLinkGenerator = () => {
             >
               <QrCode className="mr-2 h-4 w-4" />
               {isGenerating
-                ? "Generating secure link…"
+                ? t("dashboard.generatingLinkButton", "Generating secure link…")
                 : shareUrl
-                  ? "Generate a new link"
-                  : "Generate link & QR code"}
+                  ? t("dashboard.generateLinkButton", "Generate a new link")
+                  : t("dashboard.generateLinkButton", "Generate link & QR code")}
             </Button>
             {message && (
               <p
@@ -178,7 +198,7 @@ const AffiliateLinkGenerator = () => {
                   htmlFor="share-link"
                   className="block text-xs font-semibold text-zinc-600 dark:text-zinc-300"
                 >
-                  Your share link
+                  {t("dashboard.shareableLinkLabel", "Your share link")}
                 </label>
                 <div className="flex gap-2">
                   <input
@@ -190,7 +210,7 @@ const AffiliateLinkGenerator = () => {
                   <Button
                     variant="outline"
                     onClick={copyLink}
-                    aria-label="Copy affiliate link"
+                    aria-label={t("dashboard.copyLink", "Copy affiliate link")}
                     className="h-10 rounded-lg px-3"
                   >
                     <Copy className="h-4 w-4" />
@@ -296,43 +316,54 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
   onNavigateToLeaderboard,
   onNavigateToMilestones,
 }) => {
+  const { t } = useTranslation();
   const { userAddress } = useWeb3();
   const profile = getAffiliateProfile(userAddress || "", userAddress);
   const stats = [
     {
-      title: "Total Earnings",
+      title: t("dashboard.totalEarnings", "Total Earnings"),
       value: "$12,847",
-      change: "+18% this month",
+      change: t("dashboard.totalEarningsChange", "+18% this month"),
       icon: DollarSign,
     },
-    { title: "Active Campaigns", value: "8", change: "+2 this week", icon: Users },
     {
-      title: "Conversion Rate",
+      title: t("dashboard.activeCampaigns", "Active Campaigns"),
+      value: "8",
+      change: t("dashboard.activeCampaignsChange", "+2 this week"),
+      icon: Users,
+    },
+    {
+      title: t("dashboard.conversionRate", "Conversion Rate"),
       value: "3.2%",
-      change: "+0.4% vs last month",
+      change: t("dashboard.conversionRateChange", "+0.4% vs last month"),
       icon: TrendingUp,
     },
-    { title: "Monthly Goal", value: "85%", change: "On track", icon: Target },
+    {
+      title: t("dashboard.monthlyGoal", "Monthly Goal"),
+      value: "85%",
+      change: t("dashboard.monthlyGoalChange", "On track"),
+      icon: Target,
+    },
   ];
 
   const recentPayouts = [
     {
       campaign: "Tech Gadgets Pro",
       amount: "$1,250",
-      date: "2 days ago",
-      status: "Completed",
+      date: t("dashboard.timeTwoDaysAgo", "2 days ago"),
+      status: t("dashboard.statusCompleted", "Completed"),
     },
     {
       campaign: "Web3 Masterclass",
       amount: "$890",
-      date: "1 week ago",
-      status: "Completed",
+      date: t("dashboard.timeOneWeekAgo", "1 week ago"),
+      status: t("dashboard.statusCompleted", "Completed"),
     },
     {
       campaign: "Crypto Tools",
       amount: "$2,150",
-      date: "2 weeks ago",
-      status: "Completed",
+      date: t("dashboard.timeTwoWeeksAgo", "2 weeks ago"),
+      status: t("dashboard.statusCompleted", "Completed"),
     },
   ];
 
@@ -343,7 +374,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl md:text-3xl font-extrabold text-zinc-900 dark:text-white tracking-tight">
-              Affiliate Dashboard
+              {t("dashboard.affiliateDashboard", "Affiliate Dashboard")}
             </h1>
             <VerifiedRevenueBadge />
           </div>
@@ -463,10 +494,10 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
           <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
             <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Recent Payouts
+              {t("dashboard.recentPayouts", "Recent Payouts")}
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Your latest commission payments
+              {t("dashboard.recentPayoutsSubtitle", "Your latest commission payments")}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -507,7 +538,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
               variant="ghost"
               className="w-full mt-6 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-900/50"
             >
-              View All Payouts
+              {t("dashboard.viewAllPayouts", "View All Payouts")}
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </CardContent>
@@ -569,24 +600,43 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
           <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
             <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-              Performance Tips
+              {t("dashboard.performanceTips", "Performance Tips")}
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400">
-              Boost your affiliate earnings
+              {t("dashboard.performanceTipsSubtitle", "Boost your affiliate earnings")}
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-4">
               {[
                 {
-                  tip: "Optimize your content for higher conversions",
-                  impact: "High",
+                  tip: t(
+                    "dashboard.tipOptimizeContent",
+                    "Optimize your content for higher conversions",
+                  ),
+                  impact: t("dashboard.tipHigh", "High"),
+                  isHigh: true,
                 },
-                { tip: "Join trending campaigns early", impact: "Medium" },
-                { tip: "Use multiple promotion channels", impact: "High" },
                 {
-                  tip: "Engage with your audience regularly",
-                  impact: "Medium",
+                  tip: t("dashboard.tipJoinTrending", "Join trending campaigns early"),
+                  impact: t("dashboard.tipMedium", "Medium"),
+                  isHigh: false,
+                },
+                {
+                  tip: t(
+                    "dashboard.tipMultipleChannels",
+                    "Use multiple promotion channels",
+                  ),
+                  impact: t("dashboard.tipHigh", "High"),
+                  isHigh: true,
+                },
+                {
+                  tip: t(
+                    "dashboard.tipEngageAudience",
+                    "Engage with your audience regularly",
+                  ),
+                  impact: t("dashboard.tipMedium", "Medium"),
+                  isHigh: false,
                 },
               ].map((item, index) => (
                 <div
@@ -598,7 +648,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
                   </div>
                   <span
                     className={`shrink-0 text-[10px] uppercase tracking-wider font-bold px-3 py-1 rounded-full ${
-                      item.impact === "High"
+                      item.isHigh
                         ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
                         : "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
                     }`}
@@ -616,10 +666,10 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
         <CardHeader className="border-b border-slate-100 dark:border-zinc-800/50 pb-4">
           <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
-            Quick Actions
+            {t("dashboard.quickActions", "Quick Actions")}
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Get started quickly
+            {t("dashboard.quickActionsSubtitle", "Get started quickly")}
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-6">

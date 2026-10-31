@@ -21,7 +21,7 @@ class CryptoTest extends TestCase {
 	 *
 	 * @var string
 	 */
-	private $api_key = 'ss_test_api_key_0123456789';
+	private $api_key = 'ss_test_api_key_0123456789'; // gitleaks:allow
 
 	/**
 	 * Encrypt/decrypt round trip preserves the plaintext.
