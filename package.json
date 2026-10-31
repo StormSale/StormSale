@@ -42,6 +42,7 @@
     "@upstash/redis": "^1.39.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dompurify": "^3.4.17",
     "framer-motion": "^13.4.0",
     "jspdf": "^4.2.1",
     "jszip": "^3.10.2",
