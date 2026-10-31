@@ -6,9 +6,7 @@ vi.mock("@radix-ui/react-dialog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@radix-ui/react-dialog")>();
   return {
     ...actual,
-    Portal: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="dialog-portal">{children}</div>
-    ),
+    Portal: ({ children }: { children: React.ReactNode }) => children,
   };
 });
 import {

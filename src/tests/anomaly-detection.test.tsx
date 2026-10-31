@@ -15,11 +15,16 @@ vi.mock("../lib/complianceExport", async (importOriginal) => {
 vi.mock("../components/auditor/Soc2EvidenceExport", () => ({
   Soc2EvidenceExport: () => <div>SOC 2 export</div>,
 }));
+import React from "react";
 import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { ComplianceReport } from "../components/auditor/ComplianceReport";
 import { NotificationProvider } from "../context/NotificationContext";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  exportSpies.print.mockClear();
+  exportSpies.download.mockClear();
+});
 
 const renderReport = () =>
   render(
