@@ -1,0 +1,99 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Input visual baseline > disabled 1`] = `
+<input
+  class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-gray-300 focus:ring-emerald-500 focus:border-slate-200 dark:border-gray-600"
+  disabled=""
+  readonly=""
+  value="locked"
+/>
+`;
+
+exports[`Input visual baseline > variant: default 1`] = `
+<input
+  class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-gray-300 focus:ring-emerald-500 focus:border-slate-200 dark:border-gray-600"
+  placeholder="Type here"
+/>
+`;
+
+exports[`Input visual baseline > variant: error 1`] = `
+<input
+  class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-400"
+  placeholder="Type here"
+/>
+`;
+
+exports[`Input visual baseline > variant: success 1`] = `
+<input
+  class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-slate-200 focus:ring-emerald-500 focus:border-slate-200 dark:border-slate-800"
+  placeholder="Type here"
+/>
+`;
+
+exports[`Input visual baseline > variant: warning 1`] = `
+<input
+  class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-yellow-500 focus:ring-yellow-500 focus:border-yellow-500 dark:border-yellow-400"
+  placeholder="Type here"
+/>
+`;
+
+exports[`InputField / InputGroup visual baseline > minimal 1`] = `
+<div
+  class="space-y-6"
+>
+  <div
+    class="space-y-2"
+  >
+    <label
+      class="block text-sm font-semibold text-gray-700 dark:text-gray-300"
+    >
+      Name
+    </label>
+    <input
+      class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-gray-300 focus:ring-emerald-500 focus:border-slate-200 dark:border-gray-600"
+    />
+  </div>
+</div>
+`;
+
+exports[`InputField / InputGroup visual baseline > required with description and error 1`] = `
+<div
+  class="space-y-2"
+>
+  <label
+    class="block text-sm font-semibold text-gray-700 dark:text-gray-300"
+  >
+    Amount
+    <span
+      class="text-red-500 ml-1"
+    >
+      *
+    </span>
+  </label>
+  <p
+    class="text-sm text-muted-foreground"
+  >
+    In XLM
+  </p>
+  <input
+    class="flex h-12 w-full rounded-xl border-2 bg-background px-4 py-3 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 shadow-sm border-red-500 focus:ring-red-500 focus:border-red-500 dark:border-red-400"
+  />
+  <p
+    class="text-sm text-red-600 dark:text-red-400 flex items-center gap-1"
+  >
+    <span>
+      ⚠
+    </span>
+    Must be positive
+  </p>
+</div>
+`;
+
+exports[`Label visual baseline > default 1`] = `
+<label
+  class="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+  for="x"
+>
+  Email
+</label>
+`;

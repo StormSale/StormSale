@@ -31,6 +31,9 @@ jobs:
     - name: Install Dependencies
       run: npm ci
 
+    - name: Visual Snapshot Diff (UI primitives)
+      run: npx vitest run tests/components
+
     - name: Run Unit Tests & Coverage Audit Export
       run: |
         npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json
