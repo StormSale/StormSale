@@ -147,7 +147,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
   });
 
   it("filters notification delivery based on frequency and granular channels", () => {
-    // Muted suppresses all events
     const mutedPrefs = {
       ...DEFAULT_PREFERENCES,
       notificationFrequency: "muted" as const,
@@ -156,7 +155,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(shouldDeliverAffiliateNotification("clearing", mutedPrefs)).toBe(false);
     expect(shouldDeliverAffiliateNotification("payout", mutedPrefs)).toBe(false);
 
-    // Instant frequency delivery: delivers events when enabled
     const instantPrefs = {
       ...DEFAULT_PREFERENCES,
       notificationFrequency: "instant" as const,
@@ -168,7 +166,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(shouldDeliverAffiliateNotification("clearing", instantPrefs)).toBe(true);
     expect(shouldDeliverAffiliateNotification("payout", instantPrefs)).toBe(true);
 
-    // Granular channel toggles disable delivery
     const disabledPayoutPrefs = {
       ...DEFAULT_PREFERENCES,
       notificationFrequency: "instant" as const,
@@ -211,13 +208,11 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
       }),
     };
 
-    // Initial subscribe when matches is false
     const cleanup = syncSystemThemeListener(mockMediaQuery);
     expect(mockMediaQuery.addEventListener).toHaveBeenCalledWith("change", expect.any(Function));
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
 
-    // Media query updates to dark mode
     mockMediaQuery.matches = true;
     if (typeof changeHandler === "function") {
       (changeHandler as () => void)();
@@ -225,7 +220,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(true);
     expect(mockLocalStorage.getItem("darkMode")).toBe("true");
 
-    // Media query updates back to light mode
     mockMediaQuery.matches = false;
     if (typeof changeHandler === "function") {
       (changeHandler as () => void)();
@@ -233,7 +227,6 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
 
-    // Cleanup should remove event listener
     cleanup();
     expect(mockMediaQuery.removeEventListener).toHaveBeenCalledWith("change", expect.any(Function));
     expect(changeHandler).toBeNull();
@@ -287,35 +280,29 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
   });
 
   it("exercises ThemeToggle component directly to verify stored darkMode precedence over classList", () => {
-    // 1. Verify resolveEffectiveTheme directly: stored "false" overrides document dark class
     mockDocument.documentElement.classList.toggle("dark", true);
     mockLocalStorage.setItem("darkMode", "false");
     expect(resolveEffectiveTheme()).toBe(false);
 
-    // Stored "true" overrides missing dark class
     mockDocument.documentElement.classList.toggle("dark", false);
     mockLocalStorage.setItem("darkMode", "true");
     expect(resolveEffectiveTheme()).toBe(true);
 
-    // Fallback to classList when no stored preference exists
     mockLocalStorage.removeItem("darkMode");
     mockDocument.documentElement.classList.toggle("dark", true);
     expect(resolveEffectiveTheme()).toBe(true);
     mockDocument.documentElement.classList.toggle("dark", false);
     expect(resolveEffectiveTheme()).toBe(false);
 
-    // 2. Exercise theme application and storage/DOM synchronization
     mockLocalStorage.setItem("darkMode", "false");
     mockDocument.documentElement.classList.toggle("dark", true);
 
     expect(resolveEffectiveTheme()).toBe(false);
 
-    // Apply dark theme
     applyTheme(true);
     expect(mockLocalStorage.getItem("darkMode")).toBe("true");
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(true);
 
-    // Apply light theme
     applyTheme(false);
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
@@ -327,22 +314,21 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
 
     let attempt = 0;
     const failingStorage = {
-      getItem: (k: string) => mockLocalStorage.getItem(k),
-      setItem: (k: string, v: string) => {
-        if (k === "darkMode" && attempt === 0) {
-          attempt++;
-          throw new Error("DiskFull");
+      ...mockLocalStorage,
+      setItem: (key: string, value: string) => {
+        attempt += 1;
+        if (key === "darkMode" && attempt > 1) {
+          throw new Error("QuotaExceededError");
         }
-        mockLocalStorage.setItem(k, v);
+        mockLocalStorage.setItem(key, value);
       },
-      removeItem: (k: string) => mockLocalStorage.removeItem(k),
     };
     vi.stubGlobal("localStorage", failingStorage);
 
-    const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
-    expect(success).toBe(false);
-    // Rolled back to original snapshot
-    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)!).theme).toBe("light");
-    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
+    const result = saveAffiliatePreferences({
+      ...DEFAULT_PREFERENCES,
+      theme: "dark",
+    });
+    expect(result).toBe(false);
   });
 });

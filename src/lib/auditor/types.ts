@@ -1,4 +1,4 @@
-/**
+/*
  * SOC 2 Type II Evidence Packager Types and Schemas
  * Covers Trust Services Criteria: Confidentiality, Processing Integrity, and Availability
  */
@@ -50,7 +50,7 @@ export interface CiAuditLogItem {
   workflowName: string;
   triggerEvent: string;
   stepsAudited: string[];
-  securityChecksEnforced: string[];
+  securityChecksEnforced: string;
   status: "Passed" | "Active" | "Configured";
 }
 
@@ -143,6 +143,128 @@ export interface PackVerificationResult {
   errors: string[];
   auditorKeyId: string;
   generatedAt: string;
+}
+
+// --------------------------------------------------------------------------
+// Secure External Auditor Sharing
+// --------------------------------------------------------------------------
+
+/**
+ * PGP-style encryption algorithms supported for external auditor sharing.
+ * The encryption is performed client-side using the auditor's public key;
+ * the private key never leaves the auditor's possession.
+ */
+export type AuditorEncryptionAlgorithm = "AES-256-GCM" | "ChaCha20-Poly1305";
+
+/**
+ * Key encapsulation method used to wrap the symmetric content key.
+ * "X25519" is the PGP-style curve25519 ECDH + HKDF + AES-KeyWrap construction.
+ */
+export type KeyEncapsulationMethod = "X25519" | "RSA-OAEP-SHA-256";
+export type AuditorKeyEncapsulationMethod = KeyEncapsulationMethod;
+
+export interface AuditorPublicKey {
+  keyId: string;
+  organization: string;
+  algorithm: "Ed25519" | "X-25519" | "RSA-2048";
+  publicKeyPem: string;
+  fingerprint: string; // SHA-256 of the canonical public key bytes
+  expiresAt?: string;
+}
+
+export interface EncryptedSharingPayload {
+  /** Version of the encrypted payload envelope format. */
+  envelopeVersion: "1.0.0";
+  /** Unique sharing link IDentifier (also the capability token seed). */
+  sharingId: string;
+  /** Auditor public key identifier used to encrypt the content key. */
+  recipientKeyId: string;
+  /** Algorithm used for symmetric content encryption. */
+  contentAlgorithm: AuditorEncryptionAlgorithm;
+  /** Key encapsulation method used to wrap the content key. */
+  keyEncapsulationMethod: KeyEncapsulationMethod;
+  /** Base64 encoded wrapped content key (ECDH/AES-KeyWrap output). */
+  wrappedContentKeyBase64: string;
+  /** Base64 encoded initialization vector / nonce. */
+  ivBase64: string;
+  /** Base64 encoded ciphertext of the bundle archive. */
+  ciphertextBase64: string;
+  /** Base64 encoded authentication tag (AES-GCM). */
+  authTagBase64?: string;
+  /** SHA-256 of the plaintext bundle for integrity verification after decryption. */
+  plaintextSha256: string;
+  /** Size of the plaintext bundle in bytes. */
+  plaintextSizeBytes: number;
+  /** ISO timestamp when the payload was created. */
+  createdAt: string;
+  /** ISO timestamp at which the sharing link expires. */
+  expiresAt: string;
+  /** ISO timestamp after which the payload is purged from storage. */
+  purgeAt: string;
+  /** Maximum number of downloads allowed (optional). */
+  maxDownloads?: number;
+  /** Number of downloads remaining. */
+  remainingDownloads?: number;
+  /** Auditor organization label for display. */
+  auditorOrganization: string;
+  /** Signature over the canonical envelope header by the sharing service. */
+  signatureHex: string;
+}
+
+export interface SharingLinkPolicy {
+  /** Absolute expiry timestamp (ISO 8601). */
+  expiresAt: string;
+  /** Maximum lifetime in seconds from creation. */
+  maxLifetimeSeconds: number;
+  /** Maximum number of downloads. */
+  maxDownloads: number;
+  /** Whether the link is single-use. */
+  singleUse: boolean;
+  /** Optional IP allowlist for download attempts. */
+  allowedIps?: string[];
+  /** Required auditor email address for access confirmation. */
+  recipientEmail?: string;
+}
+
+export interface SharingLinkRecord {
+  sharingId: string;
+  packTitle: string;
+  auditorOrganization: string;
+  recipientKeyId: string;
+  createdAt: string;
+  expiresAt: string;
+  purgeAt: string;
+  maxDownloads: number;
+  downloadsUsed: number;
+  status: "active" | "expired" | "revoked" | "exhausted";
+  lastAccessedAt?: string;
+  lastAccessedIp?: string;
+  shareUrl: string;
+}
+
+export interface SharingAccessEvent {
+  sharingId: string;
+  eventType: "created" | "downloaded" | "expired" | "revoked" | "denied";
+  timestamp: string;
+  ipV4?: string;
+  userAgent?: string;
+  reason?: string;
+}
+
+export interface ExternalSharingRequest {
+  packTitle: string;
+  auditorPublicKey: AuditorPublicKey;
+  policy: SharingLinkPolicy;
+  bundleArchiveBytes: Uint8Array;
+  onProgress?: (step: string) => void;
+}
+
+export interface ExternalSharingResult {
+  payload: EncryptedSharingPayload;
+  record: SharingLinkRecord;
+  shareUrl: string;
+  expiresAt: string;
+  purgeAt: string;
 }
 
 /**

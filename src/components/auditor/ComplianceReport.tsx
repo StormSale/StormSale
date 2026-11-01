@@ -18,6 +18,10 @@ import {
   Download,
   Clock,
   Lock,
+  Share2,
+  KeyRound,
+  Copy,
+  Check,
   Calendar,
   ShieldCheck,
   Layers,
@@ -34,7 +38,7 @@ import {
   buildSignedAuditReport,
   exportComplianceToCSV,
   generateBrandedPDFHtml,
-  printOrSavePDF,
+  printOrSavePDf,
   downloadFile,
   DEFAULT_COMPLIANCE_STANDARDS,
   DEFAULT_AUDIT_RECORDS,
@@ -84,6 +88,30 @@ const statusMap: Record<string, { badge: string; icon: ComponentType<{ className
     badge: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400",
     icon: AlertTriangle,
   },
+};
+
+const EXPIRY_OPTIONS = [
+  { label: "1 hour", hours: 1 },
+  { label: "24 hours", hours: 24 },
+  { label: "7 days", hours: 168 },
+];
+
+const generateShareToken = () => {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const generatePassphrase = () => {
+  const words = ["audit", "vault", "cipher", "stellar", "ledger", "secure", "proof", "key"];
+  const pick = () => words[Math.floor(Math.random() * words.length)];
+  return `${pick()}-${pick()}-${generateShareToken().slice(0, 6)}`;
 };
 
 export interface ComplianceReportProps {
@@ -188,7 +216,7 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({ defaultTab =
   // Generate Branded PDF Action
   const handleExportPDF = () => {
     const html = generateBrandedPDFHtml(currentReport);
-    printOrSavePDF(html);
+    printOrSavePDf(html);
     setLastExportedSignature({
       digest: currentReport.cryptoSignature.digestHash,
       cert: currentReport.cryptoSignature.signatureCert,
@@ -209,6 +237,32 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({ defaultTab =
       cert: currentReport.cryptoSignature.signatureCert,
       time: new Date().toLocaleTimeString(),
     });
+  };
+
+  const [expiryHours, setExpiryHours] = useState(24);
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [passphrase, setPassphrase] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<Date | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleGenerateLink = () => {
+    const token = generateShareToken();
+    const expiry = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+    setShareLink(`${window.location.origin}/auditor/shared/${token}`);
+    setPassphrase(generatePassphrase());
+    setExpiresAt(expiry);
+    setCopied(false);
+  };
+
+  const handleCopy = async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   return (
@@ -573,6 +627,99 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({ defaultTab =
                 </CardContent>
               </Card>
             </div>
+
+            {/* Share / Expiry-Locked Link Panel */}
+            <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800">
+              <CardHeader className="pb-4 pt-6 px-6 sm:px-8 border-b border-slate-100 dark:border-zinc-800">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                    <Share2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+                      Expiry-Locked Sharing
+                    </CardTitle>
+                    <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
+                      Generate a passphrase-protected share link that expires automatically
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6 sm:p-8 space-y-5">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                      Link Expiry:
+                    </label>
+                    <select
+                      value={expiryHours}
+                      onChange={(e) => setExpiryHours(Number(e.target.value))}
+                      className="h-10 px-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      {EXPIRY_OPTIONS.map((opt) => (
+                        <option key={opt.hours} value={opt.hours}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button
+                    onClick={handleGenerateLink}
+                    className="h-10 rounded-xl bg-zinc-900 dark:bg-indigo-600 text-white font-bold text-xs shadow-md hover:bg-zinc-800 dark:hover:bg-indigo-500 transition-all"
+                  >
+                    <KeyRound className="w-4 h-4 mr-1.5" />
+                    Generate Secure Share Link
+                  </Button>
+                </div>
+
+                {shareLink && (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-3 flex items-center gap-2">
+                      <Lock className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                      <span className="text-xs font-mono text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                        {shareLink}
+                      </span>
+                      <Button
+                        onClick={handleCopy}
+                        variant="outline"
+                        className="h-8 rounded-lg text-xs font-bold flex-shrink-0"
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 mr-1 text-emerald-500" />
+                            Copied
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 mr-1" />
+                            Copy
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {passphrase && (
+                      <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3">
+                        <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400 text-xs font-bold">
+                          <KeyRound className="w-4 h-4" />
+                          Share passphrase (share separately):
+                        </div>
+                        <div className="mt-1 text-sm font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                          {passphrase}
+                        </div>
+                      </div>
+                    )}
+
+                    {expiresAt && (
+                      <div className="flex items-center gap-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                        <Clock className="w-4 h-4" />
+                        Expires at {expiresAt.toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             {/* Automated SOC 2 Type II Evidence Packager */}
             <Soc2EvidenceExport />
