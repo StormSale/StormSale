@@ -14,7 +14,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../context/Web3Context", () => ({
-  useWeb3: () => ({ isConnected: mocks.isConnected, openWalletModal: mocks.openWalletModal }),
+  useWeb3: () => ({
+    isConnected: mocks.isConnected,
+    openWalletModal: mocks.openWalletModal,
+    disconnectWallet: vi.fn(),
+  }),
   Web3Provider: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("../context/WalletConnectContext", () => ({
@@ -23,6 +27,7 @@ vi.mock("../context/WalletConnectContext", () => ({
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
   NotificationWrapper: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: vi.fn() }),
 }));
 vi.mock("../hooks/usePreference", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/usePreference")>();

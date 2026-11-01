@@ -20,6 +20,7 @@ vi.mock("../context/WalletConnectContext", () => ({
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
   NotificationWrapper: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: vi.fn() }),
 }));
 vi.mock("../hooks/useWeb3", () => ({
   useWeb3: () => ({ isConnected: mockState.connected }),

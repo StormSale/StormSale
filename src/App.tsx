@@ -2,10 +2,16 @@ import { Suspense, useState, useEffect, useRef, lazy } from "react";
 import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
-import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import {
+  NotificationProvider,
+  NotificationWrapper,
+  useNotification,
+} from "./context/NotificationContext";
 import { useWeb3 } from "./hooks/useWeb3";
+import { useIdleDisconnect } from "./hooks/useIdleDisconnect";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { SessionTimeoutModal } from "./components/shared/SessionTimeoutModal";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
@@ -93,7 +99,8 @@ const VALID_PAGES = [
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
-  const { isConnected, openWalletModal } = useWeb3();
+  const { isConnected, openWalletModal, disconnectWallet } = useWeb3();
+  const { showNotification } = useNotification();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
@@ -137,6 +144,57 @@ function Router() {
     return parseProofFromUrl(window.location.href);
   });
 
+  const { isWarningOpen, remainingSeconds, extendSession, handleManualDisconnect } =
+    useIdleDisconnect({
+      isConnected,
+      onDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "warning",
+          title: "Session Expired",
+          message:
+            "Your wallet was automatically disconnected after 30 minutes of inactivity for your security.",
+          duration: 8000,
+        });
+      },
+      onExtend: () => {
+        showNotification({
+          type: "info",
+          title: "Session Extended",
+          message: "Your active session has been extended.",
+          duration: 3000,
+        });
+      },
+      onManualDisconnect: () => {
+        disconnectWallet();
+        showNotification({
+          type: "info",
+          title: "Wallet Disconnected",
+          message: "You have disconnected your wallet.",
+          duration: 3000,
+        });
+      },
+    });
+
+  // ?timeout_preview=1 opens the warning without a real idle session, for
+  // local development only. Its buttons just close the preview, so it never
+  // extends or disconnects a real wallet.
+  const [isPreviewOpen, setIsPreviewOpen] = useState(
+    () =>
+      import.meta.env.DEV &&
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("timeout_preview") === "1",
+  );
+
+  const sessionTimeoutModal = (
+    <SessionTimeoutModal
+      isOpen={isWarningOpen || isPreviewOpen}
+      remainingSeconds={remainingSeconds}
+      onExtend={isWarningOpen ? extendSession : () => setIsPreviewOpen(false)}
+      onDisconnect={isWarningOpen ? handleManualDisconnect : () => setIsPreviewOpen(false)}
+    />
+  );
+
   const handleNavigate = (page: string) => {
     if (VALID_PAGES.includes(page as Page)) {
       setCurrentPage(page as Page);
@@ -162,6 +220,7 @@ function Router() {
     return (
       <>
         <ConnectWalletModal />
+        {sessionTimeoutModal}
         <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans selection:bg-indigo-500/30">
           <header className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
             <div className="container mx-auto px-4 py-3 flex justify-between items-center">
@@ -226,6 +285,7 @@ function Router() {
   return (
     <>
       <ConnectWalletModal />
+      {sessionTimeoutModal}
       <MultiSigApprovalModal />
       <RpcStatusModal />
       <ZKProofVerifierModal
