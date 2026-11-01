@@ -42,6 +42,27 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
       expect(result).toBe(false);
     });
 
+    it("preserves large payloads exactly when copying via navigator.clipboard", async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined);
+      setNavigator({
+        clipboard: {
+          writeText: mockWriteText,
+        },
+      });
+
+      const chunk = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      const largePayload = chunk.repeat(Math.ceil((64 * 1024) / chunk.length)).slice(0, 64 * 1024);
+      expect(largePayload.length).toBe(64 * 1024);
+      const result = await copyToClipboard(largePayload);
+      expect(result).toBe(true);
+      expect(mockWriteText).toHaveBeenCalledTimes(1);
+      expect(mockWriteText.mock.calls[0]).toHaveLength(1);
+      const written = mockWriteText.mock.calls[0][0];
+      expect(typeof written).toBe("string");
+      expect(written.length).toBe(largePayload.length);
+      expect(written).toBe(largePayload);
+    });
+
     it("uses navigator.clipboard.writeText when available", async () => {
       const mockWriteText = vi.fn().mockResolvedValue(undefined);
       setNavigator({

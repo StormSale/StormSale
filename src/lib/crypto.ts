@@ -1,4 +1,4 @@
-/**
+/*
  * Secure Affiliate Sale Payload Crypto (Issue #49)
  * Real AES-GCM-256 envelope encryption via WebCrypto (`crypto.subtle`).
  * Envelope: base64(JSON { v:1, alg:"AES-GCM-256", iv:b64(12B), data:b64(ct) })

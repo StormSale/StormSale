@@ -392,14 +392,10 @@ export class RpcFallbackManager {
       toUrl: nextCandidate.url,
       reason,
     };
-    this.failoverHistory.unshift(failoverEvent);
-    if (this.failoverHistory.length > 50) {
-      this.failoverHistory.pop();
+    this.failoverHistory.push(failoverEvent);
+    if (this.failoverHistory.length > 100) {
+      this.failoverHistory.shift();
     }
-
-    console.warn(
-      `[RPC Silent Failover] Node "${previousEndpoint.name}" failed: ${reason}. Silently failed over to "${nextCandidate.name}" (${nextCandidate.url}).`,
-    );
 
     this.notifyListeners({
       type: "failover",
@@ -412,224 +408,8 @@ export class RpcFallbackManager {
   }
 
   /**
-   * Measures latency and health of a single RPC endpoint.
-   */
-  public async checkEndpointHealth(
-    idOrUrl: string,
-    timeoutMs?: number,
-  ): Promise<RpcEndpointStatus> {
-    const ep =
-      this.endpoints.get(idOrUrl) || [...this.endpoints.values()].find((e) => e.url === idOrUrl);
-
-    if (!ep) {
-      throw new Error(`Endpoint '${idOrUrl}' not found.`);
-    }
-
-    const tMs = timeoutMs ?? this.options.timeoutMs;
-    const startTime = Date.now();
-
-    try {
-      // Live JSON-RPC getHealth probe with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), tMs);
-      let body: { result?: { status?: string } } | null = null;
-
-      try {
-        const response = await fetch(ep.url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getHealth",
-            params: null,
-          }),
-          signal: controller.signal,
-        });
-
-        body = response.ok ? await response.json() : null;
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      const latencyMs = Date.now() - startTime;
-
-      if (body?.result?.status === "healthy") {
-        ep.status = "healthy";
-        ep.latencyMs = latencyMs;
-        ep.consecutiveFailures = 0;
-      } else {
-        ep.consecutiveFailures += 1;
-        ep.status =
-          ep.consecutiveFailures >= this.options.maxConsecutiveFailuresBeforeUnreachable
-            ? "unreachable"
-            : "degraded";
-        ep.latencyMs = latencyMs;
-      }
-    } catch {
-      ep.consecutiveFailures += 1;
-      ep.status =
-        ep.consecutiveFailures >= this.options.maxConsecutiveFailuresBeforeUnreachable
-          ? "unreachable"
-          : "degraded";
-      ep.latencyMs = null;
-    }
-
-    ep.lastCheckedAt = new Date().toISOString();
-    this.notifyListeners({
-      type: "health_check",
-      active: this.getActiveEndpoint(),
-      endpoints: this.getAllEndpoints(),
-    });
-
-    return ep;
-  }
-
-  /**
-   * Probes all registered RPC endpoints in parallel and updates their status.
-   */
-  public async checkAllHealth(timeoutMs?: number): Promise<RpcEndpointStatus[]> {
-    const promises = this.getAllEndpoints().map((ep) =>
-      this.checkEndpointHealth(ep.id, timeoutMs).catch(() => ep),
-    );
-    await Promise.all(promises);
-    return this.getAllEndpoints();
-  }
-
-  /**
-   * Executes a Soroban RPC operation with automated, silent failover on timeout or error.
-   */
-  public async executeWithFallback<T>(
-    operation: (server: rpc.Server, endpoint: RpcEndpointStatus) => Promise<T>,
-    options: FallbackExecutionOptions = {},
-  ): Promise<T> {
-    const timeoutMs = options.timeoutMs ?? this.options.timeoutMs;
-    const allEndpoints = this.getAllEndpoints();
-    const maxAttempts = allEndpoints.length;
-    let attempts = 0;
-    let lastError: Error | null = null;
-
-    while (attempts < maxAttempts) {
-      const activeEndpoint = this.getActiveEndpoint();
-      activeEndpoint.totalRequests += 1;
-      const server = new rpc.Server(activeEndpoint.url, {
-        allowHttp: activeEndpoint.url.startsWith("http://"),
-      });
-
-      try {
-        // Enforce connection timeout
-        const operationPromise = operation(server, activeEndpoint);
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(
-            () =>
-              reject(
-                new Error(`RPC node '${activeEndpoint.name}' timed out after ${timeoutMs}ms.`),
-              ),
-            timeoutMs,
-          );
-        });
-
-        let result: T;
-        try {
-          result = await Promise.race([operationPromise, timeoutPromise]);
-        } finally {
-          if (timeoutId) {
-            clearTimeout(timeoutId);
-          }
-        }
-
-        // Success: record healthy state
-        activeEndpoint.status = "healthy";
-        activeEndpoint.consecutiveFailures = 0;
-        return result;
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        lastError = error;
-        attempts += 1;
-        activeEndpoint.failedRequests += 1;
-        activeEndpoint.consecutiveFailures += 1;
-        activeEndpoint.status =
-          activeEndpoint.consecutiveFailures >= this.options.maxConsecutiveFailuresBeforeUnreachable
-            ? "unreachable"
-            : "degraded";
-
-        // Silent failover to next node if more attempts remain
-        if (attempts < maxAttempts) {
-          const reason = error.message || "Connection timeout or failure";
-          this.failoverToNext(reason);
-        }
-      }
-    }
-
-    throw new Error(
-      `All ${maxAttempts} RPC endpoints failed. Last error: ${lastError?.message || lastError}`,
-    );
-  }
-
-  /**
-   * Executes a Horizon REST request with automatic silent failover across Horizon endpoints.
-   */
-  public async executeHorizonFetchWithFallback(
-    pathBuilder: (horizonBaseUrl: string) => string,
-    init?: RequestInit,
-    options: FallbackExecutionOptions = {},
-  ): Promise<Response> {
-    const timeoutMs = options.timeoutMs ?? this.options.timeoutMs;
-    const horizonNodes = DEFAULT_HORIZON_NODES;
-    let lastError: Error | null = null;
-
-    for (const horizonUrl of horizonNodes) {
-      const cleanUrl = horizonUrl.replace(/\/+$/, "");
-      const fullUrl = pathBuilder(cleanUrl);
-
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        const response = await fetch(fullUrl, {
-          ...init,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-        if (response.ok || response.status === 404) {
-          return response;
-        }
-        throw new Error(`Horizon node returned HTTP ${response.status}`);
-      } catch (err: unknown) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        lastError = error;
-        console.warn(
-          `[Horizon Fallback] Node "${horizonUrl}" failed. Silently trying next node...`,
-        );
-      }
-    }
-
-    throw new Error(`All Horizon endpoints failed. Last error: ${lastError?.message || lastError}`);
-  }
-
-  /**
-   * Resets all health statuses and consecutive failure counters.
-   */
-  public resetStatus(): void {
-    this.endpoints.forEach((ep) => {
-      ep.status = "untested";
-      ep.latencyMs = null;
-      ep.consecutiveFailures = 0;
-      ep.failedRequests = 0;
-      ep.totalRequests = 0;
-    });
-    this.failoverHistory = [];
-    this.notifyListeners({
-      type: "active_changed",
-      active: this.getActiveEndpoint(),
-      endpoints: this.getAllEndpoints(),
-    });
-  }
-
-  /**
-   * Subscribes to RPC manager failover and health check events.
+   * Registers a listener for failover, health, and active endpoint change events.
+   * Returns an unsubscribe function.
    */
   public subscribe(
     listener: (event: {
@@ -654,12 +434,9 @@ export class RpcFallbackManager {
     this.listeners.forEach((listener) => {
       try {
         listener(event);
-      } catch (err) {
-        console.error("Error in RPC fallback listener:", err);
+      } catch {
+        // Listener errors must not break failover processing
       }
     });
   }
 }
-
-// Global Singleton Instance for StormSale application runtime
-export const rpcFallbackManager = new RpcFallbackManager();

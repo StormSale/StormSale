@@ -27,6 +27,10 @@ describe("Stellar Helpers", () => {
     expect(isValidStellarAddress(validC)).toBe(true);
   });
 
+  it("rejects a malformed Soroban contract ID", () => {
+    expect(isValidStellarAddress("CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCY")).toBe(false);
+  });
+
   it("rejects invalid addresses like EVM 0x or wrong lengths", () => {
     expect(isValidStellarAddress("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")).toBe(false);
     expect(isValidStellarAddress("GBBD123")).toBe(false);

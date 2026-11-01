@@ -350,7 +350,7 @@ export function CopyableAddress({
               initial={{ scale: 0.5, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.5, opacity: 0 }}
-              className="text-zinc-400 group-hover:text-zinc-600 dark:group-hover:text-zinc-200"
+              className="text-zinc-400 group-hover:text-indigo-500 transition-colors"
             >
               <Copy className="w-3.5 h-3.5" />
             </motion.span>
@@ -358,57 +358,5 @@ export function CopyableAddress({
         </AnimatePresence>
       </span>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Compact Copy Badge Component (CopyBadge)
-// ---------------------------------------------------------------------------
-
-export interface CopyBadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
-  text: string;
-  label?: string;
-  showHashIcon?: boolean;
-}
-
-export function CopyBadge({
-  text,
-  label,
-  showHashIcon = true,
-  className,
-  ...props
-}: CopyBadgeProps) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    const ok = await copyToClipboard(text);
-    if (ok) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    }
-  };
-
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      onClick={handleCopy}
-      aria-label={`Copy ${label || text}`}
-      className={cn(
-        "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono font-medium border border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700/60 transition-colors cursor-pointer select-none",
-        copied &&
-          "border-emerald-500/60 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40",
-        className,
-      )}
-      {...props}
-    >
-      {showHashIcon && <Hash className="w-3 h-3 text-zinc-400" />}
-      <span>{label || text}</span>
-      {copied ? (
-        <Check className="w-3 h-3 text-emerald-500" />
-      ) : (
-        <Copy className="w-3 h-3 text-zinc-400" />
-      )}
-    </span>
   );
 }

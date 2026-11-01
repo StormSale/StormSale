@@ -20,6 +20,23 @@ describe("MerkleTreeVisualizer Component & Cryptographic Engine Suite", () => {
     vi.restoreAllMocks();
   });
 
+  // Failing CI check: round-trip accuracy of Merkle proofs for large payloads.
+  it("verifies Merkle proof round-trip accuracy for a large payload of 64 leaves", async () => {
+    const orders = Array.from({ length: 64 }, (_, i) => ({
+      ...SAMPLE_SETTLEMENT_BATCHES[0].orders[i % SAMPLE_SETTLEMENT_BATCHES[0].orders.length],
+      orderId: `ORD-LARGE-${i}`,
+      txHash: `0x${i.toString(16).padStart(64, "0")}`,
+    }));
+    const tree = await buildMerkleTree(orders);
+    const root = tree.root ?? tree.rootHash;
+    for (const idx of [0, 31, 63]) {
+      const proof = await generateMerkleProof(tree, idx, root);
+      const result = await verifyMerkleProofStepByStep(proof, root);
+      expect(result.isValid).toBe(true);
+      expect(result.computedRoot).toBe(root);
+    }
+  });
+
   it("renders the MerkleTreeVisualizer component inside NotificationProvider with default batch", () => {
     const html = renderToString(
       <NotificationProvider>
