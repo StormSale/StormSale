@@ -8,8 +8,8 @@ import {
 } from "../components/ui/copy-button";
 
 describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
-  const originalNavigator = globalThis.navigator;
-  const originalDocument = (globalThis as any).document;
+  const originalNav = globalThis.navigator as any;
+  const originalDoc = (globalThis as any).document;
 
   const setNavigator = (value: any) => {
     Object.defineProperty(globalThis, "navigator", {
@@ -20,6 +20,10 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   };
 
   const setDocument = (value: any) => {
+    if (value === undefined) {
+      delete (globalThis as any).document;
+      return;
+    }
     Object.defineProperty(globalThis, "document", {
       value,
       configurable: true,
@@ -32,8 +36,9 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
   });
 
   afterEach(() => {
-    setNavigator(originalNavigator);
-    setDocument(originalDocument);
+    setNavigator(originalNav);
+    setDocument(originalDoc);
+    vi.restoreAllMocks();
   });
 
   describe("copyToClipboard engine & fallback mechanism", () => {
@@ -50,9 +55,9 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         },
       });
 
-      const result = await copyToClipboard("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      const result = await copyToClipboard("GB6M6OEXMAMPLESTELLARPUBLICKEY");
       expect(result).toBe(true);
-      expect(mockWriteText).toHaveBeenCalledWith("GB6M4OEXAMPLESTELLARPUBLICKEY");
+      expect(mockWriteText).toHaveBeenCalledWith("GB6M6OEXMAMPLESTELLARPUBLICKEY");
     });
 
     it("falls back to document.execCommand when navigator.clipboard throws", async () => {
@@ -123,7 +128,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
         }),
       });
 
-      const result = await copyToClipboard("GB6M4OFAIL");
+      const result = await copyToClipboard("GB6M6OFAIL");
       expect(result).toBe(false);
     });
   });
@@ -132,7 +137,7 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
     it("renders CopyButton with custom label and accessible attributes", () => {
       const html = renderToString(
         <CopyButton
-          text="GB6M4OEXAMPLESTELLARPUBLICKEY"
+          text="GB6M6OEXMAMPLESTELLARPUBLICKEY"
           label="Copy Public Key"
           copiedLabel="Copied Address!"
         />,

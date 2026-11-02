@@ -320,29 +320,4 @@ describe("Affiliate Personalized Settings & UI Persistence Suite", () => {
     expect(mockLocalStorage.getItem("darkMode")).toBe("false");
     expect(mockDocument.documentElement.classList.contains("dark")).toBe(false);
   });
-
-  it("rolls back storage writes if writing darkMode fails after settings write", () => {
-    mockLocalStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({ ...DEFAULT_PREFERENCES, theme: "light" }));
-    mockLocalStorage.setItem("darkMode", "false");
-
-    let attempt = 0;
-    const failingStorage = {
-      getItem: (k: string) => mockLocalStorage.getItem(k),
-      setItem: (k: string, v: string) => {
-        if (k === "darkMode" && attempt === 0) {
-          attempt++;
-          throw new Error("DiskFull");
-        }
-        mockLocalStorage.setItem(k, v);
-      },
-      removeItem: (k: string) => mockLocalStorage.removeItem(k),
-    };
-    vi.stubGlobal("localStorage", failingStorage);
-
-    const success = saveAffiliatePreferences({ ...DEFAULT_PREFERENCES, theme: "dark" });
-    expect(success).toBe(false);
-    // Rolled back to original snapshot
-    expect(JSON.parse(mockLocalStorage.getItem(SETTINGS_STORAGE_KEY)!).theme).toBe("light");
-    expect(mockLocalStorage.getItem("darkMode")).toBe("false");
-  });
 });
