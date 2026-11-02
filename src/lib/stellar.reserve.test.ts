@@ -115,4 +115,8 @@ describe("fetchStellarAccountDetails", () => {
     expect(details.exists).toBe(false);
     expect(details.spendableXlm).toBe(0);
   });
+
+  it("does not fetch the network for a sponsoring-only reserve case", () => {
+    expect(calculateAccountReserve(0, { numSponsoring: 0, numSponsored: 0 })).toBe(1);
+  });
 });
