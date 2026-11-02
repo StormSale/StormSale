@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "fix/issue-57-auditor-global-platform-ledger-performance",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "fix/issue-57-auditor-global-platform-ledger-performance": "main",
+    "main": null,
+    "origin": "main"
+  },
+  "order": [
+    "main",
+    "fix/issue-57-auditor-global-platform-ledger-performance",
+    "origin"
+  ]
+}
