@@ -41,6 +41,7 @@ export interface Notification {
   actionUrl?: string;
   onAction?: () => void;
   campaignId?: string;
+  createdAt?: number;
 }
 
 export interface NotificationContextType {
@@ -149,6 +150,7 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       id,
       persistent: isPersistent,
       duration: isPersistent ? 0 : (notification.duration ?? 5000),
+      createdAt: Date.now(),
     };
     setNotifications((prev) => [...prev, newNotification]);
     return id;
