@@ -22,6 +22,12 @@ import {
   KeyRound,
   Lock,
 } from "lucide-react";
+import {
+  createSettlementBatchIndex,
+  findFirstSettlementBatchOnOrAfterDate,
+  getSettlementBatchesInRange,
+} from "../../lib/auditor/auditHistorySearch";
+import { SAMPLE_SETTLEMENT_BATCHES } from "../../utils/merkle";
 
 interface AuditorOverviewProps {
   onTabChange?: (tab: string) => void;
@@ -239,6 +245,94 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           );
         })}
       </div>
+
+      <section className="border-y border-slate-200 dark:border-zinc-800 py-6">
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-5">
+          <div>
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Block-range Navigation & Search
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm text-zinc-500 dark:text-zinc-400">
+              Filter this organization&apos;s settlement records by inclusive ledger block range or
+              jump to the first settlement on or after a date.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              Start block
+              <input
+                type="number"
+                min="0"
+                value={rangeStart}
+                onChange={(event) => setRangeStart(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+                placeholder="First block"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              End block
+              <input
+                type="number"
+                min="0"
+                value={rangeEnd}
+                onChange={(event) => setRangeEnd(event.target.value)}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+                placeholder="Latest block"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              Jump to date
+              <input
+                type="date"
+                value={jumpDate}
+                onChange={(event) => {
+                  const date = event.target.value;
+                  setJumpDate(date);
+                  const match = findFirstSettlementBatchOnOrAfterDate(settlementIndex, date);
+                  if (match) {
+                    setRangeStart(String(match.ledgerSequence));
+                    setRangeEnd("");
+                  }
+                }}
+                className="h-10 w-full rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-4" aria-live="polite">
+          <p className="mb-2 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+            {rangedBatches.length} matching settlement{" "}
+            {rangedBatches.length === 1 ? "record" : "records"}
+          </p>
+          {rangedBatches.length === 0 ? (
+            <p className="border border-dashed border-slate-300 dark:border-zinc-700 px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+              No settlement records match this block range.
+            </p>
+          ) : (
+            <ol className="divide-y divide-slate-100 dark:divide-zinc-800 border-y border-slate-100 dark:border-zinc-800">
+              {rangedBatches.slice(0, 50).map((batch) => (
+                <li
+                  key={batch.batchId}
+                  className="flex flex-col gap-1 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <span className="text-sm font-medium text-zinc-900 dark:text-white">
+                    {batch.campaignName} · {batch.batchId} · {batch.orders.length} conversions
+                  </span>
+                  <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                    Block #{batch.ledgerSequence.toLocaleString()} · {batch.settledAt}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+          {rangedBatches.length > 50 && (
+            <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              Showing 50 of {rangedBatches.length} matches. Narrow the range to inspect more.
+            </p>
+          )}
+        </div>
+      </section>
 
       {/* Merkle Tree Proof Visualizer Banner */}
       <div className="relative overflow-hidden bg-gradient-to-r from-indigo-900 via-indigo-950 to-zinc-900 border border-indigo-500/30 rounded-3xl p-6 md:p-8 text-white shadow-xl">

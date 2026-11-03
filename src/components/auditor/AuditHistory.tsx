@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import { useState, type ComponentType } from "react";
 import {
   Card,
   CardContent,
@@ -20,6 +20,17 @@ import {
   GitFork,
 } from "lucide-react";
 import { getExportAuditHistory } from "../../lib/auditor/exportService";
+import { readAuditLedger } from "../../lib/auditLedger";
+import { SAMPLE_SETTLEMENT_BATCHES } from "../../utils/merkle";
+
+interface TimelineEntry {
+  id: string;
+  campaignAddress: string;
+  timestamp: string;
+  label: string;
+  reference: string;
+  metadata: [string, string][];
+}
 
 type AuditStatus = "Verified" | "Denied" | "Pending";
 
@@ -109,13 +120,54 @@ const statusConfig: Record<
   },
 };
 
-export const AuditHistory: React.FC<AuditHistoryProps> = ({
-  onTabChange,
-  onViewMerkleProof,
-}) => {
+export const AuditHistory: React.FC<AuditHistoryProps> = ({ onTabChange, onViewMerkleProof }) => {
   const { org } = useAuditorTenancy();
+  const [selectedCampaign, setSelectedCampaign] = useState("all");
   // Tenant boundary: the trail only ever shows this organization's sales.
   const auditRecords = recordsScopedToOrg(org.id, ALL_AUDIT_RECORDS);
+  const timelineEvents = recordsScopedToOrg(org.id, readAuditLedger());
+  const timelineSettlements = recordsScopedToOrg(
+    org.id,
+    SAMPLE_SETTLEMENT_BATCHES.map((batch) => ({
+      batch,
+      saleId: batch.orders[0]?.campaignId.replace(/^CAMP-/i, "") || "",
+    })),
+  ).map(({ batch }) => batch);
+  const timelineEntries: TimelineEntry[] = [
+    ...timelineEvents.map((event) => ({
+      id: `audit-${event.sequence}`,
+      campaignAddress: event.campaignAddress,
+      timestamp: event.timestamp,
+      label: event.action.replaceAll("_", " "),
+      reference: `Audit entry #${event.sequence}`,
+      metadata: [
+        ["Sale", event.saleId],
+        ["Auditor key", event.auditorPublicKey],
+        ["Event digest", event.eventHash],
+        ["Previous digest", event.prevHash],
+        ...(event.detail ? [["Details", event.detail]] : []),
+      ] as [string, string][],
+    })),
+    ...timelineSettlements.map((batch) => ({
+      id: `settlement-${batch.batchId}`,
+      campaignAddress: batch.campaignAddress,
+      timestamp: batch.settledAt,
+      label: `Settlement ${batch.batchId}`,
+      reference: `Block #${batch.ledgerSequence.toLocaleString()}`,
+      metadata: [
+        ["Campaign", batch.campaignName],
+        ["Conversion count", String(batch.orders.length)],
+        ["Merkle root", batch.contractRootHash],
+      ] as [string, string][],
+    })),
+  ].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+  const timelineGroups = new Map<string, TimelineEntry[]>();
+  for (const entry of timelineEntries) {
+    if (selectedCampaign !== "all" && entry.campaignAddress !== selectedCampaign) continue;
+    const campaignEntries = timelineGroups.get(entry.campaignAddress) ?? [];
+    campaignEntries.push(entry);
+    timelineGroups.set(entry.campaignAddress, campaignEntries);
+  }
   const dynamicRecords: AuditRecord[] = [
     ...getExportAuditHistory().map((evt) => ({
       saleId: `SOC2-${evt.id.slice(0, 6)}`,
@@ -141,9 +193,7 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
           </h2>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
             Read-only trail for{" "}
-            <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-              {org.name}
-            </span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{org.name}</span>
           </p>
         </div>
         <div className="flex gap-3 items-center">
@@ -185,6 +235,99 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
         </div>
       </div>
 
+      <section className="border-y border-slate-200 dark:border-zinc-800 py-6">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-5">
+          <div>
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-white">
+              Interactive Audit Timeline
+            </h3>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+              Campaign settlements link to their ledger blocks; access events include expandable
+              hash-chain metadata and are identified by local audit-ledger entry.
+            </p>
+          </div>
+          <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+            Campaign
+            <select
+              value={selectedCampaign}
+              onChange={(event) => setSelectedCampaign(event.target.value)}
+              className="h-10 min-w-56 rounded-md border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 text-sm"
+            >
+              <option value="all">All campaigns</option>
+              {Array.from(new Set(timelineEntries.map((entry) => entry.campaignAddress))).map(
+                (campaignAddress) => (
+                  <option key={campaignAddress} value={campaignAddress}>
+                    {campaignAddress}
+                  </option>
+                ),
+              )}
+            </select>
+          </label>
+        </div>
+
+        {timelineGroups.size === 0 ? (
+          <p className="py-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
+            No persisted audit-ledger events are available for this organization.
+          </p>
+        ) : (
+          <div className="space-y-5">
+            {Array.from(timelineGroups.entries()).map(([campaignAddress, events]) => (
+              <div
+                key={campaignAddress}
+                className="grid gap-3 lg:grid-cols-[minmax(12rem,0.8fr)_2fr]"
+              >
+                <div>
+                  <h4 className="text-sm font-bold text-zinc-900 dark:text-white">
+                    Campaign contract
+                  </h4>
+                  <p className="mt-1 break-all font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                    {campaignAddress}
+                  </p>
+                </div>
+                <ol className="relative space-y-3 border-l border-slate-200 dark:border-zinc-700 pl-5">
+                  {events.map((entry) => (
+                    <li key={entry.id} className="relative">
+                      <span className="absolute -left-[1.35rem] top-1.5 h-2 w-2 rounded-full bg-indigo-500 ring-4 ring-white dark:ring-zinc-950" />
+                      <div className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 px-4 py-3">
+                        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                          <span className="font-semibold text-sm text-zinc-900 dark:text-white">
+                            {entry.label}
+                          </span>
+                          <time
+                            dateTime={entry.timestamp}
+                            className="text-xs text-zinc-500 dark:text-zinc-400"
+                          >
+                            {new Date(entry.timestamp).toLocaleString()}
+                          </time>
+                        </div>
+                        <p className="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400">
+                          {entry.reference}
+                        </p>
+                        <details className="mt-3 border-t border-slate-100 dark:border-zinc-800 pt-2">
+                          <summary className="cursor-pointer text-xs font-semibold text-indigo-700 dark:text-indigo-300">
+                            View event metadata
+                          </summary>
+                          <dl className="mt-3 grid gap-x-4 gap-y-2 text-xs sm:grid-cols-2">
+                            {entry.metadata.map(([label, value]) => (
+                              <div key={label} className="min-w-0">
+                                <dt className="text-zinc-500 dark:text-zinc-400">{label}</dt>
+                                <dd className="mt-0.5 break-all font-mono text-zinc-800 dark:text-zinc-200">
+                                  {value}
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </details>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Records */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
         <CardHeader className="pt-8 px-8 pb-6 border-b border-slate-100 dark:border-zinc-800/50">
@@ -192,8 +335,7 @@ export const AuditHistory: React.FC<AuditHistoryProps> = ({
             All Audit Records
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            {dynamicRecords.length} total entries logged on-chain for this
-            organization
+            {dynamicRecords.length} total entries logged on-chain for this organization
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
