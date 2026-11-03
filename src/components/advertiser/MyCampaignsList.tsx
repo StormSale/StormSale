@@ -60,7 +60,7 @@ import {
   extendContractInstanceTTL,
 } from "../../lib/contractTTL";
 
-export type CampaignStatus = "Active" | "Paused" | "Completed";
+export type CampaignStatus = "Active" | "Paused" | "Completed" | "CONCLUDED";
 
 export interface Campaign {
   id: string;
@@ -69,6 +69,11 @@ export interface Campaign {
   status: CampaignStatus;
   commissionRate: number;
   clearingPeriod: string;
+  clearingPeriodSecs?: number;
+  clearingExpiresAt?: number;
+  pendingClaims?: number;
+  outstandingLiabilities?: number;
+  balance?: number;
   totalSales: number;
   totalRevenue: string;
   totalCommissions: string;
@@ -92,6 +97,11 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 10,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() + 7 * 86400000,
+    pendingClaims: 3,
+    outstandingLiabilities: 450,
+    balance: 3250,
     totalSales: 124,
     totalRevenue: "$24,800",
     totalCommissions: "$2,480",
@@ -113,6 +123,11 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Active",
     commissionRate: 15,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() + 3 * 86400000,
+    pendingClaims: 1,
+    outstandingLiabilities: 150,
+    balance: 750,
     totalSales: 89,
     totalRevenue: "$44,500",
     totalCommissions: "$6,675",
@@ -134,6 +149,11 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Paused",
     commissionRate: 12,
     clearingPeriod: "30 Days",
+    clearingPeriodSecs: 30 * 86400,
+    clearingExpiresAt: Date.now() + 14 * 86400000,
+    pendingClaims: 2,
+    outstandingLiabilities: 300,
+    balance: 680,
     totalSales: 67,
     totalRevenue: "$33,500",
     totalCommissions: "$4,020",
@@ -155,6 +175,11 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 8,
     clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() - 86400000, // Clearing period expired 1 day ago
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
+    balance: 1200,
     totalSales: 45,
     totalRevenue: "$22,500",
     totalCommissions: "$1,800",
@@ -176,6 +201,11 @@ export const initialMockCampaigns: Campaign[] = [
     status: "Completed",
     commissionRate: 5,
     clearingPeriod: "7 Days",
+    clearingPeriodSecs: 7 * 86400,
+    clearingExpiresAt: Date.now() - 10 * 86400000,
+    pendingClaims: 0,
+    outstandingLiabilities: 0,
+    balance: 0,
     totalSales: 110,
     totalRevenue: "$55,000",
     totalCommissions: "$2,750",
@@ -210,6 +240,32 @@ export const initialMockCampaigns: Campaign[] = [
     isRefunded: false,
     ttlRemainingLedgers: 420000,
   },
+  {
+    id: "7",
+    onChainId: 7,
+    name: "NFT Ticket Clearing Pending",
+    status: "Completed",
+    commissionRate: 10,
+    clearingPeriod: "14 Days",
+    clearingPeriodSecs: 14 * 86400,
+    clearingExpiresAt: Date.now() + 86400000, // Clearing period expires in 24 hours
+    pendingClaims: 2,
+    outstandingLiabilities: 200,
+    balance: 800,
+    totalSales: 30,
+    totalRevenue: "$15,000",
+    totalCommissions: "$1,500",
+    affiliates: 4,
+    createdAt: "2026-03-01",
+    contractAddress: "CF8Q...2468",
+    escrowInitial: 2500,
+    escrowBalance: 800,
+    initialBudgetXlm: 2500,
+    currentBalanceXlm: 800,
+    refillThresholdPercent: 15,
+    isRefunded: false,
+    ttlRemainingLedgers: 120000,
+  },
 ];
 
 export const mockCampaigns = initialMockCampaigns;
@@ -226,6 +282,10 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
   Completed: {
     badge: "bg-slate-200 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400",
     dot: "bg-slate-400 dark:bg-zinc-500",
+  },
+  CONCLUDED: {
+    badge: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400",
+    dot: "bg-indigo-500",
   },
 };
 

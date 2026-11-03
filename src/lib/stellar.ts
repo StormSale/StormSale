@@ -1368,6 +1368,17 @@ export async function refundCampaignEscrowContractCall(
 }
 
 /**
+ * Invokes contract refund_escrow method with advertiser signature to return unallocated escrow.
+ */
+export async function refundEscrowContractCall(
+  advertiserAddress: string,
+  campaignId: number,
+  walletType: WalletType = "freighter",
+): Promise<{ success: boolean; txHash: string }> {
+  return refundCampaignEscrowContractCall(advertiserAddress, campaignId, walletType);
+}
+
+/**
  * Mints an on-chain non-transferable soulbound achievement badge on Soroban / Stellar.
  * Badges cannot be transferred and cryptographically verify affiliate milestone sales volume.
  */

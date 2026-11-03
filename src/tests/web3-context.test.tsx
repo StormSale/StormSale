@@ -434,5 +434,28 @@ describe("Web3Context Suite — Automated Escrow Top-Up & Wallet Integration (#1
       mockRefundRes = await result.current.refundCampaignEscrow(2);
     });
     expect(mockRefundRes.success).toBe(true);
+
+    // Test factoryContract, getCampaignContract, and switchToStellarNetwork facades
+    await act(async () => {
+      const tx1 = await result.current.factoryContract.createCampaign("10", "604800");
+      const waited1 = await tx1.wait();
+      expect(waited1.success).toBe(true);
+
+      const tx2 = await result.current.factoryContract.joinCampaign("CA7Q...1234");
+      const waited2 = await tx2.wait();
+      expect(waited2.success).toBe(true);
+
+      const campContract = result.current.getCampaignContract("2");
+      const tx3 = await campContract.logEncryptedSale("GAFFILIATE_WALLET_ADDRESS", "100", {}, {}, {}, 10);
+      const waited3 = await tx3.wait();
+      expect(waited3.success).toBe(true);
+
+      const tx4 = await campContract.grantAuditAccess("sale-1", "GAUDITOR_WALLET_ADDRESS", {});
+      const waited4 = await tx4.wait();
+      expect(waited4.success).toBe(true);
+
+      const switched = await result.current.switchToStellarNetwork();
+      expect(switched).toBe(true);
+    });
   });
 });

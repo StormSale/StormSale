@@ -660,4 +660,95 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
       }),
     );
   });
+
+  it("handles allowance approval failure and multi-sig pending/approved button states", async () => {
+    wallet.approveTokenAllowance.mockRejectedValueOnce(new Error("User rejected signature"));
+    wallet.tokenAllowance = 100;
+
+    // Seed a pending_secondary proposal for Campaign #6
+    const storage = getLocalStorage();
+    storage.setItem(
+      "stormsale_multisig_refund_proposals",
+      JSON.stringify([
+        {
+          id: "safe-refund-6-1",
+          campaignId: "6",
+          campaignName: "Enterprise Soroban Summit",
+          amount: 18500,
+          amountUsd: "$18,500",
+          safeAddress: "GSAFE",
+          contractAddress: "CF8R...4321",
+          threshold: 2,
+          currentSignatures: 1,
+          signers: [],
+          status: "pending_secondary",
+          createdAt: new Date().toISOString(),
+        },
+      ]),
+    );
+
+    await act(async () => {
+      render(<MyCampaignsList />);
+    });
+
+    // Trigger allowance approval failure via Pre-Authorize button
+    const preAuthBtns = screen.getAllByRole("button", { name: /Pre-Authorize/i });
+    await act(async () => {
+      fireEvent.click(preAuthBtns[0]);
+    });
+
+    expect(notifications.showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "error",
+        title: "Allowance Approval Failed",
+      }),
+    );
+
+    // Switch to Completed tab to exercise pending_secondary button
+    const completedTab = screen.getByRole("button", { name: /^Completed/i });
+    await act(async () => {
+      fireEvent.click(completedTab);
+    });
+
+    const trackBtn = screen.getByRole("button", { name: /Track Multi-Sig Approval/i });
+    await act(async () => {
+      fireEvent.click(trackBtn);
+    });
+
+    // Update proposal to approved and re-render to exercise approved button
+    cleanup();
+    storage.setItem(
+      "stormsale_multisig_refund_proposals",
+      JSON.stringify([
+        {
+          id: "safe-refund-6-1",
+          campaignId: "6",
+          campaignName: "Enterprise Soroban Summit",
+          amount: 18500,
+          amountUsd: "$18,500",
+          safeAddress: "GSAFE",
+          contractAddress: "CF8R...4321",
+          threshold: 2,
+          currentSignatures: 2,
+          signers: [],
+          status: "approved",
+          createdAt: new Date().toISOString(),
+        },
+      ]),
+    );
+
+    await act(async () => {
+      render(<MyCampaignsList />);
+    });
+
+    const completedTab2 = screen.getByRole("button", { name: /^Completed/i });
+    await act(async () => {
+      fireEvent.click(completedTab2);
+    });
+
+    const releaseBtn = screen.getByRole("button", { name: /Release Multi-Sig Escrow/i });
+    await act(async () => {
+      fireEvent.click(releaseBtn);
+    });
+  });
 });

@@ -100,6 +100,7 @@ export interface Web3ContextType {
     asset?: SupportedEscrowAssetCode;
   }>;
   refundCampaignEscrow: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
+  refundEscrowOnChain: (campaignId: number) => Promise<{ success: boolean; txHash?: string }>;
   topUpCampaignEscrow: (
     campaignId: number,
     amount: number,
@@ -907,6 +908,7 @@ export function Web3Provider({
         logSaleOnChain,
         claimPayoutOnChain,
         refundCampaignEscrow,
+        refundEscrowOnChain: refundCampaignEscrow,
         topUpCampaignEscrow,
         batchClaimPayoutsOnChain,
         registerPasskeyAccount,
