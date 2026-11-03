@@ -1,4 +1,5 @@
 import { Suspense, useState, useEffect, useRef, lazy } from "react";
+import { AnimatePresence } from "framer-motion";
 import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
@@ -6,6 +7,7 @@ import { NotificationProvider, NotificationWrapper } from "./context/Notificatio
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
+import { IndigoBootLoader } from "./components/shared/IndigoBootLoader";
 import { initTelegramWebApp, syncTelegramTheme, isTelegramMiniApp } from "./lib/telegram";
 import { MultiSigApprovalModal } from "./components/shared/MultiSigApprovalModal";
 import { RpcStatusModal } from "./components/shared/RpcStatusModal";
@@ -92,9 +94,29 @@ const VALID_PAGES = [
 
 type Page = (typeof VALID_PAGES)[number];
 
-function Router() {
+export interface RouterProps {
+  initialBooting?: boolean;
+  fastBoot?: boolean;
+}
+
+export function Router({ initialBooting, fastBoot }: RouterProps = {}) {
   const { isConnected, openWalletModal } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
+  const [isBooting, setIsBooting] = useState<boolean>(() => {
+    if (typeof initialBooting === "boolean") return initialBooting;
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("boot") === "false") return false;
+      if (params.get("boot") === "true") return true;
+    }
+    return import.meta.env.MODE !== "test";
+  });
+
+  const shouldFastBoot =
+    typeof fastBoot === "boolean"
+      ? fastBoot
+      : typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("fast") === "true";
 
   const [currentPage, setCurrentPage] = usePreference<Page>(
     "stormsale.app.currentPage",
@@ -220,6 +242,18 @@ function Router() {
           </main>
         </div>
       </>
+    );
+  }
+
+  if (isBooting) {
+    return (
+      <AnimatePresence mode="wait">
+        <IndigoBootLoader
+          key="indigo-boot-loader"
+          fast={shouldFastBoot}
+          onComplete={() => setIsBooting(false)}
+        />
+      </AnimatePresence>
     );
   }
 
