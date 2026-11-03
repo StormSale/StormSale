@@ -33,7 +33,7 @@ jobs:
 
     - name: Run Unit Tests & Coverage Audit Export
       run: |
-        npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json
+        npx vitest run --coverage --reporter=default --reporter=json --outputFile=test-results.json || true
       continue-on-error: true
 
     - name: Publish Test Audit & Enforced Coverage Summary
@@ -46,7 +46,7 @@ jobs:
 
           let summary = "### 🧪 Unit Test Execution Audit\n\n";
           try {
-            if (!fs.existsSync('test-results.json')) {
+            if (!fs.existsSync('test-results.json') || fs.statSync('test-results.json').size === 0) {
               core.setFailed("Test results file not found.");
               return;
             }

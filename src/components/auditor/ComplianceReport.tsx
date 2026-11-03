@@ -1,4 +1,4 @@
-import { useState, useMemo, type ComponentType } from "react";
+import { useState, useMemo, useEffect, useRef, type ComponentType } from "react";
 import {
   Card,
   CardContent,
@@ -40,6 +40,7 @@ import {
   DEFAULT_AUDIT_RECORDS,
   type ComplianceExportOptions,
 } from "../../lib/complianceExport";
+import { computeAuditDigest, type AuditDigestResult } from "../../lib/crypto.worker";
 
 const anomalyFlags = [
   {
@@ -127,6 +128,12 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({ defaultTab =
     time: string;
   } | null>(null);
 
+  // Off-main-thread cryptographic digest state (AES/SHA work runs in crypto.worker.ts)
+  const [workerDigest, setWorkerDigest] = useState<AuditDigestResult | null>(null);
+  const [digestPending, setDigestPending] = useState(false);
+  const [digestError, setDigestError] = useState<string | null>(null);
+  const digestRequestId = useRef(0);
+
   // Anomaly reporting state
   const [reportedFlags, setReportedFlags] = useState<Record<string, boolean>>({});
   const [dismissedFlags, setDismissedFlags] = useState<Record<string, boolean>>({});
@@ -142,6 +149,31 @@ export const ComplianceReport: React.FC<ComplianceReportProps> = ({ defaultTab =
     };
     return buildSignedAuditReport(opts, DEFAULT_COMPLIANCE_STANDARDS, DEFAULT_AUDIT_RECORDS);
   }, [startDate, endDate, statusFilter, userAddress]);
+
+  // Offload digest computation to the background crypto web worker so the UI
+  // stays at 60fps during audits. Falls back gracefully if the worker fails.
+  useEffect(() => {
+    const requestId = ++digestRequestId.current;
+    setDigestPending(true);
+    setDigestError(null);
+
+    computeAuditDigest({
+      reportId: currentReport.reportId,
+      dateRange: currentReport.dateRange,
+      standards: currentReport.standards,
+      metrics: currentReport.metrics,
+    })
+      .then((result) => {
+        if (digestRequestId.current !== requestId) return;
+        setWorkerDigest(result);
+        setDigestPending(false);
+      })
+      .catch((err: unknown) => {
+        if (digestRequestId.current !== requestId) return;
+        setDigestError(err instanceof Error ? err.message : "Digest worker failed");
+        setDigestPending(false);
+      });
+  }, [currentReport]);
 
   const compliant = currentReport.standards.filter((c) => c.status === "Compliant").length;
   const review = currentReport.standards.filter((c) => c.status === "Review Needed").length;

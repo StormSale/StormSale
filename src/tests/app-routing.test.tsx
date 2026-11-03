@@ -124,12 +124,16 @@ describe("App routing", () => {
     mocks.isConnected = false;
     mocks.telegramMode = false;
     mocks.throwDashboard = false;
+    mocks.syncTelegramTheme.mockReset().mockImplementation(() => () => {});
+    mocks.loadBrandConfig.mockReset().mockImplementation(() => ({ name: "Campaign" }));
+    mocks.initTelegramWebApp.mockReset();
     localStorage.clear();
     window.history.replaceState({}, "", "/");
   });
 
   afterEach(() => {
     cleanup();
+    vi.clearAllMocks();
     vi.restoreAllMocks();
   });
 
@@ -150,7 +154,7 @@ describe("App routing", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back to dashboard" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Invalid destination" }));
-    expect(screen.getByText("Dashboard page")).toBeTruthy();
+    expect(await screen.findByText("Dashboard page")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Disconnect wallet" }));
     expect(await screen.findByText("Landing page")).toBeTruthy();

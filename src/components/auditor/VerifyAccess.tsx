@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -38,6 +39,7 @@ import {
   Layers,
   ArrowRight,
 } from "lucide-react";
+import { decryptPayloadInWorker, type DecryptedPayload } from "../../lib/crypto.worker";
 
 interface PendingAuditItem {
   saleId: string;
@@ -62,6 +64,8 @@ export const VerifyAccess: React.FC = () => {
   const [lastLedgerEntry, setLastLedgerEntry] = useState<AuditAccessEvent | null>(null);
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
+  const workerRef = useRef<Worker | null>(null);
+  const [isWorkerReady, setIsWorkerReady] = useState(false);
 
   const auditorKey = userAddress || DEMO_AUDITOR_KEY;
 
@@ -88,6 +92,24 @@ export const VerifyAccess: React.FC = () => {
       urgency: "Low",
     },
   ];
+
+  // Spin up the background crypto worker so AES tasks never block the UI thread.
+  useEffect(() => {
+    if (typeof Worker === "undefined") {
+      return;
+    }
+    const worker = new Worker(
+      new URL("../../lib/crypto.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    workerRef.current = worker;
+    setIsWorkerReady(true);
+    return () => {
+      worker.terminate();
+      workerRef.current = null;
+      setIsWorkerReady(false);
+    };
+  }, []);
 
   const handleQuickSelect = (item: PendingAuditItem) => {
     setSaleId(item.saleId);
@@ -188,17 +210,29 @@ export const VerifyAccess: React.FC = () => {
     }
     setIsDecrypting(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const stubData: Record<string, string> = {
-        "Sale ID": `#${saleId}`,
-        "Campaign Contract": `${campaignAddress.slice(0, 10)}...${campaignAddress.slice(-8)}`,
-        "Customer Hash": "sha256:4b227777d4da1fc6215...",
-        "Gross Conversion": "450.00 XLM",
-        "Affiliate Commission": "45.00 XLM (10%)",
-        "Settlement Status": "Escrow Cleared & Released",
-        Timestamp: new Date().toUTCString(),
-        "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
-      };
+      // Offload AES-GCM decryption to the background worker so the UI stays at 60fps.
+      let stubData: Record<string, string>;
+      if (workerRef.current && isWorkerReady) {
+        const decrypted: DecryptedPayload = await decryptPayloadInWorker(workerRef.current, {
+          saleId,
+          campaignAddress,
+          auditorKey,
+        });
+        stubData = decrypted.fields;
+      } else {
+        // Fallback for environments without Worker support (SSR / older browsers).
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        stubData = {
+          "Sale ID": `#${saleId}`,
+          "Campaign Contract": `${campaignAddress.slice(0, 10)}...${campaignAddress.slice(-8)}`,
+          "Customer Hash": "sha256:4b227777d4da1fc6215...",
+          "Gross Conversion": "450.00 XLM",
+          "Affiliate Commission": "45.00 XLM (10%)",
+          "Settlement Status": "Escrow Cleared & Released",
+          Timestamp: new Date().toUTCString(),
+          "NIST Compliance Proof": "0x7f4e92a831b0c95f...",
+        };
+      }
 
       // #182: every payload decryption is logged with auditor key + record ID + timestamp
       const entry = await appendAuditAccessEvent({
@@ -206,7 +240,7 @@ export const VerifyAccess: React.FC = () => {
         auditorPublicKey: auditorKey,
         saleId,
         campaignAddress,
-        detail: "AES-GCM envelope opened by auditor session",
+        detail: "AES-GCM envelope opened by auditor session (background worker)",
       });
       setLastLedgerEntry(entry);
 
@@ -216,7 +250,7 @@ export const VerifyAccess: React.FC = () => {
       showNotification({
         type: "error",
         title: "Decryption Failed",
-        message: "Failed to decrypt envelope data payload",
+        message: "Failed to decrypt envelope data payload in background worker",
       });
     } finally {
       setIsDecrypting(false);
@@ -413,7 +447,7 @@ export const VerifyAccess: React.FC = () => {
                               {isDecrypting ? (
                                 <div className="flex items-center gap-2">
                                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                  <span>Decrypting...</span>
+                                  <span>Decrypting in worker...</span>
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-2">
@@ -491,7 +525,7 @@ export const VerifyAccess: React.FC = () => {
                       </span>
                     </div>
                     <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 rounded-full border border-emerald-500/30">
-                      AES-GCM Authenticated
+                      AES-GCM Authenticated · Worker Thread
                     </span>
                   </div>
                   <div className="divide-y divide-slate-200/50 dark:divide-zinc-800/50 text-xs">
@@ -590,7 +624,7 @@ export const VerifyAccess: React.FC = () => {
                 <div className="flex justify-between items-center py-1">
                   <span className="font-medium">Encryption Cipher</span>
                   <span className="font-mono font-bold text-zinc-900 dark:text-white">
-                    AES-256-GCM
+                    AES-256-GCM (Web Worker)
                   </span>
                 </div>
                 <div className="flex justify-between items-center py-1">
