@@ -30,7 +30,14 @@ import {
   unwrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
-import { Shield, Lock, CheckCircle2, Clock } from "lucide-react";
+import { Shield, Lock, CheckCircle2, Clock, Gavel, ShieldCheck } from "lucide-react";
+import { DisputeSubmissionPortal } from "./DisputeSubmissionPortal";
+import {
+  isDisputableConversion,
+  loadDisputes,
+  getDocketForConversion,
+  type DisputeDocket,
+} from "../../lib/affiliate/disputePortal";
 
 export interface Sale {
   id: number;
@@ -46,6 +53,13 @@ export interface Sale {
   wrappedKey?: string;
   /** Affiliate identifier (wallet address/label) the wrapped key is sealed to. */
   affiliateKeyId?: string;
+  /** On-chain conversion transaction hash; disputes bind to this value (#171). */
+  txHash?: string;
+  /**
+   * Merchant-side contest state (#171). Only rows explicitly marked
+   * `contested` or `rejected` surface the "Open Dispute" affordance.
+   */
+  disputeState?: "contested" | "rejected";
 }
 
 export interface SalesListProps {
@@ -131,6 +145,18 @@ const createInitialMockSales = (): Sale[] => {
       clearingPeriod: 604800,
       claimed: false,
     },
+    {
+      id: 4,
+      affiliate: "GBBD...5678",
+      saleAmount: "320.0",
+      commissionAmount: "32.0",
+      timestamp: now - 172800,
+      clearingPeriod: 604800,
+      claimed: false,
+      txHash: "3f9c1e77a0b5d2448c1e3a05f6b7d8c9e0f1a2b3c4d5e6f708192a3b4c5d6e7f",
+      // Demo row for #171: merchant contested this conversion at settlement time.
+      disputeState: "contested",
+    },
   ];
 };
 
@@ -142,6 +168,18 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
   const [decryptingId, setDecryptingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
   const [salesList] = useState<Sale[]>(() => initialSales || createInitialMockSales());
+
+  // #171: load submitted dispute dockets synchronously (SSR-safe) so rows
+  // already escalated show their "Under Auditor Review" badge on first render.
+  const [disputes, setDisputes] = useState<DisputeDocket[]>(() => {
+    if (typeof window === "undefined" || !window.localStorage) return [];
+    try {
+      return loadDisputes(window.localStorage);
+    } catch {
+      return [];
+    }
+  });
+  const [disputeConversion, setDisputeConversion] = useState<Sale | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -290,6 +328,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                 <TableBody>
                   {salesList.map((sale) => {
                     const clearing = calculateClearing(sale, currentTime);
+                    const activeDocket = getDocketForConversion(disputes, sale.id);
                     return (
                       <TableRow
                         key={sale.id}
@@ -403,6 +442,26 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                             <Lock className="w-3.5 h-3.5 mr-1.5" />
                             {isDecrypting && decryptingId === sale.id ? "Decrypting..." : "Decrypt"}
                           </Button>
+                          {isDisputableConversion(sale) &&
+                            (activeDocket ? (
+                              <span
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300"
+                                title={`Dispute docket ${activeDocket.docketId} linked to tx ${activeDocket.txHash}`}
+                              >
+                                <ShieldCheck className="w-3 h-3" />
+                                {activeDocket.statusLabel} · {activeDocket.docketId}
+                              </span>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDisputeConversion(sale)}
+                                className="mt-2 ml-0 sm:mt-0 sm:ml-2 rounded-lg h-9 px-4 font-semibold text-sm border-amber-300 dark:border-amber-500/40 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 transition-all"
+                              >
+                                <Gavel className="w-3.5 h-3.5 mr-1.5" />
+                                Open Dispute
+                              </Button>
+                            ))}
                         </TableCell>
                       </TableRow>
                     );
@@ -437,6 +496,19 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
           )}
         </DialogContent>
       </Dialog>
+
+      {disputeConversion && (
+        <DisputeSubmissionPortal
+          conversion={disputeConversion}
+          onClose={() => setDisputeConversion(null)}
+          onSubmitted={(docket) =>
+            setDisputes((prev) => [
+              ...prev.filter((d) => d.docketId !== docket.docketId),
+              docket,
+            ])
+          }
+        />
+      )}
     </>
   );
 };
