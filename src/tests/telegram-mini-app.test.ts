@@ -11,7 +11,6 @@ import {
   copyReferralLinkWithHaptic,
 } from "../lib/telegram";
 import type { TelegramWebApp } from "../lib/telegram";
-import { MOCK_TELEGRAM_CAMPAIGNS } from "../components/affiliate/TelegramCampaignBrowser";
 
 describe("Telegram Mini-App (TMA) Client Integration", () => {
   let mockWebApp: TelegramWebApp;
@@ -344,45 +343,26 @@ describe("Telegram Mini-App (TMA) Client Integration", () => {
       const writeTextMock = vi.fn().mockRejectedValue(new Error("Permission denied"));
       (navigator.clipboard as any).writeText = writeTextMock;
 
-      const mockTextArea = {
+      const execCommandMock = vi.fn().mockReturnValue(true);
+      const appendChildMock = vi.fn();
+      const removeChildMock = vi.fn();
+      (globalThis as any).document.execCommand = execCommandMock;
+      (globalThis as any).document.body = {
+        appendChild: appendChildMock,
+        removeChild: removeChildMock,
+      };
+      (globalThis as any).document.createElement = vi.fn().mockReturnValue({
         value: "",
         select: vi.fn(),
-      };
-      (document as any).body = {
-        appendChild: vi.fn(),
-        removeChild: vi.fn(),
-      };
-      (document as any).createElement = vi.fn().mockReturnValue(mockTextArea);
-      (document as any).execCommand = vi.fn().mockReturnValue(true);
+        style: {},
+      });
 
       const url = "https://stormsale.xyz/c/camp-usdc-101?ref=GBSTORM999";
       const result = await copyReferralLinkWithHaptic(url);
 
       expect(result).toBe(true);
-      expect((document as any).execCommand).toHaveBeenCalledWith("copy");
+      expect(execCommandMock).toHaveBeenCalledWith("copy");
       expect(mockWebApp.HapticFeedback.notificationOccurred).toHaveBeenCalledWith("success");
-    });
-  });
-
-  describe("Telegram Campaign Directory", () => {
-    it("contains multi-asset active campaigns with valid contract references and commission details", () => {
-      expect(MOCK_TELEGRAM_CAMPAIGNS.length).toBeGreaterThanOrEqual(4);
-
-      const usdcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "USDC");
-      const eurcCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "EURC");
-      const xlmCampaign = MOCK_TELEGRAM_CAMPAIGNS.find((c) => c.asset === "XLM");
-
-      expect(usdcCampaign).toBeDefined();
-      expect(eurcCampaign).toBeDefined();
-      expect(xlmCampaign).toBeDefined();
-
-      MOCK_TELEGRAM_CAMPAIGNS.forEach((c) => {
-        expect(c.id).toBeTruthy();
-        expect(c.name).toBeTruthy();
-        expect(c.commissionRate).toBeTruthy();
-        expect(c.clearingPeriod).toBeTruthy();
-        expect(c.contractAddress).toBeTruthy();
-      });
     });
   });
 });

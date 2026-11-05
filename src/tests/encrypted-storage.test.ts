@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   encryptedStorage,
   setEncryptedItem,
@@ -17,6 +17,10 @@ describe("Encrypted Local Cache Layer Suite", () => {
   beforeEach(async () => {
     storage.clear();
     await purgeOnLogout();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("hashes and encrypts storage keys so plaintext keys are never exposed in localStorage", async () => {
@@ -99,6 +103,7 @@ describe("Encrypted Local Cache Layer Suite", () => {
   it("automatically purges all encrypted storage items and dispatches event on security logout", async () => {
     const purgeListener = vi.fn();
     const unsubscribe = onStoragePurged(purgeListener);
+    expect(typeof unsubscribe).toBe("function");
 
     // Seed multiple encrypted items and one unrelated plaintext item
     await setEncryptedItem("user_session", { user: "GD5...XYZ" });
@@ -125,6 +130,8 @@ describe("Encrypted Local Cache Layer Suite", () => {
     expect(purgeListener).toHaveBeenCalledTimes(1);
 
     unsubscribe();
+    await purgeOnLogout();
+    expect(purgeListener).toHaveBeenCalledTimes(1);
   });
 
   it("operates reliably through unified encryptedStorage object interface", async () => {

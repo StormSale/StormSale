@@ -126,6 +126,18 @@ describe("[Branding & Copy Toolkit] CopyButton Suite (#10)", () => {
       const result = await copyToClipboard("GB6M4OFAIL");
       expect(result).toBe(false);
     });
+
+    it("returns false when clipboard write fails and no document is available", async () => {
+      setNavigator({
+        clipboard: {
+          writeText: vi.fn().mockRejectedValue(new Error("Permission denied")),
+        },
+      });
+      setDocument(undefined);
+
+      const result = await copyToClipboard("GB6M4OFAIL");
+      expect(result).toBe(false);
+    });
   });
 
   describe("CopyButton UI rendering", () => {

@@ -18,13 +18,11 @@ describe("Route Splitting & Chunk Optimization (#99)", () => {
     expect(Auditor).toBeDefined();
     expect(BrandedCampaignView).toBeDefined();
 
-    // In React, lazy components are objects with $$typeof Symbol(react.lazy) or object with _payload / _init
-    expect(typeof Landing).toBe("object");
-    expect(typeof Dashboard).toBe("object");
-    expect(typeof Advertiser).toBe("object");
-    expect(typeof Affiliate).toBe("object");
-    expect(typeof Auditor).toBe("object");
-    expect(typeof BrandedCampaignView).toBe("object");
+    // In React, lazy components are objects tagged with $$typeof Symbol(react.lazy) and carry _payload / _init
+    for (const component of [Landing, Dashboard, Advertiser, Affiliate, Auditor, BrandedCampaignView]) {
+      expect(typeof component).toBe("object");
+      expect((component as any).$$typeof).toBe(Symbol.for("react.lazy"));
+    }
   });
 
   it("should be able to resolve lazy-loaded page modules dynamically", async () => {
@@ -48,6 +46,6 @@ describe("Route Splitting & Chunk Optimization (#99)", () => {
     expect(typeof PageLoader).toBe("function");
     const element = PageLoader();
     expect(element).toBeDefined();
-    expect(element.props["aria-label"]).toBe("Loading page");
+    expect((element as any).props["aria-label"]).toBe("Loading page");
   });
 });

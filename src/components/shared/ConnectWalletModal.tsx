@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import QRCode from "qrcode";
+import { useNavigate } from "react-router-dom";
 import {
   X,
   Smartphone,
@@ -29,6 +30,7 @@ import type { WalletType } from "../../lib/stellar";
 export const ConnectWalletModal: React.FC = () => {
   const { isWalletModalOpen, closeWalletModal, connectWallet } = useWeb3();
   const { connect: connectWalletConnect } = useWalletConnect();
+  const navigate = useNavigate();
   const [connectingType, setConnectingType] = useState<WalletType | "walletconnect" | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [customKey, setCustomKey] = useState("");
@@ -132,6 +134,7 @@ export const ConnectWalletModal: React.FC = () => {
         await connectWallet(type);
       }
       handleClose();
+      navigate("/dashboard");
     } catch (err: any) {
       console.error("Wallet connection error:", err);
       setErrorMessage(
@@ -149,6 +152,7 @@ export const ConnectWalletModal: React.FC = () => {
     try {
       await connectWalletConnect();
       handleClose();
+      navigate("/dashboard");
     } catch (err: any) {
       console.error("WalletConnect completion error:", err);
       setErrorMessage(err.message || "Failed to finalize WalletConnect session.");
@@ -227,6 +231,7 @@ export const ConnectWalletModal: React.FC = () => {
       icon: CheckCircle2,
       accent: "from-sky-500 to-blue-600",
       borderHover: "hover:border-sky-500/50 hover:bg-sky-50/50 dark:hover:bg-sky-950/20",
+      testId: "wallet-option-mock",
     },
     {
       id: "walletconnect" as any,
@@ -238,6 +243,7 @@ export const ConnectWalletModal: React.FC = () => {
       icon: QrCode,
       accent: "from-indigo-600 to-blue-600",
       borderHover: "hover:border-indigo-500/50 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20",
+      testId: "wallet-option-walletconnect",
     },
   ];
 
@@ -259,6 +265,7 @@ export const ConnectWalletModal: React.FC = () => {
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 15 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
+          data-testid="connect-wallet-modal"
           className="relative w-full max-w-lg bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl overflow-hidden z-10 my-auto"
         >
           {/* Header */}
@@ -468,6 +475,7 @@ export const ConnectWalletModal: React.FC = () => {
                     <button
                       disabled={connectingType !== null}
                       onClick={() => handleSelectWallet(wallet.id)}
+                      data-testid={(wallet as any).testId ?? `wallet-option-${wallet.id}`}
                       className={`w-full text-left p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/40 transition-all group flex items-center space-x-4 ${wallet.borderHover} ${
                         isBusy ? "opacity-70 pointer-events-none" : ""
                       }`}
