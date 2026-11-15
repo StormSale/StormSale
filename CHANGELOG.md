@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/StormSale/StormSale/compare/v1.1.0...v1.1.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **security:** resolve CSP connect-src violations, telegram SRI mock, and web3 role fallback ([2bbf33b](https://github.com/StormSale/StormSale/commit/2bbf33b3a707fb5e8253ed27245fec006e52ffff))
+
 # [1.1.0](https://github.com/StormSale/StormSale/compare/v1.0.1...v1.1.0) (2026-11-15)
 
 
