@@ -1,5 +1,70 @@
 # Changelog
 
+# [1.1.0](https://github.com/StormSale/StormSale/compare/v1.0.1...v1.1.0) (2026-11-15)
+
+
+### Bug Fixes
+
+* **advertiser:** repair reserve feature merge conflicts ([736215a](https://github.com/StormSale/StormSale/commit/736215a886acc8d680cef2bf64cabdf30afa3d5d))
+* **affiliate:** address short-link review and build failures ([d363988](https://github.com/StormSale/StormSale/commit/d363988b728ba66b4cd0e107226ad07c88515941))
+* **affiliate:** clarify link attribution behavior ([21ed9c0](https://github.com/StormSale/StormSale/commit/21ed9c0ad2a739186d048a2650f8f53c2ecd1f08))
+* **affiliate:** resolve CodeRabbit review on slug availability, error propagation, and link deletion ([e0d3ac5](https://github.com/StormSale/StormSale/commit/e0d3ac561ae1cd77709565d9ab87927ff3579603))
+* **ci:** make malware-defense workflow fork-safe by switching pull_request_target to pull_request ([4e6873b](https://github.com/StormSale/StormSale/commit/4e6873b5478863636d3420abb410e2b4fbacbcdd))
+* **ci:** make PR preview workflow valid YAML ([21a685f](https://github.com/StormSale/StormSale/commit/21a685fa68131c749a19a4c16577be8c45aa851e))
+* **ci:** remove out-of-scope notification change to restore 100% PR coverage gate ([6734385](https://github.com/StormSale/StormSale/commit/673438579eaf1547ef02a1d632a8897178001d05))
+* **ci:** repair dependency install and fork-safe workflows ([d7ba5b2](https://github.com/StormSale/StormSale/commit/d7ba5b2ed6cb04565863658a3c64a329765098d5))
+* **ci:** resolve failing checks for [#349](https://github.com/StormSale/StormSale/issues/349) ([8a1e038](https://github.com/StormSale/StormSale/commit/8a1e038ddd3e399d82228c0f84ede821fed76076))
+* **ci:** skip PR preview deployment for external forks ([4ad8578](https://github.com/StormSale/StormSale/commit/4ad85789f5ad0e400b05d0b51b4db250191ad882))
+* **rebase:** resolve upstream conflicts, add safe contract ID fallback, and update test mocks ([c123a29](https://github.com/StormSale/StormSale/commit/c123a2985917fb5fc49aac94ac6fa21541e940a6))
+* remove bot workflow, repair CI action versions, fix useWeb3 rules of hooks, and resolve test timeouts ([f4fe891](https://github.com/StormSale/StormSale/commit/f4fe891073905dcc7d3efca1bc33474a20799ad9))
+* **review:** address review comments on commissions, escrow permissions, pause enforcement, and referral seeding ([aca1f9b](https://github.com/StormSale/StormSale/commit/aca1f9b721083557d26c5a40a7f8613a0c85d01e))
+* **review:** address review feedback on permissions, fraud engine, referral tree, and ZK proofs ([1045f6f](https://github.com/StormSale/StormSale/commit/1045f6ffa8db6a9941ba0cf3cdb1ba28cfd9cd92))
+* **security:** address CodeRabbit review, resolve duplicate nginx CSP, and sync test mocks ([346cbaa](https://github.com/StormSale/StormSale/commit/346cbaaa84b6cab9d68b4d8a08a44ea5baa60190))
+* **security:** derive SRI from disk bytes in closeBundle; unpin Telegram ([#85](https://github.com/StormSale/StormSale/issues/85)) ([c4251f7](https://github.com/StormSale/StormSale/commit/c4251f77deef4c524414c7b151b486caa9a37e16))
+* **security:** drop rollup type import to unblock tsc build in CI ([#85](https://github.com/StormSale/StormSale/issues/85)) ([5a29686](https://github.com/StormSale/StormSale/commit/5a2968654c5040aba444a9f35045308d29a68818))
+* **security:** refine bundle resolution and protocol-relative URL guards in SRI plugin ([49bbc95](https://github.com/StormSale/StormSale/commit/49bbc95f13b3478deb076a48976311995a5c1c54))
+* **security:** register subresourceIntegrity plugin and refine attribute boundaries ([ad495f8](https://github.com/StormSale/StormSale/commit/ad495f8e2dd5db4163a37ac6acde8b0c1098dc88))
+* **tracking-sdk:** address review findings on validation, timeout, and test placement ([f419e6c](https://github.com/StormSale/StormSale/commit/f419e6cfc0f559a71d5f8f046a9fc184f4f55bf1))
+* **ui:** address menu and navigation review findings ([33651b9](https://github.com/StormSale/StormSale/commit/33651b9e7916a8174ed5b1f749ed66142fd6309b))
+* **ui:** resolve CodeRabbit review items and test suite mocks ([e0f5ab8](https://github.com/StormSale/StormSale/commit/e0f5ab8639e89bbddb8faea099519b1daabb682f))
+* **ui:** resolve wallet, badge, and tab review issues ([0f7569f](https://github.com/StormSale/StormSale/commit/0f7569f8794865016d3816c4533c1b0e98a6d863))
+* **web3:** read Horizon subentry_count, subtract selling liabilities, and distinguish unfunded from unavailable accounts ([ccd6196](https://github.com/StormSale/StormSale/commit/ccd619651f54eb1da19b8ca38468c258bd35f3ce))
+* **web3:** refresh reserve after escrow deposit, reject exponent budgets, and reset state on Max ([dc6a293](https://github.com/StormSale/StormSale/commit/dc6a2930c59238c9985c023f4ec3dafe9d2820a3))
+* **web3:** repair CreateCampaignForm merge duplicates and reserve-aware test ([31a375c](https://github.com/StormSale/StormSale/commit/31a375c51e1b1da11677a1152c36f27fb696bc1c))
+* **web3:** repair federation address review findings ([21bffb7](https://github.com/StormSale/StormSale/commit/21bffb7fa3740b3da6d3cf5629af8602dc5e51b1))
+* **web3:** repair LogSaleForm merge corruption and sync test mocks ([23fb440](https://github.com/StormSale/StormSale/commit/23fb44020e6799d3a23fb48b55ce841708416fec))
+* **web3:** resolve committed merge conflicts and address reserve review feedback ([fe7cd04](https://github.com/StormSale/StormSale/commit/fe7cd042888b395cb1c1eaa347c244c71839ff74))
+* **web3:** resolve ConnectWalletModal merge conflict and address federation review feedback ([9134f0e](https://github.com/StormSale/StormSale/commit/9134f0e292f4390d3306a989ab5952a553635c52))
+
+
+### Features
+
+* [Auditor] Suspicious Activity & Anomaly Detection ([#60](https://github.com/StormSale/StormSale/issues/60)) ([cfbb086](https://github.com/StormSale/StormSale/commit/cfbb0864013c6ff21e8f2b3e6b7c188d5ee1f7e7)), closes [hi#velocity](https://github.com/hi/issues/velocity)
+* **advertiser:** automated escrow top-up logic ([#107](https://github.com/StormSale/StormSale/issues/107)) ([21a62b6](https://github.com/StormSale/StormSale/commit/21a62b64fb7c99d92afc731bf65b1511b9d1ad0f))
+* **advertiser:** Batch Sale Conversion Uploader with CSV/JSON Parsing & Merkle Verification ([d9bd16d](https://github.com/StormSale/StormSale/commit/d9bd16d3ab32e951d5ac507830e130dd59b9283f))
+* **affiliate:** add click stream heatmap and geolocation visualizer ([#162](https://github.com/StormSale/StormSale/issues/162)) ([60b7e90](https://github.com/StormSale/StormSale/commit/60b7e905087a641c56b9162333862c90a5f08b87))
+* **affiliate:** add Telegram notification bot integration for commission alerts ([#163](https://github.com/StormSale/StormSale/issues/163)) ([30fe9b5](https://github.com/StormSale/StormSale/commit/30fe9b5b3c73a2826a06f00dcf5ca2e26fc1d6cf))
+* **affiliate:** affiliate leaderboards & gamified milestone NFT badge claims ([#166](https://github.com/StormSale/StormSale/issues/166)) ([3836587](https://github.com/StormSale/StormSale/commit/38365872922ddae4ff177d8b47969dcc734a8c26))
+* **affiliate:** custom short-link domain routing and cloaked URL generator ([70d310a](https://github.com/StormSale/StormSale/commit/70d310affc00d5919bf4a88cd12999d48d5fad04))
+* **affiliate:** migrate custom-link persistence to shared Upstash Redis store ([6eec56f](https://github.com/StormSale/StormSale/commit/6eec56f216917f95687d1521154134f7f3d772ac))
+* **auditor:** add interactive enterprise compliance checklist ([d9d2950](https://github.com/StormSale/StormSale/commit/d9d29502ced2f67bba1fc6c359c89f5338432047))
+* **auditor:** NIST SP 800-53 Automated Security Control Scorecard Export ([#176](https://github.com/StormSale/StormSale/issues/176)) ([#308](https://github.com/StormSale/StormSale/issues/308)) ([2c2b7f4](https://github.com/StormSale/StormSale/commit/2c2b7f48bdfc07ff4d05fa1418d6295a39214771))
+* **auditor:** platform financial volume widget ([#61](https://github.com/StormSale/StormSale/issues/61)) ([843d530](https://github.com/StormSale/StormSale/commit/843d530f845a49e0891f2db9c98ce716a0220f61))
+* **campaigns:** private campaigns with affiliate application and approval ([20bd327](https://github.com/StormSale/StormSale/commit/20bd3273ea8332ebd6d82f383434509fef30845d)), closes [#147](https://github.com/StormSale/StormSale/issues/147)
+* **infra:** add Sentry error tracking with privacy scrubbing ([38f3b74](https://github.com/StormSale/StormSale/commit/38f3b74ffd2d0f97f6e784f55c36f9658156c7fd))
+* **integration:** add lightweight tracking SDK ([28e22d7](https://github.com/StormSale/StormSale/commit/28e22d7993c02173cb2ce9081836fabcb91ea0b7)), closes [#194](https://github.com/StormSale/StormSale/issues/194)
+* **plugins:** add WooCommerce plugin that tracks affiliate referrals and logs purchases to StormSale campaigns ([53bfcbf](https://github.com/StormSale/StormSale/commit/53bfcbfc105881bbd2b0f46b334fdc6349b6ae95)), closes [#192](https://github.com/StormSale/StormSale/issues/192)
+* real-time fraud score, RBAC guards, DEX auto-swap, preview deploys ([475671b](https://github.com/StormSale/StormSale/commit/475671b35ebd057066552262da7fe1007f13e164)), closes [#108](https://github.com/StormSale/StormSale/issues/108) [#111](https://github.com/StormSale/StormSale/issues/111) [#127](https://github.com/StormSale/StormSale/issues/127) [#108](https://github.com/StormSale/StormSale/issues/108) [#111](https://github.com/StormSale/StormSale/issues/111) [#127](https://github.com/StormSale/StormSale/issues/127) [#214](https://github.com/StormSale/StormSale/issues/214)
+* **security:** implement strict CSP headers and SRI hashes ([#211](https://github.com/StormSale/StormSale/issues/211)) ([2779424](https://github.com/StormSale/StormSale/commit/277942489b1089c769308a268d4e3d947181d877))
+* **security:** implement subresource integrity build for assets ([14a9a41](https://github.com/StormSale/StormSale/commit/14a9a413cb2d9837959b070d7266c08109acab5b)), closes [#85](https://github.com/StormSale/StormSale/issues/85)
+* **security:** pin external CDN scripts via SRI allow-list ([#85](https://github.com/StormSale/StormSale/issues/85)) ([c8ccdd4](https://github.com/StormSale/StormSale/commit/c8ccdd4f828cb4bd8aac45a1066d6d3b6e7d4b04))
+* team permissions, fraud risk scoring, two-tier referral tree, and ZK revenue proofs ([#154](https://github.com/StormSale/StormSale/issues/154), [#152](https://github.com/StormSale/StormSale/issues/152), [#157](https://github.com/StormSale/StormSale/issues/157), [#174](https://github.com/StormSale/StormSale/issues/174)) ([e69328f](https://github.com/StormSale/StormSale/commit/e69328ff08b04ca4adb8c1162b3acbce0416d038))
+* **ui:** add DataTable error state and shared display formatters ([f27570b](https://github.com/StormSale/StormSale/commit/f27570bc75dd80e21b3e4eb4015dbd8989e2623e))
+* **ui:** add user menu and shared UI primitives ([7f703d1](https://github.com/StormSale/StormSale/commit/7f703d109d9908b5929b8632b16424199ea869a2))
+* **web3:** add Stellar minimum reserve and spendable balance calculator ([1b37b40](https://github.com/StormSale/StormSale/commit/1b37b40b9306386b6fdb7f10780e51a0a40cedaa)), closes [#125](https://github.com/StormSale/StormSale/issues/125)
+* **web3:** resolve Stellar federation addresses for user profiles ([eac96fb](https://github.com/StormSale/StormSale/commit/eac96fb48df7acdb0bc42bb865599308141ae538)), closes [#126](https://github.com/StormSale/StormSale/issues/126)
+* **web3:** soroban footprint optimization utility for multi-operation batches ([#133](https://github.com/StormSale/StormSale/issues/133)) ([87a2404](https://github.com/StormSale/StormSale/commit/87a2404ce8ed42de1cd4ae504930c829a020692c))
+
 ## [1.0.1](https://github.com/StormSale/StormSale/compare/v1.0.0...v1.0.1) (2026-10-21)
 
 
