@@ -14,6 +14,9 @@
   "license": "MIT",
   "author": "Jibril Raji Qasim (AJDEV)",
   "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "eslint.config.js",
   "scripts": {
     "dev": "vite",

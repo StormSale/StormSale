@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "api/**/*.ts": {
-      "runtime": "@vercel/node@5"
-    }
-  },
   "rewrites": [
     { "source": "/api/custom-links/register", "destination": "/api/custom-links/register" },
     { "source": "/api/custom-links/availability", "destination": "/api/custom-links/availability" },
