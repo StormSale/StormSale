@@ -487,10 +487,13 @@ export function Web3Provider({
       const updated = await registerUser(userAddress, role);
       if (updated && updated.role) {
         setUserRole(updated.role);
+        return;
       }
     } catch (error) {
       console.error("Failed to update role:", error);
     }
+    // Web3 / offline fallback: maintain local role state if backend registration is unreachable
+    setUserRole(role);
   };
 
   const requestFriendbotFunding = async (): Promise<boolean> => {

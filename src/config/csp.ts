@@ -86,6 +86,32 @@ export const DOMAIN_ALLOWLIST_DOCUMENTATION = [
     directive: "img-src",
     reason: "Landing page user testimonials and profile avatars.",
   },
+  {
+    domain: "https://*.blockdaemon.com",
+    directive: "connect-src",
+    reason: "Blockdaemon enterprise backup Soroban RPC and Horizon nodes.",
+  },
+  {
+    domain: "https://*.publicnode.com",
+    directive: "connect-src",
+    reason: "PublicNode community distributed Soroban RPC and Horizon gateway.",
+  },
+  {
+    domain: "https://rpc.blockdag.network",
+    directive: "connect-src",
+    reason: "BlockDAG network testnet Soroban RPC gateway.",
+  },
+  {
+    domain: "http://localhost:8000, http://127.0.0.1:8000",
+    directive: "connect-src",
+    reason: "Local standalone Soroban developer node and Horizon container.",
+  },
+  {
+    domain:
+      "http://localhost:3001, http://127.0.0.1:3001, ws://localhost:3001, ws://127.0.0.1:3001",
+    directive: "connect-src",
+    reason: "StormSale local backend API server for user registration, campaigns, and telemetry.",
+  },
 ] as const;
 
 /**
@@ -100,6 +126,15 @@ export const BASE_CSP_DIRECTIVES: Record<string, string[]> = {
     "https://*.stellar.org",
     "https://albedo.link",
     "https://stellar.expert",
+    "https://*.blockdaemon.com",
+    "https://*.publicnode.com",
+    "https://rpc.blockdag.network",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "ws://localhost:3001",
+    "ws://127.0.0.1:3001",
   ],
 };
 
@@ -114,6 +149,15 @@ export const STRICT_CSP_DIRECTIVES: Record<string, string[]> = {
     "https://*.stellar.org",
     "https://albedo.link",
     "https://stellar.expert",
+    "https://*.blockdaemon.com",
+    "https://*.publicnode.com",
+    "https://rpc.blockdag.network",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "ws://localhost:3001",
+    "ws://127.0.0.1:3001",
   ],
   "img-src": [
     "'self'",
