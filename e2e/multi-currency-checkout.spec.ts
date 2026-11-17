@@ -70,23 +70,27 @@ test.describe("E2E: Multi-currency checkout journey (#486)", () => {
       type: "pathPaymentStrictSend",
       sendAsset: "native",
       sendAmount: "404.0000000",
-      destination: "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777",
+      destination: VALID_WATCH_KEY,
       destAsset: "USDC",
       destMin: "50.0000000",
     };
     expect(paymentPayload.type).toBe("pathPaymentStrictSend");
     expect(paymentPayload.destMin).toBe("50.0000000");
+    expect(paymentPayload.destination).toBe(VALID_WATCH_KEY);
+    expect(paymentPayload.destination.length).toBe(56);
 
     // 4. Acceptance Criteria 4 & 5: Confirm Horizon strict-send envelope and escrow receipt
     const receipt = {
       status: "delivered",
       amount: "50.00",
       asset: "USDC",
-      escrowAccount: "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777",
+      escrowAccount: VALID_WATCH_KEY,
       confirmed: true,
     };
     expect(receipt.amount).toBe("50.00");
     expect(receipt.asset).toBe("USDC");
+    expect(receipt.escrowAccount).toBe(VALID_WATCH_KEY);
+    expect(receipt.escrowAccount.length).toBe(56);
     expect(receipt.confirmed).toBe(true);
   });
 });
