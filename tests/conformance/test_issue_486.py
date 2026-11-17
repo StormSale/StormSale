@@ -7,6 +7,9 @@ Title: test(e2e): multi-currency checkout journey with asset path payments (XLM,
 import unittest
 from decimal import Decimal
 
+# Checksum-valid ed25519 public key from tests/e2e/helpers.ts (StrKey compliant, exactly 56 characters)
+VALID_STELLAR_KEY = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+
 class Issue486ConformanceTest(unittest.TestCase):
     def test_multi_currency_quote_calculation(self):
         """Verifies calculation invariants for XLM-to-USDC path payment quote."""
@@ -27,7 +30,7 @@ class Issue486ConformanceTest(unittest.TestCase):
             "type": "pathPaymentStrictSend",
             "sendAsset": "native",
             "sendAmount": "404.0000000",
-            "destination": "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777",
+            "destination": VALID_STELLAR_KEY,
             "destAsset": {
                 "code": "USDC",
                 "issuer": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
@@ -39,6 +42,7 @@ class Issue486ConformanceTest(unittest.TestCase):
         self.assertEqual(payload["type"], "pathPaymentStrictSend")
         self.assertEqual(payload["sendAsset"], "native")
         self.assertEqual(payload["destMin"], "50.0000000")
+        self.assertEqual(len(payload["destination"]), 56)
         self.assertTrue(payload["destination"].startswith("G"))
         self.assertEqual(payload["destAsset"]["code"], "USDC")
 
@@ -48,13 +52,15 @@ class Issue486ConformanceTest(unittest.TestCase):
             "status": "delivered_to_escrow",
             "deliveredAmount": "50.00",
             "deliveredAsset": "USDC",
-            "escrowAccount": "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777",
+            "escrowAccount": VALID_STELLAR_KEY,
             "confirmed": True
         }
 
         self.assertEqual(receipt["status"], "delivered_to_escrow")
         self.assertEqual(receipt["deliveredAmount"], "50.00")
         self.assertEqual(receipt["deliveredAsset"], "USDC")
+        self.assertEqual(len(receipt["escrowAccount"]), 56)
+        self.assertTrue(receipt["escrowAccount"].startswith("G"))
         self.assertTrue(receipt["confirmed"])
 
 if __name__ == "__main__":
