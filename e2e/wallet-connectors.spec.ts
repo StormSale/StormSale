@@ -41,7 +41,9 @@ test.describe("E2E Automated Smoke Tests: Wallet Connectors & Core Flows", () =>
     const myCampaignsBtn = visible(page.getByRole("button", { name: "My Campaigns" }));
     await expect(myCampaignsBtn).toBeVisible();
     await myCampaignsBtn.click();
-    await expect(visible(page.getByRole("button", { name: "Log Encrypted Sale" }))).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "My Campaigns & Escrow Monitor" }),
+    ).toBeVisible();
   });
 
   test("affiliate referral link can be generated and copied", async ({
@@ -78,8 +80,15 @@ test.describe("E2E Automated Smoke Tests: Wallet Connectors & Core Flows", () =>
     // Assert copy confirmation feedback
     const statusNotice = page.getByRole("status");
     await expect(statusNotice).toBeVisible();
-    await expect(statusNotice).toHaveText(
-      /Link copied to clipboard|Clipboard access is unavailable/i,
-    );
+    if (browserName === "chromium") {
+      await expect(statusNotice).toHaveText(/Link copied to clipboard/i);
+      const clipboardText = await page.evaluate(() => navigator.clipboard.readText());
+      const expectedLink = await shareLinkInput.inputValue();
+      expect(clipboardText).toBe(expectedLink);
+    } else {
+      await expect(statusNotice).toHaveText(
+        /Link copied to clipboard|Clipboard access is unavailable/i,
+      );
+    }
   });
 });
