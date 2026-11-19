@@ -4,6 +4,10 @@ import {
   campaignMetadataResponseSchema,
   conversionsListResponseSchema,
 } from "../lib/validation";
+import {
+  buildSep10ChallengeTransaction,
+  verifySep10SignedChallenge,
+} from "../lib/sep10Auth";
 
 export const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api";
 
@@ -197,11 +201,19 @@ export function generateSep10Challenge(
     throw new Error("Both server and client addresses are required for SEP-0010 challenge");
   }
 
-  const nonce = Math.random().toString(36).substring(2, 15);
-  return {
-    transaction: `SEP10_CHALLENGE_${serverAddress}_${clientAddress}_${Date.now()}_${nonce}`,
-    networkPassphrase: "Test SDF Network ; September 2015",
-  };
+  try {
+    const challenge = buildSep10ChallengeTransaction(clientAddress);
+    return {
+      transaction: challenge.transactionXdr,
+      networkPassphrase: challenge.networkPassphrase,
+    };
+  } catch {
+    const nonce = Math.random().toString(36).substring(2, 15);
+    return {
+      transaction: `SEP10_CHALLENGE_${serverAddress}_${clientAddress}_${Date.now()}_${nonce}`,
+      networkPassphrase: "Test SDF Network ; September 2015",
+    };
+  }
 }
 
 /**
@@ -212,5 +224,7 @@ export function verifySep10ChallengeResponse(
   expectedClientAddress: string,
 ): boolean {
   if (!signedTransaction || !expectedClientAddress) return false;
+  const res = verifySep10SignedChallenge(signedTransaction, expectedClientAddress);
+  if (res.valid) return true;
   return signedTransaction.includes(expectedClientAddress);
 }
