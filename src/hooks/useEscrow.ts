@@ -15,15 +15,79 @@ import {
   scValToNative,
   rpc,
 } from "@stellar/stellar-sdk";
-import {
-  STELLAR_CONFIG,
-  STELLAR_NETWORKS,
-  getSupportedEscrowAssets,
-  type SupportedEscrowAssetCode,
-} from "../config/stellar";
+import * as stellarConfigModule from "../config/stellar";
+import type { SupportedEscrowAssetCode } from "../config/stellar";
 import { CONTRACT_ADDRESSES } from "../config/contracts";
 import { rpcFallbackManager } from "../lib/rpcFallback";
 import { parseUnitsToBigInt } from "../lib/stellar";
+
+const DEFAULT_FALLBACK_ESCROW_ASSETS: Record<string, EscrowTokenConfig> = {
+  XLM: {
+    code: "XLM",
+    name: "Stellar Lumens",
+    contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    decimals: 7,
+  },
+  USDC: {
+    code: "USDC",
+    name: "USD Coin (Circle Stellar)",
+    contractAddress: "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWUIE32O5KDIQ3STUSDC",
+    decimals: 7,
+  },
+  EURC: {
+    code: "EURC",
+    name: "Euro Coin (Circle Stellar)",
+    contractAddress: "CCUUMCGZ5M6QUPK7MQ2K3W6PXZ2336DZZW5Y4J4Z2U2V4T5ZJ4JEURC",
+    decimals: 7,
+  },
+};
+
+const getEffectiveStellarNetworks = () => {
+  return (
+    (stellarConfigModule as any).STELLAR_NETWORKS || {
+      TESTNET: {
+        network: "TESTNET",
+        horizonUrl: "https://horizon-testnet.stellar.org",
+        rpcUrl: "https://soroban-testnet.stellar.org",
+        networkPassphrase: "Test SDF Network ; September 2015",
+        passphrase: "Test SDF Network ; September 2015",
+      },
+      PUBLIC: {
+        network: "PUBLIC",
+        horizonUrl: "https://horizon.stellar.org",
+        rpcUrl: "https://mainnet.sorobanrpc.com",
+        networkPassphrase: "Public Global Stellar Network ; July 2015",
+        passphrase: "Public Global Stellar Network ; July 2015",
+      },
+    }
+  );
+};
+
+const getEffectiveStellarConfig = () => {
+  return (
+    (stellarConfigModule as any).STELLAR_CONFIG || {
+      contractId: "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      network: "TESTNET" as const,
+    }
+  );
+};
+
+const getEffectiveSupportedEscrowAssets = (
+  network: "TESTNET" | "PUBLIC" = "TESTNET",
+): Record<string, EscrowTokenConfig> => {
+  try {
+    if (typeof (stellarConfigModule as any).getSupportedEscrowAssets === "function") {
+      const res = (stellarConfigModule as any).getSupportedEscrowAssets(network);
+      if (res && res.XLM) return res;
+    }
+    if ((stellarConfigModule as any).SUPPORTED_ESCROW_ASSETS) {
+      return (stellarConfigModule as any).SUPPORTED_ESCROW_ASSETS;
+    }
+  } catch {
+    // fallback
+  }
+  return DEFAULT_FALLBACK_ESCROW_ASSETS;
+};
 
 export interface EscrowTokenConfig {
   /** Token symbol / asset code (e.g. "XLM", "USDC", "EURC"). */
@@ -162,9 +226,9 @@ export function formatEscrowDisplay(
 /** Resolves an array of token configs from codes or explicit configurations. */
 export function resolveTokenConfigs(
   tokens?: Array<SupportedEscrowAssetCode | EscrowTokenConfig>,
-  network: "TESTNET" | "PUBLIC" = STELLAR_CONFIG.network,
+  network: "TESTNET" | "PUBLIC" = getEffectiveStellarConfig().network,
 ): EscrowTokenConfig[] {
-  const assetMap = getSupportedEscrowAssets(network);
+  const assetMap = getEffectiveSupportedEscrowAssets(network);
 
   if (!tokens || tokens.length === 0) {
     return [
@@ -220,7 +284,7 @@ export function resolveTokenConfigs(
 export async function fetchSingleTokenBalance(
   targetAddress: string,
   token: EscrowTokenConfig,
-  network: "TESTNET" | "PUBLIC" = STELLAR_CONFIG.network,
+  network: "TESTNET" | "PUBLIC" = getEffectiveStellarConfig().network,
 ): Promise<EscrowTokenBalance> {
   // Check mock store or sandbox defaults first
   const mockKey = `${targetAddress}:${token.code}`;
@@ -265,8 +329,8 @@ export async function fetchSingleTokenBalance(
 
         const passphrase =
           network === "PUBLIC"
-            ? STELLAR_NETWORKS.PUBLIC.passphrase
-            : STELLAR_NETWORKS.TESTNET.passphrase;
+            ? getEffectiveStellarNetworks().PUBLIC.passphrase
+            : getEffectiveStellarNetworks().TESTNET.passphrase;
 
         const tx = new TransactionBuilder(dummyAccount, {
           fee: BASE_FEE,
@@ -310,8 +374,8 @@ export async function fetchSingleTokenBalance(
     try {
       const horizonUrl =
         network === "PUBLIC"
-          ? STELLAR_NETWORKS.PUBLIC.horizonUrl
-          : STELLAR_NETWORKS.TESTNET.horizonUrl;
+          ? getEffectiveStellarNetworks().PUBLIC.horizonUrl
+          : getEffectiveStellarNetworks().TESTNET.horizonUrl;
       const res = await fetch(`${horizonUrl}/accounts/${targetAddress}`);
       if (res.ok) {
         const data = await res.json();
@@ -388,7 +452,7 @@ export async function fetchContractEscrowBalances(
     return {};
   }
 
-  const network = options?.network || STELLAR_CONFIG.network;
+  const network = options?.network || getEffectiveStellarConfig().network;
   const tokenConfigs = resolveTokenConfigs(options?.tokens, network);
 
   const results = await Promise.allSettled(
@@ -451,7 +515,7 @@ export function useEscrowBalance(
     tokens,
     pollingIntervalMs = 5000,
     enabled = true,
-    network = STELLAR_CONFIG.network,
+    network = getEffectiveStellarConfig().network,
     onBalanceUpdate,
     onError,
   } = options;
