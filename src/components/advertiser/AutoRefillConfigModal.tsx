@@ -12,7 +12,8 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
-import { Sliders, Sparkles, Loader2, X, Coins, ShieldCheck, Zap } from "lucide-react";
+import { Sliders, Sparkles, Loader2, X, Coins, ShieldCheck, Zap, Lock } from "lucide-react";
+import { useOrganization } from "../../hooks/useOrganization";
 
 interface AutoRefillConfigModalProps {
   isOpen: boolean;
@@ -35,15 +36,25 @@ export const AutoRefillConfigModal: React.FC<AutoRefillConfigModalProps> = ({
 }) => {
   const { userAddress, connectorType } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
   const [config, setConfig] = useState<AutoRefillConfig>(() => getAutoRefillConfig(campaignId));
   const [refillAmount, setRefillAmount] = useState<number>(500);
   const [isDepositing, setIsDepositing] = useState<boolean>(false);
 
   if (!isOpen) return null;
 
+  const canRefill = hasCapability("escrow:refill");
   const thresholdBalance = Number(((initialBudgetXlm * config.thresholdPercent) / 100).toFixed(1));
 
   const handleSave = () => {
+    if (!canRefill) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to update auto-refill configuration. Finance or Admin role required.`,
+      });
+      return;
+    }
     saveAutoRefillConfig(config);
     showNotification({
       type: "success",
@@ -54,6 +65,14 @@ export const AutoRefillConfigModal: React.FC<AutoRefillConfigModalProps> = ({
   };
 
   const handleDepositRefill = async () => {
+    if (!canRefill) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your current role (${currentRole}) lacks permission to deposit escrow refills. Finance or Admin role required.`,
+      });
+      return;
+    }
     if (refillAmount <= 0) return;
     setIsDepositing(true);
 
@@ -126,6 +145,15 @@ export const AutoRefillConfigModal: React.FC<AutoRefillConfigModalProps> = ({
             </p>
           </div>
         </div>
+
+        {!canRefill && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-3 text-xs text-amber-700 dark:text-amber-400 font-semibold">
+            <Lock className="w-5 h-5 shrink-0 text-amber-500" />
+            <span>
+              Restricted View ({currentRole}): Escrow deposits and threshold modifications require Finance or Admin permissions.
+            </span>
+          </div>
+        )}
 
         {/* Current State Summary */}
         <div className="grid grid-cols-2 gap-3 p-4 mb-6 rounded-2xl bg-slate-50 dark:bg-zinc-950/60 border border-slate-100 dark:border-zinc-800/60">
@@ -218,16 +246,22 @@ export const AutoRefillConfigModal: React.FC<AutoRefillConfigModalProps> = ({
 
             <Button
               type="button"
-              disabled={isDepositing || refillAmount <= 0}
+              disabled={!canRefill || isDepositing || refillAmount <= 0}
               onClick={handleDepositRefill}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold h-11 px-5 rounded-xl flex items-center gap-2 shadow-md shadow-indigo-600/25"
+              className={`font-bold h-11 px-5 rounded-xl flex items-center gap-2 shadow-md ${
+                !canRefill
+                  ? "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/25"
+              }`}
             >
               {isDepositing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
+              ) : !canRefill ? (
+                <Lock className="w-4 h-4 text-amber-500" />
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              <span>Deposit Now</span>
+              <span>{!canRefill ? "Deposit Locked" : "Deposit Now"}</span>
             </Button>
           </div>
         </div>
@@ -245,11 +279,20 @@ export const AutoRefillConfigModal: React.FC<AutoRefillConfigModalProps> = ({
 
           <Button
             type="button"
+            disabled={!canRefill}
             onClick={handleSave}
-            className="flex-1 bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-zinc-900 font-bold rounded-2xl h-12 shadow-sm"
+            className={`flex-1 font-bold rounded-2xl h-12 shadow-sm ${
+              !canRefill
+                ? "bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed"
+                : "bg-zinc-900 hover:bg-zinc-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-zinc-900"
+            }`}
           >
-            <ShieldCheck className="w-4 h-4 mr-2" />
-            Save Threshold
+            {!canRefill ? (
+              <Lock className="w-4 h-4 mr-2 text-amber-500" />
+            ) : (
+              <ShieldCheck className="w-4 h-4 mr-2" />
+            )}
+            <span>{!canRefill ? `Locked (${currentRole})` : "Save Threshold"}</span>
           </Button>
         </div>
       </div>

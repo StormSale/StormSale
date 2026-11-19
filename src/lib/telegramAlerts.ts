@@ -282,8 +282,8 @@ export function parseLogSaleTransaction(
     const call = fn.invokeContract;
     if (Address.fromScAddress(call.contractAddress).toString() !== contractId) continue;
     if (String(call.functionName) !== "log_sale") continue;
-    if (call.args.length !== 4) return null;
-    const [advertiser, campaignId, affiliate, amount] = call.args.map((arg) => scValToNative(arg));
+    if (call.args.length !== 4 && call.args.length !== 6) return null;
+    const [advertiser, campaignId, affiliate, amount] = call.args.slice(0, 4).map((arg) => scValToNative(arg));
     if (
       typeof advertiser !== "string" ||
       typeof campaignId !== "number" ||

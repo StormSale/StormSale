@@ -1,4 +1,4 @@
-// @vitest-environment jsdom
+// @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -245,6 +245,9 @@ describe("ComplianceChecklist — persistence, reset and exports", () => {
   });
 
   it("only resets after confirmation", () => {
+    if (typeof window.confirm !== "function") {
+      window.confirm = () => false;
+    }
     const confirm = vi
       .spyOn(window, "confirm")
       .mockReturnValueOnce(false)

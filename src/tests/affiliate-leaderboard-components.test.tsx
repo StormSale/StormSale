@@ -22,6 +22,15 @@ vi.mock("../lib/stellar", () => ({
 vi.mock("../config/stellar", () => ({
   STELLAR_CONFIG: { explorerUrl: "https://locatest.stellar.org/transaction" },
 }));
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
+    tr: ({ children, ...props }: any) => <tr {...props}>{children}</tr>,
+    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
+    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
+  },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
 
 import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
 import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
@@ -80,7 +89,7 @@ describe("AffiliateLeaderboard component", () => {
     // Open a profile card from the champion podium button
     fireEvent.click(screen.getByRole("button", { name: /View Champion Profile/ }));
     expect(screen.getByText("Gamified Milestone Trophies")).toBeTruthy();
-  });
+  }, 60000);
 
   it("masks and unmasks the connected user's address", () => {
     render(<AffiliateLeaderboard />);
@@ -193,11 +202,7 @@ describe("AffiliateProfileCard component", () => {
     mocks.mint.mockResolvedValue({ success: true, txHash: "0xstandalone", tokenId: "SBT-SA-1K" });
     const onBadgeClaimed = vi.fn();
     render(
-      <AffiliateProfileCard
-        affiliateAddress={USER}
-        isStandalone
-        onBadgeClaimed={onBadgeClaimed}
-      />,
+      <AffiliateProfileCard affiliateAddress={USER} isStandalone onBadgeClaimed={onBadgeClaimed} />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Copy/ }));

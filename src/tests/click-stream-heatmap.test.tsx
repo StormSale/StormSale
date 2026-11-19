@@ -190,12 +190,13 @@ describe("ClickStreamHeatmap", () => {
 
   it("loads the connected wallet's click stream from the API", async () => {
     web3.userAddress = WALLET;
+    const oneDayAgo = new Date(Date.now() - 86_400_000).toISOString();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
         events: [
-          { countryIso: "KE", type: "click", timestamp: daysAgo(1), campaignLinkId: "promo" },
-          { countryIso: "KE", type: "conversion", timestamp: daysAgo(1), campaignLinkId: "promo" },
+          { countryIso: "KE", type: "click", timestamp: oneDayAgo, campaignLinkId: "promo" },
+          { countryIso: "KE", type: "conversion", timestamp: oneDayAgo, campaignLinkId: "promo" },
         ],
       }),
     });

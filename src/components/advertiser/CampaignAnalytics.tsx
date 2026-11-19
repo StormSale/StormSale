@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -8,8 +9,11 @@ import {
 import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
+import { FraudRiskBadge } from "./FraudRiskBadge";
+import { useFraudRisk } from "../../hooks/useFraudRisk";
 
 export const CampaignAnalytics = () => {
+  const { riskProfiles } = useFraudRisk();
   const campaignStats = [
     {
       name: "Tech Gadgets Pro",
@@ -58,27 +62,53 @@ export const CampaignAnalytics = () => {
     },
   ];
 
-  const topAffiliates = [
-    {
-      name: "Alex Johnson",
-      sales: 45,
-      commission: "$4,500",
-      performance: "Excellent",
-    },
-    {
-      name: "Sarah Miller",
-      sales: 38,
-      commission: "$3,800",
-      performance: "Excellent",
-    },
-    { name: "Mike Chen", sales: 32, commission: "$3,200", performance: "Good" },
-    {
-      name: "Emily Davis",
-      sales: 28,
-      commission: "$2,800",
-      performance: "Good",
-    },
-  ];
+  const topAffiliates = useMemo(() => {
+    const profiles = Object.values(riskProfiles);
+    if (profiles.length > 0) {
+      return profiles.slice(0, 4).map((p) => ({
+        name: p.affiliateName,
+        address: p.affiliateAddress,
+        sales: p.totalConversions,
+        commission: `$${(p.totalConversions * 100).toLocaleString()}`,
+        performance:
+          p.riskLevel === "LOW"
+            ? "Excellent"
+            : p.riskLevel === "MEDIUM"
+              ? "Good"
+              : "Review",
+      }));
+    }
+    return [
+      {
+        name: "Alex Johnson",
+        address: "GAEM2CL7BEGW7MJ5IVJGL2GE6U7VOO7DZTOFYOUGKSINDM3IF4LLG7YS",
+        sales: 45,
+        commission: "$4,500",
+        performance: "Excellent",
+      },
+      {
+        name: "Sarah Miller",
+        address: "GBCLEANADDRESS0000000000000000000000000000000000000000000",
+        sales: 38,
+        commission: "$3,800",
+        performance: "Excellent",
+      },
+      {
+        name: "Mike Chen",
+        address: "GASTORMSALE7AFFILIATE_DEFAULT_PORTFOLIO_KEY_001",
+        sales: 32,
+        commission: "$3,200",
+        performance: "Good",
+      },
+      {
+        name: "Emily Davis",
+        address: "GASTORMSALE7ZKPROOFAFFILIATE0000000000000000000000000000001",
+        sales: 28,
+        commission: "$2,800",
+        performance: "Good",
+      },
+    ];
+  }, [riskProfiles]);
 
   return (
     <div className="space-y-8">
@@ -222,14 +252,21 @@ export const CampaignAnalytics = () => {
                     <div className="font-bold text-sm text-zinc-900 dark:text-white mb-1">
                       {affiliate.commission}
                     </div>
-                    <div
-                      className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full inline-block ${
-                        affiliate.performance === "Excellent"
-                          ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
-                          : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300"
-                      }`}
-                    >
-                      {affiliate.performance}
+                    <div className="flex items-center justify-end gap-2 mt-1">
+                      <FraudRiskBadge
+                        affiliateAddress={affiliate.address}
+                        affiliateName={affiliate.name}
+                        showActionBtn={false}
+                      />
+                      <div
+                        className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full inline-block ${
+                          affiliate.performance === "Excellent"
+                            ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
+                            : "bg-slate-200 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        }`}
+                      >
+                        {affiliate.performance}
+                      </div>
                     </div>
                   </div>
                 </div>

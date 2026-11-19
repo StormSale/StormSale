@@ -11,8 +11,13 @@ import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
 import { AffiliateApplicationsQueue } from "../components/advertiser/AffiliateApplicationsQueue";
 import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
+import { OrganizationManagement } from "../components/advertiser/OrganizationManagement";
+import { FraudRiskPartnerTable } from "../components/advertiser/FraudRiskPartnerTable";
+import { FraudRiskProvider } from "../context/FraudRiskContext";
 import { NotificationProvider } from "../context/NotificationContext";
+import { OrganizationProvider } from "../context/OrganizationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
+import { EscrowBalanceMonitor } from "../components/advertiser/EscrowBalanceMonitor";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { usePreference } from "../hooks/usePreference";
@@ -32,6 +37,8 @@ import {
   Coins,
   ClipboardList,
   FileSpreadsheet,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -43,6 +50,8 @@ const ADVERTISER_TABS = [
   "overview",
   "create-campaign",
   "my-campaigns",
+  "team-management",
+  "fraud-risk",
   "brand-customizer",
   "log-sale",
   "batch-sales",
@@ -67,6 +76,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "create-campaign", label: "Create Campaign", icon: Plus },
     { id: "my-campaigns", label: "My Campaigns", icon: Users },
     { id: "affiliate-applications", label: "Affiliate Applications", icon: ClipboardList },
+    { id: "team-management", label: "Team & Permissions", icon: ShieldCheck },
+    { id: "fraud-risk", label: "Fraud & Partner Risk (Demo)", icon: ShieldAlert },
     { id: "brand-customizer", label: "Storefront & Branding", icon: Palette },
     { id: "log-sale", label: "Log Encrypted Sale", icon: Shield },
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
@@ -83,6 +94,10 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CreateCampaignForm />;
       case "brand-customizer":
         return <BrandCustomizer />;
+      case "team-management":
+        return <OrganizationManagement />;
+      case "fraud-risk":
+        return <FraudRiskPartnerTable />;
       case "log-sale":
         return <LogSaleForm />;
       case "batch-sales":
@@ -140,7 +155,11 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
 
 export const Advertiser: React.FC<AdvertiserProps> = (props) => (
   <NotificationProvider>
-    <AdvertiserContent {...props} />
+    <OrganizationProvider>
+      <FraudRiskProvider>
+        <AdvertiserContent {...props} />
+      </FraudRiskProvider>
+    </OrganizationProvider>
   </NotificationProvider>
 );
 
@@ -190,6 +209,9 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
         contractAddress={STELLAR_CONFIG.contractId}
         campaignName="Primary Campaign Escrow"
       />
+
+      {/* Live Soroban Escrow Multi-Token Balance Monitor (#71) */}
+      <EscrowBalanceMonitor contractAddress={STELLAR_CONFIG.contractId} pollingIntervalMs={5000} />
 
       {/* Escrow Auto-Refill Status Banner */}
       <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -444,6 +466,14 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
                   hoverBg: "group-hover:bg-amber-500/10",
                   hoverText: "group-hover:text-amber-500",
                   hoverBorder: "hover:border-amber-500/30",
+                },
+                {
+                  label: "Team Permissions",
+                  icon: Users,
+                  action: "team-management",
+                  hoverBg: "group-hover:bg-purple-500/10",
+                  hoverText: "group-hover:text-purple-500",
+                  hoverBorder: "hover:border-purple-500/30",
                 },
               ].map((action, index) => {
                 const IconComponent = action.icon;

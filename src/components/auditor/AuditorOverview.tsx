@@ -9,6 +9,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
 import { ORG_DASHBOARD_METRICS, recordsScopedToOrg } from "../../lib/auditorTenancy";
+import { MasterDecryptionPortal } from "./MasterDecryptionPortal";
 import {
   Shield,
   TrendingUp,
@@ -385,6 +386,9 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </CardContent>
         </Card>
       </div>
+
+      {/* Authorized Master Decryption Portal (Issue #58) */}
+      <MasterDecryptionPortal />
 
       {/* Session decryption keys — cleared automatically on tenant switch */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">

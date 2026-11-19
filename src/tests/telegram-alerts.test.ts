@@ -294,6 +294,18 @@ describe("log_sale transactions", () => {
     ).toEqual(expected);
   });
 
+  it("handles recruited sales with six arguments cleanly", () => {
+    const recruitedArgs = [
+      ...saleArgs(1_234_567n),
+      new Address(OTHER).toScVal(),
+      nativeToScVal(24_691n, { type: "i128" }),
+    ];
+    const expected = { advertiser: ADVERTISER, campaignId: 4, affiliate: ADDR, amount: 1_234_567n };
+    expect(
+      parseLogSaleTransaction(envelope(CONTRACT, "log_sale", recruitedArgs), CONTRACT),
+    ).toEqual(expected);
+  });
+
   it("rejects other contracts, functions, malformed args and garbage", () => {
     expect(
       parseLogSaleTransaction(envelope(OTHER, "log_sale", saleArgs(10n)), CONTRACT),

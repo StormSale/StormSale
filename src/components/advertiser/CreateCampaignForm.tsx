@@ -13,6 +13,7 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useAccountReserve } from "../../hooks/useAccountReserve";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import {
   getCreateCampaignSchema,
   getFieldErrors,
@@ -80,6 +81,11 @@ export const CreateCampaignForm = () => {
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
+  const [dailyPayoutCap, setDailyPayoutCap] = useState("");
+  const [attributionModel, setAttributionModel] = useState<"last_click" | "first_click">(
+    "last_click",
+  );
+  const [attributionWindowDays, setAttributionWindowDays] = useState<"1" | "7" | "30" | "60">("30");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [flowStep, setFlowStep] = useState<FlowStep>("idle");
   const [isRefreshingAllowance, setIsRefreshingAllowance] = useState(false);
@@ -110,6 +116,8 @@ export const CreateCampaignForm = () => {
     openMultiSigModal,
   } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
+  const canCreateCampaign = hasCapability("campaign:create");
 
   // Numeric calculations
   const parsedBudget = parseFloat(budget);
@@ -202,6 +210,15 @@ export const CreateCampaignForm = () => {
 
   // Step 1: Approve Token Allowance Only
   const handleApproveAllowanceOnly = async () => {
+    if (!canCreateCampaign) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not authorized to create campaigns or approve allowances.`,
+      });
+      return;
+    }
+
     if (!isConnected) {
       showNotification({
         type: "error",
@@ -258,11 +275,23 @@ export const CreateCampaignForm = () => {
     if (e) e.preventDefault();
     setErrors({});
 
+    if (!canCreateCampaign) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not permitted to create campaigns. Requires Admin or Editor role.`,
+      });
+      return;
+    }
+
     const result = getCreateCampaignSchema(maxDecimals).safeParse({
       campaignName,
       commissionRate,
       budget,
       clearingPeriod,
+      dailyPayoutCap: dailyPayoutCap.trim() || undefined,
+      attributionModel,
+      attributionWindowDays,
     });
 
     if (!result.success) {
@@ -469,6 +498,24 @@ export const CreateCampaignForm = () => {
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
+          {!canCreateCampaign && (
+            <div
+              className="p-4 mb-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-3"
+              data-testid="campaign-create-locked-banner"
+              role="alert"
+            >
+              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <div className="font-bold">Campaign Creation Locked</div>
+                <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                  Your active role is <strong>{currentRole}</strong>. Creating smart contract
+                  campaigns is restricted to <strong>Admin</strong> or{" "}
+                  <strong>Editor / Marketing Manager</strong>.
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSequentialApproveAndCreate} noValidate>
             <div className="space-y-8">
               <InputField
@@ -793,6 +840,108 @@ export const CreateCampaignForm = () => {
                 </div>
               </InputField>
 
+              {/* Daily Commission Payout Cap per Affiliate (Issue #156) */}
+              <InputField
+                label={
+                  <span className="inline-flex items-center gap-1.5">
+                    Daily Maximum Payout Cap (Optional XLM / 24h)
+                    <InfoTooltip text="Set an optional rolling 24-hour commission claim cap per affiliate (e.g. 1,000 XLM / day) to limit liability." />
+                  </span>
+                }
+                description="Optional maximum payout an affiliate may claim every 24 hours"
+                error={errors.dailyPayoutCap}
+              >
+                <div className="relative">
+                  <Input
+                    type="number"
+                    value={dailyPayoutCap}
+                    onChange={(e) => {
+                      setDailyPayoutCap(e.target.value);
+                      if (errors.dailyPayoutCap)
+                        setErrors((prev) => ({ ...prev, dailyPayoutCap: "" }));
+                    }}
+                    placeholder="e.g. 1000 (leave blank for unlimited)"
+                    variant={errors.dailyPayoutCap ? "error" : "default"}
+                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 pr-24"
+                    data-testid="input-daily-payout-cap"
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium text-xs">
+                    XLM / 24h
+                  </div>
+                </div>
+              </InputField>
+
+              {/* Attribution Model & Window Engine (Issue #151) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InputField
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Attribution Model
+                      <InfoTooltip text="Choose whether first-touch or last-touch affiliate receives the conversion commission." />
+                    </span>
+                  }
+                  description="First-Click or Last-Click attribution"
+                >
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={attributionModel === "last_click" ? "default" : "outline"}
+                      className={`flex-1 h-12 rounded-xl transition-all font-semibold text-xs ${
+                        attributionModel === "last_click"
+                          ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                          : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                      }`}
+                      onClick={() => setAttributionModel("last_click")}
+                      data-testid="btn-attr-last-click"
+                    >
+                      Last-Click (Default)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={attributionModel === "first_click" ? "default" : "outline"}
+                      className={`flex-1 h-12 rounded-xl transition-all font-semibold text-xs ${
+                        attributionModel === "first_click"
+                          ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                          : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                      }`}
+                      onClick={() => setAttributionModel("first_click")}
+                      data-testid="btn-attr-first-click"
+                    >
+                      First-Click
+                    </Button>
+                  </div>
+                </InputField>
+
+                <InputField
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Attribution Window
+                      <InfoTooltip text="Attribution window duration. Conversions beyond the window are treated as uncommissioned direct sales." />
+                    </span>
+                  }
+                  description="Expiration window for referral clicks"
+                >
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["1", "7", "30", "60"] as const).map((days) => (
+                      <Button
+                        key={days}
+                        type="button"
+                        variant={attributionWindowDays === days ? "default" : "outline"}
+                        className={`h-12 rounded-xl transition-all font-semibold text-xs ${
+                          attributionWindowDays === days
+                            ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                            : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                        }`}
+                        onClick={() => setAttributionWindowDays(days)}
+                        data-testid={`btn-attr-window-${days}`}
+                      >
+                        {days}d
+                      </Button>
+                    ))}
+                  </div>
+                </InputField>
+              </div>
+
               {/* Visibility: public, or private with manual approval */}
               <div className="flex items-start justify-between gap-4 p-5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950">
                 <div className="flex items-start gap-3">
@@ -1086,15 +1235,21 @@ export const CreateCampaignForm = () => {
                       type="submit"
                       loading={isExecuting}
                       cooldown
-                      disabled={isReserveBlocked}
+                      disabled={isExecuting || !canCreateCampaign || isReserveBlocked}
                       title={
                         exceedsSpendable
                           ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
                           : undefined
                       }
                       className="w-full h-14 bg-indigo-600 hover:bg-indigo-700 text-white text-base md:text-lg font-bold shadow-lg shadow-indigo-600/20 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      data-testid="btn-approve-and-create"
                     >
-                      {flowStep === "approving" ? (
+                      {!canCreateCampaign ? (
+                        <div className="flex items-center justify-center space-x-2">
+                          <Lock className="w-5 h-5" />
+                          <span>Action Locked ({currentRole} Restricted)</span>
+                        </div>
+                      ) : flowStep === "approving" ? (
                         <div className="flex items-center space-x-3">
                           <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                           <span>Step 1/2: Approving {selectedAsset} Allowance...</span>
@@ -1121,9 +1276,9 @@ export const CreateCampaignForm = () => {
                         type="button"
                         variant="outline"
                         size="sm"
-                        disabled={isExecuting}
+                        disabled={isExecuting || !canCreateCampaign}
                         onClick={handleApproveAllowanceOnly}
-                        className="text-xs h-8 rounded-lg border-zinc-300 dark:border-zinc-700 font-semibold"
+                        className="text-xs h-8 rounded-lg border-zinc-300 dark:border-zinc-700 font-semibold disabled:opacity-50"
                       >
                         <Lock className="w-3.5 h-3.5 mr-1" />
                         Approve Allowance Only
@@ -1135,15 +1290,21 @@ export const CreateCampaignForm = () => {
                     type="submit"
                     loading={isExecuting}
                     cooldown
-                    disabled={isReserveBlocked}
+                    disabled={isExecuting || !canCreateCampaign || isReserveBlocked}
                     title={
                       exceedsSpendable
                         ? `Budget exceeds your spendable balance of ${formatXlm(spendableXlm)} XLM`
                         : undefined
                     }
                     className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    data-testid="btn-create-campaign"
                   >
-                    {flowStep === "creating" ? (
+                    {!canCreateCampaign ? (
+                      <div className="flex items-center space-x-2">
+                        <Lock className="w-5 h-5" />
+                        <span>Action Locked ({currentRole} Restricted)</span>
+                      </div>
+                    ) : flowStep === "creating" ? (
                       <div className="flex items-center space-x-3">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         <span>Creating {selectedAsset} Campaign Escrow...</span>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { InputGroup, InputField } from "../../components/ui/input-group";
@@ -11,6 +11,7 @@ import {
 } from "../../components/ui/card";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
+import { useOrganization } from "../../hooks/useOrganization";
 import {
   generateAESKey,
   encryptPayload,
@@ -23,20 +24,136 @@ import { getAffiliateAccess } from "../../lib/campaignAccess";
 import { notifyTelegramConversion } from "../../lib/telegramClient";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
-import { Shield, Zap, Users, FileKey, FileSpreadsheet } from "lucide-react";
+import {
+  Shield,
+  Zap,
+  Users,
+  FileKey,
+  FileSpreadsheet,
+  Lock,
+  GitBranch,
+  Activity,
+  RefreshCw,
+} from "lucide-react";
 import { BatchSaleUploader } from "./BatchSaleUploader";
+import {
+  getRecruiterForAffiliate,
+  calculateTwoTierCommission,
+  formatAffiliateAddress,
+} from "../../lib/referralTree";
+import { initialMockCampaigns } from "./MyCampaignsList";
+import {
+  fetchLiveOracleRates,
+  convertFiatToXlm,
+  convertXlmToFiat,
+  formatOracleFreshness,
+  type OracleRateResponse,
+} from "../../lib/priceOracle";
 
 export const LogSaleForm = () => {
   const [mode, setMode] = useState<"single" | "batch">("single");
   const [affiliateAddress, setAffiliateAddress] = useState("");
   const [saleAmount, setSaleAmount] = useState("");
+  const [currencyMode, setCurrencyMode] = useState<"XLM" | "USD" | "EUR">("XLM");
+  const [fiatAmount, setFiatAmount] = useState("");
+  const [oracleData, setOracleData] = useState<OracleRateResponse | null>(null);
+  const [isRefreshingOracle, setIsRefreshingOracle] = useState(false);
   const [campaignAddress, setCampaignAddress] = useState("");
   const [customerData, setCustomerData] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Issue #145: Live Price Oracle Feed Engine
+  const loadOracleRates = async (force = false) => {
+    setIsRefreshingOracle(true);
+    try {
+      const data = await fetchLiveOracleRates(force);
+      setOracleData(data);
+    } catch (err) {
+      console.warn("Failed to refresh oracle rates:", err);
+    } finally {
+      setIsRefreshingOracle(false);
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    fetchLiveOracleRates(false).then((data) => {
+      if (mounted) setOracleData(data);
+    });
+    const interval = setInterval(() => {
+      fetchLiveOracleRates(false).then((data) => {
+        if (mounted) setOracleData(data);
+      });
+    }, 60000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const handleFiatAmountChange = (val: string) => {
+    setFiatAmount(val);
+    clearError("saleAmount");
+    if (!val || isNaN(Number(val)) || Number(val) <= 0) {
+      setSaleAmount("");
+      return;
+    }
+    if (oracleData) {
+      const calculatedXlm = convertFiatToXlm(
+        Number(val),
+        currencyMode === "EUR" ? "EUR" : "USD",
+        oracleData.rates,
+      );
+      setSaleAmount(calculatedXlm > 0 ? calculatedXlm.toString() : "");
+    }
+  };
+
+  const handleCurrencyChange = (newCurrency: "XLM" | "USD" | "EUR") => {
+    setCurrencyMode(newCurrency);
+    if (newCurrency === "XLM") {
+      setFiatAmount("");
+    } else if (saleAmount && oracleData) {
+      const fiat = convertXlmToFiat(
+        Number(saleAmount),
+        newCurrency === "EUR" ? "EUR" : "USD",
+        oracleData.rates,
+      );
+      setFiatAmount(fiat > 0 ? fiat.toString() : "");
+    }
+  };
+
   const { getCampaignContract, userAddress } = useWeb3();
   const { showNotification } = useNotification();
+  const { hasCapability, currentRole } = useOrganization();
+  const canLogSale = hasCapability("sale:log");
+
+  const recruiterRelation =
+    affiliateAddress.trim().length >= 10
+      ? getRecruiterForAffiliate(affiliateAddress.trim())
+      : undefined;
+
+  const campaignCommissionRate = useMemo(() => {
+    const raw = campaignAddress.trim();
+    if (!raw) return 10.0;
+    const match = initialMockCampaigns.find(
+      (c) =>
+        c.id === raw ||
+        String(c.onChainId) === raw ||
+        c.contractAddress.toLowerCase() === raw.toLowerCase(),
+    );
+    return match ? match.commissionRate : 10.0;
+  }, [campaignAddress]);
+
+  const twoTierSplit = recruiterRelation
+    ? calculateTwoTierCommission(
+        parseFloat(saleAmount) || 0,
+        campaignCommissionRate,
+        recruiterRelation.overrideRatePercent,
+        recruiterRelation.parentAddress,
+        affiliateAddress.trim(),
+      )
+    : null;
 
   const clearError = (field: string) => {
     setErrors((prev) => ({ ...prev, [field]: "" }));
@@ -45,6 +162,15 @@ export const LogSaleForm = () => {
   const handleLogSale = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrors({});
+
+    if (!canLogSale) {
+      showNotification({
+        type: "error",
+        title: "Permission Denied",
+        message: `Your role '${currentRole}' is not authorized to log sales. Requires Admin or Editor role.`,
+      });
+      return;
+    }
 
     const result = logSaleSchema.safeParse({
       campaignAddress,
@@ -128,6 +254,15 @@ export const LogSaleForm = () => {
         product: "Digital Product",
         timestamp: new Date().toISOString(),
         metadata: "Additional sale information",
+        oracleMetadata: {
+          currencyMode,
+          fiatAmount: currencyMode !== "XLM" ? fiatAmount : undefined,
+          lockedRate: oracleData ? oracleData.rates[currencyMode === "EUR" ? "EUR" : "USD"] : 0.125,
+          oracleSource: oracleData ? oracleData.source : "Fallback",
+          rateTimestamp: oracleData ? oracleData.updatedAt : Date.now(),
+          isStale: oracleData ? oracleData.isStale : false,
+          lockedXlmAmount: data.saleAmount,
+        },
       };
 
       const encryptedPayload = await encryptPayload(payload, aesKey);
@@ -150,6 +285,7 @@ export const LogSaleForm = () => {
         encryptedPayload,
         advertiserWrappedKey,
         affiliateWrappedKey,
+        campaignCommissionRate,
       );
 
       const waitResult = await tx.wait();
@@ -328,6 +464,24 @@ export const LogSaleForm = () => {
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
+          {!canLogSale && (
+            <div
+              className="p-4 mb-6 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 flex items-start gap-3"
+              data-testid="log-sale-locked-banner"
+              role="alert"
+            >
+              <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs">
+                <div className="font-bold">Sale Logging Restricted</div>
+                <p className="mt-0.5 text-amber-700 dark:text-amber-400">
+                  Your active role is <strong>{currentRole}</strong>. Logging encrypted sales
+                  requires <strong>Admin</strong> or <strong>Editor / Marketing Manager</strong>{" "}
+                  permissions.
+                </p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleLogSale} noValidate>
             <InputGroup className="space-y-8">
               <InputField
@@ -348,6 +502,74 @@ export const LogSaleForm = () => {
                 />
               </InputField>
 
+              {/* Live Oracle Price Feeds Bar (Issue #145) */}
+              <div
+                className="p-3.5 rounded-2xl bg-indigo-50/60 dark:bg-zinc-950/60 border border-indigo-100 dark:border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                data-testid="oracle-status-bar"
+              >
+                <div className="flex items-center gap-2">
+                  <Activity className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                  <span className="font-bold text-zinc-900 dark:text-white">Live Price Feeds:</span>
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-zinc-600 dark:text-zinc-300 flex-wrap">
+                    <span>
+                      XLM/USD:{" "}
+                      <strong>${oracleData ? oracleData.rates.USD.toFixed(4) : "0.1250"}</strong>
+                    </span>
+                    <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                    <span>
+                      XLM/EUR:{" "}
+                      <strong>€{oracleData ? oracleData.rates.EUR.toFixed(4) : "0.1150"}</strong>
+                    </span>
+                    <span className="text-zinc-300 dark:text-zinc-700">·</span>
+                    <span>
+                      XLM/USDC:{" "}
+                      <strong>${oracleData ? oracleData.rates.USDC.toFixed(4) : "0.1250"}</strong>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-1.5" data-testid="oracle-indicator">
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        oracleData && !oracleData.isStale
+                          ? "bg-emerald-500 animate-pulse"
+                          : "bg-amber-500"
+                      }`}
+                    />
+                    <span
+                      className={`text-[11px] font-bold ${
+                        oracleData && !oracleData.isStale
+                          ? "text-emerald-700 dark:text-emerald-400"
+                          : "text-amber-700 dark:text-amber-400"
+                      }`}
+                    >
+                      {oracleData && !oracleData.isStale
+                        ? `Live (${oracleData.source})`
+                        : "Stale Feed"}
+                    </span>
+                    {oracleData && (
+                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
+                        ({formatOracleFreshness(oracleData.updatedAt)})
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => loadOracleRates(true)}
+                    disabled={isRefreshingOracle}
+                    className="p-1 rounded-lg text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+                    title="Refresh oracle rates"
+                    data-testid="btn-refresh-oracle"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${isRefreshingOracle ? "animate-spin" : ""}`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               <div className="grid md:grid-cols-2 gap-6">
                 <InputField
                   label="Affiliate Address"
@@ -367,31 +589,127 @@ export const LogSaleForm = () => {
                 </InputField>
 
                 <InputField
-                  label="Sale Amount (XLM)"
-                  description="Total sale amount in XLM (up to 7 decimal places)"
+                  label={
+                    <div className="flex items-center justify-between w-full">
+                      <span>Sale Amount ({currencyMode})</span>
+                      <div className="flex items-center gap-1">
+                        {(["XLM", "USD", "EUR"] as const).map((curr) => (
+                          <button
+                            key={curr}
+                            type="button"
+                            onClick={() => handleCurrencyChange(curr)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider transition-all ${
+                              currencyMode === curr
+                                ? "bg-indigo-600 text-white shadow-xs"
+                                : "bg-slate-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-700"
+                            }`}
+                            data-testid={`btn-currency-${curr}`}
+                          >
+                            {curr}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  }
+                  description={
+                    currencyMode === "XLM"
+                      ? "Enter native XLM amount (up to 7 decimals)"
+                      : `Enter fiat ${currencyMode} amount; converted to XLM via live oracle`
+                  }
                   error={errors.saleAmount}
                   required
                 >
                   <div className="relative">
-                    <Input
-                      type="number"
-                      step="0.0000001"
-                      min="0"
-                      value={saleAmount}
-                      onChange={(e) => {
-                        setSaleAmount(e.target.value);
-                        clearError("saleAmount");
-                      }}
-                      placeholder="e.g., 100.50"
-                      variant={errors.saleAmount ? "error" : "default"}
-                      className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950"
-                    />
-                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium">
-                      XLM
+                    {currencyMode === "XLM" ? (
+                      <Input
+                        type="number"
+                        step="0.0000001"
+                        min="0"
+                        value={saleAmount}
+                        onChange={(e) => {
+                          setSaleAmount(e.target.value);
+                          clearError("saleAmount");
+                        }}
+                        placeholder="e.g., 100.50"
+                        variant={errors.saleAmount ? "error" : "default"}
+                        className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 pr-16"
+                        data-testid="input-sale-amount-xlm"
+                      />
+                    ) : (
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={fiatAmount}
+                        onChange={(e) => handleFiatAmountChange(e.target.value)}
+                        placeholder={`e.g., 50.00 (${currencyMode})`}
+                        variant={errors.saleAmount ? "error" : "default"}
+                        className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 pr-20"
+                        data-testid="input-sale-amount-fiat"
+                      />
+                    )}
+                    <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-semibold text-xs">
+                      {currencyMode}
                     </div>
                   </div>
+
+                  {/* Real-time conversion equivalence preview */}
+                  {currencyMode !== "XLM" && (
+                    <div className="mt-1.5 flex items-center justify-between text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <span>
+                        Live XLM Equivalent:{" "}
+                        <strong className="text-indigo-600 dark:text-indigo-400 font-mono">
+                          {saleAmount ? `${Number(saleAmount).toFixed(4)} XLM` : "0.0000 XLM"}
+                        </strong>
+                      </span>
+                      <span className="text-[10px] text-zinc-400">
+                        Locked @ $
+                        {oracleData?.rates[currencyMode === "EUR" ? "EUR" : "USD"] ?? 0.125} / XLM
+                      </span>
+                    </div>
+                  )}
+
+                  {currencyMode === "XLM" && saleAmount && oracleData && (
+                    <div className="mt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                      ≈ ${convertXlmToFiat(Number(saleAmount), "USD", oracleData.rates).toFixed(2)}{" "}
+                      USD
+                    </div>
+                  )}
                 </InputField>
               </div>
+
+              {twoTierSplit && twoTierSplit.hasRecruiter && (
+                <div
+                  className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 flex items-start gap-3 shadow-sm"
+                  data-testid="banner-twotier-split-active"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5">
+                    <GitBranch className="w-4 h-4" />
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="font-black text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                      <span>Two-Tier Referral Split Active ({twoTierSplit.splitRatioLabel})</span>
+                    </div>
+                    <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                      Affiliate recruited by <strong>{recruiterRelation?.parentName}</strong> (
+                      <span className="font-mono">
+                        {formatAffiliateAddress(twoTierSplit.recruiterAddress || "")}
+                      </span>
+                      ). Commission split:{" "}
+                      <strong className="text-indigo-600 dark:text-indigo-400">
+                        {twoTierSplit.sellingAffiliateRatePercent}% (
+                        {twoTierSplit.sellingAffiliateCommissionXlm} XLM)
+                      </strong>{" "}
+                      to seller,{" "}
+                      <strong className="text-emerald-600 dark:text-emerald-400">
+                        {twoTierSplit.recruiterOverrideRatePercent}% (+
+                        {twoTierSplit.recruiterOverrideCommissionXlm} XLM)
+                      </strong>{" "}
+                      passive override to master recruiter.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <InputField
                 label="Customer Information"
@@ -444,9 +762,16 @@ export const LogSaleForm = () => {
                 type="submit"
                 loading={isLoading}
                 cooldown
-                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all"
+                disabled={isLoading || !canLogSale}
+                className="w-full h-14 bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white text-lg font-bold shadow-lg rounded-xl transition-all disabled:opacity-50"
+                data-testid="btn-log-sale"
               >
-                {isLoading ? (
+                {!canLogSale ? (
+                  <div className="flex items-center space-x-2">
+                    <Lock className="w-5 h-5" />
+                    <span>Action Locked ({currentRole} Restricted)</span>
+                  </div>
+                ) : isLoading ? (
                   <div className="flex items-center space-x-3">
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     <span>Logging Encrypted Sale...</span>

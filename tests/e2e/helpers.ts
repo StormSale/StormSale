@@ -17,6 +17,23 @@ export async function mockBackend(page: Page) {
     "access-control-allow-headers": "Content-Type, Authorization",
   };
 
+  await page.route(
+    (url) => url.pathname === "/" || url.pathname.endsWith("/index.html"),
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      // In E2E tests, telegram.org is mocked by Playwright; strip integrity from the external script so SRI passes on mock response
+      const modified = body.replace(
+        /(<script\b[^>]*src=["']https:\/\/telegram\.org\/js\/telegram-web-app\.js["'][^>]*)integrity=["'][^"']*["']([^>]*>)/i,
+        "$1$2",
+      );
+      await route.fulfill({
+        response,
+        body: modified,
+      });
+    },
+  );
+
   await page.route("**/api/users", async (route) => {
     if (route.request().method() === "OPTIONS") {
       return route.fulfill({ status: 204, headers: corsHeaders });
@@ -109,7 +126,7 @@ export async function mockBackend(page: Page) {
       status: 200,
       contentType: "application/javascript",
       headers: corsHeaders,
-      body: "",
+      body: "window.Telegram = { WebApp: { ready: () => {}, close: () => {}, expand: () => {}, themeParams: {} } };",
     }),
   );
   await page.route("**/*pravatar.cc/**", (route) =>
