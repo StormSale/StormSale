@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig, configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
@@ -55,6 +55,7 @@ export default defineConfig({
     globals: true,
     testTimeout: 20000,
     hookTimeout: 20000,
+    exclude: [...configDefaults.exclude, "e2e/**", "tests/e2e/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "json", "html", "lcov"],
