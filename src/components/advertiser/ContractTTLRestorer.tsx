@@ -2,7 +2,9 @@ import React, { useState, useEffect } from "react";
 import {
   fetchContractInstanceTTL,
   extendContractInstanceTTL,
+  simulateExtendContractTTL,
   DEFAULT_EXTEND_LEDGERS,
+  WARNING_TTL_THRESHOLD_LEDGERS,
   type ContractTTLInfo,
 } from "../../lib/contractTTL";
 import { ContractTTLBadge } from "./ContractTTLBadge";
@@ -30,6 +32,7 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
   const [ttlInfo, setTtlInfo] = useState<ContractTTLInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [extending, setExtending] = useState<boolean>(false);
+  const [simulationStatus, setSimulationStatus] = useState<string | null>(null);
   const [extendTargetLedgers, setExtendTargetLedgers] = useState<number>(DEFAULT_EXTEND_LEDGERS);
 
   const refreshTTL = () => {
@@ -70,12 +73,25 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
   const handleExtendTTL = async () => {
     if (!contractAddress) return;
     setExtending(true);
+    setSimulationStatus("Simulating Soroban state rent extension...");
 
     try {
+      const sim = await simulateExtendContractTTL(
+        contractAddress,
+        userAddress || "GDX7...MOCK",
+        extendTargetLedgers,
+      );
+      if (!sim.canExtend && sim.error) {
+        throw new Error(`Simulation failed: ${sim.error}`);
+      }
+      setSimulationStatus(
+        `Simulation verified (Est. Fee: ${sim.estimatedFeeXlm} XLM). Submitting...`,
+      );
+
       showNotification({
         type: "info",
         title: "Submitting TTL Extension",
-        message: `Extending state rent for ${campaignName || "contract"} by ${extendTargetLedgers.toLocaleString()} ledgers...`,
+        message: `Extending state rent for ${campaignName || "contract"} by ${extendTargetLedgers.toLocaleString()} ledgers (Simulated Fee: ${sim.estimatedFeeXlm} XLM)...`,
       });
 
       const result = await extendContractInstanceTTL({
@@ -104,6 +120,7 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
       });
     } finally {
       setExtending(false);
+      setSimulationStatus(null);
     }
   };
 
@@ -168,7 +185,54 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
         </div>
       )}
 
-      {/* Contract TTL Card & Live Controls */}
+      {/* Warning Banner when TTL dips below 50,000 ledgers but not yet critical */}
+      {!ttlInfo.requiresRestoration && ttlInfo.remainingLedgers < WARNING_TTL_THRESHOLD_LEDGERS && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="relative overflow-hidden bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 text-amber-800 dark:text-amber-300 backdrop-blur-sm"
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5">
+                <Clock className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <h4 className="font-bold text-sm sm:text-base flex items-center gap-2">
+                  TTL Warning: Extension Recommended
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 font-mono">
+                    {ttlInfo.remainingLedgers.toLocaleString()} ledgers remaining
+                  </span>
+                </h4>
+                <p className="text-xs sm:text-sm text-amber-700/90 dark:text-amber-300/90 mt-1 max-w-xl">
+                  Contract storage lifetime has dropped below 50,000 ledgers (~
+                  {ttlInfo.estimatedHumanDuration}). Trigger a 1-click extension now to guarantee
+                  uninterrupted escrow operations.
+                </p>
+              </div>
+            </div>
+
+            <Button
+              onClick={handleExtendTTL}
+              disabled={extending}
+              data-testid="btn-extend-warning-ttl"
+              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl shadow-lg shadow-amber-600/20 px-5 py-2.5 flex items-center justify-center gap-2 flex-shrink-0"
+            >
+              {extending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Extending...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>Extend TTL Now (+500k ledgers)</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
       <Card className="border border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-md rounded-2xl overflow-hidden shadow-sm">
         <CardContent className="p-5">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -206,6 +270,7 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
               <Button
                 onClick={handleExtendTTL}
                 disabled={extending}
+                data-testid="btn-1click-extend"
                 variant="outline"
                 className="border-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 font-semibold rounded-xl text-xs px-4 py-2 flex items-center gap-1.5"
               >
@@ -229,6 +294,16 @@ export const ContractTTLRestorer: React.FC<ContractTTLRestorerProps> = ({
               </Button>
             </div>
           </div>
+
+          {simulationStatus && (
+            <div
+              data-testid="ttl-simulation-feedback"
+              className="mt-3 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-700 dark:text-indigo-300 flex items-center gap-2"
+            >
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>{simulationStatus}</span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

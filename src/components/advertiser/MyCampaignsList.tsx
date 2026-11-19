@@ -339,7 +339,7 @@ export const MyCampaignsList = () => {
   const [extendingId, setExtendingId] = useState<string | null>(null);
 
   const lowTTLCount = campaigns.filter(
-    (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 10000,
+    (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 50000,
   ).length;
 
   const handleExtendCampaignTTL = async (campaignId: string, contractAddress: string) => {
@@ -593,15 +593,25 @@ export const MyCampaignsList = () => {
 
       // Check pre-authorized allowance
       if (effectiveAllowance < amount) {
-        const deficit = amount - effectiveAllowance;
-        showNotification({
-          type: "warning",
-          title: "Pre-Authorized Allowance Deficit",
-          message: `Current allowance is ${effectiveAllowance.toLocaleString()} XLM. Refill requires ${amount.toLocaleString()} XLM (-${deficit.toLocaleString()} XLM deficit). Please pre-authorize allowance.`,
-          actionLabel: "Authorize Allowance",
-          onAction: () => handleAuthorizeAllowance(Math.max(5000, amount)),
-        });
-        return false;
+        if (isAutomated) {
+          // Automated SAC allowance delegation before escrow top-up (#119)
+          showNotification({
+            type: "info",
+            title: "Automated SAC Allowance Delegation",
+            message: `Delegating SAC token allowance of ${amount.toLocaleString()} XLM for automated top-up...`,
+          });
+          await handleAuthorizeAllowance(amount);
+        } else {
+          const deficit = amount - effectiveAllowance;
+          showNotification({
+            type: "warning",
+            title: "Pre-Authorized Allowance Deficit",
+            message: `Current allowance is ${effectiveAllowance.toLocaleString()} XLM. Refill requires ${amount.toLocaleString()} XLM (-${deficit.toLocaleString()} XLM deficit). Please pre-authorize allowance.`,
+            actionLabel: "Authorize Allowance",
+            onAction: () => handleAuthorizeAllowance(Math.max(5000, amount)),
+          });
+          return false;
+        }
       }
 
       const onChainId = campaign.onChainId ?? Number.parseInt(campaign.id, 10);
