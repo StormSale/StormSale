@@ -39,6 +39,20 @@ import {
 } from "../lib/rpcFallback";
 import { recordReferralSale } from "../lib/referralTree";
 import type { TwoTierCommissionSplit } from "../types/referral";
+import { txQueueManager, type TxQueueStatusSummary } from "../lib/txQueue";
+
+export interface OptimisticAction {
+  id: string;
+  type: string;
+  description: string;
+  timestamp: number;
+  status: "pending" | "confirmed" | "reverted";
+  rollbackSnapshot: {
+    xlmBalance: string;
+    assetBalances: Record<SupportedEscrowAssetCode, string>;
+    tokenAllowance: number;
+  };
+}
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -119,12 +133,21 @@ export interface Web3ContextType {
   refreshTokenAllowance: (
     spender?: string,
     assetCode?: SupportedEscrowAssetCode,
+    ownerAddress?: string,
   ) => Promise<number>;
   approveTokenAllowance: (
     amount: number,
     spender?: string,
     assetCode?: SupportedEscrowAssetCode,
   ) => Promise<{ success: boolean; txHash?: string }>;
+
+  // Optimistic UI & Revert Logic (#68)
+  optimisticActions: OptimisticAction[];
+  isOptimisticActive: boolean;
+
+  // Account Sequence Desynchronization Recovery & In-Flight Tx Queue (#130)
+  txQueueStatus: TxQueueStatusSummary;
+  isTxQueueBusy: boolean;
 
   // Stellar SEP-0030 Multi-Signature Campaign Escrow
   multiSigInfo: MultiSigAccountInfo | null;
@@ -194,6 +217,97 @@ export function Web3Provider({
   const [isMultiSigModalOpen, setIsMultiSigModalOpen] = useState(false);
   const [activeMultiSigXdr, setActiveMultiSigXdr] = useState<string | null>(null);
   const [activeMultiSigDescription, setActiveMultiSigDescription] = useState<string | null>(null);
+
+  // In-flight optimistic operations state (#68)
+  const [optimisticActions, setOptimisticActions] = useState<OptimisticAction[]>([]);
+  const isOptimisticActive = optimisticActions.some((a) => a.status === "pending");
+
+  // In-flight sequential transaction queue state (#130)
+  const [txQueueStatus, setTxQueueStatus] = useState<TxQueueStatusSummary>(() =>
+    txQueueManager.getStatus(),
+  );
+  const isTxQueueBusy = txQueueStatus.isProcessing || txQueueStatus.pendingCount > 0;
+
+  useEffect(() => {
+    txQueueManager.setAccount(userAddress);
+    const unsubscribe = txQueueManager.subscribe((status) => {
+      setTxQueueStatus(status);
+    });
+    return unsubscribe;
+  }, [userAddress]);
+
+  useEffect(() => {
+    txQueueManager.sequenceFetcher = async (addr: string) => {
+      try {
+        const server = rpcFallbackManager.getActiveRpcServer();
+        const acc = await server.getAccount(addr);
+        return acc.sequenceNumber();
+      } catch {
+        return (BigInt(Date.now()) * 1000n).toString();
+      }
+    };
+  }, []);
+
+  const executeWithOptimismAndQueue = <T,>(
+    actionType: string,
+    description: string,
+    optimisticMutator: () => {
+      previousSnapshot: {
+        xlmBalance: string;
+        assetBalances: Record<SupportedEscrowAssetCode, string>;
+        tokenAllowance: number;
+      };
+    },
+    operation: (sequence: string) => Promise<T>,
+  ): Promise<T> => {
+    const actionId = `opt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const snapshotStartTime = performance.now();
+
+    // 1. Instant optimistic state update (<50ms latency guarantee)
+    const { previousSnapshot } = optimisticMutator();
+    const action: OptimisticAction = {
+      id: actionId,
+      type: actionType,
+      description,
+      timestamp: Date.now(),
+      status: "pending",
+      rollbackSnapshot: previousSnapshot,
+    };
+    setOptimisticActions((prev) => [action, ...prev.slice(0, 19)]);
+    console.log(
+      `[Optimistic UI] Applied optimistic update for "${description}" in ${(
+        performance.now() - snapshotStartTime
+      ).toFixed(2)}ms`,
+    );
+
+    // 2. Sequential Queue Execution with Sequence Desync Auto-Recovery (#130)
+    return (async () => {
+      try {
+        const result = await txQueueManager.enqueue(actionType, description, async (seq) => {
+          return await operation(seq);
+        });
+
+        // Mark confirmed on success
+        setOptimisticActions((prev) =>
+          prev.map((a) => (a.id === actionId ? { ...a, status: "confirmed" } : a)),
+        );
+        return result;
+      } catch (err: unknown) {
+        // 3. Reliable State Revert on Txn Failure (#68)
+        console.warn(
+          `[Optimistic UI] Operation failed, reverting state for "${description}":`,
+          err,
+        );
+        setXlmBalance(previousSnapshot.xlmBalance);
+        setAssetBalances(previousSnapshot.assetBalances);
+        setTokenAllowance(previousSnapshot.tokenAllowance);
+        setOptimisticActions((prev) =>
+          prev.map((a) => (a.id === actionId ? { ...a, status: "reverted" } : a)),
+        );
+        throw err;
+      }
+    })();
+  };
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -325,15 +439,20 @@ export function Web3Provider({
 
   // Refresh token allowance on-chain
   const refreshTokenAllowance = useCallback(
-    async (spender?: string, assetCode: SupportedEscrowAssetCode = "XLM") => {
-      if (!userAddress) {
+    async (
+      spender?: string,
+      assetCode: SupportedEscrowAssetCode = "XLM",
+      ownerAddress?: string,
+    ) => {
+      const activeOwner = ownerAddress || userAddress;
+      if (!activeOwner) {
         setTokenAllowance(0);
         return 0;
       }
       try {
         const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode] || SUPPORTED_ESCROW_ASSETS.XLM;
         const allowance = await getTokenAllowanceQuery(
-          userAddress,
+          activeOwner,
           spender,
           assetConfig.contractAddress,
           assetConfig.decimals,
@@ -453,7 +572,7 @@ export function Web3Provider({
       if (type !== "mock") {
         await refreshBalance(address);
       }
-      await refreshTokenAllowance();
+      await refreshTokenAllowance(undefined, "XLM", address);
       await syncUserWithBackend(address);
       setIsWalletModalOpen(false);
     } catch (error) {
@@ -478,6 +597,8 @@ export function Web3Provider({
     setIsMultiSigModalOpen(false);
     setActiveMultiSigXdr(null);
     setActiveMultiSigDescription(null);
+    setOptimisticActions([]);
+    txQueueManager.clear();
     void purgeOnLogout();
   };
 
@@ -506,7 +627,7 @@ export function Web3Provider({
   };
 
   // Soroban: Create Campaign Escrow
-  const createCampaignOnChain = async (
+  const createCampaignOnChain = (
     name: string,
     budgetAmount: number,
     commissionRatePercent: number,
@@ -514,90 +635,118 @@ export function Web3Provider({
     assetCode: SupportedEscrowAssetCode = "XLM",
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
-    await assertNotSanctioned(userAddress, "create-campaign");
 
-    console.log(
-      `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
-    );
+    return executeWithOptimismAndQueue(
+      "create_campaign",
+      `Create campaign "${name}" (${budgetAmount} ${assetCode})`,
+      () => {
+        const snapshot = {
+          xlmBalance,
+          assetBalances: { ...assetBalances },
+          tokenAllowance,
+        };
+        if (assetCode === "XLM") {
+          const current = parseFloat(xlmBalance) || 0;
+          setXlmBalance(Math.max(0, current - budgetAmount).toFixed(2));
+        } else {
+          const current = parseFloat(assetBalances[assetCode]) || 0;
+          setAssetBalances((prev) => ({
+            ...prev,
+            [assetCode]: Math.max(0, current - budgetAmount).toFixed(2),
+          }));
+        }
+        setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
+        return { previousSnapshot: snapshot };
+      },
+      async () => {
+        await assertNotSanctioned(userAddress, "create-campaign");
+        console.log(
+          `[Soroban] Creating campaign "${name}": Budget=${budgetAmount} ${assetCode}, Rate=${commissionRatePercent}%, Clearing=${clearingPeriodSecs}s`,
+        );
 
-    // Escrow locking interacts with corresponding Stellar Asset Contract:
-    // If deploying with a SAC stablecoin (USDC, EURC), authorize token allowance on SAC contract for escrow spender
-    // Gate allowance approval to supported connectors only (freighter, albedo, xbull)
-    if (assetCode !== "XLM") {
-      const isSupportedConnector =
-        connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull";
-      if (isSupportedConnector) {
-        const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
-        if (assetConfig) {
-          console.log(
-            `[Soroban SAC] Authorizing ${budgetAmount} ${assetCode} allowance on SAC contract ${assetConfig.contractAddress} for escrow ${STELLAR_CONFIG.contractId}`,
-          );
-          await approveTokenAllowanceCall(
+        // Escrow locking interacts with corresponding Stellar Asset Contract:
+        if (assetCode !== "XLM") {
+          const isSupportedConnector =
+            connectorType === "freighter" ||
+            connectorType === "albedo" ||
+            connectorType === "xbull";
+          if (isSupportedConnector) {
+            const assetConfig = SUPPORTED_ESCROW_ASSETS[assetCode];
+            if (assetConfig) {
+              console.log(
+                `[Soroban SAC] Authorizing ${budgetAmount} ${assetCode} allowance on SAC contract ${assetConfig.contractAddress} for escrow ${STELLAR_CONFIG.contractId}`,
+              );
+              await approveTokenAllowanceCall(
+                userAddress,
+                assetConfig.contractAddress,
+                STELLAR_CONFIG.contractId,
+                budgetAmount,
+                connectorType,
+                assetConfig.decimals,
+              );
+            }
+          }
+        }
+
+        if (
+          connectorType === "freighter" ||
+          connectorType === "albedo" ||
+          connectorType === "xbull"
+        ) {
+          const res = await createCampaignContractCall(
             userAddress,
-            assetConfig.contractAddress,
-            STELLAR_CONFIG.contractId,
+            commissionRatePercent,
+            clearingPeriodSecs,
             budgetAmount,
             connectorType,
-            assetConfig.decimals,
+            assetCode,
           );
+          if (res.success) {
+            void dispatchWebhookEvent("campaign.created", {
+              id: `campaign_${res.campaignId}`,
+              event: "campaign.created",
+              created_at: new Date().toISOString(),
+              campaign_id: res.campaignId,
+              campaign_name: name,
+              advertiser_address: userAddress,
+              budget: budgetAmount,
+              currency: assetCode || "XLM",
+              commission_rate_percent: commissionRatePercent,
+              clearing_period_seconds: clearingPeriodSecs,
+              tx_hash: res.txHash,
+              status: "created",
+            });
+          }
+          setTimeout(() => {
+            refreshBalance(userAddress);
+            refreshTokenAllowance(undefined, assetCode);
+          }, 1000);
+          return res;
+        } else {
+          // Mock fallback for UI preview without extension
+          const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
+          if (typeof window !== "undefined" && window.localStorage) {
+            const stored = window.localStorage.getItem(
+              `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            );
+            if (stored) {
+              const updated = Math.max(0, parseFloat(stored) - budgetAmount);
+              window.localStorage.setItem(
+                `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+                updated.toString(),
+              );
+            }
+          }
+          return {
+            success: true,
+            campaignId: newCampaignId,
+            txHash: mockTxHash,
+            asset: assetCode,
+          };
         }
-      }
-    }
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await createCampaignContractCall(
-        userAddress,
-        commissionRatePercent,
-        clearingPeriodSecs,
-        budgetAmount,
-        connectorType,
-        assetCode,
-      );
-      if (res.success) {
-        void dispatchWebhookEvent("campaign.created", {
-          id: `campaign_${res.campaignId}`,
-          event: "campaign.created",
-          created_at: new Date().toISOString(),
-          campaign_id: res.campaignId,
-          campaign_name: name,
-          advertiser_address: userAddress,
-          budget: budgetAmount,
-          currency: assetCode || "XLM",
-          commission_rate_percent: commissionRatePercent,
-          clearing_period_seconds: clearingPeriodSecs,
-          tx_hash: res.txHash,
-          status: "created",
-        });
-      }
-      setTimeout(() => {
-        refreshBalance(userAddress);
-        refreshTokenAllowance(undefined, assetCode);
-      }, 1000);
-      return res;
-    } else {
-      // Mock fallback for UI preview without extension
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      const newCampaignId = Math.floor(Math.random() * 9000) + 1000;
-      setTokenAllowance((prev) => Math.max(0, prev - budgetAmount));
-      if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(
-          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-        );
-        if (stored) {
-          const updated = Math.max(0, parseFloat(stored) - budgetAmount);
-          window.localStorage.setItem(
-            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-            updated.toString(),
-          );
-        }
-      }
-      return {
-        success: true,
-        campaignId: newCampaignId,
-        txHash: mockTxHash,
-        asset: assetCode,
-      };
-    }
+      },
+    );
   };
 
   // Soroban: Log Verified Sale
@@ -610,74 +759,92 @@ export function Web3Provider({
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    console.log(
-      `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+    return executeWithOptimismAndQueue(
+      "log_sale",
+      `Log sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+      () => {
+        const snapshot = {
+          xlmBalance,
+          assetBalances: { ...assetBalances },
+          tokenAllowance,
+        };
+        return { previousSnapshot: snapshot };
+      },
+      async () => {
+        console.log(
+          `[Soroban] Logging sale for Campaign #${campaignId}: Affiliate=${affiliateAddress}, Amount=${amountXlm} XLM`,
+        );
+
+        if (
+          connectorType === "freighter" ||
+          connectorType === "albedo" ||
+          connectorType === "xbull"
+        ) {
+          const res = await logSaleContractCall(
+            userAddress,
+            campaignId,
+            affiliateAddress,
+            amountXlm,
+            connectorType,
+            recruiterAddress,
+            commissionRatePercent,
+          );
+          if (!res.success) {
+            return res;
+          }
+
+          // Record two-tier referral commission split only after successful transaction
+          const split = recordReferralSale({
+            campaignId,
+            saleAmountXlm: amountXlm,
+            sellingAffiliateAddress: affiliateAddress,
+            totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+            txHash: res.txHash,
+          });
+
+          void dispatchWebhookEvent("conversion.confirmed", {
+            id: `sale_${res.txHash}`,
+            event: "conversion.confirmed",
+            created_at: new Date().toISOString(),
+            campaign_id: campaignId,
+            affiliate_address: affiliateAddress,
+            sale_amount_xlm: amountXlm,
+            commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+            recruiter_address: split.recruiterAddress,
+            recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+            tx_hash: res.txHash,
+          });
+
+          return { ...res, split };
+        } else {
+          const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          const split = recordReferralSale({
+            campaignId,
+            saleAmountXlm: amountXlm,
+            sellingAffiliateAddress: affiliateAddress,
+            totalCommissionRatePercent: commissionRatePercent ?? 10.0,
+            txHash: mockTxHash,
+          });
+          void dispatchWebhookEvent("conversion.confirmed", {
+            id: `sale_${mockTxHash}`,
+            event: "conversion.confirmed",
+            created_at: new Date().toISOString(),
+            campaign_id: campaignId,
+            affiliate_address: affiliateAddress,
+            sale_amount_xlm: amountXlm,
+            commission_earned_xlm: split.sellingAffiliateCommissionXlm,
+            recruiter_address: split.recruiterAddress,
+            recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
+            tx_hash: mockTxHash,
+          });
+          return {
+            success: true,
+            txHash: mockTxHash,
+            split,
+          };
+        }
+      },
     );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await logSaleContractCall(
-        userAddress,
-        campaignId,
-        affiliateAddress,
-        amountXlm,
-        connectorType,
-        recruiterAddress,
-        commissionRatePercent,
-      );
-      if (!res.success) {
-        return res;
-      }
-
-      // Record two-tier referral commission split only after successful transaction
-      const split = recordReferralSale({
-        campaignId,
-        saleAmountXlm: amountXlm,
-        sellingAffiliateAddress: affiliateAddress,
-        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
-        txHash: res.txHash,
-      });
-
-      void dispatchWebhookEvent("conversion.confirmed", {
-        id: `sale_${res.txHash}`,
-        event: "conversion.confirmed",
-        created_at: new Date().toISOString(),
-        campaign_id: campaignId,
-        affiliate_address: affiliateAddress,
-        sale_amount_xlm: amountXlm,
-        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
-        recruiter_address: split.recruiterAddress,
-        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
-        tx_hash: res.txHash,
-      });
-
-      return { ...res, split };
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      const split = recordReferralSale({
-        campaignId,
-        saleAmountXlm: amountXlm,
-        sellingAffiliateAddress: affiliateAddress,
-        totalCommissionRatePercent: commissionRatePercent ?? 10.0,
-        txHash: mockTxHash,
-      });
-      void dispatchWebhookEvent("conversion.confirmed", {
-        id: `sale_${mockTxHash}`,
-        event: "conversion.confirmed",
-        created_at: new Date().toISOString(),
-        campaign_id: campaignId,
-        affiliate_address: affiliateAddress,
-        sale_amount_xlm: amountXlm,
-        commission_earned_xlm: split.sellingAffiliateCommissionXlm,
-        recruiter_address: split.recruiterAddress,
-        recruiter_override_xlm: split.recruiterOverrideCommissionXlm,
-        tx_hash: mockTxHash,
-      });
-      return {
-        success: true,
-        txHash: mockTxHash,
-        split,
-      };
-    }
   };
 
   // Soroban: Claim Affiliate Commission
@@ -690,54 +857,101 @@ export function Web3Provider({
     }
     await assertNotSanctioned(userAddress, "claim-payout");
 
-    console.log(
-      `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
-    );
+    return executeWithOptimismAndQueue(
+      "claim_payout",
+      `Claim payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""}`,
+      () => {
+        const snapshot = {
+          xlmBalance,
+          assetBalances: { ...assetBalances },
+          tokenAllowance,
+        };
+        return { previousSnapshot: snapshot };
+      },
+      async () => {
+        console.log(
+          `[Soroban] Claiming payout for Campaign #${campaignId}${assetCode ? ` in ${assetCode}` : ""} by ${userAddress}`,
+        );
 
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await claimPayoutContractCall(userAddress, campaignId, connectorType, assetCode);
-      if (res.success) {
-        void dispatchWebhookEvent("payout.created", {
-          id: `payout_${res.txHash}`,
-          event: "payout.created",
-          created_at: new Date().toISOString(),
-          payout_id: res.txHash,
-          campaign_id: campaignId,
-          affiliate_address: userAddress,
-          currency: (res.asset as string) || (assetCode as string) || "XLM",
-          tx_hash: res.txHash,
-          status: "claimed",
-        });
-      }
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-        ...(assetCode ? { asset: assetCode } : {}),
-      };
-    }
+        if (
+          connectorType === "freighter" ||
+          connectorType === "albedo" ||
+          connectorType === "xbull"
+        ) {
+          const res = await claimPayoutContractCall(
+            userAddress,
+            campaignId,
+            connectorType,
+            assetCode,
+          );
+          if (res.success) {
+            void dispatchWebhookEvent("payout.created", {
+              id: `payout_${res.txHash}`,
+              event: "payout.created",
+              created_at: new Date().toISOString(),
+              payout_id: res.txHash,
+              campaign_id: campaignId,
+              affiliate_address: userAddress,
+              currency: (res.asset as string) || (assetCode as string) || "XLM",
+              tx_hash: res.txHash,
+              status: "claimed",
+            });
+          }
+          setTimeout(() => refreshBalance(userAddress), 1000);
+          return res;
+        } else {
+          const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          return {
+            success: true,
+            txHash: mockTxHash,
+            ...(assetCode ? { asset: assetCode } : {}),
+          };
+        }
+      },
+    );
   };
 
   // Soroban: Refund Unused Campaign Escrow
   const refundCampaignEscrow = async (campaignId: number) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    console.log(`[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`);
+    return executeWithOptimismAndQueue(
+      "refund_escrow",
+      `Refund unused escrow for Campaign #${campaignId}`,
+      () => {
+        const snapshot = {
+          xlmBalance,
+          assetBalances: { ...assetBalances },
+          tokenAllowance,
+        };
+        return { previousSnapshot: snapshot };
+      },
+      async () => {
+        console.log(
+          `[Soroban] Refunding unused escrow for Campaign #${campaignId} by ${userAddress}`,
+        );
 
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await refundCampaignEscrowContractCall(userAddress, campaignId, connectorType);
-      setTimeout(() => refreshBalance(userAddress), 1000);
-      return res;
-    } else {
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      return {
-        success: true,
-        txHash: mockTxHash,
-      };
-    }
+        if (
+          connectorType === "freighter" ||
+          connectorType === "albedo" ||
+          connectorType === "xbull"
+        ) {
+          const res = await refundCampaignEscrowContractCall(
+            userAddress,
+            campaignId,
+            connectorType,
+          );
+          setTimeout(() => refreshBalance(userAddress), 1000);
+          return res;
+        } else {
+          const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          return {
+            success: true,
+            txHash: mockTxHash,
+          };
+        }
+      },
+    );
   };
 
   /**
@@ -750,47 +964,75 @@ export function Web3Provider({
   ) => {
     if (!userAddress) throw new Error("Wallet not connected");
 
-    console.log(
-      `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
-    );
-
-    if (connectorType === "freighter" || connectorType === "albedo" || connectorType === "xbull") {
-      const res = await topUpCampaignEscrowContractCall(
-        userAddress,
-        campaignId,
-        amount,
-        connectorType,
-        assetCode,
-      );
-      setTimeout(() => {
-        refreshBalance(userAddress);
-        refreshTokenAllowance(undefined, assetCode);
-      }, 1000);
-      return res;
-    } else {
-      if (connectorType !== "mock") {
-        throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
-      }
-      const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
-      setTokenAllowance((prev) => Math.max(0, prev - amount));
-      if (typeof window !== "undefined" && window.localStorage) {
-        const stored = window.localStorage.getItem(
-          `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-        );
-        if (stored) {
-          const updated = Math.max(0, parseFloat(stored) - amount);
-          window.localStorage.setItem(
-            `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
-            updated.toString(),
-          );
+    return executeWithOptimismAndQueue(
+      "topup_escrow",
+      `Top up escrow for Campaign #${campaignId} with ${amount} ${assetCode}`,
+      () => {
+        const snapshot = {
+          xlmBalance,
+          assetBalances: { ...assetBalances },
+          tokenAllowance,
+        };
+        if (assetCode === "XLM") {
+          const current = parseFloat(xlmBalance) || 0;
+          setXlmBalance(Math.max(0, current - amount).toFixed(2));
+        } else {
+          const current = parseFloat(assetBalances[assetCode]) || 0;
+          setAssetBalances((prev) => ({
+            ...prev,
+            [assetCode]: Math.max(0, current - amount).toFixed(2),
+          }));
         }
-      }
-      return {
-        success: true,
-        txHash: mockTxHash,
-        toppedUpAmount: amount,
-      };
-    }
+        setTokenAllowance((prev) => Math.max(0, prev - amount));
+        return { previousSnapshot: snapshot };
+      },
+      async () => {
+        console.log(
+          `[Soroban] Topping up escrow for Campaign #${campaignId} by ${userAddress} with ${amount} ${assetCode}`,
+        );
+
+        if (
+          connectorType === "freighter" ||
+          connectorType === "albedo" ||
+          connectorType === "xbull"
+        ) {
+          const res = await topUpCampaignEscrowContractCall(
+            userAddress,
+            campaignId,
+            amount,
+            connectorType,
+            assetCode,
+          );
+          setTimeout(() => {
+            refreshBalance(userAddress);
+            refreshTokenAllowance(undefined, assetCode);
+          }, 1000);
+          return res;
+        } else {
+          if (connectorType !== "mock") {
+            throw new Error(`Escrow top-up is not supported for ${connectorType} wallets.`);
+          }
+          const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          if (typeof window !== "undefined" && window.localStorage) {
+            const stored = window.localStorage.getItem(
+              `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+            );
+            if (stored) {
+              const updated = Math.max(0, parseFloat(stored) - amount);
+              window.localStorage.setItem(
+                `mock_allowance_${userAddress}_${STELLAR_CONFIG.contractId}`,
+                updated.toString(),
+              );
+            }
+          }
+          return {
+            success: true,
+            txHash: mockTxHash,
+            toppedUpAmount: amount,
+          };
+        }
+      },
+    );
   };
 
   // Soroban: Automated Batch Commission Claim Dispatcher across Multiple Campaigns
@@ -926,6 +1168,10 @@ export function Web3Provider({
         openMultiSigModal,
         closeMultiSigModal,
         refreshMultiSigInfo,
+        optimisticActions,
+        isOptimisticActive,
+        txQueueStatus,
+        isTxQueueBusy,
         provider: null,
         signer: null,
         switchToStellarNetwork,
