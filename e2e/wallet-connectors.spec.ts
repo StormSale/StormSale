@@ -30,6 +30,7 @@ test.describe("E2E Automated Smoke Tests: Wallet Connectors & Core Flows", () =>
   test("campaign view is accessible from advertiser dashboard", async ({ page }) => {
     await connectWithDemoAccount(page);
     await assumeRole(page, "Advertiser");
+    await expect(page.getByRole("heading", { name: "Advertiser Command Center" })).toBeVisible();
 
     // Open and verify Create Campaign form view
     const createBtn = visible(page.getByRole("button", { name: "Create Campaign" }));

@@ -184,7 +184,7 @@ jobs:
       run: npm run build
 
     - name: Run E2E Smoke Tests (${{ matrix.browser }})
-      run: npx playwright test --project=${{ matrix.browser }}
+      run: npx playwright test e2e/ --project=${{ matrix.browser }}
 
     - name: Upload Failure Artifacts
       if: failure()

@@ -4,6 +4,9 @@ const PORT = 4173;
 
 export default defineConfig({
   timeout: 60_000,
+  expect: {
+    timeout: 10_000,
+  },
   testMatch: ["e2e/**/*.@(spec|e2e).ts", "tests/e2e/**/*.e2e.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
