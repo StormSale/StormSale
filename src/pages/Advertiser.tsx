@@ -17,6 +17,7 @@ import { FraudRiskProvider } from "../context/FraudRiskContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { OrganizationProvider } from "../context/OrganizationContext";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
+import { EscrowBalanceMonitor } from "../components/advertiser/EscrowBalanceMonitor";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { usePreference } from "../hooks/usePreference";
@@ -208,6 +209,9 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
         contractAddress={STELLAR_CONFIG.contractId}
         campaignName="Primary Campaign Escrow"
       />
+
+      {/* Live Soroban Escrow Multi-Token Balance Monitor (#71) */}
+      <EscrowBalanceMonitor contractAddress={STELLAR_CONFIG.contractId} pollingIntervalMs={5000} />
 
       {/* Escrow Auto-Refill Status Banner */}
       <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
