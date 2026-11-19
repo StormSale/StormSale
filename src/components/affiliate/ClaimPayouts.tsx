@@ -252,12 +252,7 @@ export const ClaimPayouts = () => {
     const claimAmount = target?.claimableXlm || 0;
 
     // Verify rolling 24-hour payout cap constraint (Issue #156)
-    const capCheck = checkDailyPayoutCap(
-      userAddress || "",
-      claimAmount,
-      DAILY_PAYOUT_CAP_XLM,
-      campaignId,
-    );
+    const capCheck = checkDailyPayoutCap(userAddress || "", claimAmount, DAILY_PAYOUT_CAP_XLM);
     if (!capCheck.allowed) {
       showNotification({
         type: "error",

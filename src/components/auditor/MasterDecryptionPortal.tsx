@@ -318,7 +318,7 @@ export const MasterDecryptionPortal: React.FC = () => {
                 type="button"
                 size="sm"
                 variant="ghost"
-                disabled={!masterKey || isValidatingKey}
+                disabled={isValidatingKey}
                 onClick={handleValidateKeyOnly}
                 className="absolute right-1 top-1 h-7 px-2.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
                 data-testid="btn-validate-key"
@@ -368,7 +368,7 @@ export const MasterDecryptionPortal: React.FC = () => {
           <div className="md:col-span-2 flex items-end">
             <Button
               type="button"
-              disabled={isDecrypting || !masterKey.trim() || !targetSaleId.trim()}
+              disabled={isDecrypting || !masterKey.trim()}
               onClick={handleExecuteMasterDecryption}
               className="w-full h-9 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-sm transition-all"
               data-testid="btn-master-decrypt"
