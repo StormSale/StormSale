@@ -109,4 +109,68 @@ describe("LogSaleForm Multi-Currency Oracle Engine (#145)", () => {
       expect(screen.getByText(/100\.0000 XLM/i)).toBeTruthy();
     });
   });
+
+  it("refreshes oracle rates on user click", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("btn-refresh-oracle")).toBeTruthy();
+    });
+
+    const refreshBtn = screen.getByTestId("btn-refresh-oracle");
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Live \(CoinGecko\)/i)).toBeTruthy();
+    });
+  });
+
+  it("handles empty or non-numeric fiat input by resetting XLM amount", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Live \(CoinGecko\)/i)).toBeTruthy();
+    });
+
+    const usdBtn = screen.getByTestId("btn-currency-USD");
+    fireEvent.click(usdBtn);
+
+    const fiatInput = screen.getByTestId("input-sale-amount-fiat");
+    fireEvent.change(fiatInput, { target: { value: "50" } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/400\.0000 XLM/i)).toBeTruthy();
+    });
+
+    // Clear input
+    fireEvent.change(fiatInput, { target: { value: "" } });
+    const xlmBtn = screen.getByTestId("btn-currency-XLM");
+    fireEvent.click(xlmBtn);
+    const xlmInput = screen.getByTestId("input-sale-amount-xlm") as HTMLInputElement;
+    expect(xlmInput.value).toBe("");
+  });
+
+  it("converts existing XLM amount to fiat when switching currency mode", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Live \(CoinGecko\)/i)).toBeTruthy();
+    });
+
+    // Default mode is XLM, enter 100 XLM
+    const xlmInput = screen.getByTestId("input-sale-amount-xlm");
+    fireEvent.change(xlmInput, { target: { value: "100" } });
+
+    // Switch to USD: 100 XLM * 0.125 = $12.50 USD
+    const usdBtn = screen.getByTestId("btn-currency-USD");
+    fireEvent.click(usdBtn);
+
+    const fiatInput = screen.getByTestId("input-sale-amount-fiat") as HTMLInputElement;
+    expect(fiatInput.value).toBe("12.5");
+
+    // Switch back to XLM
+    const xlmBtn = screen.getByTestId("btn-currency-XLM");
+    fireEvent.click(xlmBtn);
+    expect(screen.queryByTestId("input-sale-amount-fiat")).toBeNull();
+  });
 });
