@@ -179,6 +179,20 @@ export const getCreateCampaignSchema = (maxDecimals: number = 7) =>
       .refine((val) => parseInt(val, 10) >= 3600, {
         message: "Clearing period must be at least 1 hour (3600 seconds)",
       }),
+
+    // Issue #156: Optional rolling 24-hour commission payout cap per affiliate
+    dailyPayoutCap: z
+      .string()
+      .trim()
+      .optional()
+      .refine((val) => !val || (!isNaN(Number(val)) && isFinite(Number(val)) && Number(val) > 0), {
+        message: "Daily payout cap must be a positive number if provided",
+      }),
+
+    // Issue #151: Real-time attribution model & window configuration
+    attributionModel: z.enum(["last_click", "first_click"]).optional(),
+
+    attributionWindowDays: z.enum(["1", "7", "30", "60"]).optional(),
   });
 
 export const createCampaignSchema = getCreateCampaignSchema(7);
