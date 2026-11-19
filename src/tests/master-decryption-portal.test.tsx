@@ -5,10 +5,12 @@ import { MasterDecryptionPortal } from "../components/auditor/MasterDecryptionPo
 import { AuditorTenancyProvider } from "../context/AuditorTenancyContext";
 import { NotificationProvider } from "../context/NotificationContext";
 import { revokeAuditorKey, readAuditLedger } from "../lib/auditLedger";
+import { registerDecryptionKey, clearTenantSessionKeys } from "../lib/auditorTenancy";
 
 describe("MasterDecryptionPortal (#58)", () => {
   beforeEach(() => {
     localStorage.clear();
+    clearTenantSessionKeys();
   });
 
   const renderComponent = () => {
@@ -103,5 +105,68 @@ describe("MasterDecryptionPortal (#58)", () => {
     );
     expect(decryptEvents.length).toBeGreaterThan(0);
     expect(decryptEvents[0].detail).toContain("Authorized Master Decryption");
+  });
+
+  it("handles empty key validation error", async () => {
+    renderComponent();
+    const verifyBtn = screen.getByTestId("btn-validate-key");
+    fireEvent.click(verifyBtn);
+
+    await waitFor(
+      () => {
+        expect(
+          screen.getAllByText(/Master decryption key or authorized auditor key is required/i)
+            .length,
+        ).toBeGreaterThan(0);
+      },
+      { timeout: 2000 },
+    );
+  });
+
+  it("rejects decryption when sale ID is empty", async () => {
+    renderComponent();
+    const keyInput = screen.getByTestId("input-master-key");
+    const saleInput = screen.getByTestId("input-target-sale-id");
+    const decryptBtn = screen.getByTestId("btn-master-decrypt");
+
+    fireEvent.change(keyInput, { target: { value: "AUD-MASTER-AUTHORIZED-KEY-2026" } });
+    fireEvent.change(saleInput, { target: { value: "   " } });
+    fireEvent.click(decryptBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText(/Please enter a valid Sale ID to decrypt/i).length,
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it("enforces tenant boundary check on unknown or foreign sale IDs", async () => {
+    renderComponent();
+    const keyInput = screen.getByTestId("input-master-key");
+    const saleInput = screen.getByTestId("input-target-sale-id");
+    const decryptBtn = screen.getByTestId("btn-master-decrypt");
+
+    fireEvent.change(keyInput, { target: { value: "AUD-MASTER-AUTHORIZED-KEY-2026" } });
+    fireEvent.change(saleInput, { target: { value: "99999" } });
+    fireEvent.click(decryptBtn);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/does not belong to/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("loads cached session key via quick select button", async () => {
+    registerDecryptionKey("northwind-assurance", "AUD-MASTER-CACHED-KEY-001");
+    renderComponent();
+
+    const quickSelectBtn = screen.getByText(/Use Session Key/i);
+    expect(quickSelectBtn).toBeTruthy();
+    fireEvent.click(quickSelectBtn);
+
+    const keyInput = screen.getByTestId("input-master-key") as HTMLInputElement;
+    expect(keyInput.value).toBe("AUD-MASTER-CACHED-KEY-001");
+    expect(
+      screen.getAllByText(/Active session decryption key loaded from memory cache/i).length,
+    ).toBeGreaterThan(0);
   });
 });
