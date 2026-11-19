@@ -303,6 +303,13 @@ export const customerConversionSchema = z.object({
 /** Schema for fetchConversions API response */
 export const conversionsListResponseSchema = z.array(customerConversionSchema.passthrough());
 
+export function getLocalCalendarDate(date = new Date()): string {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 /** Affiliate issue report statuses returned by the reporting API. */
 export const affiliateIssueStatusSchema = z.enum([
   "submitted",
@@ -340,10 +347,7 @@ export const affiliateIssueDraftSchema = z.object({
     .string()
     .min(1, "Sale date is required")
     .refine((value) => !Number.isNaN(Date.parse(value)), "Enter a valid sale date")
-    .refine(
-      (value) => value <= new Date().toISOString().slice(0, 10),
-      "Sale date cannot be in the future",
-    ),
+    .refine((value) => value <= getLocalCalendarDate(), "Sale date cannot be in the future"),
   expectedSaleAmount: z
     .string()
     .trim()

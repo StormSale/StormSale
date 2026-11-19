@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { AlertCircle, CheckCircle2, Clock3, FileUp, Loader2, X } from "lucide-react";
 import { useWeb3 } from "../../context/Web3Context";
-import { affiliateIssueDraftSchema } from "../../lib/validation";
+import { affiliateIssueDraftSchema, getLocalCalendarDate } from "../../lib/validation";
 import {
   fetchAffiliateIssueReports,
   submitAffiliateIssueReport,
@@ -98,17 +98,41 @@ function IssueStatusTracker({ report }: { report: AffiliateIssueReport }) {
   );
 }
 
-export const AffiliateIssueReports: React.FC = () => {
+interface AffiliateIssueReportsProps {
+  reportingServiceAvailable?: boolean;
+}
+
+interface SubmissionOwner {
+  id: number;
+}
+
+export const AffiliateIssueReports: React.FC<AffiliateIssueReportsProps> = (props) => {
   const { userAddress } = useWeb3();
+  return (
+    <AffiliateIssueReportsForWallet
+      key={userAddress ?? "disconnected"}
+      userAddress={userAddress}
+      {...props}
+    />
+  );
+};
+
+const AffiliateIssueReportsForWallet: React.FC<
+  AffiliateIssueReportsProps & { userAddress: string | null | undefined }
+> = ({ reportingServiceAvailable = false, userAddress }) => {
+  const loadGenerationRef = useRef(0);
+  const submissionIdRef = useRef(0);
+  const activeSubmissionRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
   const [reportState, setReportState] = useState<{
     address: string;
     request: number;
     reports: AffiliateIssueReport[];
     error?: string;
   } | null>(null);
+  const [submissionOwner, setSubmissionOwner] = useState<SubmissionOwner | null>(null);
   const [submitError, setSubmitError] = useState("");
   const [feedback, setFeedback] = useState("");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [campaignId, setCampaignId] = useState("");
   const [saleDate, setSaleDate] = useState("");
   const [expectedSaleAmount, setExpectedSaleAmount] = useState("");
@@ -117,22 +141,38 @@ export const AffiliateIssueReports: React.FC = () => {
   const [attachmentError, setAttachmentError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [refreshKey, setRefreshKey] = useState(0);
+  const isSubmitting = submissionOwner !== null;
   const isCurrentReportState =
-    reportState?.address === userAddress && reportState.request === refreshKey;
+    reportState !== null &&
+    reportState.address === userAddress &&
+    reportState.request === refreshKey;
   const reports = isCurrentReportState ? reportState.reports : [];
   const loadError = isCurrentReportState ? reportState.error : undefined;
   const isLoading = Boolean(userAddress && !isCurrentReportState);
 
   useEffect(() => {
-    if (!userAddress) return;
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userAddress || !reportingServiceAvailable) return;
 
     const controller = new AbortController();
+    const request = ++loadGenerationRef.current;
+    const isCurrentRequest = () => isMountedRef.current && request === loadGenerationRef.current;
+
     fetchAffiliateIssueReports(userAddress, controller.signal)
       .then((loadedReports) => {
+        if (!isCurrentRequest()) return;
         setReportState({ address: userAddress, request: refreshKey, reports: loadedReports });
       })
       .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
+        if ((error instanceof DOMException && error.name === "AbortError") || !isCurrentRequest()) {
+          return;
+        }
         setReportState({
           address: userAddress,
           request: refreshKey,
@@ -141,8 +181,11 @@ export const AffiliateIssueReports: React.FC = () => {
         });
       });
 
-    return () => controller.abort();
-  }, [refreshKey, userAddress]);
+    return () => {
+      controller.abort();
+      if (request === loadGenerationRef.current) loadGenerationRef.current += 1;
+    };
+  }, [refreshKey, reportingServiceAvailable, userAddress]);
 
   const handleAttachmentChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.currentTarget.files ?? []);
@@ -176,6 +219,8 @@ export const AffiliateIssueReports: React.FC = () => {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!reportingServiceAvailable) return;
+
     setFeedback("");
     setSubmitError("");
     setFieldErrors({});
@@ -202,36 +247,53 @@ export const AffiliateIssueReports: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
+    const operation: SubmissionOwner = { id: ++submissionIdRef.current };
+    const submittedDraft = { campaignId, saleDate, expectedSaleAmount, details, attachments };
+    activeSubmissionRef.current = operation.id;
+    setSubmissionOwner(operation);
+    const ownsSubmission = () =>
+      isMountedRef.current && activeSubmissionRef.current === operation.id;
+
     try {
       const report = await submitAffiliateIssueReport({
         ...validation.data,
         affiliateAddress: userAddress,
         attachments,
       });
+      if (!ownsSubmission()) return;
+
+      loadGenerationRef.current += 1;
       setReportState((current) => ({
         address: userAddress,
         request: refreshKey,
         reports: [
           report,
-          ...(current?.address === userAddress && current.request === refreshKey
-            ? current.reports
-            : []
-          ).filter((item) => item.id !== report.id),
+          ...(current?.address === userAddress ? current.reports : []).filter(
+            (item) => item.id !== report.id,
+          ),
         ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
       }));
-      setCampaignId("");
-      setSaleDate("");
-      setExpectedSaleAmount("");
-      setDetails("");
-      setAttachments([]);
+      setCampaignId((current) => (current === submittedDraft.campaignId ? "" : current));
+      setSaleDate((current) => (current === submittedDraft.saleDate ? "" : current));
+      setExpectedSaleAmount((current) =>
+        current === submittedDraft.expectedSaleAmount ? "" : current,
+      );
+      setDetails((current) => (current === submittedDraft.details ? "" : current));
+      setAttachments((current) => (current === submittedDraft.attachments ? [] : current));
       setFeedback(`Report ${report.id} was accepted by the reporting service.`);
     } catch (error) {
-      setSubmitError(
-        error instanceof Error ? error.message : "Could not submit your report. Please try again.",
-      );
+      if (ownsSubmission()) {
+        setSubmitError(
+          error instanceof Error
+            ? error.message
+            : "Could not submit your report. Please try again.",
+        );
+      }
     } finally {
-      setIsSubmitting(false);
+      if (activeSubmissionRef.current === operation.id) {
+        activeSubmissionRef.current = null;
+        setSubmissionOwner((current) => (current?.id === operation.id ? null : current));
+      }
     }
   };
 
@@ -253,19 +315,27 @@ export const AffiliateIssueReports: React.FC = () => {
             Report a missing sale
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Reports are sent to the configured reporting service; this app does not store them
-            locally.
+            Submission is unavailable until a reporting backend can securely accept and store
+            reports and evidence.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-5 md:p-6">
-          {!userAddress && (
+          {!reportingServiceAvailable ? (
+            <p
+              role="status"
+              className="mb-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"
+            >
+              Issue reporting is unavailable until a backend supports authenticated submission,
+              secure evidence storage, and report retrieval.
+            </p>
+          ) : !userAddress ? (
             <p
               role="status"
               className="mb-5 rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200"
             >
               Connect your affiliate wallet to submit a report and view its status.
             </p>
-          )}
+          ) : null}
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -278,6 +348,7 @@ export const AffiliateIssueReports: React.FC = () => {
                 <input
                   id="issue-campaign"
                   value={campaignId}
+                  disabled={!reportingServiceAvailable || isSubmitting}
                   onChange={(event) => setCampaignId(event.target.value)}
                   aria-invalid={Boolean(fieldErrors.campaignId)}
                   aria-describedby={fieldErrors.campaignId ? "issue-campaign-error" : undefined}
@@ -300,8 +371,9 @@ export const AffiliateIssueReports: React.FC = () => {
                 <input
                   id="issue-date"
                   type="date"
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={getLocalCalendarDate()}
                   value={saleDate}
+                  disabled={!reportingServiceAvailable || isSubmitting}
                   onChange={(event) => setSaleDate(event.target.value)}
                   aria-invalid={Boolean(fieldErrors.saleDate)}
                   aria-describedby={fieldErrors.saleDate ? "issue-date-error" : undefined}
@@ -327,6 +399,7 @@ export const AffiliateIssueReports: React.FC = () => {
                 id="issue-amount"
                 inputMode="decimal"
                 value={expectedSaleAmount}
+                disabled={!reportingServiceAvailable || isSubmitting}
                 onChange={(event) => setExpectedSaleAmount(event.target.value)}
                 aria-invalid={Boolean(fieldErrors.expectedSaleAmount)}
                 aria-describedby={fieldErrors.expectedSaleAmount ? "issue-amount-error" : undefined}
@@ -350,6 +423,7 @@ export const AffiliateIssueReports: React.FC = () => {
               <textarea
                 id="issue-details"
                 value={details}
+                disabled={!reportingServiceAvailable || isSubmitting}
                 onChange={(event) => setDetails(event.target.value)}
                 aria-invalid={Boolean(fieldErrors.details)}
                 aria-describedby={
@@ -397,6 +471,7 @@ export const AffiliateIssueReports: React.FC = () => {
                 type="file"
                 multiple
                 accept="image/jpeg,image/png,image/webp,application/pdf,text/csv"
+                disabled={!reportingServiceAvailable || isSubmitting}
                 onChange={handleAttachmentChange}
                 className="sr-only"
                 aria-describedby={attachmentError ? "issue-attachment-error" : undefined}
@@ -417,6 +492,7 @@ export const AffiliateIssueReports: React.FC = () => {
                       <button
                         type="button"
                         aria-label={`Remove ${file.name}`}
+                        disabled={!reportingServiceAvailable || isSubmitting}
                         onClick={() =>
                           setAttachments((current) => current.filter((_, i) => i !== index))
                         }
@@ -453,11 +529,15 @@ export const AffiliateIssueReports: React.FC = () => {
             )}
             <Button
               type="submit"
-              disabled={!userAddress || isSubmitting}
+              disabled={!reportingServiceAvailable || !userAddress || isSubmitting}
               className="h-11 rounded-xl bg-indigo-600 px-5 font-semibold text-white hover:bg-indigo-500"
             >
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {isSubmitting ? "Submitting report…" : "Submit report"}
+              {!reportingServiceAvailable
+                ? "Reporting unavailable"
+                : isSubmitting
+                  ? "Submitting report…"
+                  : "Submit report"}
             </Button>
           </form>
         </CardContent>
@@ -469,11 +549,16 @@ export const AffiliateIssueReports: React.FC = () => {
             Report status
           </CardTitle>
           <CardDescription className="text-zinc-500 dark:text-zinc-400">
-            Statuses here come from the reporting service; this app does not maintain them.
+            Status retrieval is unavailable until report storage and advertiser review are
+            implemented.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-5 md:p-6">
-          {!userAddress ? (
+          {!reportingServiceAvailable ? (
+            <p role="status" className="text-sm text-zinc-500 dark:text-zinc-400">
+              Report status tracking is unavailable until a reporting backend is configured.
+            </p>
+          ) : !userAddress ? (
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Connect your affiliate wallet to view report statuses.
             </p>
