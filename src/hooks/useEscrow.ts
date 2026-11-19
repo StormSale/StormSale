@@ -533,6 +533,7 @@ export function useEscrowBalance(
   // Request ID ref to protect against race conditions
   const requestIdRef = useRef<number>(0);
   const isMountedRef = useRef<boolean>(true);
+  const inFlightRef = useRef<boolean>(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Callbacks ref to prevent effect recreation
@@ -568,6 +569,7 @@ export function useEscrowBalance(
       return;
     }
 
+    inFlightRef.current = true;
     if (isMountedRef.current) {
       setIsRefreshing(true);
     }
@@ -595,6 +597,7 @@ export function useEscrowBalance(
       setError(message);
       onErrorRef.current?.(err instanceof Error ? err : new Error(message));
     } finally {
+      inFlightRef.current = false;
       if (isMountedRef.current && currentRequestId === requestIdRef.current) {
         setIsLoading(false);
         setIsRefreshing(false);
@@ -611,7 +614,9 @@ export function useEscrowBalance(
 
     if (isPolling) {
       intervalRef.current = setInterval(() => {
-        void sync();
+        if (!inFlightRef.current) {
+          void sync();
+        }
       }, pollingIntervalMs);
     }
 
