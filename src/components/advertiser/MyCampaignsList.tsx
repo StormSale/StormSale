@@ -1,4 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { useIndexerQuery } from "../../hooks/useIndexerQuery";
+import { CAMPAIGN_HISTORY_QUERY, type IndexerCampaign } from "../../lib/indexer/goldskyIndexer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
@@ -279,6 +281,38 @@ export const MyCampaignsList = () => {
     userAddress,
     connectorType,
   } = useWeb3();
+
+  // Subgraph / Goldsky Indexer Query Integration with RPC Fallback (#202)
+  const {
+    data: indexerData,
+    loading: isIndexerLoading,
+    isFallback: isIndexerFallback,
+    latencyMs: indexerLatencyMs,
+  } = useIndexerQuery<{ campaigns: IndexerCampaign[] }>(CAMPAIGN_HISTORY_QUERY, {
+    advertiser: userAddress || undefined,
+  });
+
+  useEffect(() => {
+    if (indexerData?.campaigns && indexerData.campaigns.length > 0) {
+      setCampaigns((prev) => {
+        const indexerMap = new Map(indexerData.campaigns.map((c) => [c.id, c]));
+        return prev.map((local) => {
+          const remote = indexerMap.get(local.id);
+          if (remote) {
+            return {
+              ...local,
+              totalSales: remote.totalSalesCount || local.totalSales,
+              totalRevenue: remote.totalVolumeXlm
+                ? `${remote.totalVolumeXlm} XLM`
+                : local.totalRevenue,
+              escrowBalance: remote.remainingEscrowBalance ?? local.escrowBalance,
+            };
+          }
+          return local;
+        });
+      });
+    }
+  }, [indexerData]);
   const { showNotification } = useNotification();
   const { hasCapability, currentRole } = useOrganization();
   const canRefillEscrow = hasCapability("escrow:refill");
@@ -507,7 +541,14 @@ export const MyCampaignsList = () => {
         setIsApprovingAllowance(false);
       }
     },
-    [isConnected, canRefillEscrow, currentRole, showNotification, approveTokenAllowance, refreshTokenAllowance],
+    [
+      isConnected,
+      canRefillEscrow,
+      currentRole,
+      showNotification,
+      approveTokenAllowance,
+      refreshTokenAllowance,
+    ],
   );
 
   /**
@@ -704,8 +745,7 @@ export const MyCampaignsList = () => {
     setCampaigns((prev) =>
       prev.map((c) => {
         if (c.id === campaignId) {
-          const cfg =
-            autoTopUpConfigs[c.id] || getDefaultAutoTopUpConfig(c.id, c.escrowInitial);
+          const cfg = autoTopUpConfigs[c.id] || getDefaultAutoTopUpConfig(c.id, c.escrowInitial);
           // Drop to 50% of threshold to guarantee breach
           const targetBalance =
             cfg.thresholdType === "percentage"
@@ -805,9 +845,7 @@ export const MyCampaignsList = () => {
       const result = await refundCampaignEscrow(parseInt(campaign.id) || 1);
 
       setCampaigns((prev) =>
-        prev.map((c) =>
-          c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c,
-        ),
+        prev.map((c) => (c.id === campaign.id ? { ...c, escrowBalance: 0, isRefunded: true } : c)),
       );
 
       showNotification({
@@ -859,9 +897,7 @@ export const MyCampaignsList = () => {
               </div>
               <div>
                 <h3 className="text-lg font-bold flex items-center gap-2">
-                  <span>
-                    Critical State Rent Alert: {lowTTLCount} Campaign(s) Nearing Archival
-                  </span>
+                  <span>Critical State Rent Alert: {lowTTLCount} Campaign(s) Nearing Archival</span>
                 </h3>
                 <p className="text-sm text-rose-600/90 dark:text-rose-300/90 mt-1 max-w-2xl">
                   One or more active campaigns have dropped below the safe persistent instance TTL
@@ -945,8 +981,8 @@ export const MyCampaignsList = () => {
             </span>
           </div>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            Monitor real-time Soroban contract balances, set automated escrow top-up thresholds, manage
-            pre-authorized allowances, and claim refunds.
+            Monitor real-time Soroban contract balances, set automated escrow top-up thresholds,
+            manage pre-authorized allowances, and claim refunds.
           </p>
         </div>
 
@@ -990,8 +1026,8 @@ export const MyCampaignsList = () => {
                 </span>
               </h4>
               <p className="text-sm text-amber-800/90 dark:text-amber-300/90 mt-1">
-                One or more campaigns have dropped below their escrow safety threshold. Automated top-up
-                will replenish funding if pre-authorized allowance is available.
+                One or more campaigns have dropped below their escrow safety threshold. Automated
+                top-up will replenish funding if pre-authorized allowance is available.
               </p>
             </div>
           </div>
@@ -1051,8 +1087,8 @@ export const MyCampaignsList = () => {
                 s.alert
                   ? "border-amber-300 dark:border-amber-800/70 ring-1 ring-amber-400/20"
                   : s.highlight
-                  ? "border-indigo-300 dark:border-indigo-800/70 ring-1 ring-indigo-400/20"
-                  : "border-slate-200 dark:border-zinc-800"
+                    ? "border-indigo-300 dark:border-indigo-800/70 ring-1 ring-indigo-400/20"
+                    : "border-slate-200 dark:border-zinc-800"
               }`}
             >
               <CardContent className="p-4 sm:p-5">
@@ -1066,8 +1102,8 @@ export const MyCampaignsList = () => {
                         s.alert
                           ? "text-amber-600 dark:text-amber-400"
                           : s.highlight
-                          ? "text-indigo-600 dark:text-indigo-400"
-                          : "text-zinc-900 dark:text-white"
+                            ? "text-indigo-600 dark:text-indigo-400"
+                            : "text-zinc-900 dark:text-white"
                       }`}
                     >
                       {s.value}
@@ -1078,8 +1114,8 @@ export const MyCampaignsList = () => {
                       s.alert
                         ? "bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400"
                         : s.highlight
-                        ? "bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400"
-                        : "bg-slate-100 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-zinc-900 dark:text-indigo-400"
+                          ? "bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400"
+                          : "bg-slate-100 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-zinc-900 dark:text-indigo-400"
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -1129,6 +1165,31 @@ export const MyCampaignsList = () => {
             <AlertTriangle className="w-4 h-4" />
             <span>Low Escrow ({lowEscrowCount})</span>
           </Button>
+
+          {/* Subgraph / Goldsky Indexer Telemetry Badge (#202) */}
+          <div
+            data-testid="indexer-status-pill"
+            className="flex items-center space-x-1.5 px-3 py-2 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs self-center"
+            title={
+              isIndexerFallback
+                ? "Soroban RPC Fallback active"
+                : `Goldsky GraphQL Indexer: ${indexerLatencyMs}ms latency`
+            }
+          >
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isIndexerLoading
+                  ? "bg-amber-400 animate-pulse"
+                  : isIndexerFallback
+                    ? "bg-amber-500"
+                    : "bg-emerald-500"
+              }`}
+            />
+            <span className="text-[11px] font-medium text-zinc-600 dark:text-zinc-300">
+              {isIndexerFallback ? "Soroban RPC" : "Goldsky Indexer"}
+            </span>
+            <span className="text-[10px] font-mono text-zinc-400">({indexerLatencyMs}ms)</span>
+          </div>
         </div>
       </div>
 
@@ -1310,7 +1371,9 @@ export const MyCampaignsList = () => {
                     </div>
                     <Button
                       size="sm"
-                      variant={(campaign.ttlRemainingLedgers ?? 500000) < 10000 ? "default" : "outline"}
+                      variant={
+                        (campaign.ttlRemainingLedgers ?? 500000) < 10000 ? "default" : "outline"
+                      }
                       disabled={extendingId === campaign.id}
                       onClick={() => handleExtendCampaignTTL(campaign.id, campaign.contractAddress)}
                       className={`h-7 text-xs rounded-xl font-bold px-3 py-1 flex items-center gap-1 ${
@@ -1321,7 +1384,9 @@ export const MyCampaignsList = () => {
                     >
                       <Sparkles className="w-3 h-3" />
                       <span>
-                        {(campaign.ttlRemainingLedgers ?? 500000) < 10000 ? "Restore (+500k)" : "Extend"}
+                        {(campaign.ttlRemainingLedgers ?? 500000) < 10000
+                          ? "Restore (+500k)"
+                          : "Extend"}
                       </span>
                     </Button>
                   </div>
@@ -1377,7 +1442,8 @@ export const MyCampaignsList = () => {
                           <div className="flex items-center gap-1.5 text-amber-900 dark:text-amber-200 font-medium">
                             <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                             <span>
-                              Allowance Deficit: -{autoEval.allowanceDeficit.toLocaleString()} XLM needed
+                              Allowance Deficit: -{autoEval.allowanceDeficit.toLocaleString()} XLM
+                              needed
                             </span>
                           </div>
                           <Button
@@ -1493,7 +1559,8 @@ export const MyCampaignsList = () => {
                           <div className="w-full h-11 rounded-xl bg-slate-100 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700/60 flex items-center justify-center text-xs font-bold text-zinc-500 dark:text-zinc-400 space-x-2">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                             <span>
-                              Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM Settled)
+                              Escrow Refunded ({campaign.escrowInitial.toLocaleString()} XLM
+                              Settled)
                             </span>
                           </div>
                         ) : isLargeRefund(campaign.escrowBalance) ? (
@@ -1793,9 +1860,7 @@ export const MyCampaignsList = () => {
                   setFormConfig((prev) => (prev ? { ...prev, enabled: !prev.enabled } : null))
                 }
                 className={`w-12 h-7 rounded-full transition-colors relative p-1 ${
-                  formConfig.enabled
-                    ? "bg-indigo-600"
-                    : "bg-slate-300 dark:bg-zinc-700"
+                  formConfig.enabled ? "bg-indigo-600" : "bg-slate-300 dark:bg-zinc-700"
                 }`}
               >
                 <div
@@ -1866,9 +1931,7 @@ export const MyCampaignsList = () => {
                         key={pct}
                         type="button"
                         onClick={() =>
-                          setFormConfig((prev) =>
-                            prev ? { ...prev, thresholdValue: pct } : null,
-                          )
+                          setFormConfig((prev) => (prev ? { ...prev, thresholdValue: pct } : null))
                         }
                         className={`flex-1 h-9 rounded-xl text-xs font-bold transition-all ${
                           formConfig.thresholdValue === pct
@@ -1932,9 +1995,7 @@ export const MyCampaignsList = () => {
                     key={amt}
                     type="button"
                     onClick={() =>
-                      setFormConfig((prev) =>
-                        prev ? { ...prev, topUpAmount: amt } : null,
-                      )
+                      setFormConfig((prev) => (prev ? { ...prev, topUpAmount: amt } : null))
                     }
                     className={`h-9 rounded-xl text-xs font-bold transition-all ${
                       formConfig.topUpAmount === amt
@@ -1982,9 +2043,10 @@ export const MyCampaignsList = () => {
                 <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 text-xs text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-bold">Allowance Ready:</span> Your pre-authorized allowance
-                    ({tokenAllowance.toLocaleString()} XLM) covers the {formConfig.topUpAmount.toLocaleString()}{" "}
-                    XLM refill amount. Automated funding will trigger smoothly without transaction halts.
+                    <span className="font-bold">Allowance Ready:</span> Your pre-authorized
+                    allowance ({tokenAllowance.toLocaleString()} XLM) covers the{" "}
+                    {formConfig.topUpAmount.toLocaleString()} XLM refill amount. Automated funding
+                    will trigger smoothly without transaction halts.
                   </div>
                 </div>
               ) : (
@@ -2008,7 +2070,9 @@ export const MyCampaignsList = () => {
                     />
                     <Button
                       size="sm"
-                      onClick={() => handleAuthorizeAllowance(parseFloat(customAllowanceAmount) || 5000)}
+                      onClick={() =>
+                        handleAuthorizeAllowance(parseFloat(customAllowanceAmount) || 5000)
+                      }
                       disabled={isApprovingAllowance || !canRefillEscrow}
                       className="h-9 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs"
                     >

@@ -449,3 +449,128 @@ export const AFFILIATE_EARNINGS_QUERY = `
     }
   }
 `;
+
+/**
+ * Event pipeline listening to Soroban contract events and streaming them into the indexed store.
+ */
+export interface SorobanContractEvent {
+  id: string;
+  type: "campaign_created" | "sale_logged" | "payout_claimed";
+  contractId: string;
+  ledger: number;
+  timestamp: number;
+  txHash: string;
+  payload: Record<string, unknown>;
+}
+
+export class SorobanEventIndexerPipeline {
+  private isListening = false;
+  private pollIntervalMs = 5000;
+  private lastIndexedLedger = 0;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private listeners: Set<(event: SorobanContractEvent) => void> = new Set();
+
+  private store: GoldskyIndexedStore;
+
+  constructor(store: GoldskyIndexedStore = goldskyIndexedStore) {
+    this.store = store;
+  }
+
+  public subscribe(listener: (event: SorobanContractEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  public async ingestEvent(event: SorobanContractEvent): Promise<void> {
+    this.lastIndexedLedger = Math.max(this.lastIndexedLedger, event.ledger);
+
+    if (event.type === "campaign_created") {
+      const p = event.payload;
+      this.store.upsertCampaign({
+        id: String(p.id || p.campaignId),
+        name: String(p.name || `Campaign #${p.id}`),
+        advertiserAddress: String(p.advertiserAddress || p.advertiser || ""),
+        budget: Number(p.budget || 0),
+        dailyPayoutCap: p.dailyPayoutCap ? Number(p.dailyPayoutCap) : undefined,
+        commissionRate: Number(p.commissionRate || 10),
+        clearingPeriodSecs: Number(p.clearingPeriodSecs || 604800),
+        asset: (p.asset as "XLM" | "USDC" | "EURC") || "XLM",
+        status: "ACTIVE",
+        totalSalesCount: 0,
+        totalVolumeXlm: 0,
+        totalPaidOutXlm: 0,
+        remainingEscrowBalance: Number(p.budget || 0),
+        createdAt: event.timestamp || Date.now(),
+        sales: [],
+        claims: [],
+      });
+    } else if (event.type === "sale_logged") {
+      const p = event.payload;
+      this.store.upsertSale({
+        id: String(p.id || event.id),
+        campaignId: String(p.campaignId),
+        affiliateAddress: String(p.affiliateAddress || p.affiliate),
+        amountXlm: Number(p.amountXlm || p.amount || 0),
+        commissionEarnedXlm: Number(p.commissionEarnedXlm || p.commission || 0),
+        buyerHash: String(p.buyerHash || ""),
+        status: (p.status as "PENDING" | "CONFIRMED" | "DISPUTED" | "CLEARED") || "CONFIRMED",
+        attributionModel: p.attributionModel ? String(p.attributionModel) : undefined,
+        timestamp: event.timestamp || Date.now(),
+        txHash: event.txHash,
+      });
+    } else if (event.type === "payout_claimed") {
+      const p = event.payload;
+      this.store.upsertClaim({
+        id: String(p.id || event.id),
+        campaignId: String(p.campaignId),
+        affiliateAddress: String(p.affiliateAddress || p.affiliate),
+        amountXlm: Number(p.amountXlm || p.amount || 0),
+        asset: (p.asset as "XLM" | "USDC" | "EURC") || "XLM",
+        timestamp: event.timestamp || Date.now(),
+        txHash: event.txHash,
+      });
+    }
+
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch (err) {
+        console.warn("[SorobanEventIndexerPipeline] Listener error:", err);
+      }
+    }
+  }
+
+  public startListening(serverUrl?: string, contractId?: string) {
+    if (this.isListening) return;
+    this.isListening = true;
+    this.timer = setInterval(async () => {
+      try {
+        await this.pollEvents(serverUrl, contractId);
+      } catch (err) {
+        console.warn("[SorobanEventIndexerPipeline] Polling tick error:", err);
+      }
+    }, this.pollIntervalMs);
+  }
+
+  public stopListening() {
+    this.isListening = false;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  public async pollEvents(_serverUrl?: string, _contractId?: string): Promise<number> {
+    return this.lastIndexedLedger;
+  }
+
+  public getStatus() {
+    return {
+      isListening: this.isListening,
+      lastIndexedLedger: this.lastIndexedLedger,
+      campaignCount: this.store.listCampaigns().length,
+    };
+  }
+}
+
+export const sorobanEventIndexerPipeline = new SorobanEventIndexerPipeline();
