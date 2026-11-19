@@ -1,0 +1,204 @@
+# StormSale Goldsky / Subgraph Indexer Schema
+# Defines high-performance GraphQL entities for Campaigns, Sales, Claims, and Users.
+
+"""
+Supported escrow asset types on Stellar
+"""
+enum AssetType {
+  XLM
+  USDC
+  EURC
+}
+
+"""
+Campaign settlement status
+"""
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  DEPLETED
+  COMPLETED
+}
+
+"""
+Conversion settlement status
+"""
+enum SaleStatus {
+  PENDING
+  CONFIRMED
+  DISPUTED
+  CLEARED
+}
+
+"""
+A decentralized affiliate marketing campaign deployed on Soroban escrow.
+"""
+type Campaign @entity {
+  "Unique campaign identifier (Soroban campaign integer ID)"
+  id: ID!
+
+  "Human-readable campaign title"
+  name: String!
+
+  "Stellar public key of the advertiser who created and funded the campaign"
+  advertiser: User!
+
+  "Initial or total allocated budget in escrow asset units"
+  budget: BigDecimal!
+
+  "Optional 24-hour rolling payout cap per affiliate in XLM"
+  dailyPayoutCap: BigDecimal
+
+  "Affiliate commission rate percentage (e.g. 10.0 for 10%)"
+  commissionRate: BigDecimal!
+
+  "Clearing period in seconds before funds mature for withdrawal"
+  clearingPeriodSecs: BigInt!
+
+  "Escrow settlement asset denomination"
+  asset: AssetType!
+
+  "Campaign operational status"
+  status: CampaignStatus!
+
+  "Total number of conversion sales logged against this campaign"
+  totalSalesCount: BigInt!
+
+  "Total gross sale volume processed in XLM equivalent"
+  totalVolumeXlm: BigDecimal!
+
+  "Cumulative commission amount paid out to affiliates in XLM"
+  totalPaidOutXlm: BigDecimal!
+
+  "Remaining active escrow balance available for future commissions"
+  remainingEscrowBalance: BigDecimal!
+
+  "Timestamp when the campaign contract was deployed on ledger"
+  createdAt: BigInt!
+
+  "Ledger sequence number of deployment"
+  createdLedger: BigInt!
+
+  "List of all recorded conversion sales for this campaign"
+  sales: [Sale!]! @derivedFrom(field: "campaign")
+
+  "List of all completed commission payout claims for this campaign"
+  claims: [Claim!]! @derivedFrom(field: "campaign")
+}
+
+"""
+An individual customer conversion sale logged cryptographically on-chain.
+"""
+type Sale @entity {
+  "Unique sale identifier (composite of campaignId and ledger transaction hash)"
+  id: ID!
+
+  "Reference to the parent campaign"
+  campaign: Campaign!
+
+  "Affiliate credited with generating the conversion"
+  affiliate: User!
+
+  "Gross transaction volume of the sale in XLM"
+  amountXlm: BigDecimal!
+
+  "Commission earned by the affiliate for this conversion"
+  commissionEarnedXlm: BigDecimal!
+
+  "One-way SHA-256 hash of buyer identity for privacy-preserving attribution"
+  buyerHash: String!
+
+  "Current settlement status of this conversion"
+  status: SaleStatus!
+
+  "Attribution model applied (e.g. 'last_click' or 'first_click')"
+  attributionModel: String
+
+  "Timestamp when the sale transaction was accepted into the ledger"
+  timestamp: BigInt!
+
+  "Stellar transaction hash of the conversion log"
+  txHash: String!
+}
+
+"""
+A commission payout withdrawal executed by an affiliate from escrow.
+"""
+type Claim @entity {
+  "Unique claim identifier (composite of affiliate and transaction hash)"
+  id: ID!
+
+  "Campaign from which the commission was claimed"
+  campaign: Campaign!
+
+  "Affiliate receiving the commission payout"
+  affiliate: User!
+
+  "Amount of commission withdrawn in XLM"
+  amountXlm: BigDecimal!
+
+  "Asset code in which payout was disbursed (XLM, USDC, EURC)"
+  asset: AssetType!
+
+  "Timestamp when claim transaction was confirmed on-chain"
+  timestamp: BigInt!
+
+  "Stellar transaction hash of the payout claim"
+  txHash: String!
+}
+
+"""
+A participant on the StormSale protocol (Advertiser, Affiliate, or Auditor).
+"""
+type User @entity {
+  "Stellar account public address (G...)"
+  id: ID!
+
+  "Primary role registered on platform (Advertiser, Affiliate, Auditor)"
+  role: String!
+
+  "Total cumulative commissions earned across all campaigns in XLM"
+  totalEarningsXlm: BigDecimal!
+
+  "Total volume driven as affiliate in XLM"
+  totalSalesVolumeXlm: BigDecimal!
+
+  "Campaigns created by this user as an advertiser"
+  advertiserCampaigns: [Campaign!]! @derivedFrom(field: "advertiser")
+
+  "Conversion sales attributed to this user as an affiliate"
+  affiliateSales: [Sale!]! @derivedFrom(field: "affiliate")
+
+  "Commission claims executed by this user"
+  affiliateClaims: [Claim!]! @derivedFrom(field: "affiliate")
+
+  "Timestamp of first account activity on protocol"
+  firstActiveAt: BigInt!
+}
+
+type Query {
+  campaign(id: ID!): Campaign
+  campaigns(first: Int, skip: Int, where: CampaignFilter): [Campaign!]!
+  sale(id: ID!): Sale
+  sales(first: Int, skip: Int, where: SaleFilter): [Sale!]!
+  claim(id: ID!): Claim
+  claims(first: Int, skip: Int, where: ClaimFilter): [Claim!]!
+  user(id: ID!): User
+}
+
+input CampaignFilter {
+  advertiser: ID
+  status: CampaignStatus
+  asset: AssetType
+}
+
+input SaleFilter {
+  campaign: ID
+  affiliate: ID
+  status: SaleStatus
+}
+
+input ClaimFilter {
+  campaign: ID
+  affiliate: ID
+}
