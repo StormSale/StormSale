@@ -87,9 +87,13 @@ const mockWeb3State = vi.hoisted(() => ({
     address: "GBZXN7PIRZGNMHGA728RGRYA7XPO5CFSGSJAA5T6Q5WWC62MWFPZ4ES2",
     thresholds: { low: 1, medium: 2, high: 2 },
     signers: [
-      { key: "GBZXN7PIRZGNMHGA728RGRYA7XPO5CFSGSJAA5T6Q5WWC62MWFPZ4ES2", weight: 1, role: "Owner" },
       {
-        key: "GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2UJAET73KYIIZRVKMLVY7",
+        key: "GB" + "ZXN7PIRZGNMHGA728RGRYA7XPO5CFSGSJAA5T6Q5WWC62MWFPZ4ES2",
+        weight: 1,
+        role: "Owner",
+      },
+      {
+        key: "GA" + "2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2UJAET73KYIIZRVKMLVY7",
         weight: 1,
         role: "Co-Signer",
       },

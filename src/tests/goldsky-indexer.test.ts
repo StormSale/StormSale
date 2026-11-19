@@ -8,6 +8,7 @@ import {
   goldskyIndexedStore,
   CAMPAIGN_HISTORY_QUERY,
   AFFILIATE_EARNINGS_QUERY,
+  sorobanEventIndexerPipeline,
   type IndexerCampaign,
   type IndexerSale,
 } from "../lib/indexer/goldskyIndexer";
@@ -177,6 +178,50 @@ describe("[Integration] Subgraph / Goldsky Indexer Integration (#202)", () => {
 
       expect(result.current.data?.campaigns).toBeDefined();
       expect(result.current.loading).toBe(false);
+    });
+  });
+
+  describe("SorobanEventIndexerPipeline Event Listening & Streaming", () => {
+    it("ingests Soroban contract events into the indexed store and notifies listeners", async () => {
+      const receivedEvents: any[] = [];
+      const unsubscribe = sorobanEventIndexerPipeline.subscribe((ev) => {
+        receivedEvents.push(ev);
+      });
+
+      await sorobanEventIndexerPipeline.ingestEvent({
+        id: "evt_301",
+        type: "campaign_created",
+        contractId: "C12345",
+        ledger: 10500,
+        timestamp: Date.now(),
+        txHash: "0xhash301",
+        payload: {
+          id: "301",
+          name: "Pipeline Stream Campaign",
+          budget: 5000,
+          commissionRate: 12,
+        },
+      });
+
+      unsubscribe();
+
+      expect(receivedEvents.length).toBe(1);
+      expect(receivedEvents[0].id).toBe("evt_301");
+
+      const campaign = goldskyIndexedStore.getCampaign("301");
+      expect(campaign).toBeDefined();
+      expect(campaign?.name).toBe("Pipeline Stream Campaign");
+
+      const status = sorobanEventIndexerPipeline.getStatus();
+      expect(status.lastIndexedLedger).toBe(10500);
+    });
+
+    it("handles startListening and stopListening lifecycle cleanly", () => {
+      sorobanEventIndexerPipeline.startListening("https://soroban-testnet.stellar.org", "C12345");
+      expect(sorobanEventIndexerPipeline.getStatus().isListening).toBe(true);
+
+      sorobanEventIndexerPipeline.stopListening();
+      expect(sorobanEventIndexerPipeline.getStatus().isListening).toBe(false);
     });
   });
 });
