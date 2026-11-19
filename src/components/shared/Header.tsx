@@ -9,6 +9,7 @@ import {
   X,
   Coins,
   ShieldCheck,
+  ShieldAlert,
   Send,
   Activity,
   Network,
@@ -19,6 +20,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 import { UserMenu } from "./UserMenu";
 import { verifyFreighterNetwork } from "../../lib/networkVerification";
+import {
+  checkContractIntegrity,
+  subscribeToContractIntegrity,
+  setContractAddressOverride,
+  type ContractIntegrityResult,
+} from "../../lib/contractIntegrity";
+import { ContractIntegrityModal } from "../auditor/ContractIntegrityModal";
 
 interface HeaderProps {
   onNavigate?: (page: string) => void;
@@ -68,6 +76,25 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     network: string;
     isStellarNetwork: boolean;
   } | null>(null);
+  const [contractIntegrity, setContractIntegrity] = useState<ContractIntegrityResult>(() =>
+    checkContractIntegrity(undefined, network),
+  );
+  const [isContractIntegrityModalOpen, setIsContractIntegrityModalOpen] = useState(false);
+
+  useEffect(() => {
+    const evaluated = checkContractIntegrity(undefined, network);
+    setContractIntegrity(evaluated);
+    if (!evaluated.isVerified) {
+      setIsContractIntegrityModalOpen(true);
+    }
+    const unsubscribe = subscribeToContractIntegrity((updated) => {
+      setContractIntegrity(updated);
+      if (!updated.isVerified) {
+        setIsContractIntegrityModalOpen(true);
+      }
+    });
+    return unsubscribe;
+  }, [network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,6 +249,37 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               </span>
             )}
           </button>
+          {/* Contract Integrity Indicator Pill */}
+          <button
+            type="button"
+            onClick={() => setIsContractIntegrityModalOpen(true)}
+            data-testid="contract-integrity-indicator"
+            aria-label={
+              contractIntegrity.isVerified
+                ? "Contract Integrity: Verified"
+                : "Contract Integrity: Warning Mismatch"
+            }
+            title={
+              contractIntegrity.isVerified
+                ? `Verified Soroban Contract: ${contractIntegrity.configuredAddress}`
+                : "Security Alert: Contract Address Mismatch Detected"
+            }
+            className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition-all cursor-pointer ${
+              contractIntegrity.isVerified
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20"
+                : "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 animate-pulse font-bold"
+            }`}
+          >
+            {contractIntegrity.isVerified ? (
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+            )}
+            <span className="font-mono text-[11px]">
+              {contractIntegrity.isVerified ? "Verified" : "Mismatch"}
+            </span>
+          </button>
+
           <ThemeToggle />
 
           {isConnected ? (
@@ -298,6 +356,35 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               )}
             </button>
           )}
+
+          {/* Mobile Contract Integrity Indicator Button */}
+          <button
+            type="button"
+            onClick={() => setIsContractIntegrityModalOpen(true)}
+            data-testid="mobile-contract-integrity-indicator"
+            aria-label={
+              contractIntegrity.isVerified
+                ? "Contract Integrity: Verified"
+                : "Contract Integrity: Warning Mismatch"
+            }
+            className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 relative cursor-pointer"
+            title={
+              contractIntegrity.isVerified
+                ? `Verified Soroban Contract: ${contractIntegrity.configuredAddress}`
+                : "Security Warning: Contract Address Mismatch Detected"
+            }
+          >
+            <span
+              className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+                contractIntegrity.isVerified ? "bg-emerald-500" : "bg-rose-500 animate-ping"
+              }`}
+            />
+            {contractIntegrity.isVerified ? (
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            )}
+          </button>
 
           <ThemeToggle />
           {!isConnected ? (
@@ -428,6 +515,12 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           </motion.div>
         )}
       </AnimatePresence>
+      <ContractIntegrityModal
+        isOpen={isContractIntegrityModalOpen}
+        onClose={() => setIsContractIntegrityModalOpen(false)}
+        integrity={contractIntegrity}
+        onReset={() => setContractAddressOverride(null)}
+      />
     </header>
   );
 };
