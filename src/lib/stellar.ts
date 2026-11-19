@@ -134,6 +134,8 @@ export async function connectAlbedoWallet(): Promise<string> {
   });
 }
 
+export { signFreighterTransaction };
+
 /**
  * Signs a transaction with Albedo web popup.
  */
