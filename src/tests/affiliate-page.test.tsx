@@ -3,6 +3,11 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Affiliate } from "../pages/Affiliate";
 
+vi.mock("framer-motion", () => ({
+  motion: { div: ({ children, ...props }: any) => <div {...props}>{children}</div> },
+  AnimatePresence: ({ children }: any) => <>{children}</>,
+}));
+
 vi.mock("../components/shared/Sidebar", () => ({
   Sidebar: ({
     tabs,
@@ -85,6 +90,7 @@ vi.mock("../components/affiliate/TelegramAlertsCard", () => ({
 }));
 vi.mock("../context/NotificationContext", () => ({
   NotificationProvider: ({ children }: { children: React.ReactNode }) => children,
+  useNotification: () => ({ showNotification: () => "", dismissNotification: () => {} }),
 }));
 vi.mock("../lib/telegram", () => ({ isTelegramMiniApp: () => false }));
 
