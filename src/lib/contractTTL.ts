@@ -281,9 +281,7 @@ export async function simulateExtendContractTTL(
   if (
     !callerAddress ||
     callerAddress.startsWith("GASTORMSALE7") ||
-    callerAddress.includes("MOCK") ||
-    (typeof (globalThis as any).process !== "undefined" &&
-      (globalThis as any).process?.env?.NODE_ENV === "test")
+    callerAddress.includes("MOCK")
   ) {
     const cached = mockTTLStore.get(contractId) || {
       latestLedger: 1_250_000,
