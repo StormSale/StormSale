@@ -237,7 +237,7 @@ describe("account merge and closed sequence detection (Horizon)", () => {
         horizonResponse({
           balances: [
             { asset_type: "native", balance: "10.0000" },
-            { asset_code: "USDC", asset_issuer: "GSPOOFED", balance: "9999.00" },
+            { asset_code: "USDC", asset_issuer: DESTINATION, balance: "9999.00" },
             {
               asset_code: "USDC",
               asset_issuer: SUPPORTED_ESCROW_ASSETS.USDC.issuer,
