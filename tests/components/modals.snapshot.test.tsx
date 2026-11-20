@@ -204,8 +204,13 @@ describe("[Snapshot] UI Modal & Dialog Primitives (#90)", () => {
 
   describe("Application Modals Baseline Testing", () => {
     it("matches snapshot for RpcStatusModal with healthy/degraded endpoints and failover history", () => {
-      const html = renderToString(<RpcStatusModal />);
-      expect(html).toMatchSnapshot();
+      const timeSpy = vi.spyOn(Date.prototype, "toLocaleTimeString").mockReturnValue("1:00:00 PM");
+      try {
+        const html = renderToString(<RpcStatusModal />);
+        expect(html).toMatchSnapshot();
+      } finally {
+        timeSpy.mockRestore();
+      }
     });
 
     it("matches snapshot for MultiSigApprovalModal with signers and pending transaction", () => {
