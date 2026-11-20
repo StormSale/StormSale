@@ -11,6 +11,12 @@ export interface CustomShortLink {
   updatedAt: string;
   clickCount: number;
   lastClickedAt?: string;
+  landingVariants?: Array<{
+    id: string;
+    name: string;
+    url: string;
+    weight: number;
+  }>;
 }
 
 export interface SlugAvailabilityResult {
