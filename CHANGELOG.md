@@ -1,12 +1,5 @@
 # Changelog
 
-## [1.1.2](https://github.com/StormSale/StormSale/compare/v1.1.1...v1.1.2) (2026-11-15)
-
-
-### Bug Fixes
-
-* **deploy:** remove invalid vercel function runtime and specify node engine ([50075da](https://github.com/StormSale/StormSale/commit/50075daff54429e0cd50527afc1e5407ea7116de))
-
 ## [1.1.1](https://github.com/StormSale/StormSale/compare/v1.1.0...v1.1.1) (2026-11-15)
 
 
