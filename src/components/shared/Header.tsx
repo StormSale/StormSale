@@ -28,6 +28,7 @@ import {
   type ContractIntegrityResult,
 } from "../../lib/contractIntegrity";
 import { ContractIntegrityModal } from "../auditor/ContractIntegrityModal";
+import { EventStreamStatusPill } from "./EventStreamStatusPill";
 
 interface HeaderProps {
   onNavigate?: (page: string) => void;
@@ -252,6 +253,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               </span>
             )}
           </button>
+          {/* Real-Time Soroban Events Status HUD Pill */}
+          <EventStreamStatusPill className="hidden lg:inline-flex" />
           {/* Contract Integrity Indicator Pill */}
           <button
             type="button"

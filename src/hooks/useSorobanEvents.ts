@@ -1,63 +1,109 @@
-import { useState, useEffect, useCallback } from 'react';
+/**
+ * src/hooks/useSorobanEvents.ts
+ *
+ * Real-Time Soroban RPC Event Streaming hook with backoff engine (Issue #123).
+ */
+import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  SorobanEventStreamEngine,
+  type SorobanStreamEvent,
+  type StreamingStatus,
+  DEFAULT_TOPIC_FILTERS,
+} from "../lib/sorobanEvents";
 
-interface SorobanEventParams {
+export interface SorobanEventParams {
   rpcUrl?: string;
   contractId?: string;
   startLedger?: number;
   pollingIntervalMs?: number;
+  topicFilters?: string[];
+  onEvent?: (event: SorobanStreamEvent) => void;
+  onRevalidate?: () => void;
 }
 
 export function useSorobanEvents({
-  rpcUrl = 'https://soroban-testnet.stellar.org',
+  rpcUrl = "https://soroban-testnet.stellar.org",
   contractId,
   startLedger = 0,
   pollingIntervalMs = 5000,
-}: SorobanEventParams) {
-  const [events, setEvents] = useState<any[]>([]);
+  topicFilters = DEFAULT_TOPIC_FILTERS,
+  onEvent,
+  onRevalidate,
+}: SorobanEventParams = {}) {
+  const [events, setEvents] = useState<SorobanStreamEvent[]>([]);
+  const [status, setStatus] = useState<StreamingStatus>("Connected");
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastLedger, setLastLedger] = useState<number>(startLedger);
 
-  const fetchEvents = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getEvents',
-          params: [
-            {
-              startLedger,
-              filters: contractId ? [{ type: 'contract', contractIds: [contractId] }] : [],
-              pagination: { limit: 50 },
-            },
-          ],
-        }),
-      });
+  const engineRef = useRef<SorobanEventStreamEngine | null>(null);
 
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error.message || 'Failed to fetch Soroban events');
-      }
+  const handleEvent = useCallback(
+    (ev: SorobanStreamEvent) => {
+      setEvents((prev) => [ev, ...prev].slice(0, 100));
+      if (ev.ledger) setLastLedger(ev.ledger);
+      onEvent?.(ev);
+    },
+    [onEvent],
+  );
 
-      if (data.result?.events) {
-        setEvents(data.result.events);
-      }
+  const handleStatusChange = useCallback((newStatus: StreamingStatus) => {
+    setStatus(newStatus);
+    setLoading(newStatus === "Polling");
+    if (newStatus === "Reconnecting") {
+      setError("Lost connection to Soroban RPC. Reconnecting with exponential backoff...");
+    } else {
       setError(null);
-    } catch (err: any) {
-      setError(err.message || 'Unknown error fetching events');
-    } finally {
-      setLoading(false);
     }
-  }, [rpcUrl, contractId, startLedger]);
+  }, []);
 
   useEffect(() => {
-    fetchEvents();
-    const interval = setInterval(fetchEvents, pollingIntervalMs);
-    return () => clearInterval(interval);
-  }, [fetchEvents, pollingIntervalMs]);
+    const engine = new SorobanEventStreamEngine({
+      rpcUrl,
+      contractId,
+      startLedger,
+      basePollingIntervalMs: pollingIntervalMs,
+      topicFilters,
+      onEvent: handleEvent,
+      onStatusChange: handleStatusChange,
+      onRevalidate,
+    });
 
-  return { events, loading, error, refetch: fetchEvents };
+    engineRef.current = engine;
+    engine.start();
+
+    return () => {
+      engine.stop();
+      engineRef.current = null;
+    };
+  }, [
+    rpcUrl,
+    contractId,
+    startLedger,
+    pollingIntervalMs,
+    topicFilters,
+    handleEvent,
+    handleStatusChange,
+    onRevalidate,
+  ]);
+
+  const reconnect = useCallback(() => {
+    engineRef.current?.reconnect();
+  }, []);
+
+  const refetch = useCallback(async () => {
+    await engineRef.current?.poll();
+  }, []);
+
+  return {
+    events,
+    status,
+    loading,
+    error,
+    lastLedger,
+    reconnect,
+    refetch,
+  };
 }
+
+export { useSorobanEventsContext, SorobanEventsProvider } from "../context/SorobanEventsContext";
