@@ -196,6 +196,11 @@ export async function executeBatchCommissionClaim(
       `Payout claim rejected: Affiliate address ${affiliateAddress} is paused due to fraud risk review.`,
     );
   }
+  if (typeof window !== "undefined" && (window as any).__SIMULATE_LOW_GAS__) {
+    throw new Error(
+      "Transaction failed: tx_insufficient_fee (Insufficient gas / resource fee for Soroban contract invocation)",
+    );
+  }
 
   const totalClaimedXlm = calculateTotalClaimableXlm(campaignsToClaim);
   const itemizedClaims = campaignsToClaim.map((c) => ({
