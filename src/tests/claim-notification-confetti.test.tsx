@@ -122,4 +122,47 @@ describe("[Affiliate] Claim Confirmation & Reward Toasts Suite (#53)", () => {
       "https://stellar.expert/explorer/testnet/tx/abc123",
     );
   });
+
+  it("omits View Receipt action when no receipt URL or callback is available", () => {
+    const notif = buildClaimSuccessNotification({
+      amountXlm: "50.00",
+    });
+
+    expect(notif.actionLabel).toBeUndefined();
+    expect(notif.receiptUrl).toBeUndefined();
+    expect(notif.confetti).toBe(true);
+    expect(notif.message).toContain("50.00 XLM");
+  });
+
+  it("resolves receiptUrl from actionUrl fallback when receiptTxHash and receiptUrl are absent", () => {
+    const TestActionUrlFallback = () => {
+      const { showNotification } = useNotification();
+      return (
+        <button
+          data-testid="trigger-fallback"
+          onClick={() =>
+            showNotification({
+              type: "success",
+              title: "Claim Fallback",
+              message: "Testing actionUrl fallback",
+              actionLabel: "View Receipt",
+              actionUrl: "https://custom-receipt.stellar.org/tx/999",
+            })
+          }
+        >
+          Fallback
+        </button>
+      );
+    };
+
+    render(
+      <NotificationProvider>
+        <TestActionUrlFallback />
+      </NotificationProvider>,
+    );
+
+    fireEvent.click(screen.getByTestId("trigger-fallback"));
+    const receiptBtn = screen.getByTestId("toast-view-receipt-btn");
+    expect(receiptBtn.getAttribute("href")).toBe("https://custom-receipt.stellar.org/tx/999");
+  });
 });

@@ -146,6 +146,7 @@ export function buildClaimSuccessNotification(params: {
   const countSuffix =
     params.itemCount && params.itemCount > 1 ? ` across ${params.itemCount} campaigns` : "";
   const campaignSuffix = params.campaignName ? ` for ${params.campaignName}` : "";
+  const hasReceiptAction = Boolean(receiptTarget || params.onViewReceipt);
 
   return {
     type: "success",
@@ -155,7 +156,7 @@ export function buildClaimSuccessNotification(params: {
     receiptUrl: receiptTarget,
     receiptTxHash: params.txHash,
     onViewReceipt: params.onViewReceipt,
-    actionLabel: "View Receipt",
+    actionLabel: hasReceiptAction ? "View Receipt" : undefined,
     actionUrl: receiptTarget,
     onAction: params.onViewReceipt,
     duration: 7000,
@@ -494,7 +495,8 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
               notification.receiptUrl ||
               (notification.receiptTxHash
                 ? getStellarExpertUrl("tx", notification.receiptTxHash)
-                : undefined);
+                : undefined) ||
+              actionUrl;
             const isReceipt = Boolean(
               receiptUrl || notification.onViewReceipt || actionLabel === "View Receipt",
             );
