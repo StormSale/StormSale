@@ -128,4 +128,42 @@ describe("[Affiliate] Auditable Payout & History Ledger Suite (#51)", () => {
     expect(screen.getByText("#102")).toBeTruthy();
     expect(screen.getByText("#103")).toBeTruthy();
   });
+
+  it("exposes aria-pressed programmatic state on all status filter buttons", () => {
+    render(<SalesList sales={mockSalesData} />);
+
+    const filterAll = screen.getByTestId("filter-all");
+    const filterClaimed = screen.getByTestId("filter-claimed");
+    const filterUnlocked = screen.getByTestId("filter-unlocked");
+    const filterClearing = screen.getByTestId("filter-clearing");
+
+    // Initially 'all' is selected
+    expect(filterAll.getAttribute("aria-pressed")).toBe("true");
+    expect(filterClaimed.getAttribute("aria-pressed")).toBe("false");
+    expect(filterUnlocked.getAttribute("aria-pressed")).toBe("false");
+    expect(filterClearing.getAttribute("aria-pressed")).toBe("false");
+
+    // Click 'claimed'
+    fireEvent.click(filterClaimed);
+    expect(filterAll.getAttribute("aria-pressed")).toBe("false");
+    expect(filterClaimed.getAttribute("aria-pressed")).toBe("true");
+    expect(filterUnlocked.getAttribute("aria-pressed")).toBe("false");
+    expect(filterClearing.getAttribute("aria-pressed")).toBe("false");
+
+    // Click 'unlocked'
+    fireEvent.click(filterUnlocked);
+    expect(filterUnlocked.getAttribute("aria-pressed")).toBe("true");
+    expect(filterClaimed.getAttribute("aria-pressed")).toBe("false");
+
+    // Click 'clearing'
+    fireEvent.click(filterClearing);
+    expect(filterClearing.getAttribute("aria-pressed")).toBe("true");
+    expect(filterUnlocked.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("preserves empty state when initialized without sales in production mode", () => {
+    render(<SalesList />);
+    expect(screen.getByTestId("sales-empty-state")).toBeTruthy();
+    expect(screen.getByText("No sales found")).toBeTruthy();
+  });
 });

@@ -207,20 +207,41 @@ describe("[Test] Validation Schema Fuzzing Suite (#96)", () => {
         "Maximum 7 decimal places (XLM precision)",
       );
 
-      // 4. Fuzz random invalid numeric strings
+      // 4. Fuzz random invalid numeric strings with associated expected error messages
       for (let i = 0; i < 500; i++) {
-        const badAmount = randomChoice([
-          randomString(10),
-          `-${Math.floor(rng() * 1000) + 1}`,
-          `1e${Math.floor(rng() * 10) + 1}`,
-          `0.${"1".repeat(8 + Math.floor(rng() * 10))}`,
-          `--${Math.floor(rng() * 100)}`,
-          `12.34.56`,
-          `$100`,
-          `100 XLM`,
+        const item = randomChoice([
+          {
+            val: `-${Math.floor(rng() * 1000) + 1}`,
+            expectedMsg: "Amount must be greater than 0",
+          },
+          {
+            val: `0.${"1".repeat(8 + Math.floor(rng() * 10))}`,
+            expectedMsg: "Maximum 7 decimal places (XLM precision)",
+          },
+          {
+            val: randomString(10, "abcdefghijklmnopqrstuvwxyz"),
+            expectedMsg: "Must be a valid number",
+          },
+          {
+            val: `--${Math.floor(rng() * 100)}`,
+            expectedMsg: "Must be a valid number",
+          },
+          {
+            val: `12.34.56`,
+            expectedMsg: "Must be a valid number",
+          },
+          {
+            val: `$${Math.floor(rng() * 100) + 1}`,
+            expectedMsg: "Must be a valid number",
+          },
+          {
+            val: `${Math.floor(rng() * 100) + 1} XLM`,
+            expectedMsg: "Must be a valid number",
+          },
         ]);
-        const res = xlmAmountSchema.safeParse(badAmount);
+        const res = xlmAmountSchema.safeParse(item.val);
         expect(res.success).toBe(false);
+        expect(res.error?.issues[0].message).toBe(item.expectedMsg);
       }
 
       // 5. Valid amounts fuzzing (no false positives)
@@ -276,19 +297,57 @@ describe("[Test] Validation Schema Fuzzing Suite (#96)", () => {
   describe("Create Campaign Form Schema Fuzzing", () => {
     it("fuzzes createCampaignSchema across 1000+ random payloads", () => {
       for (let i = 0; i < 500; i++) {
-        const randomPayload = {
-          campaignName: randomString(Math.floor(rng() * 80)),
-          commissionRate: `${Math.floor(rng() * 100) - 20}`,
-          budget: `${Math.floor(rng() * 2000) - 500}`,
-          clearingPeriod: `${Math.floor(rng() * 10000) - 2000}`,
+        const nameLen = Math.floor(rng() * 80);
+        const name = randomString(nameLen);
+        const commVal = Math.floor(rng() * 100) - 20;
+        const budgetVal = Math.floor(rng() * 2000) - 500;
+        const clearingVal = Math.floor(rng() * 10000) - 2000;
+
+        const payload = {
+          campaignName: name,
+          commissionRate: `${commVal}`,
+          budget: `${budgetVal}`,
+          clearingPeriod: `${clearingVal}`,
         };
 
-        const res = createCampaignSchema.safeParse(randomPayload);
-        // Verify that if any field violates criteria, safeParse accurately flags error
-        if (!res.success) {
-          const errors = getFieldErrors(res.error);
-          expect(Object.keys(errors).length).toBeGreaterThan(0);
+        const trimmedName = name.trim();
+        const isNameValid = trimmedName.length >= 3 && trimmedName.length <= 64;
+        const isCommValid = commVal >= 1 && commVal <= 50;
+        const isBudgetValid = budgetVal > 0;
+        const isClearingValid = clearingVal >= 3600;
+
+        const expectedSuccess = isNameValid && isCommValid && isBudgetValid && isClearingValid;
+        const res = createCampaignSchema.safeParse(payload);
+
+        expect(res.success).toBe(expectedSuccess);
+
+        if (!expectedSuccess) {
+          const errors = getFieldErrors(res.error!);
+          if (!isNameValid) expect(errors.campaignName).toBeDefined();
+          if (!isCommValid) expect(errors.commissionRate).toBeDefined();
+          if (!isBudgetValid) expect(errors.budget).toBeDefined();
+          if (!isClearingValid) expect(errors.clearingPeriod).toBeDefined();
         }
+      }
+
+      // Explicit valid payloads asserting acceptance
+      const validPayloads = [
+        {
+          campaignName: "Valid Test Campaign",
+          commissionRate: "15",
+          budget: "1000",
+          clearingPeriod: "86400",
+        },
+        {
+          campaignName: "Alpha Beta Promo",
+          commissionRate: "50",
+          budget: "50000.5",
+          clearingPeriod: "3600",
+        },
+      ];
+      for (const p of validPayloads) {
+        const res = createCampaignSchema.safeParse(p);
+        expect(res.success).toBe(true);
       }
     });
 

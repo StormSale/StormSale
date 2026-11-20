@@ -55,6 +55,8 @@ export interface Sale {
 
 export interface SalesListProps {
   sales?: Sale[];
+  /** Optional flag to allow demo mock sales fallback in non-production environments */
+  allowDemoFallback?: boolean;
 }
 
 export type SaleStatusFilter = "all" | "claimed" | "unlocked" | "clearing";
@@ -108,7 +110,7 @@ export function calculateClearing(
   };
 }
 
-const createInitialMockSales = (): Sale[] => {
+export const createInitialMockSales = (): Sale[] => {
   const now = Math.floor(Date.now() / 1000);
   return [
     {
@@ -152,14 +154,19 @@ const createInitialMockSales = (): Sale[] => {
   ];
 };
 
-export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => {
+export const SalesList: React.FC<SalesListProps> = ({
+  sales: initialSales,
+  allowDemoFallback = false,
+}) => {
   const [decryptedData, setDecryptedData] = useState<object | null>(null);
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptingId, setDecryptingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
-  const [salesList] = useState<Sale[]>(() => initialSales || createInitialMockSales());
+  const [salesList] = useState<Sale[]>(
+    () => initialSales ?? (allowDemoFallback ? createInitialMockSales() : []),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>("all");
 
@@ -357,6 +364,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                   type="button"
                   data-testid="filter-all"
                   onClick={() => setStatusFilter("all")}
+                  aria-pressed={statusFilter === "all"}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                     statusFilter === "all"
                       ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-sm"
@@ -373,6 +381,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                   type="button"
                   data-testid="filter-claimed"
                   onClick={() => setStatusFilter("claimed")}
+                  aria-pressed={statusFilter === "claimed"}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                     statusFilter === "claimed"
                       ? "bg-emerald-600 text-white shadow-sm"
@@ -389,6 +398,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                   type="button"
                   data-testid="filter-unlocked"
                   onClick={() => setStatusFilter("unlocked")}
+                  aria-pressed={statusFilter === "unlocked"}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                     statusFilter === "unlocked"
                       ? "bg-indigo-600 text-white shadow-sm"
@@ -405,6 +415,7 @@ export const SalesList: React.FC<SalesListProps> = ({ sales: initialSales }) => 
                   type="button"
                   data-testid="filter-clearing"
                   onClick={() => setStatusFilter("clearing")}
+                  aria-pressed={statusFilter === "clearing"}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
                     statusFilter === "clearing"
                       ? "bg-amber-600 text-white shadow-sm"
