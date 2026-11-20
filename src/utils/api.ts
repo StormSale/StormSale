@@ -65,7 +65,11 @@ export const fetchConversions = async (campaignId?: string) => {
     }
     const data = await res.json();
     // Validate parsed API response against conversions schema
-    return conversionsListResponseSchema.parse(data);
+    const parsed = conversionsListResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return [];
+    }
+    return parsed.data;
   } catch (error) {
     console.error("Failed to fetch conversions from API:", error);
     return [];

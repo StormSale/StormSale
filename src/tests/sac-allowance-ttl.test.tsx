@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Account } from "@stellar/stellar-sdk";
 import {
   calculateTTLHealth,
   formatLedgerDuration,
@@ -10,10 +11,15 @@ import {
   CRITICAL_TTL_THRESHOLD_LEDGERS,
   DEFAULT_EXTEND_LEDGERS,
 } from "../lib/contractTTL";
+import * as contractTTLModule from "../lib/contractTTL";
 import {
   simulateSacAllowanceApproval,
   executeEscrowTopUpWithAllowanceCheck,
+  saveAutoTopUpConfig,
+  getStoredAutoTopUpConfig,
+  evaluateAutoTopUpTrigger,
 } from "../lib/escrowTopUp";
+import * as stellarModule from "../lib/stellar";
 import { SUPPORTED_ESCROW_ASSETS } from "../config/stellar";
 import { ContractTTLBadge } from "../components/advertiser/ContractTTLBadge";
 import { ContractTTLRestorer } from "../components/advertiser/ContractTTLRestorer";
@@ -117,6 +123,96 @@ describe("Automated SAC Token Allowance Delegation & TTL Extension (#119)", () =
       expect(SUPPORTED_ESCROW_ASSETS.USDC.decimals).toBe(7);
       expect(SUPPORTED_ESCROW_ASSETS.EURC.decimals).toBe(7);
     });
+
+    it("persists and loads auto top-up configuration in storage", () => {
+      const cfg = {
+        campaignId: "test-campaign-119",
+        enabled: true,
+        thresholdType: "percentage" as const,
+        thresholdValue: 25,
+        topUpAmount: 500,
+        maxTopUpsPerDay: 4,
+        topUpCountToday: 0,
+      };
+      saveAutoTopUpConfig(cfg);
+      const loaded = getStoredAutoTopUpConfig("test-campaign-119");
+      expect(loaded.campaignId).toBe("test-campaign-119");
+      expect(loaded.enabled).toBe(true);
+      expect(loaded.thresholdValue).toBe(25);
+    });
+
+    it("evaluates auto top-up trigger with fixed threshold type", () => {
+      const campaign = {
+        status: "Active",
+        escrowInitial: 2000,
+        escrowBalance: 300,
+      };
+      const config = {
+        campaignId: "test-camp-fixed",
+        enabled: true,
+        thresholdType: "fixed" as const,
+        thresholdValue: 500,
+        topUpAmount: 1000,
+        maxTopUpsPerDay: 5,
+        topUpCountToday: 0,
+      };
+      const evalResult = evaluateAutoTopUpTrigger(campaign, config, 2000);
+      expect(evalResult.shouldTrigger).toBe(true);
+      expect(evalResult.allowanceDeficit).toBe(0);
+    });
+
+    it("handles simulation failure gracefully when token allowance query fails", async () => {
+      const spy = vi
+        .spyOn(stellarModule, "getTokenAllowanceQuery")
+        .mockRejectedValueOnce(new Error("RPC query timeout"));
+      const sim = await simulateSacAllowanceApproval(
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        1500,
+        "USDC",
+      );
+      expect(sim.success).toBe(false);
+      expect(sim.simulationStatus).toBe("Simulation Failed");
+      expect(sim.error).toBe("RPC query timeout");
+      spy.mockRestore();
+    });
+
+    it("queries allowance on-chain when currentAllowance is omitted", async () => {
+      const spy = vi
+        .spyOn(stellarModule, "getTokenAllowanceQuery")
+        .mockResolvedValueOnce(5000);
+      const res = await executeEscrowTopUpWithAllowanceCheck({
+        advertiserAddress: testAdvertiser,
+        campaignId: 45,
+        amount: 1000,
+        assetCode: "USDC",
+        walletType: "mock",
+      });
+      expect(res.success).toBe(true);
+      expect(res.toppedUpAmount).toBe(1000);
+      spy.mockRestore();
+    });
+
+    it("throws error when approveTokenContractCall returns success false", async () => {
+      const spy = vi
+        .spyOn(stellarModule, "approveTokenContractCall")
+        .mockResolvedValueOnce({
+          success: false,
+          txHash: "",
+          allowance: 0,
+        });
+      await expect(
+        executeEscrowTopUpWithAllowanceCheck({
+          advertiserAddress: testAdvertiser,
+          campaignId: 46,
+          amount: 2500,
+          assetCode: "USDC",
+          walletType: "mock",
+          currentAllowance: 0,
+          autoApproveDeficit: true,
+        }),
+      ).rejects.toThrow("Failed to delegate SAC token allowance before escrow top-up.");
+      spy.mockRestore();
+    });
   });
 
   /* =========================================================================
@@ -184,6 +280,61 @@ describe("Automated SAC Token Allowance Delegation & TTL Extension (#119)", () =
       expect(res.triggered).toBe(false);
       expect(res.reason).toContain("No extension required");
     });
+
+    it("simulates extendFootprintTtl via Soroban RPC server when non-mock caller is provided", async () => {
+      const mockServer = {
+        getAccount: vi.fn().mockResolvedValue(
+          new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "100"),
+        ),
+        simulateTransaction: vi.fn().mockResolvedValue({
+          minResourceFee: "2500",
+          latestLedger: 1250000,
+        }),
+      };
+      const spy = vi.spyOn(stellarModule, "getSorobanRpcServer").mockReturnValue(mockServer as any);
+      const res = await simulateExtendContractTTL(
+        "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        DEFAULT_EXTEND_LEDGERS,
+      );
+      expect(res.canExtend).toBe(true);
+      expect(res.minResourceFeeStroops).toBe("2500");
+      expect(res.simulatedLiveUntil).toBe(1250000 + DEFAULT_EXTEND_LEDGERS);
+      spy.mockRestore();
+    });
+
+    it("returns canExtend false when Soroban simulation encounters an error", async () => {
+      const mockServer = {
+        getAccount: vi.fn().mockResolvedValue(
+          new Account("GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", "100"),
+        ),
+        simulateTransaction: vi.fn().mockResolvedValue({
+          error: "Footprint exceeds live window",
+        }),
+      };
+      const spy = vi.spyOn(stellarModule, "getSorobanRpcServer").mockReturnValue(mockServer as any);
+      const res = await simulateExtendContractTTL(
+        "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      );
+      expect(res.canExtend).toBe(false);
+      expect(res.error).toBe("Footprint exceeds live window");
+      spy.mockRestore();
+    });
+
+    it("handles RPC exception during simulateExtendContractTTL", async () => {
+      const mockServer = {
+        getAccount: vi.fn().mockRejectedValue(new Error("RPC node timeout")),
+      };
+      const spy = vi.spyOn(stellarModule, "getSorobanRpcServer").mockReturnValue(mockServer as any);
+      const res = await simulateExtendContractTTL(
+        "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+      );
+      expect(res.canExtend).toBe(false);
+      expect(res.error).toContain("RPC node timeout");
+      spy.mockRestore();
+    });
   });
 
   /* =========================================================================
@@ -225,6 +376,63 @@ describe("Automated SAC Token Allowance Delegation & TTL Extension (#119)", () =
       await waitFor(() => {
         expect(mockShowNotification).toHaveBeenCalled();
       });
+    });
+
+    it("updates target ledgers and triggers refresh in ContractTTLRestorer", async () => {
+      render(
+        <ContractTTLRestorer
+          contractAddress="C_MOCK_ESCROW_REFRESH_CONTRACT"
+          campaignName="Refresh Test Campaign"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Extension duration/i)).toBeTruthy();
+      });
+
+      const select = screen.getByLabelText(/Extension duration/i);
+      fireEvent.change(select, { target: { value: "250000" } });
+      expect((select as HTMLSelectElement).value).toBe("250000");
+
+      const refreshBtn = screen.getByTitle("Refresh TTL");
+      fireEvent.click(refreshBtn);
+    });
+
+    it("handles simulation error failure during extend in ContractTTLRestorer", async () => {
+      const spy = vi
+        .spyOn(contractTTLModule, "simulateExtendContractTTL")
+        .mockResolvedValueOnce({
+          canExtend: false,
+          minResourceFeeStroops: "0",
+          estimatedFeeXlm: "0",
+          costLedgers: 500000,
+          simulatedLiveUntil: 0,
+          error: "Insufficient reserve for footprint",
+        });
+
+      render(
+        <ContractTTLRestorer
+          contractAddress="C_MOCK_ESCROW_ERROR_CONTRACT"
+          campaignName="Failing Extend Campaign"
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getByTestId("btn-1click-extend")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByTestId("btn-1click-extend"));
+
+      await waitFor(() => {
+        expect(mockShowNotification).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "error",
+            title: "Extension Failed",
+          }),
+        );
+      });
+
+      spy.mockRestore();
     });
   });
 });
