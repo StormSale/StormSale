@@ -679,7 +679,15 @@ export const MyCampaignsList = () => {
             getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
 
           const evaluation = evaluateAutoTopUpTrigger(campaign, config, remainingAllowance);
-          if (evaluation.shouldTrigger) {
+          const shouldRun =
+            evaluation.shouldTrigger ||
+            (isManualTrigger &&
+              config.enabled &&
+              campaign.status === "Active" &&
+              config.topUpCountToday < config.maxTopUpsPerDay &&
+              (campaign.escrowBalance ?? 0) <= evaluation.thresholdAmount);
+
+          if (shouldRun) {
             const success = await executeTopUp(
               campaign,
               config.topUpAmount,
