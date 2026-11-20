@@ -57,7 +57,7 @@ export const EventStreamStatusPill: React.FC<EventStreamStatusPillProps> = ({
 
   return (
     <div
-      role="status"
+      data-testid="event-stream-status-pill"
       aria-label={`Soroban RPC Status: ${statusConfig.label}`}
       className={cn(
         "inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium border shadow-xs transition-colors",
