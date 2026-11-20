@@ -10,10 +10,12 @@ import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
 import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
+import { AffiliateEarningsCharts } from "../components/affiliate/AffiliateEarningsCharts";
 import { ReferralNetworkTree } from "../components/affiliate/ReferralNetworkTree";
 import {
   Users,
   TrendingUp,
+  BarChart3,
   DollarSign,
   Shield,
   LayoutDashboard,
@@ -44,6 +46,7 @@ interface AffiliateProps {
 
 const AFFILIATE_TABS = [
   "overview",
+  "earnings-history",
   "heatmap",
   "referral-tree",
   "zk-portfolio",
@@ -73,6 +76,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: LayoutDashboard },
+    { id: "earnings-history", label: "Earnings & Performance", icon: BarChart3 },
     { id: "heatmap", label: "Click Heatmap", icon: Globe2 },
     { id: "referral-tree", label: "Referral Network (2% Override)", icon: GitBranch },
     { id: "zk-portfolio", label: "ZK Revenue Proofs ($50K+)", icon: ShieldCheck },
@@ -90,6 +94,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
 
   const renderContent = () => {
     switch (activeTab) {
+      case "earnings-history":
+        return <AffiliateEarningsCharts onNavigateToClaim={() => setActiveTab("claim-payouts")} />;
       case "heatmap":
         return <AffiliateClickStreamHeatmap />;
       case "referral-tree":
