@@ -223,6 +223,10 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Batch Commission Claim Settled!",
           message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.${swapNote}`,
+          confetti: true,
+          receiptTxHash: resultReceipt.txHash,
+          actionLabel: "View Receipt",
+          onViewReceipt: () => setReceipt(resultReceipt),
         });
       }
     } catch (err: any) {
@@ -283,6 +287,9 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Commission Paid Out!",
           message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+          confetti: true,
+          receiptTxHash: res.txHash,
+          actionLabel: "View Receipt",
         });
       }
     } catch (err: any) {
