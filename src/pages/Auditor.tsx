@@ -32,6 +32,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { PrivacyVerification } from "../components/auditor/PrivacyVerification";
+import { SolvencyHUD } from "../components/auditor/SolvencyHUD";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface AuditorProps {
@@ -40,6 +41,7 @@ interface AuditorProps {
 
 const AUDITOR_TABS = [
   "overview",
+  "solvency",
   "volume",
   "verify",
   "history",
@@ -130,6 +132,7 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const tabs = [
     { id: "overview", label: "Dashboard Overview", icon: BarChart3 },
+    { id: "solvency", label: "Protocol Solvency & TVL", icon: ShieldCheck },
     { id: "volume", label: "Financial Volume", icon: TrendingUp },
     { id: "merkle", label: "Merkle Tree Proofs", icon: GitFork },
     { id: "verify", label: "Verify Access", icon: Eye },
@@ -158,6 +161,9 @@ const AuditorContent: React.FC<AuditorProps> = ({ onBack }) => {
 
   const renderContent = () => {
     switch (activeTab) {
+      case "solvency":
+        return <SolvencyHUD />;
+
       case "volume":
         return <PlatformVolumeWidget />;
 

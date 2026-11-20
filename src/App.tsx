@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
@@ -405,9 +406,11 @@ function App() {
           <Web3Provider>
             <WalletConnectProvider>
               <NotificationProvider>
-                <TooltipProvider delayDuration={300}>
-                  <Router />
-                </TooltipProvider>
+                <SorobanEventsProvider>
+                  <TooltipProvider delayDuration={300}>
+                    <Router />
+                  </TooltipProvider>
+                </SorobanEventsProvider>
               </NotificationProvider>
             </WalletConnectProvider>
           </Web3Provider>
