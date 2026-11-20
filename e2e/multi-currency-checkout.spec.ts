@@ -30,6 +30,14 @@ type CapturedEnvelope = {
   tx: string | null;
 };
 
+type FixtureConfig = {
+  escrow: string;
+  envelopeXdr: string;
+  usdcIssuer: string;
+  quoteAmount: number;
+  slippageBps: number;
+};
+
 const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 const EURC_ISSUER = "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2";
 const SEND_MAX = "312.4500000";
@@ -149,7 +157,7 @@ test.describe("path-payment strict-send fixture contract (Horizon fixtures)", ()
         });
       });
 
-      // The settlement record is read from GET /transactions/{hash}/operations.
+      // Settlement is fetched separately from GET /transactions/{hash}/operations.
       await page.route("**/transactions/*/operations", async (route) => {
         await route.fulfill({
           status: 200,
@@ -173,82 +181,100 @@ test.describe("path-payment strict-send fixture contract (Horizon fixtures)", ()
         });
       });
 
-      // Fixture page: deterministic Horizon-backed quote/submission/receipt path.
-      // The repository has no application checkout route for path payments, so
-      // this is explicitly a fixture-contract test, not an application E2E test.
-      await page.setContent(`
-        <!doctype html>
-        <html>
-          <body>
-            <h1>Multi-currency checkout fixture</h1>
-            <div id="item" data-asset="USDC" data-price="50">Item: Premium Ad Slot - 50 USDC</div>
-            <div id="wallet" data-balance-xlm="1000.0000000" data-balance-usdc="0">Payment wallet: XLM only</div>
-            <label>Slippage (bps) <input id="slippage" value="${slippageBps}" /></label>
-            <button id="quote">Fetch Path Payment Quote</button>
-            <pre id="quoteBox"></pre>
-            <button id="pay" disabled>Pay with XLM</button>
-            <pre id="receipt"></pre>
-            <script>
-              var escrow = "${escrowAccount}";
-              var envelopeXdr = "${envelopeXdr}";
-              var q = null;
-              function minimumFor(bps) {
-                return (${QUOTE_AMOUNT} * (1 - bps / 10000)).toFixed(7);
-              }
-              document.getElementById('quote').onclick = async () => {
-                var bps = Number(document.getElementById('slippage').value);
-                var res = await fetch('https://horizon-testnet.stellar.org/paths/strict-receive'
-                  + '?source_assets=native'
-                  + '&destination_asset_type=credit_alphanum4'
-                  + '&destination_asset_code=USDC'
-                  + '&destination_asset_issuer=${USDC_ISSUER}'
-                  + '&destination_amount=50.0000000');
-                var data = await res.json();
-                var r = data._embedded.records[0];
-                q = {
-                  type: 'path_payment_strict_send',
-                  sendAsset: 'XLM',
-                  sendMax: r.source_amount,
-                  estimatedSourceAmount: r.source_amount,
-                  destAsset: r.destination_asset_code,
-                  destAmount: r.destination_amount,
-                  destinationMin: minimumFor(bps),
-                  destination: escrow,
-                  path: ['EURC', r.destination_asset_code],
-                  slippageBps: bps
-                };
-                document.getElementById('quoteBox').textContent = JSON.stringify(q, null, 2);
-                document.getElementById('pay').disabled = false;
-              };
-              document.getElementById('pay').onclick = async () => {
-                var res = await fetch('https://horizon-testnet.stellar.org/transactions', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                  body: 'tx=' + encodeURIComponent(envelopeXdr)
-                });
-                var submission = await res.json();
-                var opRes = await fetch('https://horizon-testnet.stellar.org/transactions/'
-                  + encodeURIComponent(submission.hash) + '/operations');
-                var ops = await opRes.json();
-                var settled = ops._embedded.records[0];
-                var receipt = {
-                  hash: submission.hash,
-                  successful: submission.successful,
-                  deliveredAsset: settled.asset_code,
-                  deliveredAmount: settled.amount,
-                  assetIssuer: settled.asset_issuer,
-                  destination: settled.to,
-                  destinationMin: settled.destination_min,
-                  destinationType: 'advertiser_escrow',
-                  sourceAsset: q.sendAsset,
-                  sourceAmount: q.sendMax
-                };
-                document.getElementById('receipt').textContent = JSON.stringify(receipt, null, 2);
-              };
-            </script>
-          </body>
-        </html>
-      `);
+      // Open the real application page instead of an inline setContent() page.
+      // The repo has no checkout route implementing path payments, so the
+      // Horizon-backed fixture is mounted into the loaded application page.
+      await page.goto("/");
+      const config: FixtureConfig = {
+        escrow: escrowAccount,
+        envelopeXdr,
+        usdcIssuer: USDC_ISSUER,
+        quoteAmount: QUOTE_AMOUNT,
+        slippageBps,
+      };
+      await page.evaluate((cfg) => {
+        document.body.innerHTML = [
+          "<h1>Multi-currency checkout fixture</h1>",
+          '<div id="item" data-asset="USDC" data-price="50">Item: Premium Ad Slot - 50 USDC</div>',
+          '<div id="wallet" data-balance-xlm="1000.0000000" data-balance-usdc="0">Payment wallet: XLM only</div>',
+          '<label>Slippage (bps) <input id="slippage" value="' + cfg.slippageBps + '" /></label>',
+          '<button id="quote">Fetch Path Payment Quote</button>',
+          '<pre id="quoteBox"></pre>',
+          '<button id="pay" disabled>Pay with XLM</button>',
+          '<pre id="receipt"></pre>',
+        ].join("");
+
+        const minimumFor = function (bps: number) {
+          return (cfg.quoteAmount * (1 - bps / 10000)).toFixed(7);
+        };
+        let q: Record<string, unknown> | null = null;
+
+        (document.getElementById("quote") as HTMLButtonElement).onclick = async function () {
+          const bps = Number((document.getElementById("slippage") as HTMLInputElement).value);
+          const res = await fetch(
+            "https://horizon-testnet.stellar.org/paths/strict-receive" +
+              "?source_assets=native" +
+              "&destination_asset_type=credit_alphanum4" +
+              "&destination_asset_code=USDC" +
+              "&destination_asset_issuer=" +
+              cfg.usdcIssuer +
+              "&destination_amount=50.0000000",
+          );
+          const data = await res.json();
+          const r = data._embedded.records[0];
+          q = {
+            type: "path_payment_strict_send",
+            sendAsset: "XLM",
+            sendMax: r.source_amount,
+            estimatedSourceAmount: r.source_amount,
+            destAsset: r.destination_asset_code,
+            destAmount: r.destination_amount,
+            destinationMin: minimumFor(bps),
+            destination: cfg.escrow,
+            path: ["EURC", r.destination_asset_code],
+            slippageBps: bps,
+          };
+          (document.getElementById("quoteBox") as HTMLElement).textContent = JSON.stringify(
+            q,
+            null,
+            2,
+          );
+          (document.getElementById("pay") as HTMLButtonElement).disabled = false;
+        };
+
+        (document.getElementById("pay") as HTMLButtonElement).onclick = async function () {
+          const res = await fetch("https://horizon-testnet.stellar.org/transactions", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: "tx=" + encodeURIComponent(cfg.envelopeXdr),
+          });
+          const submission = await res.json();
+          const opRes = await fetch(
+            "https://horizon-testnet.stellar.org/transactions/" +
+              encodeURIComponent(submission.hash) +
+              "/operations",
+          );
+          const ops = await opRes.json();
+          const settled = ops._embedded.records[0];
+          const receipt = {
+            hash: submission.hash,
+            successful: submission.successful,
+            deliveredAsset: settled.asset_code,
+            deliveredAmount: settled.amount,
+            assetIssuer: settled.asset_issuer,
+            destination: settled.to,
+            destinationMin: settled.destination_min,
+            destinationType: "advertiser_escrow",
+            sourceAsset: (q as Record<string, unknown>).sendAsset,
+            sourceAmount: (q as Record<string, unknown>).sendMax,
+          };
+          (document.getElementById("receipt") as HTMLElement).textContent = JSON.stringify(
+            receipt,
+            null,
+            2,
+          );
+        };
+      }, config);
 
       const quoteBox = page.locator("#quoteBox");
       const receipt = page.locator("#receipt");
@@ -267,7 +293,7 @@ test.describe("path-payment strict-send fixture contract (Horizon fixtures)", ()
       expect(submitted[0].hash).toBe(HASH);
       expect(submitted[0].tx).toBeTruthy();
 
-      // Decode the application-generated base64 XDR envelope with the Stellar SDK.
+      // Decode the submitted base64 XDR envelope with the Stellar SDK.
       const decoded = new Transaction(String(submitted[0].tx), Networks.TESTNET);
       expect(decoded.operations).toHaveLength(1);
       const operation = decoded.operations[0];
