@@ -16,6 +16,7 @@ import {
   Networks,
   Transaction,
 } from "@stellar/stellar-sdk";
+import { Buffer } from "buffer";
 import { STELLAR_CONFIG } from "../config/stellar";
 import { signFreighterTransaction } from "./stellar";
 
@@ -59,8 +60,10 @@ export const SEP10_JWT_EXPIRATION_SECONDS = 86400; // 24 hours
 export const STORAGE_KEY_SEP10_SESSION = "stormsale_enc_sep10_session";
 
 // Deterministic server signing keypair derived from application seed
-const SERVER_AUTH_SEED = Buffer.from("stormsale_sep10_server_seed_v1_00000000").subarray(0, 32);
-const SERVER_AUTH_KEYPAIR = Keypair.fromRawEd25519Seed(SERVER_AUTH_SEED);
+const SERVER_AUTH_SEED = new TextEncoder()
+  .encode("stormsale_sep10_server_seed_v1_00000000")
+  .subarray(0, 32);
+const SERVER_AUTH_KEYPAIR = Keypair.fromRawEd25519Seed(Buffer.from(SERVER_AUTH_SEED));
 
 function base64UrlEncode(str: string): string {
   const base64 = btoa(str);
