@@ -106,6 +106,16 @@ interface SubmissionOwner {
   id: number;
 }
 
+function mergeReports(...groups: AffiliateIssueReport[][]): AffiliateIssueReport[] {
+  const reportsById = new Map<string, AffiliateIssueReport>();
+  for (const group of groups) {
+    for (const report of group) reportsById.set(report.id, report);
+  }
+  return [...reportsById.values()].sort(
+    (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
+  );
+}
+
 export const AffiliateIssueReports: React.FC<AffiliateIssueReportsProps> = (props) => {
   const { userAddress } = useWeb3();
   return (
@@ -124,6 +134,8 @@ const AffiliateIssueReportsForWallet: React.FC<
   const submissionIdRef = useRef(0);
   const activeSubmissionRef = useRef<number | null>(null);
   const isMountedRef = useRef(true);
+  const acceptedReportsRef = useRef(new Map<string, AffiliateIssueReport>());
+  const refreshKeyRef = useRef(0);
   const [reportState, setReportState] = useState<{
     address: string;
     request: number;
@@ -150,6 +162,11 @@ const AffiliateIssueReportsForWallet: React.FC<
   const loadError = isCurrentReportState ? reportState.error : undefined;
   const isLoading = Boolean(userAddress && !isCurrentReportState);
 
+  const refreshReports = () => {
+    const request = ++refreshKeyRef.current;
+    setRefreshKey(request);
+  };
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -162,22 +179,38 @@ const AffiliateIssueReportsForWallet: React.FC<
 
     const controller = new AbortController();
     const request = ++loadGenerationRef.current;
-    const isCurrentRequest = () => isMountedRef.current && request === loadGenerationRef.current;
+    const isCurrentRequest = () =>
+      isMountedRef.current &&
+      request === loadGenerationRef.current &&
+      refreshKey === refreshKeyRef.current;
 
     fetchAffiliateIssueReports(userAddress, controller.signal)
       .then((loadedReports) => {
         if (!isCurrentRequest()) return;
-        setReportState({ address: userAddress, request: refreshKey, reports: loadedReports });
+        setReportState((current) => {
+          if (!isCurrentRequest()) return current;
+          const loadedIds = new Set(loadedReports.map((report) => report.id));
+          for (const id of loadedIds) acceptedReportsRef.current.delete(id);
+          return {
+            address: userAddress,
+            request: refreshKey,
+            reports: mergeReports(loadedReports, [...acceptedReportsRef.current.values()]),
+          };
+        });
       })
       .catch((error: unknown) => {
         if ((error instanceof DOMException && error.name === "AbortError") || !isCurrentRequest()) {
           return;
         }
-        setReportState({
-          address: userAddress,
-          request: refreshKey,
-          reports: [],
-          error: error instanceof Error ? error.message : "Could not load your issue reports.",
+        setReportState((current) => {
+          if (!isCurrentRequest()) return current;
+          const currentReports = current?.address === userAddress ? current.reports : [];
+          return {
+            address: userAddress,
+            request: refreshKey,
+            reports: mergeReports(currentReports, [...acceptedReportsRef.current.values()]),
+            error: error instanceof Error ? error.message : "Could not load your issue reports.",
+          };
         });
       });
 
@@ -262,16 +295,14 @@ const AffiliateIssueReportsForWallet: React.FC<
       });
       if (!ownsSubmission()) return;
 
+      acceptedReportsRef.current.set(report.id, report);
+      const request = ++refreshKeyRef.current;
       loadGenerationRef.current += 1;
+      setRefreshKey(request);
       setReportState((current) => ({
         address: userAddress,
-        request: refreshKey,
-        reports: [
-          report,
-          ...(current?.address === userAddress ? current.reports : []).filter(
-            (item) => item.id !== report.id,
-          ),
-        ].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+        request,
+        reports: mergeReports(current?.address === userAddress ? current.reports : [], [report]),
       }));
       setCampaignId((current) => (current === submittedDraft.campaignId ? "" : current));
       setSaleDate((current) => (current === submittedDraft.saleDate ? "" : current));
@@ -296,6 +327,20 @@ const AffiliateIssueReportsForWallet: React.FC<
       }
     }
   };
+
+  const loadFailureNotice = loadError ? (
+    <div className="space-y-3">
+      <p
+        role="alert"
+        className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
+      >
+        {loadError}
+      </p>
+      <Button variant="outline" disabled={isSubmitting} onClick={refreshReports}>
+        Try again
+      </Button>
+    </div>
+  ) : null;
 
   return (
     <div className="space-y-6">
@@ -569,52 +614,45 @@ const AffiliateIssueReportsForWallet: React.FC<
             >
               <Loader2 className="h-4 w-4 animate-spin" /> Loading reports…
             </p>
-          ) : loadError ? (
-            <div className="space-y-3">
-              <p
-                role="alert"
-                className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300"
-              >
-                {loadError}
-              </p>
-              <Button variant="outline" onClick={() => setRefreshKey((key) => key + 1)}>
-                Try again
-              </Button>
-            </div>
           ) : reports.length === 0 ? (
-            <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-              The reporting service has no issue reports for this affiliate.
-            </p>
+            (loadFailureNotice ?? (
+              <p className="rounded-xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                The reporting service has no issue reports for this affiliate.
+              </p>
+            ))
           ) : (
-            <ul className="space-y-4">
-              {reports.map((report) => (
-                <li
-                  key={report.id}
-                  className="rounded-2xl border border-slate-200 p-4 dark:border-zinc-800"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <h3 className="font-bold text-zinc-900 dark:text-white">
-                        Report {report.id}
-                      </h3>
-                      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Campaign {report.campaignId} · Sale date {report.saleDate}
-                      </p>
+            <div className="space-y-4">
+              {loadFailureNotice}
+              <ul className="space-y-4">
+                {reports.map((report) => (
+                  <li
+                    key={report.id}
+                    className="rounded-2xl border border-slate-200 p-4 dark:border-zinc-800"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-bold text-zinc-900 dark:text-white">
+                          Report {report.id}
+                        </h3>
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Campaign {report.campaignId} · Sale date {report.saleDate}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
+                        {STATUS_LABELS[report.status]}
+                      </span>
                     </div>
-                    <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                      {STATUS_LABELS[report.status]}
-                    </span>
-                  </div>
-                  <IssueStatusTracker report={report} />
-                  <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-                    Submitted {new Date(report.createdAt).toLocaleString()}
-                    {report.attachmentCount
-                      ? ` · ${report.attachmentCount} attachment${report.attachmentCount === 1 ? "" : "s"}`
-                      : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
+                    <IssueStatusTracker report={report} />
+                    <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+                      Submitted {new Date(report.createdAt).toLocaleString()}
+                      {report.attachmentCount
+                        ? ` · ${report.attachmentCount} attachment${report.attachmentCount === 1 ? "" : "s"}`
+                        : ""}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </CardContent>
       </Card>

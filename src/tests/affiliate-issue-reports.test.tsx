@@ -158,6 +158,58 @@ describe("AffiliateIssueReports", () => {
     expect(screen.getAllByText("Under review")).toHaveLength(2);
   });
 
+  it("reloads existing reports after submission invalidates the initial GET", async () => {
+    let resolveInitialLoad!: (reports: AffiliateIssueReport[]) => void;
+    const pendingInitialLoad = new Promise<AffiliateIssueReport[]>((resolve) => {
+      resolveInitialLoad = resolve;
+    });
+    const earlierReport: AffiliateIssueReport = {
+      ...report,
+      id: "issue-earlier",
+      campaignId: "winter-campaign",
+      status: "submitted",
+    };
+    mocks.fetchReports
+      .mockReturnValueOnce(pendingInitialLoad)
+      .mockResolvedValueOnce([earlierReport]);
+    render(<AffiliateIssueReports reportingServiceAvailable />);
+    fillValidDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+
+    await screen.findByText("Report issue-1 was accepted by the reporting service.");
+    await screen.findByText("Report issue-earlier");
+    resolveInitialLoad([earlierReport]);
+
+    expect(screen.getByText("Report issue-1")).toBeTruthy();
+    expect(screen.getByText("Report issue-earlier")).toBeTruthy();
+    expect(mocks.fetchReports).toHaveBeenCalledTimes(2);
+  });
+
+  it("prevents retries during submission and reloads the active request afterward", async () => {
+    let resolveSubmit!: (value: AffiliateIssueReport) => void;
+    mocks.fetchReports.mockRejectedValueOnce(new Error("Initial load failed"));
+    mocks.submitReport.mockReturnValueOnce(
+      new Promise<AffiliateIssueReport>((resolve) => {
+        resolveSubmit = resolve;
+      }),
+    );
+    render(<AffiliateIssueReports reportingServiceAvailable />);
+    await screen.findByText("Initial load failed");
+
+    fillValidDraft();
+    fireEvent.click(screen.getByRole("button", { name: "Submit report" }));
+    const retryButton = screen.getByRole("button", { name: "Try again" });
+    expect(retryButton).toHaveProperty("disabled", true);
+    fireEvent.click(retryButton);
+    expect(mocks.fetchReports).toHaveBeenCalledTimes(1);
+
+    resolveSubmit(report);
+    await screen.findByText("Report issue-1 was accepted by the reporting service.");
+    await waitFor(() => expect(screen.getByText("Report issue-1")).toBeTruthy());
+    expect(screen.queryByText("Initial load failed")).toBeNull();
+    expect(mocks.fetchReports).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores a pending submission after the connected wallet changes", async () => {
     let resolveSubmit!: (value: AffiliateIssueReport) => void;
     mocks.submitReport.mockReturnValueOnce(
