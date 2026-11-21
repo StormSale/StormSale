@@ -28,10 +28,16 @@ describe("WalletConnectSingleton", () => {
 
   beforeEach(() => {
     mockStorage = new MockLocalStorage();
-    (globalThis as any).window = {
-      localStorage: mockStorage,
-    };
-    (globalThis as any).localStorage = mockStorage;
+    Object.defineProperty(window, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
 
     WalletConnectSingleton.resetInstance();
     vi.restoreAllMocks();
@@ -59,10 +65,7 @@ describe("WalletConnectSingleton", () => {
     const singleton = WalletConnectSingleton.getInstance();
 
     // Trigger two initializations concurrently like React 18/19 StrictMode mounting twice
-    const [p1, p2] = await Promise.all([
-      singleton.initialize(),
-      singleton.initialize(),
-    ]);
+    const [p1, p2] = await Promise.all([singleton.initialize(), singleton.initialize()]);
 
     expect(p1).toBe(p2);
     expect(p1.isInitialized).toBe(true);

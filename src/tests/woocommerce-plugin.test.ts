@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -39,7 +38,7 @@ interface ReferralCore {
   };
 }
 
-const pluginRoot = fileURLToPath(new URL("../../plugins/stormsale-woocommerce", import.meta.url));
+const pluginRoot = resolve(process.cwd(), "plugins/stormsale-woocommerce");
 
 function collectFiles(dir: string, extension: string): string[] {
   const entries = readdirSync(dir, { withFileTypes: true });

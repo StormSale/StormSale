@@ -26,8 +26,16 @@ describe("[Advertiser] Token Approval & Escrow Flow (#33)", () => {
       length: 0,
       key: () => null,
     };
-    (globalThis as any).window = { localStorage: mockStorage };
-    (globalThis as any).localStorage = mockStorage;
+    Object.defineProperty(window, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
   });
 
   describe("Real-time Allowance Checking", () => {
@@ -54,9 +62,9 @@ describe("[Advertiser] Token Approval & Escrow Flow (#33)", () => {
 
   describe("Token Approval Logic", () => {
     it("rejects approval with non-positive amount", async () => {
-      await expect(
-        approveTokenContractCall(testAdvertiser, 0, undefined, "mock"),
-      ).rejects.toThrow("Approval amount must be greater than zero");
+      await expect(approveTokenContractCall(testAdvertiser, 0, undefined, "mock")).rejects.toThrow(
+        "Approval amount must be greater than zero",
+      );
 
       await expect(
         approveTokenContractCall(testAdvertiser, -100, undefined, "mock"),
@@ -64,9 +72,9 @@ describe("[Advertiser] Token Approval & Escrow Flow (#33)", () => {
     });
 
     it("rejects approval when wallet address is missing", async () => {
-      await expect(
-        approveTokenContractCall("", 500, undefined, "mock"),
-      ).rejects.toThrow("Wallet not connected");
+      await expect(approveTokenContractCall("", 500, undefined, "mock")).rejects.toThrow(
+        "Wallet not connected",
+      );
     });
 
     it("successfully approves token allowance and updates on-chain state", async () => {
@@ -216,4 +224,3 @@ describe("[Advertiser] Token Approval & Escrow Flow (#33)", () => {
     });
   });
 });
-

@@ -1,6 +1,18 @@
 // @vitest-environment jsdom
+import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("framer-motion", () => {
+  const MotionComponent = (props: any) => {
+    const { initial, animate, exit, transition, ...rest } = props;
+    return React.createElement("div", rest);
+  };
+  return {
+    motion: new Proxy({}, { get: () => MotionComponent }),
+    AnimatePresence: ({ children }: any) => React.createElement(React.Fragment, null, children),
+  };
+});
 
 vi.mock("../config/stellar", () => ({
   STELLAR_CONFIG: { contractId: "CCONTRACT", network: "TESTNET" },
@@ -55,6 +67,15 @@ vi.mock("../components/advertiser/AuditAccessPortal", () => ({
 vi.mock("../components/advertiser/CohortVisualizer", () => ({ CohortVisualizer: stub("Cohort") }));
 vi.mock("../components/advertiser/AffiliateApplicationsQueue", () => ({
   AffiliateApplicationsQueue: stub("Applications"),
+}));
+vi.mock("../components/advertiser/BatchSaleUploader", () => ({
+  BatchSaleUploader: stub("Batch sales"),
+}));
+vi.mock("../components/advertiser/OrganizationManagement", () => ({
+  OrganizationManagement: stub("Team"),
+}));
+vi.mock("../components/advertiser/FraudRiskPartnerTable", () => ({
+  FraudRiskPartnerTable: stub("Fraud risk"),
 }));
 
 import { Advertiser } from "../pages/Advertiser";

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import zlib from "node:zlib";
 import source from "../../public/stormsale.js?raw";
 
 // A genuinely valid Ed25519 Stellar public key (StrKey, G...) used for referral attribution.
@@ -13,9 +14,8 @@ type FetchResponse = { ok: boolean };
 // Evaluate the tag exactly as a browser <script> would: an IIFE receiving its globals.
 const runSdk = new Function("window", "document", "URLSearchParams", source);
 
-async function gzipSize(value: string) {
-  const stream = new Blob([value]).stream().pipeThrough(new CompressionStream("gzip"));
-  return (await new Response(stream).arrayBuffer()).byteLength;
+function gzipSize(value: string) {
+  return zlib.gzipSync(Buffer.from(value)).byteLength;
 }
 
 function loadSdk(search = "", endpoint = "https://merchant.example/conversions") {

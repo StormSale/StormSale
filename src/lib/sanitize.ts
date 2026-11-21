@@ -7,16 +7,56 @@
  */
 
 const SAFE_TAGS = new Set([
-  "p", "br", "strong", "em", "b", "i", "u", "s",
-  "ul", "ol", "li", "a", "code", "pre", "blockquote",
-  "h1", "h2", "h3", "h4", "h5", "h6", "hr",
-  "span", "div", "table", "thead", "tbody", "tr", "th", "td", "img",
+  "p",
+  "br",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "s",
+  "ul",
+  "ol",
+  "li",
+  "a",
+  "code",
+  "pre",
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "hr",
+  "span",
+  "div",
+  "table",
+  "thead",
+  "tbody",
+  "tr",
+  "th",
+  "td",
+  "img",
 ]);
 
 const DANGEROUS_TAGS = new Set([
-  "script", "iframe", "object", "embed", "form",
-  "input", "textarea", "button", "select", "applet",
-  "meta", "link", "style", "base", "svg", "math",
+  "script",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "input",
+  "textarea",
+  "button",
+  "select",
+  "applet",
+  "meta",
+  "link",
+  "style",
+  "base",
+  "svg",
+  "math",
 ]);
 
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "data"]);
@@ -28,14 +68,16 @@ export function sanitizeHtml(html: string): string {
   const doc = parser.parseFromString(html, "text/html");
 
   for (const tag of DANGEROUS_TAGS) {
-    doc.querySelectorAll(tag).forEach((el) => el.remove());
+    doc.body.querySelectorAll(tag).forEach((el) => el.remove());
   }
 
-  doc.querySelectorAll("*").forEach((el) => {
+  doc.body.querySelectorAll("*").forEach((el) => {
     const tag = el.tagName.toLowerCase();
 
     if (!SAFE_TAGS.has(tag)) {
-      el.replaceWith(doc.createTextNode(el.textContent || ""));
+      if (el.parentNode) {
+        el.replaceWith(doc.createTextNode(el.textContent || ""));
+      }
       return;
     }
 
@@ -81,8 +123,14 @@ export function sanitizeHtml(html: string): string {
 
 export function isSafeHtml(html: string): boolean {
   return ![
-    /<script\b/i, /<iframe\b/i, /<object\b/i, /<embed\b/i,
-    /\son\w+\s*=/i, /javascript:/i, /vbscript:/i, /document\.write/i,
+    /<script\b/i,
+    /<iframe\b/i,
+    /<object\b/i,
+    /<embed\b/i,
+    /\son\w+\s*=/i,
+    /javascript:/i,
+    /vbscript:/i,
+    /document\.write/i,
   ].some((p) => p.test(html));
 }
 
