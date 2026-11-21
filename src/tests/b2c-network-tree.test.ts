@@ -1,6 +1,17 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
+import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+
+vi.mock("framer-motion", () => ({
+  motion: {
+    div: ({ children, ...props }: any) => React.createElement("div", props, children),
+    button: ({ children, ...props }: any) => React.createElement("button", props, children),
+    span: ({ children, ...props }: any) => React.createElement("span", props, children),
+  },
+  AnimatePresence: ({ children }: any) => React.createElement(React.Fragment, null, children),
+}));
 
 import {
   maskRefereeAddress,
@@ -11,6 +22,9 @@ import {
   filterRefereeNetwork,
   paginateReferees,
   generateLargeNetworkMock,
+  getReferralTreeSummary,
+  getRecruiterForAffiliate,
+  getSubAffiliatesForParent,
   type AffiliateReferralRelation,
   type ReferralTreeNode,
 } from "../lib/referralTree";
@@ -105,6 +119,10 @@ describe("B2C Two-Tier Referral Network Tree Component & Engine (#451)", () => {
         salesCount: 2,
       },
     ];
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   describe("1. Recursive Rendering of Sub-Affiliate Tree Structure", () => {
@@ -526,6 +544,198 @@ describe("B2C Two-Tier Referral Network Tree Component & Engine (#451)", () => {
       expect(html).toContain("4,300"); // Tier 2 Volume
       expect(html).toContain('data-testid="total-downstream-volume"');
       expect(html).toContain("19,300"); // Total Downstream Volume
+    });
+  });
+
+  describe("6. Interactive Component Behaviors: Tabs, Pagination, Filtering, and Tree Controls", () => {
+    it("interactively switches to Table directory view and handles pagination controls", () => {
+      render(
+        React.createElement(B2CNetworkTree, {
+          masterAddress: MASTER_WALLET,
+          relations: sampleRelations,
+          initialPageSize: 2,
+        }),
+      );
+
+      // Switch to table tab
+      const tableTab = screen.getByTestId("tab-table-view");
+      fireEvent.click(tableTab);
+
+      expect(screen.getByText("Downstream Referees Directory")).toBeDefined();
+      expect(screen.getByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeDefined();
+      expect(screen.getByTestId(`row-referee-${T1_BOB_WALLET}`)).toBeDefined();
+      expect(screen.getByTestId("pagination-page-info").textContent).toContain("Page 1 of 3");
+
+      // Navigate Next
+      const nextBtn = screen.getByTestId("pagination-next");
+      fireEvent.click(nextBtn);
+      expect(screen.getByTestId("pagination-page-info").textContent).toContain("Page 2 of 3");
+      expect(screen.getByTestId(`row-referee-${T2_CHARLIE_WALLET}`)).toBeDefined();
+
+      // Navigate Prev
+      const prevBtn = screen.getByTestId("pagination-prev");
+      fireEvent.click(prevBtn);
+      expect(screen.getByTestId("pagination-page-info").textContent).toContain("Page 1 of 3");
+
+      // Change page size to 10
+      const pageSizeSelect = screen.getByTestId("pagination-page-size");
+      fireEvent.change(pageSizeSelect, { target: { value: "10" } });
+      // When page size is 10, all 5 items fit on 1 page; pagination controls are hidden
+      expect(screen.queryByTestId("pagination-next")).toBeNull();
+    });
+
+    it("interactively handles search, date, and tier filtering inputs with reset", () => {
+      render(
+        React.createElement(B2CNetworkTree, {
+          masterAddress: MASTER_WALLET,
+          relations: sampleRelations,
+          initialPageSize: 10,
+        }),
+      );
+
+      const tableTab = screen.getByTestId("tab-table-view");
+      fireEvent.click(tableTab);
+
+      // Search input filter
+      const searchInput = screen.getByTestId("referee-search-input");
+      fireEvent.change(searchInput, { target: { value: "Alice" } });
+      expect(screen.getByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeDefined();
+      expect(screen.queryByTestId(`row-referee-${T1_BOB_WALLET}`)).toBeNull();
+
+      // Clear filters button
+      const clearBtn = screen.getByTestId("btn-clear-filters");
+      fireEvent.click(clearBtn);
+      expect(screen.getByTestId(`row-referee-${T1_BOB_WALLET}`)).toBeDefined();
+
+      // Date input filter
+      const dateInput = screen.getByTestId("referee-date-filter");
+      fireEvent.change(dateInput, { target: { value: "2026-10-20" } });
+      expect(screen.getByTestId(`row-referee-${T1_BOB_WALLET}`)).toBeDefined();
+      expect(screen.queryByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeNull();
+
+      // Reset date input
+      fireEvent.change(dateInput, { target: { value: "" } });
+
+      // Tier filter select (Tier 1 vs Tier 2 vs All)
+      const tierSelect = screen.getByTestId("referee-tier-filter");
+      fireEvent.change(tierSelect, { target: { value: "1" } });
+      expect(screen.getByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeDefined();
+      expect(screen.queryByTestId(`row-referee-${T2_CHARLIE_WALLET}`)).toBeNull();
+
+      fireEvent.change(tierSelect, { target: { value: "2" } });
+      expect(screen.getByTestId(`row-referee-${T2_CHARLIE_WALLET}`)).toBeDefined();
+      expect(screen.queryByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeNull();
+
+      fireEvent.change(tierSelect, { target: { value: "all" } });
+      expect(screen.getByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeDefined();
+
+      // Empty search match message
+      fireEvent.change(searchInput, { target: { value: "NonExistentReferralXYZ" } });
+      expect(
+        screen.getByText("No referees match the current search or filter criteria."),
+      ).toBeDefined();
+      fireEvent.click(screen.getByTestId("btn-clear-filters"));
+      expect(screen.getByTestId(`row-referee-${T1_ALICE_WALLET}`)).toBeDefined();
+    });
+
+    it("interactively operates tree collapse, expand all, and node selection", () => {
+      render(
+        React.createElement(B2CNetworkTree, {
+          masterAddress: MASTER_WALLET,
+          relations: sampleRelations,
+        }),
+      );
+
+      // Verify default tree view
+      expect(screen.getByTestId(`tree-node-${MASTER_WALLET}`)).toBeDefined();
+      expect(screen.getByTestId(`tree-node-${T2_CHARLIE_WALLET}`)).toBeDefined();
+
+      // Collapse all branches
+      const collapseAllBtn = screen.getByTestId("btn-collapse-all");
+      fireEvent.click(collapseAllBtn);
+      expect(screen.queryByTestId(`tree-node-${T2_CHARLIE_WALLET}`)).toBeNull();
+
+      // Expand all branches
+      const expandAllBtn = screen.getByTestId("btn-expand-all");
+      fireEvent.click(expandAllBtn);
+      expect(screen.getByTestId(`tree-node-${T2_CHARLIE_WALLET}`)).toBeDefined();
+
+      // Toggle single node branch (Alice)
+      const aliceToggle = screen.getByTestId(`collapse-toggle-${T1_ALICE_WALLET}`);
+      fireEvent.click(aliceToggle);
+      expect(screen.queryByTestId(`tree-node-${T2_CHARLIE_WALLET}`)).toBeNull();
+      fireEvent.click(aliceToggle);
+      expect(screen.getByTestId(`tree-node-${T2_CHARLIE_WALLET}`)).toBeDefined();
+
+      // Select nodes by clicking row
+      const aliceRow = screen.getByTestId(`tree-node-${T1_ALICE_WALLET}`);
+      fireEvent.click(aliceRow);
+
+      const rootRow = screen.getByTestId(`tree-node-${MASTER_WALLET}`);
+      fireEvent.click(rootRow);
+
+      const eveRow = screen.getByTestId(`tree-node-${T3_EVE_WALLET}`);
+      fireEvent.click(eveRow);
+    });
+
+    it("toggles privacy mask interactively and supports default unmasked mode", () => {
+      render(
+        React.createElement(B2CNetworkTree, {
+          masterAddress: MASTER_WALLET,
+          relations: sampleRelations,
+        }),
+      );
+
+      const toggleBtn = screen.getByTestId("privacy-mask-toggle");
+      expect(toggleBtn.textContent).toContain("Privacy Mask Active");
+
+      // Toggle off
+      fireEvent.click(toggleBtn);
+      expect(toggleBtn.textContent).toContain("Mask Wallet Addresses");
+
+      // Toggle on
+      fireEvent.click(toggleBtn);
+      expect(toggleBtn.textContent).toContain("Privacy Mask Active");
+    });
+
+    it("mounts cleanly with default fallback properties", () => {
+      render(React.createElement(B2CNetworkTree, {}));
+      expect(screen.getByTestId("b2c-network-tree-container")).toBeDefined();
+    });
+  });
+
+  describe("7. Additional Engine & Volume Rollup Verification", () => {
+    it("computes referral tree summary with tier1, tier2, and total downstream volume fields", () => {
+      const summary = getReferralTreeSummary(MASTER_WALLET, sampleRelations);
+      expect(summary.totalNetworkVolumeXlm).toBe(15000);
+      expect(summary.tier1VolumeXlm).toBe(15000);
+      expect(summary.tier2VolumeXlm).toBe(3500);
+      expect(summary.totalDownstreamVolumeXlm).toBe(18500);
+    });
+
+    it("aggregates volume metrics starting directly from a ReferralTreeNode root", () => {
+      const rootNode = buildRecursiveReferralTree(MASTER_WALLET, sampleRelations);
+      const agg = aggregateNetworkVolume(rootNode);
+
+      expect(agg.totalCount).toBe(5);
+      expect(agg.tier1Count).toBe(2);
+      expect(agg.tier2Count).toBe(2);
+      expect(agg.tier1Volume).toBe(15000);
+      expect(agg.tier2Volume).toBe(3500);
+      expect(agg.totalVolume).toBe(19300);
+      expect(agg.volumeByTier[3]).toBe(800);
+      expect(agg.totalOverrides).toBeGreaterThan(0);
+    });
+
+    it("retrieves recruiter and direct sub-affiliates accurately", () => {
+      const recruiter = getRecruiterForAffiliate(T1_ALICE_WALLET, sampleRelations);
+      expect(recruiter).toBeDefined();
+      expect(recruiter?.parentAddress).toBe(MASTER_WALLET);
+
+      const subs = getSubAffiliatesForParent(MASTER_WALLET, sampleRelations);
+      expect(subs.length).toBe(2);
+      expect(subs.map((s) => s.childAddress)).toContain(T1_ALICE_WALLET);
+      expect(subs.map((s) => s.childAddress)).toContain(T1_BOB_WALLET);
     });
   });
 });
