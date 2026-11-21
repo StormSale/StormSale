@@ -64,6 +64,15 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
       expect(migrated.value).toBe("legacy-value");
     });
 
+    it("rejects timestamped entries with invalid timestamps instead of migrating them", () => {
+      const key = "stormsale.test.invalid-timestamp";
+      const raw = JSON.stringify({ v: SCHEMA_VERSION, updatedAt: -1, value: "tampered" });
+      mockStorage[key] = raw;
+
+      expect(readRaw(key, "fallback")).toBe("fallback");
+      expect(mockStorage[key]).toBeUndefined();
+    });
+
     it("evicts legacy values rejected by the validate guard during migration", () => {
       const key = "stormsale.test.legacy-invalid";
       mockStorage[key] = JSON.stringify({ v: SCHEMA_VERSION, value: "removed-tab" });
@@ -119,6 +128,20 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
 
       const retrieved = readRaw(key, true);
       expect(retrieved).toBe(false);
+    });
+
+    it("rejects off-schema writes so invalid preferences never reach storage", () => {
+      const key = "stormsale.test.rejected-write";
+      const isValidTab = (value: string) => ["overview", "analytics"].includes(value);
+
+      expect(writeRaw(key, "disallowed-tab", isValidTab)).toBe(false);
+      expect(mockStorage[key]).toBeUndefined();
+
+      expect(writeRaw(key, "analytics", isValidTab)).toBe(true);
+      expect(JSON.parse(mockStorage[key])).toMatchObject({
+        v: SCHEMA_VERSION,
+        value: "analytics",
+      });
     });
   });
 
