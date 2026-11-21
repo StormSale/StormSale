@@ -2,8 +2,14 @@
  * src/hooks/useSorobanEvents.ts
  *
  * Real-Time Soroban RPC Event Streaming hook with backoff engine (Issue #123).
+ *
+ * Stays cheap under bursts of 50+ events/sec (Issue #498): the stream engine
+ * is created once per connection setting, not once per render. Callers can
+ * pass inline `onEvent` / `onRevalidate` callbacks or a fresh `topicFilters`
+ * array without restarting it, because the callbacks are read through effect
+ * events and the filters are compared by value.
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useEffectEvent } from "react";
 import {
   SorobanEventStreamEngine,
   type SorobanStreamEvent,
@@ -20,6 +26,9 @@ export interface SorobanEventParams {
   onEvent?: (event: SorobanStreamEvent) => void;
   onRevalidate?: () => void;
 }
+
+/** Most recent events kept in memory; older ones are dropped. */
+export const MAX_BUFFERED_EVENTS = 100;
 
 export function useSorobanEvents({
   rpcUrl = "https://soroban-testnet.stellar.org",
@@ -38,14 +47,18 @@ export function useSorobanEvents({
 
   const engineRef = useRef<SorobanEventStreamEngine | null>(null);
 
-  const handleEvent = useCallback(
-    (ev: SorobanStreamEvent) => {
-      setEvents((prev) => [ev, ...prev].slice(0, 100));
-      if (ev.ledger) setLastLedger(ev.ledger);
-      onEvent?.(ev);
-    },
-    [onEvent],
-  );
+  // Compared by value so `topicFilters={["log_sale"]}` does not restart the stream.
+  const filtersKey = JSON.stringify(topicFilters);
+
+  // Always call the latest caller callbacks without making the engine depend on them.
+  const handleEvent = useEffectEvent((ev: SorobanStreamEvent) => {
+    setEvents((prev) => [ev, ...prev].slice(0, MAX_BUFFERED_EVENTS));
+    if (ev.ledger) setLastLedger(ev.ledger);
+    onEvent?.(ev);
+  });
+  const handleRevalidate = useEffectEvent(() => {
+    onRevalidate?.();
+  });
 
   const handleStatusChange = useCallback((newStatus: StreamingStatus) => {
     setStatus(newStatus);
@@ -63,10 +76,10 @@ export function useSorobanEvents({
       contractId,
       startLedger,
       basePollingIntervalMs: pollingIntervalMs,
-      topicFilters,
-      onEvent: handleEvent,
+      topicFilters: JSON.parse(filtersKey) as string[],
+      onEvent: (ev) => handleEvent(ev),
       onStatusChange: handleStatusChange,
-      onRevalidate,
+      onRevalidate: () => handleRevalidate(),
     });
 
     engineRef.current = engine;
@@ -76,16 +89,7 @@ export function useSorobanEvents({
       engine.stop();
       engineRef.current = null;
     };
-  }, [
-    rpcUrl,
-    contractId,
-    startLedger,
-    pollingIntervalMs,
-    topicFilters,
-    handleEvent,
-    handleStatusChange,
-    onRevalidate,
-  ]);
+  }, [rpcUrl, contractId, startLedger, pollingIntervalMs, filtersKey, handleStatusChange]);
 
   const reconnect = useCallback(() => {
     engineRef.current?.reconnect();
@@ -95,15 +99,14 @@ export function useSorobanEvents({
     await engineRef.current?.poll();
   }, []);
 
-  return {
-    events,
-    status,
-    loading,
-    error,
-    lastLedger,
-    reconnect,
-    refetch,
-  };
+  return useMemo(
+    () => ({ events, status, loading, error, lastLedger, reconnect, refetch }),
+    [events, status, loading, error, lastLedger, reconnect, refetch],
+  );
 }
 
-export { useSorobanEventsContext, SorobanEventsProvider } from "../context/SorobanEventsContext";
+export {
+  useSorobanEventsContext,
+  useSorobanEventsActions,
+  SorobanEventsProvider,
+} from "../context/SorobanEventsContext";
