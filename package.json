@@ -30,6 +30,8 @@
     "release": "semantic-release",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium firefox webkit",
+    "test:visual": "playwright test -c tests/e2e/visual-regression.config.ts",
+    "test:visual:update": "playwright test -c tests/e2e/visual-regression.config.ts --update-snapshots",
     "preview": "vite preview",
     "format": "prettier --write .",
     "prepare": "husky"
