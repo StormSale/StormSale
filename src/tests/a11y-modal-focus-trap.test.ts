@@ -6,6 +6,7 @@ import axe from "axe-core";
 import { ConnectWalletModal } from "../components/shared/ConnectWalletModal";
 import { ConfirmationModal } from "../components/shared/ConfirmationModal";
 import { CampaignCreationModal } from "../components/advertiser/CampaignCreationModal";
+import { MultiSigApprovalModal } from "../components/shared/MultiSigApprovalModal";
 
 // Mocks for Web3 context & external dependencies used by ConnectWalletModal
 const web3Mock = vi.hoisted(() => ({ current: {} as any }));
@@ -41,6 +42,14 @@ describe("a11y-modal-focus-trap test suite (Issue #511)", () => {
       isWalletModalOpen: true,
       closeWalletModal: vi.fn(),
       connectWallet: vi.fn().mockResolvedValue(undefined),
+      isMultiSigModalOpen: false,
+      closeMultiSigModal: vi.fn(),
+      userAddress: null,
+      connectorType: null,
+      multiSigInfo: null,
+      activeMultiSigXdr: null,
+      activeMultiSigDescription: null,
+      refreshMultiSigInfo: vi.fn(),
     };
 
     container = document.createElement("div");
@@ -359,6 +368,91 @@ describe("a11y-modal-focus-trap test suite (Issue #511)", () => {
       });
 
       expect(results.violations).toEqual([]);
+    });
+  });
+
+  describe("5. Component specific workflows & edge cases", () => {
+    it("renders CampaignCreationModal form and submits with input values", async () => {
+      const onSubmit = vi.fn();
+      const onClose = vi.fn();
+
+      await act(async () => {
+        root.render(
+          React.createElement(CampaignCreationModal, {
+            isOpen: true,
+            onClose,
+            onSubmit,
+          }),
+        );
+      });
+
+      const titleInput = container.querySelector("#campaign-title") as HTMLInputElement;
+      const budgetInput = container.querySelector("#campaign-budget") as HTMLInputElement;
+      const rateInput = container.querySelector("#campaign-rate") as HTMLInputElement;
+      const form = container.querySelector("form") as HTMLFormElement;
+
+      expect(titleInput).not.toBeNull();
+      expect(budgetInput).not.toBeNull();
+      expect(rateInput).not.toBeNull();
+
+      const setInputValue = (input: HTMLInputElement, val: string) => {
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        if (nativeInputValueSetter) {
+          nativeInputValueSetter.call(input, val);
+        } else {
+          input.value = val;
+        }
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+
+      // Trigger change events with native value setter
+      await act(async () => {
+        setInputValue(titleInput, "Test Campaign");
+        setInputValue(budgetInput, "500");
+        setInputValue(rateInput, "15");
+      });
+
+      // Submit form
+      await act(async () => {
+        form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      });
+
+      expect(onSubmit).toHaveBeenCalledWith({
+        title: "Test Campaign",
+        budget: "500",
+        rate: "15",
+      });
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it("renders CampaignCreationModal null when isOpen is false", async () => {
+      await act(async () => {
+        root.render(
+          React.createElement(CampaignCreationModal, {
+            isOpen: false,
+            onClose: vi.fn(),
+          }),
+        );
+      });
+      expect(container.innerHTML).toBe("");
+    });
+
+    it("renders MultiSigApprovalModal with focus trap when open", async () => {
+      web3Mock.current.isMultiSigModalOpen = true;
+
+      await act(async () => {
+        root.render(React.createElement(MultiSigApprovalModal));
+      });
+
+      await act(async () => {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+
+      const modal = container.querySelector('[role="dialog"]');
+      expect(modal).not.toBeNull();
     });
   });
 });

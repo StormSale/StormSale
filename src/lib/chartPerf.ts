@@ -29,18 +29,12 @@ export function createChartAnimationLoop(
   const tick = (now: number) => {
     if (!isRunning) return;
 
-    if (lastTimestamp === 0) {
-      lastTimestamp = now;
-    }
-
-    const delta = now - lastTimestamp;
+    const delta = lastTimestamp === 0 ? 16.6 : Math.max(0, now - lastTimestamp);
     lastTimestamp = now;
 
-    if (delta > 0) {
-      frameCount++;
-      totalDelta += delta;
-      onFrame(delta, now);
-    }
+    frameCount++;
+    totalDelta += delta;
+    onFrame(delta, now);
 
     rafId = requestAnimationFrame(tick);
   };
