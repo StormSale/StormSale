@@ -40,6 +40,15 @@ export const ROLE_DEFINITIONS: Record<OrganizationRole, RoleDefinition> = {
       "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
     capabilities: ["campaign:create", "campaign:edit", "sale:log", "analytics:view"],
   },
+  CAMPAIGN_MANAGER: {
+    role: "CAMPAIGN_MANAGER",
+    label: "Campaign Manager",
+    description:
+      "Create and manage campaigns, configure variants & links, log sales, and analyze marketing performance.",
+    badgeClass:
+      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800",
+    capabilities: ["campaign:create", "campaign:edit", "sale:log", "analytics:view"],
+  },
   EDITOR: {
     role: "EDITOR",
     label: "Editor",
@@ -281,6 +290,15 @@ export function loadOrganizationState(): OrganizationState {
   } catch {
     return INITIAL_ORGANIZATION_STATE;
   }
+}
+
+/**
+ * Generates unique invite token for B2B enterprise multi-seat onboarding (#489)
+ */
+export function generateMemberInviteToken(orgId: string, email: string): string {
+  const nonce = Math.random().toString(36).substring(2, 10);
+  const cleanEmail = email.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase();
+  return `inv_${orgId}_${cleanEmail}_${Date.now()}_${nonce}`;
 }
 
 /**

@@ -15,6 +15,7 @@ import { parseProofFromUrl } from "./lib/zkProofEngine";
 import { parseRecruiterInviteFromUrl } from "./lib/referralTree";
 import type { ZKRevenueProof } from "./types/zkProof";
 import { loadBrandConfig } from "./lib/branding";
+import { OrganizationProvider, useOrganization } from "./context/OrganizationContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
