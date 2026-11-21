@@ -35,6 +35,9 @@ vi.mock("../components/affiliate/JoinCampaignButton", () => ({
 vi.mock("../components/affiliate/SalesList", () => ({
   SalesList: () => <div>Sales content</div>,
 }));
+vi.mock("../components/affiliate/AffiliateIssueReports", () => ({
+  AffiliateIssueReports: () => <div>Issue reports content</div>,
+}));
 vi.mock("../components/affiliate/ClaimPayouts", () => ({
   ClaimPayouts: () => <div>Payout content</div>,
 }));
@@ -117,6 +120,9 @@ describe("Affiliate page navigation", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "My Sales & Commissions" }));
     expect(await screen.findByText("Sales content")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Report an Issue" }));
+    expect(await screen.findByText("Issue reports content")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Claim Payouts" }));
     expect(await screen.findByText("Payout content")).toBeTruthy();
