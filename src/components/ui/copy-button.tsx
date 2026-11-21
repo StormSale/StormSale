@@ -6,6 +6,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 import { NotificationContext } from "../../context/NotificationContext";
 
+export const COPY_FAILED_TOAST = {
+  type: "error" as const,
+  title: "Copy Failed",
+  message: "Failed to copy to clipboard",
+  duration: 3000,
+};
+
 /**
  * Universal clipboard copy utility with fallback for non-secure contexts,
  * older browsers, and sandboxed test environments.
@@ -29,8 +36,10 @@ export async function copyToClipboard(text: string): Promise<boolean> {
 
   // 2. Fallback to document.execCommand('copy') via temporary off-screen textarea
   if (typeof document !== "undefined") {
+    let textArea: HTMLTextAreaElement | null = null;
+    let attached = false;
     try {
-      const textArea = document.createElement("textarea");
+      textArea = document.createElement("textarea");
       textArea.value = text;
       // Prevent scrolling to bottom of page in iOS/Safari
       textArea.style.position = "fixed";
@@ -40,16 +49,23 @@ export async function copyToClipboard(text: string): Promise<boolean> {
       textArea.setAttribute("readonly", "");
       textArea.setAttribute("aria-hidden", "true");
       document.body.appendChild(textArea);
+      attached = true;
       textArea.focus();
       textArea.select();
       textArea.setSelectionRange(0, text.length);
 
-      const successful = document.execCommand("copy");
-      document.body.removeChild(textArea);
-      return successful;
+      return document.execCommand("copy");
     } catch (err) {
       console.error("document.execCommand fallback copy failed:", err);
       return false;
+    } finally {
+      if (textArea && attached) {
+        try {
+          document.body.removeChild(textArea);
+        } catch {
+          // ignore if already unmounted or detached
+        }
+      }
     }
   }
 
@@ -166,6 +182,9 @@ export const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
           }
         } catch (err) {
           console.error("Failed to copy:", err);
+          if (showToast && notificationContext?.showNotification) {
+            notificationContext.showNotification(COPY_FAILED_TOAST);
+          }
           if (onCopyError) onCopyError(err);
         }
       },
@@ -304,6 +323,10 @@ export function CopyableAddress({
       }
 
       if (onCopySuccess) onCopySuccess(address);
+    } else {
+      if (showToast && notificationContext?.showNotification) {
+        notificationContext.showNotification(COPY_FAILED_TOAST);
+      }
     }
   };
 

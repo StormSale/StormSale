@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Keypair, Address, scValToNative, Asset, Networks } from "@stellar/stellar-sdk";
 import { SUPPORTED_ESCROW_ASSETS, getSupportedEscrowAssets } from "../config/stellar";
@@ -36,10 +37,14 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
 
     // Verify all contract addresses are RFC 4648 Base32 56-character Stellar StrKey addresses
     expect(SUPPORTED_ESCROW_ASSETS.USDC.contractAddress).toBe(
-      new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").contractId(Networks.TESTNET),
+      new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").contractId(
+        Networks.TESTNET,
+      ),
     );
     expect(SUPPORTED_ESCROW_ASSETS.EURC.contractAddress).toBe(
-      new Asset("EURC", "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO").contractId(Networks.TESTNET),
+      new Asset("EURC", "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO").contractId(
+        Networks.TESTNET,
+      ),
     );
   });
 
@@ -48,19 +53,19 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
     const publicAssets = getSupportedEscrowAssets("PUBLIC");
 
     // XLM address is derived per network
-    expect(testnetAssets.XLM.contractAddress).toBe(
-      Asset.native().contractId(Networks.TESTNET),
-    );
-    expect(publicAssets.XLM.contractAddress).toBe(
-      Asset.native().contractId(Networks.PUBLIC),
-    );
+    expect(testnetAssets.XLM.contractAddress).toBe(Asset.native().contractId(Networks.TESTNET));
+    expect(publicAssets.XLM.contractAddress).toBe(Asset.native().contractId(Networks.PUBLIC));
 
     // Testnet SAC addresses
     expect(testnetAssets.USDC.contractAddress).toBe(
-      new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").contractId(Networks.TESTNET),
+      new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5").contractId(
+        Networks.TESTNET,
+      ),
     );
     expect(testnetAssets.EURC.contractAddress).toBe(
-      new Asset("EURC", "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO").contractId(Networks.TESTNET),
+      new Asset("EURC", "GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO").contractId(
+        Networks.TESTNET,
+      ),
     );
     expect(testnetAssets.USDC.issuer).toBe(
       "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
@@ -71,10 +76,14 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
 
     // Public SAC addresses
     expect(publicAssets.USDC.contractAddress).toBe(
-      new Asset("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").contractId(Networks.PUBLIC),
+      new Asset("USDC", "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN").contractId(
+        Networks.PUBLIC,
+      ),
     );
     expect(publicAssets.EURC.contractAddress).toBe(
-      new Asset("EURC", "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2").contractId(Networks.PUBLIC),
+      new Asset("EURC", "GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2").contractId(
+        Networks.PUBLIC,
+      ),
     );
     expect(publicAssets.USDC.issuer).toBe(
       "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -184,13 +193,17 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
     const mockRpcServer = {
       getLatestLedger: vi.fn().mockResolvedValue({ sequence: 500000 }),
     };
-    vi.spyOn(stellarModule.stellarOperations, "getSorobanRpcServer").mockReturnValue(mockRpcServer as any);
+    vi.spyOn(stellarModule.stellarOperations, "getSorobanRpcServer").mockReturnValue(
+      mockRpcServer as any,
+    );
 
     // Mock invokeSorobanMethod
-    const invokeSpy = vi.spyOn(stellarModule.stellarOperations, "invokeSorobanMethod").mockResolvedValue({
-      success: true,
-      txHash: "TX_SAC_ALLOWANCE_APPROVAL_HASH",
-    });
+    const invokeSpy = vi
+      .spyOn(stellarModule.stellarOperations, "invokeSorobanMethod")
+      .mockResolvedValue({
+        success: true,
+        txHash: "TX_SAC_ALLOWANCE_APPROVAL_HASH",
+      });
 
     const approval = await approveTokenAllowance(
       advertiserWallet,
@@ -228,7 +241,9 @@ describe("Multi-Asset Escrow Support for Stellar USDC & EURC Suite", () => {
     const mockRpcServer = {
       getLatestLedger: vi.fn().mockResolvedValue({ sequence: 500000 }),
     };
-    vi.spyOn(stellarModule.stellarOperations, "getSorobanRpcServer").mockReturnValue(mockRpcServer as any);
+    vi.spyOn(stellarModule.stellarOperations, "getSorobanRpcServer").mockReturnValue(
+      mockRpcServer as any,
+    );
 
     const spenderEscrow = Keypair.random().publicKey();
     const approval = await approveTokenAllowance(

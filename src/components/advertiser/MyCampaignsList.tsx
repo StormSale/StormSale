@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { z } from "zod";
 import { useIndexerQuery } from "../../hooks/useIndexerQuery";
+import { useFilterState } from "../../hooks/useFilterState";
 import { CAMPAIGN_HISTORY_QUERY, type IndexerCampaign } from "../../lib/indexer/goldskyIndexer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -63,6 +65,14 @@ import {
 } from "../../lib/contractTTL";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
+
+const CAMPAIGN_FILTERS_KEY = "advertiser.campaigns.filters";
+const campaignFiltersSchema = z.object({
+  search: z.string().max(200),
+  statusFilter: z.enum(["All", "LowEscrow", "Active", "Paused", "Completed"]),
+});
+type CampaignFilters = z.infer<typeof campaignFiltersSchema>;
+const DEFAULT_CAMPAIGN_FILTERS: CampaignFilters = { search: "", statusFilter: "All" };
 
 export interface Campaign {
   id: string;
@@ -240,8 +250,15 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
  */
 export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
+  const [filters, setFilters] = useFilterState<CampaignFilters>(
+    CAMPAIGN_FILTERS_KEY,
+    campaignFiltersSchema,
+    DEFAULT_CAMPAIGN_FILTERS,
+  );
+  const { search, statusFilter } = filters;
+  const setSearch = (value: string) => setFilters((previous) => ({ ...previous, search: value }));
+  const setStatusFilter = (value: CampaignFilters["statusFilter"]) =>
+    setFilters((previous) => ({ ...previous, statusFilter: value }));
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
   const [activeMultiSigProposal, setActiveMultiSigProposal] =
     useState<MultiSigRefundProposal | null>(null);

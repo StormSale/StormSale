@@ -116,8 +116,7 @@ describe("Log sale — campaign id validation (u32)", () => {
 
 describe("campaign access storage failures", () => {
   it("surface as CampaignAccessStorageError with a readable message", () => {
-    const storage = getLocalStorage();
-    const spy = vi.spyOn(storage, "setItem").mockImplementation(() => {
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
     try {

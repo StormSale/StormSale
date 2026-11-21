@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useWalletConnect } from "../../context/WalletConnectContext";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { CopyButton } from "../ui/copy-button";
 import { FederatedAddressInput } from "./FederatedAddressInput";
 import { resolveRecipient } from "../../lib/stellar";
@@ -86,6 +87,11 @@ export const ConnectWalletModal: React.FC = () => {
     setConnectingType(null);
     closeWalletModal();
   }, [closeWalletModal]);
+
+  const modalRef = useFocusTrap<HTMLDivElement>({
+    isOpen: isWalletModalOpen,
+    onClose: handleClose,
+  });
 
   if (!isWalletModalOpen) return null;
 
@@ -255,6 +261,7 @@ export const ConnectWalletModal: React.FC = () => {
 
         {/* Modal Window */}
         <motion.div
+          ref={modalRef}
           initial={{ scale: 0.95, opacity: 0, y: 15 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 15 }}

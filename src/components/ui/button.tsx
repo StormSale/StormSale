@@ -75,35 +75,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       createCooldownGuard({ cooldownMs, onChange: setCoolingDown }),
     );
     React.useEffect(() => () => guard.dispose(), [guard]);
-      // 2. Fallback to document.execCommand('copy') via temporary off-screen textarea
-  if (typeof document !== "undefined") {
-    let textArea: HTMLTextAreaElement | null = null;
-    let attached = false;
-    try {
-      textArea = document.createElement("textarea");
-      textArea.value = text;
-      // Prevent scrolling to bottom of page in iOS/Safari
-      textArea.style.position = "fixed";
-      textArea.style.top = "0";
-      textArea.style.left = "-9999px";
-      textArea.style.opacity = "0";
-      textArea.setAttribute("readonly", "");
-      textArea.setAttribute("aria-hidden", "true");
-      document.body.appendChild(textArea);
-      attached = true;
-      textArea.focus();
-      textArea.select();
-      textArea.setSelectionRange(0, text.length);
-
-      return document.execCommand("copy");
-    } catch (err) {
-      console.error("document.execCommand fallback copy failed:", err);
-      return false;
-    } finally {
-      // Remove the helper even when execCommand throws, so no hidden textarea is left behind.
-      if (textArea && attached) document.body.removeChild(textArea);
-    }
-  }
 
     const handleClick = React.useCallback(
       (event: React.MouseEvent<HTMLButtonElement>) => {

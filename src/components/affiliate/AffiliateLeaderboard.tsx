@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from "react";
+import { z } from "zod";
 import {
   Trophy,
   Award,
@@ -21,6 +22,7 @@ import {
 } from "../../lib/affiliateLeaderboard";
 import type { LeaderboardTimeframe } from "../../types/affiliateLeaderboard";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useFilterState } from "../../hooks/useFilterState";
 import { useNotification } from "../../context/NotificationContext";
 import { AffiliateProfileCard } from "./AffiliateProfileCard";
 import { motion } from "framer-motion";
@@ -29,15 +31,38 @@ interface AffiliateLeaderboardProps {
   onSelectMilestones?: () => void;
 }
 
+const LEADERBOARD_FILTERS_KEY = "affiliate.leaderboard.filters";
+const leaderboardFiltersSchema = z.object({
+  timeframe: z.enum(["weekly", "monthly", "all-time"]),
+  searchQuery: z.string().max(120),
+  sortBy: z.enum(["sales", "conversions", "commission"]),
+});
+type LeaderboardFilters = z.infer<typeof leaderboardFiltersSchema>;
+const DEFAULT_LEADERBOARD_FILTERS: LeaderboardFilters = {
+  timeframe: "monthly",
+  searchQuery: "",
+  sortBy: "sales",
+};
+
 export const AffiliateLeaderboard: React.FC<AffiliateLeaderboardProps> = ({
   onSelectMilestones,
 }) => {
   const { userAddress } = useWeb3();
   const { showNotification } = useNotification();
 
-  const [timeframe, setTimeframe] = useState<LeaderboardTimeframe>("monthly");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState<"sales" | "conversions" | "commission">("sales");
+  const [filters, setFilters] = useFilterState<LeaderboardFilters>(
+    LEADERBOARD_FILTERS_KEY,
+    leaderboardFiltersSchema,
+    DEFAULT_LEADERBOARD_FILTERS,
+  );
+  const { timeframe, searchQuery, sortBy } = filters;
+  const setTimeframe = (value: LeaderboardTimeframe) =>
+    setFilters((previous) => ({ ...previous, timeframe: value }));
+  const setSearchQuery = (value: string) =>
+    setFilters((previous) => ({ ...previous, searchQuery: value }));
+  const setSortBy = (value: LeaderboardFilters["sortBy"]) =>
+    setFilters((previous) => ({ ...previous, sortBy: value }));
+
   const [isPrivacyMasked, setIsPrivacyMasked] = useState<boolean>(() =>
     userAddress ? getAffiliatePrivacy(userAddress) : false,
   );

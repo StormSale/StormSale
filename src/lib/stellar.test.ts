@@ -54,8 +54,16 @@ describe("Stellar Helpers", () => {
       length: 0,
       key: () => null,
     };
-    (globalThis as any).window = { localStorage: mockLocalStorage };
-    (globalThis as any).localStorage = mockLocalStorage;
+    Object.defineProperty(window, "localStorage", {
+      value: mockLocalStorage,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockLocalStorage,
+      configurable: true,
+      writable: true,
+    });
 
     const { getTokenAllowanceQuery, approveTokenContractCall } = await import("./stellar");
     const testOwner = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
@@ -97,4 +105,3 @@ describe("mintMilestoneBadgeContractCall", () => {
     warn.mockRestore();
   });
 });
-
