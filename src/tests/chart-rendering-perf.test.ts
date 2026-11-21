@@ -13,12 +13,21 @@ describe("chart-rendering-perf test suite (Issue #507)", () => {
 
     beforeEach(() => {
       let nextId = 1;
+      const callbacks = new Map<number, (time: number) => void>();
       rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
         const id = nextId++;
-        setTimeout(() => cb(performance.now()), 16);
+        callbacks.set(id, cb);
+        setTimeout(() => {
+          if (callbacks.has(id)) {
+            callbacks.delete(id);
+            cb(performance.now());
+          }
+        }, 16);
         return id;
       });
-      cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+      cancelSpy = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+        callbacks.delete(id);
+      });
     });
 
     afterEach(() => {
@@ -35,8 +44,8 @@ describe("chart-rendering-perf test suite (Issue #507)", () => {
       expect(loop.isRunning()).toBe(true);
       expect(rafSpy).toHaveBeenCalled();
 
-      // Wait for a frame to tick
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Wait for frames to tick reliably
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(renderMock).toHaveBeenCalled();
       expect(loop.getFrameCount()).toBeGreaterThan(0);
