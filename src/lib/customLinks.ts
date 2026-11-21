@@ -26,6 +26,7 @@ import type {
 } from "../types/affiliateLink";
 import { isValidStellarAddress } from "./stellar";
 import { routeTrafficToVariant } from "../utils/abTesting";
+import { sanitizeRedirectUrl } from "./redirectSanitizer";
 
 export const STORMSALE_SHORT_DOMAIN = "stormsale.xyz";
 
@@ -462,15 +463,16 @@ export async function deleteCustomShortLink(
 
 function parseHttpDestination(destinationUrl: string): URL | null {
   try {
-    const url = new URL(destinationUrl);
-    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+    const check = sanitizeRedirectUrl(destinationUrl);
+    if (!check.isValid || !check.sanitizedUrl) return null;
+    return new URL(check.sanitizedUrl);
   } catch {
     return null;
   }
 }
 
 export function isHttpDestination(destinationUrl: string): boolean {
-  return parseHttpDestination(destinationUrl) !== null;
+  return sanitizeRedirectUrl(destinationUrl).isValid;
 }
 
 /**
