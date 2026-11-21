@@ -21,6 +21,8 @@ import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
 import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
+import { AuditorCompliancePortal } from "./components/auditor/AuditorCompliancePortal";
+import { OfflineActionQueueBanner } from "./components/shared/OfflineActionQueueBanner";
 import { ThemeToggle } from "./components/shared/ThemeToggle";
 import { ClickjackingWarning } from "./components/security/ClickjackingWarning";
 import { MultiCurrencyCheckout } from "./components/checkout/MultiCurrencyCheckout";
@@ -310,6 +312,7 @@ function Router() {
 
   return (
     <>
+      <OfflineActionQueueBanner />
       <ConnectWalletModal />
       <MultiSigApprovalModal />
       <RpcStatusModal />
@@ -422,6 +425,19 @@ function App() {
     return (
       <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
         <ShortLinkRedirect />
+      </Sentry.ErrorBoundary>
+    );
+  }
+
+  const isAuditorComplianceRoute =
+    typeof window !== "undefined" && window.location.pathname.startsWith("/compliance/auditor");
+
+  if (isAuditorComplianceRoute) {
+    return (
+      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+        <div className="min-h-screen bg-background">
+          <AuditorCompliancePortal />
+        </div>
       </Sentry.ErrorBoundary>
     );
   }
