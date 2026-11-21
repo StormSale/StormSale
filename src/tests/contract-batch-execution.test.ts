@@ -1,18 +1,23 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StrKey } from "@stellar/stellar-sdk";
 import { TxQueueManager } from "../lib/txQueue";
 import {
   ContractBatchExecutor,
   executeContractBatch,
+  deepClone,
   type ContractBatchStep,
   type BatchProgressState,
 } from "../lib/contractBatchExecutor";
 
 describe("Smart Contract Invocation Batching and Execution Order (#432)", () => {
   let queueManager: TxQueueManager;
+  const VALID_STELLAR_PUBLIC_KEY = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
 
   beforeEach(() => {
     queueManager = new TxQueueManager();
-    queueManager.setAccount("GBZXN7PIRZGNMHGA728RGRYA7XPO5CFSGSJAA5T6Q5WWC62MWFPZ4ES2");
+    // Validate Stellar public-key fixture
+    expect(StrKey.isValidEd25519PublicKey(VALID_STELLAR_PUBLIC_KEY)).toBe(true);
+    queueManager.setAccount(VALID_STELLAR_PUBLIC_KEY);
   });
 
   describe("1. Sequential Execution of Interdependent Contract Calls", () => {
@@ -34,7 +39,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         id: "create_campaign",
         name: "Deploy Campaign Escrow",
         execute: async (_state: any, prevResults) => {
-          // Relies on step 1 output
           expect(prevResults["approve_allowance"]).toBeDefined();
           await new Promise((resolve) => setTimeout(resolve, 15));
           const result = { campaignId: 402, txHash: "0x_campaign_def" };
@@ -47,7 +51,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         id: "deposit_escrow",
         name: "Deposit Escrow Collateral",
         execute: async (_state: any, prevResults) => {
-          // Relies on step 2 output
           const campaign = prevResults["create_campaign"] as { campaignId: number };
           expect(campaign.campaignId).toBe(402);
           await new Promise((resolve) => setTimeout(resolve, 10));
@@ -72,23 +75,41 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(outcome.results["create_campaign"]).toEqual({ campaignId: 402, txHash: "0x_campaign_def" });
     });
 
-    it("ensures TxQueueManager processes sequential calls with monotonically increasing sequence", async () => {
+    it("ensures TxQueueManager serializes calls without overlap with monotonically increasing sequence", async () => {
       let serverSequence = 50000n;
       queueManager.sequenceFetcher = async () => (serverSequence++).toString();
 
       const callOrder: string[] = [];
+      let step1Started = false;
+      let step2Started = false;
+      let resolveStep1!: () => void;
+      const step1Deferred = new Promise<void>((resolve) => {
+        resolveStep1 = resolve;
+      });
+
       const call1 = queueManager.enqueue("contract_call", "Step 1: Check Allowance", async (seq) => {
+        step1Started = true;
+        await step1Deferred;
         callOrder.push("step_1");
         return { step: 1, seq };
       });
 
       const call2 = queueManager.enqueue("contract_call", "Step 2: Transfer Assets", async (seq) => {
+        step2Started = true;
         callOrder.push("step_2");
         return { step: 2, seq };
       });
 
+      // Assert that call 1 has started but call 2 is held pending
+      await new Promise((r) => setTimeout(r, 15));
+      expect(step1Started).toBe(true);
+      expect(step2Started).toBe(false);
+
+      // Now resolve step 1 and verify serialized completion
+      resolveStep1();
       const [res1, res2] = await Promise.all([call1, call2]);
 
+      expect(step2Started).toBe(true);
       expect(callOrder).toEqual(["step_1", "step_2"]);
       expect(BigInt(res2.seq)).toBeGreaterThan(BigInt(res1.seq));
     });
@@ -120,7 +141,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         id: "lock_funds",
         name: "Lock Funds Optimistically",
         execute: async () => {
-          // Mutate frontend state optimistically
           frontendState.userBalance -= 1000;
           frontendState.pendingCommitments += 1000;
           return { locked: 1000 };
@@ -134,7 +154,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         id: "invoke_contract_creation",
         name: "Soroban Contract Deployment",
         execute: async () => {
-          // Simulate smart contract invocation failure (HostError or out-of-gas)
           throw new Error("HostError: Contract error #102: Escrow initialization unauthorized");
         },
       };
@@ -150,7 +169,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       const executor = new ContractBatchExecutor([step1, step2, step3]);
 
       const onRollback = vi.fn((snapshot: Record<string, unknown>) => {
-        // Atomic restoration of frontend state
         frontendState = { ...(snapshot as typeof frontendState) };
       });
 
@@ -161,10 +179,86 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(rollbackTracker).toContain("lock_funds_rolled_back");
       expect(onRollback).toHaveBeenCalledTimes(1);
 
-      // Verify that frontend state was atomically restored to original state
       expect(frontendState.userBalance).toBe(5000);
       expect(frontendState.pendingCommitments).toBe(0);
       expect(frontendState.activeCampaigns).toEqual(["campaign_alpha"]);
+    });
+
+    it("preserves BigInt values in state without throwing JSON serialization errors", async () => {
+      const stateWithBigInt = {
+        tokenAmount: 1000000000000000000n,
+        feeStroops: 25000n,
+        memo: "escrow_seed",
+      };
+
+      let restoredState: typeof stateWithBigInt | null = null;
+
+      const step1: ContractBatchStep = {
+        id: "step_bigint_verify",
+        name: "Verify BigInt Balance",
+        execute: async (state: any) => {
+          expect(typeof state.tokenAmount).toBe("bigint");
+          expect(state.tokenAmount).toBe(1000000000000000000n);
+          return { verified: true };
+        },
+      };
+
+      const step2: ContractBatchStep = {
+        id: "step_bigint_fail",
+        name: "Fail and Rollback BigInt",
+        execute: async () => {
+          throw new Error("Simulation rejected");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1, step2]);
+      const outcome = await executor.executeBatch(stateWithBigInt, (snapshot) => {
+        restoredState = snapshot as typeof stateWithBigInt;
+      });
+
+      expect(outcome.success).toBe(false);
+      expect(restoredState).not.toBeNull();
+      expect(restoredState?.tokenAmount).toBe(1000000000000000000n);
+      expect(restoredState?.feeStroops).toBe(25000n);
+    });
+
+    it("keeps rollback snapshot pristine when step execution directly mutates supplied input", async () => {
+      const initialState = {
+        userBalance: 5000,
+        settings: { autoWithdraw: false },
+      };
+
+      let restoredState: typeof initialState | null = null;
+
+      const step1: ContractBatchStep = {
+        id: "step_mutator",
+        name: "Mutate Supplied Input",
+        execute: async (input: any) => {
+          // Mutate the input object provided to the step
+          input.userBalance = 999;
+          input.settings.autoWithdraw = true;
+          return { mutated: true };
+        },
+      };
+
+      const step2: ContractBatchStep = {
+        id: "step_fail",
+        name: "Fail Execution",
+        execute: async () => {
+          throw new Error("Step 2 failed");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1, step2]);
+      const outcome = await executor.executeBatch(initialState, (snapshot) => {
+        restoredState = snapshot as typeof initialState;
+      });
+
+      expect(outcome.success).toBe(false);
+      expect(restoredState).not.toBeNull();
+      // Original values must NOT be corrupted by step1's mutation
+      expect(restoredState?.userBalance).toBe(5000);
+      expect(restoredState?.settings.autoWithdraw).toBe(false);
     });
 
     it("prevents partial side-effects if step 1 passes but step 2 aborts", async () => {
@@ -240,7 +334,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
 
       expect(outcome.success).toBe(true);
 
-      // Verify progression transitions
       const percentages = progressSnapshots.map((p) => p.percentage);
       expect(percentages).toContain(0);
       expect(percentages).toContain(25);
@@ -248,7 +341,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(percentages).toContain(75);
       expect(percentages).toContain(100);
 
-      // Verify final completion state
       const finalState = executor.getProgress();
       expect(finalState.status).toBe("completed");
       expect(finalState.percentage).toBe(100);
@@ -285,7 +377,6 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(finalState.percentage).toBeLessThan(100);
       expect(finalState.status).toBe("rolled_back");
       expect(finalState.error).toContain("insufficient gas");
-      // Step 3 was never executed
       expect(finalState.results["step_3"]).toBeUndefined();
     });
 

@@ -35,6 +35,46 @@ export interface BatchExecutionResult {
 }
 
 /**
+ * Deep-clones state objects while preserving primitives, BigInt, Date, Map, Set, and nested structures.
+ */
+export function deepClone<T>(val: T): T {
+  if (val === null || typeof val !== "object") {
+    return val;
+  }
+  if (typeof val === "bigint" || typeof val === "symbol") {
+    return val;
+  }
+  if (val instanceof Date) {
+    return new Date(val.getTime()) as unknown as T;
+  }
+  if (val instanceof RegExp) {
+    return new RegExp(val.source, val.flags) as unknown as T;
+  }
+  if (val instanceof Map) {
+    const copy = new Map();
+    for (const [k, v] of val.entries()) {
+      copy.set(deepClone(k), deepClone(v));
+    }
+    return copy as unknown as T;
+  }
+  if (val instanceof Set) {
+    const copy = new Set();
+    for (const v of val.values()) {
+      copy.add(deepClone(v));
+    }
+    return copy as unknown as T;
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => deepClone(item)) as unknown as T;
+  }
+  const copy: Record<string, unknown> = {};
+  for (const key of Object.keys(val as Record<string, unknown>)) {
+    copy[key] = deepClone((val as Record<string, unknown>)[key]);
+  }
+  return copy as unknown as T;
+}
+
+/**
  * Executes a pipeline of interdependent contract operations with atomic rollback and progress telemetry.
  */
 export class ContractBatchExecutor {
@@ -94,8 +134,9 @@ export class ContractBatchExecutor {
       return { success: true, results: {} };
     }
 
-    // 1. Take atomic snapshot of frontend state before execution begins
-    this.snapshotState = JSON.parse(JSON.stringify(initialState || {}));
+    // 1. Take atomic pristine snapshot of frontend state before execution begins
+    // Uses deepClone to safely preserve BigInt and complex structures without JSON.stringify throwing
+    this.snapshotState = deepClone(initialState || {});
     this.progress.status = "in_progress";
     this.progress.currentStepIndex = 0;
     this.progress.percentage = 0;
@@ -113,7 +154,9 @@ export class ContractBatchExecutor {
       this.notify();
 
       try {
-        const stepResult = await step.execute(this.snapshotState, this.progress.results);
+        // Pass an independent working copy to the step execution so mutations do not taint the rollback snapshot
+        const workingInput = deepClone(this.snapshotState);
+        const stepResult = await step.execute(workingInput, this.progress.results);
         this.progress.results[step.id] = stepResult;
         executedSteps.push(step);
       } catch (stepErr: unknown) {
@@ -127,7 +170,8 @@ export class ContractBatchExecutor {
           const executed = executedSteps[r];
           if (executed.rollback) {
             try {
-              await executed.rollback(this.snapshotState, error);
+              const rollbackInput = deepClone(this.snapshotState);
+              await executed.rollback(rollbackInput, error);
             } catch (rbErr) {
               console.error(`[ContractBatchExecutor] Rollback failed for step ${executed.id}:`, rbErr);
             }
@@ -137,7 +181,7 @@ export class ContractBatchExecutor {
         // 3. Atomically restore frontend state to original pre-execution snapshot
         if (onStateRollback) {
           try {
-            onStateRollback(this.snapshotState);
+            onStateRollback(deepClone(this.snapshotState));
           } catch (rbErr) {
             console.error("[ContractBatchExecutor] Frontend rollback callback failed:", rbErr);
           }
