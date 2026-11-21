@@ -136,7 +136,8 @@ export function generateOrganizationAuthChallenge(
     throw new Error("Invalid Stellar wallet address for organization authentication challenge.");
   }
   const challengeNonce =
-    typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.getRandomValues === "function"
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.getRandomValues === "function"
       ? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), (b) =>
           b.toString(16).padStart(2, "0"),
         ).join("")
@@ -185,10 +186,10 @@ export function verifyMemberWalletSignature(
   // 2. Real Ed25519 cryptographic signature check
   try {
     const kp = Keypair.fromPublicKey(memberAddress);
-    const messageBuffer = Buffer.from(challenge.messageToSign, "utf8");
-    const sigBuffer = Buffer.from(signature, "base64");
-    if (sigBuffer.length === 64) {
-      return kp.verify(messageBuffer, sigBuffer);
+    const messageBytes = new Uint8Array(Buffer.from(challenge.messageToSign, "utf8"));
+    const sigBytes = new Uint8Array(Buffer.from(signature, "base64"));
+    if (sigBytes.length === 64) {
+      return kp.verify(messageBytes, sigBytes);
     }
   } catch {
     return false;

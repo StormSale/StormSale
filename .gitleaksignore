@@ -1,7 +1,12 @@
 plugins/stormsale-woocommerce/tests/CryptoTest.php:generic-api-key:24
 plugins/stormsale-woocommerce/tests/ApiClientTest.php:generic-api-key:24
 src/lib/teamPermissions.ts:generic-api-key:210
+src/lib/teamPermissions.ts:generic-api-key:211
 src/lib/teamPermissions.ts:generic-api-key:221
+src/lib/teamPermissions.ts:generic-api-key:222
 src/lib/teamPermissions.ts:generic-api-key:232
+src/lib/teamPermissions.ts:generic-api-key:233
 src/lib/teamPermissions.ts:generic-api-key:243
+src/lib/teamPermissions.ts:generic-api-key:244
 src/lib/teamPermissions.ts:generic-api-key:254
+src/lib/teamPermissions.ts:generic-api-key:255

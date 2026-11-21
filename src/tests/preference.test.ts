@@ -39,6 +39,7 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
       expect(raw).toBeDefined();
       const parsed = JSON.parse(raw);
       expect(parsed.v).toBe(SCHEMA_VERSION);
+      expect(parsed.updatedAt).toEqual(expect.any(Number));
       expect(parsed.value).toBe("analytics");
     });
 
@@ -48,6 +49,42 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
 
       const retrieved = readRaw(key, "default-value");
       expect(retrieved).toBe("custom-value");
+    });
+
+    it("migrates legacy { v, value } entries to the timestamped envelope", () => {
+      const key = "stormsale.test.legacy";
+      mockStorage[key] = JSON.stringify({ v: SCHEMA_VERSION, value: "legacy-value" });
+
+      const retrieved = readRaw(key, "default-value");
+
+      expect(retrieved).toBe("legacy-value");
+      const migrated = JSON.parse(mockStorage[key]);
+      expect(migrated.v).toBe(SCHEMA_VERSION);
+      expect(migrated.updatedAt).toEqual(expect.any(Number));
+      expect(migrated.value).toBe("legacy-value");
+    });
+
+    it("evicts legacy values rejected by the validate guard during migration", () => {
+      const key = "stormsale.test.legacy-invalid";
+      mockStorage[key] = JSON.stringify({ v: SCHEMA_VERSION, value: "removed-tab" });
+
+      const retrieved = readRaw(key, "overview", (value: string) =>
+        ["overview", "analytics"].includes(value),
+      );
+
+      expect(retrieved).toBe("overview");
+      expect(mockStorage[key]).toBeUndefined();
+    });
+
+    it("keeps long-lived preferences past the filter TTL", () => {
+      const key = "stormsale.test.long-lived";
+      mockStorage[key] = JSON.stringify({
+        v: SCHEMA_VERSION,
+        updatedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
+        value: "kept",
+      });
+
+      expect(readRaw(key, "fallback")).toBe("kept");
     });
 
     it("evicts stale schema version and falls back to default value", () => {
