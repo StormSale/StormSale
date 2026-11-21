@@ -9,16 +9,26 @@ import {
   X,
   Coins,
   ShieldCheck,
+  ShieldAlert,
   Send,
   Activity,
   Network,
   LoaderCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 import { UserMenu } from "./UserMenu";
 import { verifyFreighterNetwork } from "../../lib/networkVerification";
+import {
+  checkContractIntegrity,
+  subscribeToContractIntegrity,
+  setContractAddressOverride,
+  type ContractIntegrityResult,
+} from "../../lib/contractIntegrity";
+import { ContractIntegrityModal } from "../auditor/ContractIntegrityModal";
+import { EventStreamStatusPill } from "./EventStreamStatusPill";
 
 interface HeaderProps {
   onNavigate?: (page: string) => void;
@@ -59,6 +69,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     openRpcModal,
     network,
     connectorType,
+    txQueueStatus,
+    isTxQueueBusy,
   } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -68,6 +80,25 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     network: string;
     isStellarNetwork: boolean;
   } | null>(null);
+  const [contractIntegrity, setContractIntegrity] = useState<ContractIntegrityResult>(() =>
+    checkContractIntegrity(undefined, network),
+  );
+  const [isContractIntegrityModalOpen, setIsContractIntegrityModalOpen] = useState(false);
+
+  useEffect(() => {
+    const evaluated = checkContractIntegrity(undefined, network);
+    setContractIntegrity(evaluated);
+    if (!evaluated.isVerified) {
+      setIsContractIntegrityModalOpen(true);
+    }
+    const unsubscribe = subscribeToContractIntegrity((updated) => {
+      setContractIntegrity(updated);
+      if (!updated.isVerified) {
+        setIsContractIntegrityModalOpen(true);
+      }
+    });
+    return unsubscribe;
+  }, [network]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,6 +253,81 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               </span>
             )}
           </button>
+          {/* Real-Time Soroban Events Status HUD Pill */}
+          <EventStreamStatusPill className="hidden lg:inline-flex" />
+          {/* Contract Integrity Indicator Pill */}
+          <button
+            type="button"
+            onClick={() => setIsContractIntegrityModalOpen(true)}
+            data-testid="contract-integrity-indicator"
+            aria-label={
+              contractIntegrity.isVerified
+                ? "Contract Integrity: Verified"
+                : "Contract Integrity: Warning Mismatch"
+            }
+            title={
+              contractIntegrity.isVerified
+                ? `Verified Soroban Contract: ${contractIntegrity.configuredAddress}`
+                : "Security Alert: Contract Address Mismatch Detected"
+            }
+            className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-xs font-semibold transition-all cursor-pointer ${
+              contractIntegrity.isVerified
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20"
+                : "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400 hover:bg-rose-500/20 animate-pulse font-bold"
+            }`}
+          >
+            {contractIntegrity.isVerified ? (
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <ShieldAlert className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+            )}
+            <span className="font-mono text-[11px]">
+              {contractIntegrity.isVerified ? "Verified" : "Mismatch"}
+            </span>
+          </button>
+
+          {/* In-Flight Transaction Queue Status Widget (#130) */}
+          {(() => {
+            const isProcessing = Boolean(txQueueStatus?.isProcessing);
+            const inFlightDesc = txQueueStatus?.inFlight
+              ? txQueueStatus.inFlight.description
+              : "None";
+            const currentSeq = txQueueStatus?.currentOptimisticSequence || "Synced";
+            const resyncs = txQueueStatus?.resyncCount || 0;
+            const pendingTotal =
+              (txQueueStatus?.pendingCount || 0) + (txQueueStatus?.inFlight ? 1 : 0);
+            const isBusy = Boolean(isTxQueueBusy || isProcessing || pendingTotal > 0);
+
+            return (
+              <div
+                data-testid="tx-queue-status"
+                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-100/70 dark:bg-zinc-900/70 text-xs font-semibold"
+                title={`Stellar Tx Queue: ${isProcessing ? "Processing" : "Idle"}. In-flight: ${inFlightDesc}. Sequence: ${currentSeq}. Resyncs: ${resyncs}.`}
+              >
+                {isBusy ? (
+                  <>
+                    <LoaderCircle className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                    <span className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px]">
+                      Queue: {pendingTotal} in-flight
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-zinc-600 dark:text-zinc-400 font-mono text-[11px] hidden sm:inline">
+                      Queue: Idle
+                    </span>
+                  </>
+                )}
+                {resyncs > 0 && (
+                  <span className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-mono">
+                    Resyncs: {resyncs}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
           <ThemeToggle />
 
           {isConnected ? (
@@ -298,6 +404,35 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               )}
             </button>
           )}
+
+          {/* Mobile Contract Integrity Indicator Button */}
+          <button
+            type="button"
+            onClick={() => setIsContractIntegrityModalOpen(true)}
+            data-testid="mobile-contract-integrity-indicator"
+            aria-label={
+              contractIntegrity.isVerified
+                ? "Contract Integrity: Verified"
+                : "Contract Integrity: Warning Mismatch"
+            }
+            className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 relative cursor-pointer"
+            title={
+              contractIntegrity.isVerified
+                ? `Verified Soroban Contract: ${contractIntegrity.configuredAddress}`
+                : "Security Warning: Contract Address Mismatch Detected"
+            }
+          >
+            <span
+              className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
+                contractIntegrity.isVerified ? "bg-emerald-500" : "bg-rose-500 animate-ping"
+              }`}
+            />
+            {contractIntegrity.isVerified ? (
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            ) : (
+              <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            )}
+          </button>
 
           <ThemeToggle />
           {!isConnected ? (
@@ -428,6 +563,12 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           </motion.div>
         )}
       </AnimatePresence>
+      <ContractIntegrityModal
+        isOpen={isContractIntegrityModalOpen}
+        onClose={() => setIsContractIntegrityModalOpen(false)}
+        integrity={contractIntegrity}
+        onReset={() => setContractAddressOverride(null)}
+      />
     </header>
   );
 };

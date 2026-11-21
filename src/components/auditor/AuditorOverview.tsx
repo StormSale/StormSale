@@ -9,6 +9,8 @@ import {
 import { Button } from "../../components/ui/button";
 import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
 import { ORG_DASHBOARD_METRICS, recordsScopedToOrg } from "../../lib/auditorTenancy";
+import { MasterDecryptionPortal } from "./MasterDecryptionPortal";
+import { SolvencyHUD } from "./SolvencyHUD";
 import {
   Shield,
   TrendingUp,
@@ -126,6 +128,9 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </span>
         </div>
       </div>
+
+      {/* Real-Time Protocol Solvency Proof & TVL Oracle (#81) */}
+      <SolvencyHUD />
 
       {/* Suspicious Activity & Anomaly Detection */}
       <Card className="border border-red-200 dark:border-red-500/30 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
@@ -385,6 +390,9 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </CardContent>
         </Card>
       </div>
+
+      {/* Authorized Master Decryption Portal (Issue #58) */}
+      <MasterDecryptionPortal />
 
       {/* Session decryption keys — cleared automatically on tenant switch */}
       <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">

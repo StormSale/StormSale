@@ -81,6 +81,15 @@ describe("Web3Context Suite — Automated Escrow Top-Up & Wallet Integration (#1
 
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { status: "healthy" } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
     localStorageMock = {};
     const mockStorage = {
       getItem: (key: string) => localStorageMock[key] ?? null,

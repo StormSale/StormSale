@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
@@ -45,6 +46,69 @@ export const AffiliateLeaderboard = lazy(() =>
     default: m.AffiliateLeaderboard,
   })),
 );
+
+export function IndigoBootLoader({
+  isExiting = false,
+  onExited,
+}: {
+  isExiting?: boolean;
+  onExited?: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-label="Booting StormSale"
+      onTransitionEnd={onExited}
+      className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950 text-slate-50 transition-opacity duration-500 ease-in-out ${
+        isExiting ? "opacity-0 pointer-events-none" : "opacity-100"
+      }`}
+    >
+      {/* Background ambient indigo gradients */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-indigo-950/50 via-slate-950/90 to-slate-950 -z-10 pointer-events-none" />
+      <div className="absolute w-72 h-72 sm:w-96 sm:h-96 rounded-full bg-indigo-600/15 blur-3xl animate-pulse-glow pointer-events-none" />
+
+      {/* Centered branding container */}
+      <div className="relative flex flex-col items-center text-center px-4 select-none animate-fade-in">
+        {/* Animated Centered Branding Logo */}
+        <div className="relative mb-6 flex items-center justify-center">
+          {/* Animated radar/ping pulse aura */}
+          <div className="absolute w-28 h-28 sm:w-32 sm:h-32 rounded-full border border-indigo-500/20 animate-ping opacity-25" />
+          <div className="absolute w-24 h-24 sm:w-28 sm:h-28 rounded-full border border-indigo-400/30 animate-pulse" />
+          <div className="absolute w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-to-tr from-indigo-600/30 via-indigo-500/20 to-purple-600/20 blur-md animate-pulse-glow" />
+
+          {/* Logo container with indigo glow and border */}
+          <div className="relative z-10 w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-slate-900/90 border border-indigo-500/40 p-3 shadow-xl shadow-indigo-500/20 flex items-center justify-center backdrop-blur-md">
+            <img
+              src={logo}
+              alt="StormSale Logo"
+              className="w-full h-full object-contain filter drop-shadow-[0_0_10px_rgba(99,102,241,0.6)] animate-pulse"
+            />
+          </div>
+        </div>
+
+        {/* Brand Name */}
+        <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-white via-indigo-200 to-indigo-400 bg-clip-text text-transparent">
+          StormSale
+        </h1>
+
+        {/* Subtitle */}
+        <p className="mt-2 text-xs sm:text-sm font-medium text-indigo-300/80 tracking-wider uppercase">
+          Decentralized Escrow & Affiliate Protocol
+        </p>
+
+        {/* Indigo Loading Bar */}
+        <div className="mt-8 w-48 sm:w-56 h-1.5 bg-indigo-950/80 rounded-full overflow-hidden border border-indigo-800/40 relative shadow-inner">
+          <div className="h-full bg-gradient-to-r from-indigo-500 via-sky-400 to-indigo-500 rounded-full animate-indigo-bar" />
+        </div>
+
+        {/* Hydrating status text */}
+        <span className="mt-3 text-[11px] text-slate-400 font-mono tracking-wider animate-pulse">
+          Hydrating protocol...
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function PageLoader() {
   return (
@@ -290,6 +354,9 @@ function Router() {
 }
 
 function App() {
+  const [booting, setBooting] = useState(true);
+  const [isExiting, setIsExiting] = useState(false);
+
   useEffect(() => {
     initTelegramWebApp();
     const cleanup = syncTelegramTheme();
@@ -297,6 +364,28 @@ function App() {
       cleanup();
     };
   }, []);
+
+  useEffect(() => {
+    // Keep boot loader mounted if in preview mode for inspection
+    if (typeof window !== "undefined" && window.location.search.includes("boot=preview")) {
+      return;
+    }
+
+    // Initiate seamless fade out transition once hydration is complete
+    const timer = setTimeout(() => {
+      setIsExiting(true);
+      const exitTimer = setTimeout(() => {
+        setBooting(false);
+      }, 500);
+      return () => clearTimeout(exitTimer);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleExited = () => {
+    setBooting(false);
+  };
 
   const isShortLinkRoute =
     typeof window !== "undefined" && window.location.pathname.startsWith("/c/");
@@ -310,19 +399,24 @@ function App() {
   }
 
   return (
-    <NotificationWrapper>
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
-        <Web3Provider>
-          <WalletConnectProvider>
-            <NotificationProvider>
-              <TooltipProvider delayDuration={300}>
-                <Router />
-              </TooltipProvider>
-            </NotificationProvider>
-          </WalletConnectProvider>
-        </Web3Provider>
-      </Sentry.ErrorBoundary>
-    </NotificationWrapper>
+    <>
+      {booting && <IndigoBootLoader isExiting={isExiting} onExited={handleExited} />}
+      <NotificationWrapper>
+        <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+          <Web3Provider>
+            <WalletConnectProvider>
+              <NotificationProvider>
+                <SorobanEventsProvider>
+                  <TooltipProvider delayDuration={300}>
+                    <Router />
+                  </TooltipProvider>
+                </SorobanEventsProvider>
+              </NotificationProvider>
+            </WalletConnectProvider>
+          </Web3Provider>
+        </Sentry.ErrorBoundary>
+      </NotificationWrapper>
+    </>
   );
 }
 
