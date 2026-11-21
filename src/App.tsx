@@ -22,6 +22,8 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
 import { ShortLinkRedirect } from "./components/affiliate/ShortLinkRedirect";
 import { ThemeToggle } from "./components/shared/ThemeToggle";
+import { ClickjackingWarning } from "./components/security/ClickjackingWarning";
+import { MultiCurrencyCheckout } from "./components/checkout/MultiCurrencyCheckout";
 import { Button } from "./components/ui/button";
 import { ArrowLeft, Zap } from "lucide-react";
 import logo from "./assets/logo2.png";
@@ -156,6 +158,7 @@ const VALID_PAGES = [
   "milestones",
   "auditor",
   "admin",
+  "checkout",
 ] as const;
 
 type Page = (typeof VALID_PAGES)[number];
@@ -210,6 +213,20 @@ function Router() {
       setCurrentPage(page as Page);
     }
   };
+
+  const isCheckoutOpen =
+    currentPage === ("checkout" as Page) ||
+    (typeof window !== "undefined" &&
+      (window.location.search.includes("view=checkout") ||
+        window.location.pathname.startsWith("/checkout")));
+
+  if (isCheckoutOpen) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] p-4 sm:p-8 flex items-center justify-center font-sans">
+        <MultiCurrencyCheckout />
+      </div>
+    );
+  }
 
   if (activeBrandSubdomain) {
     return (
@@ -411,6 +428,7 @@ function App() {
 
   return (
     <>
+      <ClickjackingWarning />
       {booting && <IndigoBootLoader isExiting={isExiting} onExited={handleExited} />}
       <NotificationWrapper>
         <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
