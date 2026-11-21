@@ -16,6 +16,7 @@ export const FOCUSABLE_SELECTOR =
  * 2. Traps Tab and Shift+Tab key navigation strictly within the modal container.
  * 3. Dismisses modal on Escape key press.
  * 4. Restores focus to the triggering element upon closing.
+ * 5. Dynamically assigns role="dialog", aria-modal="true", and aria-labelledby.
  */
 export function useFocusTrap<T extends HTMLElement = HTMLDivElement>({
   isOpen,
@@ -35,9 +36,29 @@ export function useFocusTrap<T extends HTMLElement = HTMLDivElement>({
     }
   }, [isOpen]);
 
-  // Initial focus management
+  // Initial focus management & accessibility attributes
   useEffect(() => {
     if (!isOpen) return;
+
+    if (containerRef.current) {
+      const el = containerRef.current;
+      if (!el.getAttribute("role")) {
+        el.setAttribute("role", "dialog");
+      }
+      if (!el.getAttribute("aria-modal")) {
+        el.setAttribute("aria-modal", "true");
+      }
+
+      const heading = el.querySelector("h1, h2, h3, [data-dialog-title]");
+      if (heading) {
+        if (!heading.id) {
+          heading.id = "dialog-title-" + Math.random().toString(36).substring(2, 9);
+        }
+        if (!el.getAttribute("aria-labelledby")) {
+          el.setAttribute("aria-labelledby", heading.id);
+        }
+      }
+    }
 
     const frameId = requestAnimationFrame(() => {
       if (initialFocusRef?.current) {
