@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
-import { render, screen, fireEvent, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act } from "@testing-library/react";
 import { z } from "zod";
 import {
   UI_STATE_PREFIX,
@@ -14,6 +14,7 @@ import {
   writeUIState,
 } from "../lib/uiStateCache";
 import { useFilterState } from "../hooks/useFilterState";
+import { usePreference } from "../hooks/usePreference";
 
 const filtersSchema = z.object({
   status: z.enum(["all", "active", "paused"]),
@@ -251,6 +252,101 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
         v: UI_STATE_VERSION,
         value: DEFAULT_FILTERS,
       });
+    });
+  });
+
+  describe("cross-tab synchronisation", () => {
+    function writeFromAnotherTab(key: string, value: unknown) {
+      const storageKey = uiStateStorageKey(key);
+      const newValue = JSON.stringify({ v: UI_STATE_VERSION, updatedAt: Date.now(), value });
+      localStorage.setItem(storageKey, newValue);
+      act(() => {
+        window.dispatchEvent(new StorageEvent("storage", { key: storageKey, newValue }));
+      });
+    }
+
+    it("applies filter changes written by another tab", () => {
+      function FilterHarness() {
+        const [filters] = useFilterState<Filters>(
+          "test.sync.filters",
+          filtersSchema,
+          DEFAULT_FILTERS,
+        );
+        return React.createElement(
+          "div",
+          null,
+          React.createElement("span", { "data-testid": "status" }, filters.status),
+          React.createElement("span", { "data-testid": "search" }, filters.search),
+        );
+      }
+
+      render(React.createElement(FilterHarness));
+      expect(screen.getByTestId("status").textContent).toBe("all");
+
+      writeFromAnotherTab("test.sync.filters", { status: "paused", search: "other-tab" });
+
+      expect(screen.getByTestId("status").textContent).toBe("paused");
+      expect(screen.getByTestId("search").textContent).toBe("other-tab");
+    });
+
+    it("falls back to defaults when another tab writes an off-schema value", () => {
+      function FilterHarness() {
+        const [filters] = useFilterState<Filters>(
+          "test.sync.invalid",
+          filtersSchema,
+          DEFAULT_FILTERS,
+        );
+        return React.createElement("span", { "data-testid": "status" }, filters.status);
+      }
+
+      render(React.createElement(FilterHarness));
+
+      writeFromAnotherTab("test.sync.invalid", { status: "deleted-role", search: "x" });
+
+      expect(screen.getByTestId("status").textContent).toBe("all");
+    });
+
+    it("synchronises usePreference values across tabs", () => {
+      const allowed = ["overview", "analytics"];
+
+      function PreferenceHarness() {
+        const [tab] = usePreference<string>("stormsale.sync.tab", "overview", (value) =>
+          allowed.includes(value),
+        );
+        return React.createElement("span", { "data-testid": "tab" }, tab);
+      }
+
+      render(React.createElement(PreferenceHarness));
+      expect(screen.getByTestId("tab").textContent).toBe("overview");
+
+      const storageKey = "stormsale.sync.tab";
+      const newValue = JSON.stringify({
+        v: UI_STATE_VERSION,
+        updatedAt: Date.now(),
+        value: "analytics",
+      });
+      localStorage.setItem(storageKey, newValue);
+      act(() => {
+        window.dispatchEvent(new StorageEvent("storage", { key: storageKey, newValue }));
+      });
+
+      expect(screen.getByTestId("tab").textContent).toBe("analytics");
+
+      // An invalid value from another tab is evicted, not rendered.
+      const invalidValue = JSON.stringify({
+        v: UI_STATE_VERSION,
+        updatedAt: Date.now(),
+        value: "disallowed-tab",
+      });
+      localStorage.setItem(storageKey, invalidValue);
+      act(() => {
+        window.dispatchEvent(
+          new StorageEvent("storage", { key: storageKey, newValue: invalidValue }),
+        );
+      });
+
+      expect(screen.getByTestId("tab").textContent).toBe("overview");
+      expect(localStorage.getItem(storageKey)).toBeNull();
     });
   });
 });

@@ -1,69 +1,75 @@
-# Persistent UI & Filter State Cache — Architecture Diagram
+# Persistent UI & Filter State Cache — Architecture
 
 ## Overview
 
-User dashboard preferences and structured filter state are now versioned and
-schema-safe in `localStorage`. The system guarantees that a corrupt, outdated, or
-off-shape entry can never be rendered into the UI.
+Dashboard preferences (active tab, nav state, theme) and structured filter
+state (search, status, timeframe, sort) persist in `localStorage` under one
+versioned, schema-validated contract:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    initUIStateCache()                               │
-│  ───► scans all keys starting with "stormsale.ui."                  │
-│  ───► validates envelope {v, updatedAt, value} against UI_STATE_VER  │
-│  ───► evicts any entry that:                                       │
-│       • has unknown version,                                        │
-│       • has corrupt JSON,                                           │
-│       • fails zod schema validation, or                             │
-│       • expired via configured TTL                                 │
-│  ───► runs once before the first React render                       │
-└─────────────────────────────┬─────────────────────────────────────┘
-                              │
-                              ▼
-        ┌─────────────────────────────────────────────────────┐
-        │                     useFilterState(key, schema)      │
-        │  ───► readUIState(key, schema, defaultValue)        │
-        │       1. fetch raw JSON from localStorage           │
-        │       2. envelopeSchema.safeParse()                 │
-        │       3. check v === UI_STATE_VERSION               │
-        │       4. check !isExpired(updatedAt, ttlMs)         │
-        │       5. schema.safeParse(value) → reject if fail   │
-        │       6. evict entry on any failure; return default │
-        │  ───► setState(value) → useEffect → writeUIState    │
-        │       writeUIState(key, schema, value)              │
-        │         → stores {v: UI_STATE_VERSION, updatedAt,    │
-        │           value: schema.parse(raw)}                  │
-        │  ───► no manual JSON handling, no version migration   │
-        └─────────────────────────────────────────────────────┘
-                              │
-                              ▼
-        ┌─────────────────────────────────────────────────────┐
-        │   Filter state persists across reloads (localStorage) │
-        │                                                       │
-        │   ┌─────────────────────┐   ┌───────────────────────┐       │
-        │   │ Advertiser          │   │ Affiliate              │       │
-        │   │ campaigns.filters   │   │ leaderboard.filters    │       │
-        │   │ • statusFilter      │   │ • timeframe           │       │
-        │   │ • search            │   │ • searchQuery         │       │
-        │   └─────────────────────┘   └───────────────────────┘       │
-        │                                                       │
-        │   ┌─────────────────────┐   ┌───────────────────────┐       │
-        │   │ Auditor             │   │ ZK Revenue Proof       │       │
-        │   │ compliance-checklist│   │ filters               │       │
-        │   │ • statusFilter      │   │ • selectedFamily      │       │
-        │   │ • severityFilter    │   │ • searchQuery         │       │
-        │   │ • query             │   └───────────────────────┘       │
-        │   └─────────────────────┘                                       │
-        └─────────────────────────────────────────────────────────────┘
+```json
+{ "v": 1, "updatedAt": 1750000000000, "value": { "...": "..." } }
 ```
 
-## Key Guarantees
+A corrupt, outdated, off-schema, or expired entry is evicted instead of being
+rendered. Both hooks share the same low-level envelope helpers in
+`src/lib/uiStateCache.ts`.
 
-| Aspect               | Implementation                                                                 |
-|----------------------|--------------------------------------------------------------------------------|
-| Schema safety        | Every read validates against `zod`; bad values are silently evicted.         |
-| Version rollback     | `UI_STATE_VERSION = 1`; any `v !== 1` entry is purged immediately on boot.   |
-| TTL expiration       | Configurable `ttlMs`; entries older than `30 days` are dropped at boot.       |
-| Safe cross-reload    | `useFilterState` writes to storage in a `useEffect`, decoupled from the updater.|
-| SSR / private-mode   | `getStorage()` returns `null` when `window` is absent; defaults always apply.   |
-| Boot hygiene         | `initUIStateCache()` runs once, purging stale entries before user interaction. |
+## Data flow
+
+```mermaid
+flowchart TD
+    subgraph Boot["Boot (src/main.tsx)"]
+        A[initUIStateCache] -->|scan stormsale.ui.*| B{envelope valid?}
+        B -->|no / expired / wrong version| C[evict entry]
+        B -->|yes| D[keep entry]
+    end
+
+    subgraph Read["Read path"]
+        E[usePreference / useFilterState] --> F[readVersionedState]
+        F --> G{version matches?}
+        G -->|legacy v with no updatedAt| H[validate → upgrade in place]
+        G -->|current envelope| I[validate with zod / guard]
+        I -->|fail| C
+        I -->|pass| J[return value]
+        H --> J
+    end
+
+    subgraph Write["Write path"]
+        K[state change] --> L[writeVersionedState]
+        L --> M[schema.safeParse]
+        M -->|fail| N[reject write]
+        M -->|pass| O[setItem v + updatedAt + value]
+    end
+
+    subgraph Sync["Cross-tab sync"]
+        P[storage event from another tab] --> Q[re-read through schema]
+        Q --> R[setState]
+    end
+
+    D --> E
+    O -->|other tab| P
+```
+
+## Guarantees
+
+| Aspect            | Implementation                                                                 |
+| ----------------- | ------------------------------------------------------------------------------ |
+| Schema safety     | Reads and writes validate against a `zod` schema (filters) or guard (prefs).   |
+| Versioning        | `UI_STATE_VERSION = 1`; any other version is purged on read and at boot.        |
+| Legacy migration  | `{ v, value }` preference entries gain `updatedAt` on first read.              |
+| TTL expiration    | Filters older than 30 days are dropped at boot; preference keys never expire.  |
+| Cross-tab sync    | A `storage` listener rehydrates changes from other tabs, re-validating first.  |
+| Write de-duplication | Hooks skip writes when the serialized value is unchanged, preventing echoes. |
+| SSR / private mode | `getSafeStorage()` returns `null` without a DOM; defaults always apply.        |
+| Boot hygiene      | `initUIStateCache()` purges stale entries before the first React render.       |
+
+## Keys
+
+| Layer       | Storage key                     | Envelope                     |
+| ----------- | ------------------------------- | ---------------------------- |
+| Preferences | `stormsale.<scope>.<name>`      | `{ v, updatedAt, value }`    |
+| Filters     | `stormsale.ui.<scope>.<name>`   | `{ v, updatedAt, value }`    |
+
+Both namespaces use the same version and validation pipeline; only the key
+prefix differs so filters can be swept at boot without touching unrelated
+application storage.
