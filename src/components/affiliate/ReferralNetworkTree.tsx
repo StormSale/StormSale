@@ -18,14 +18,8 @@ import { useReferralTree } from "../../hooks/useReferralTree";
 import { formatAffiliateAddress } from "../../lib/referralTree";
 
 export const ReferralNetworkTree: React.FC = () => {
-  const {
-    tree,
-    summary,
-    relations,
-    selectedNode,
-    setSelectedNode,
-    recordSaleAction,
-  } = useReferralTree();
+  const { tree, summary, relations, selectedNode, setSelectedNode, recordSaleAction } =
+    useReferralTree();
 
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"tree" | "table" | "overrides">("tree");
@@ -146,7 +140,8 @@ export const ReferralNetworkTree: React.FC = () => {
             {summary.totalNetworkSize}
           </div>
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-            {summary.directRecruitsCount} Direct (Tier 1) • {summary.secondTierRecruitsCount} Sub-Tier 2
+            {summary.directRecruitsCount} Direct (Tier 1) • {summary.secondTierRecruitsCount}{" "}
+            Sub-Tier 2
           </div>
         </Card>
 
@@ -159,7 +154,8 @@ export const ReferralNetworkTree: React.FC = () => {
             </div>
           </div>
           <div className="text-3xl font-black text-zinc-900 dark:text-white font-mono">
-            {summary.totalNetworkVolumeXlm.toLocaleString()} <span className="text-sm font-bold text-sky-500">XLM</span>
+            {summary.totalNetworkVolumeXlm.toLocaleString()}{" "}
+            <span className="text-sm font-bold text-sky-500">XLM</span>
           </div>
           <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
             <Zap className="w-3 h-3" />
@@ -170,13 +166,16 @@ export const ReferralNetworkTree: React.FC = () => {
         {/* Card 3: Passive Overrides Earned */}
         <Card className="rounded-3xl border border-indigo-200 dark:border-indigo-900/60 bg-gradient-to-br from-indigo-50/50 to-white dark:from-indigo-950/20 dark:to-zinc-900 shadow-sm p-5 space-y-2">
           <div className="flex items-center justify-between text-indigo-600 dark:text-indigo-400">
-            <span className="text-xs font-extrabold uppercase tracking-wider">Passive Overrides</span>
+            <span className="text-xs font-extrabold uppercase tracking-wider">
+              Passive Overrides
+            </span>
             <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/30">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 font-mono">
-            +{summary.totalOverrideEarnedXlm.toLocaleString()} <span className="text-sm font-bold">XLM</span>
+            +{summary.totalOverrideEarnedXlm.toLocaleString()}{" "}
+            <span className="text-sm font-bold">XLM</span>
           </div>
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium">
             2% override automatically credited
@@ -186,7 +185,9 @@ export const ReferralNetworkTree: React.FC = () => {
         {/* Card 4: Top Performer */}
         <Card className="rounded-3xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm p-5 space-y-2">
           <div className="flex items-center justify-between text-zinc-500 dark:text-zinc-400">
-            <span className="text-xs font-bold uppercase tracking-wider">Top Recruited Producer</span>
+            <span className="text-xs font-bold uppercase tracking-wider">
+              Top Recruited Producer
+            </span>
             <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
               <Award className="w-4 h-4" />
             </div>
@@ -338,13 +339,28 @@ export const ReferralNetworkTree: React.FC = () => {
                       className="fill-indigo-900 stroke-indigo-400 shadow-xl"
                       strokeWidth="2"
                     />
-                    <text x="110" y="24" textAnchor="middle" className="fill-white font-extrabold text-xs">
+                    <text
+                      x="110"
+                      y="24"
+                      textAnchor="middle"
+                      className="fill-white font-extrabold text-xs"
+                    >
                       Master Affiliate (You)
                     </text>
-                    <text x="110" y="42" textAnchor="middle" className="fill-indigo-200 font-mono text-[10px]">
+                    <text
+                      x="110"
+                      y="42"
+                      textAnchor="middle"
+                      className="fill-indigo-200 font-mono text-[10px]"
+                    >
                       {formatAffiliateAddress(tree.address)}
                     </text>
-                    <text x="110" y="60" textAnchor="middle" className="fill-emerald-400 font-bold text-[10px]">
+                    <text
+                      x="110"
+                      y="60"
+                      textAnchor="middle"
+                      className="fill-emerald-400 font-bold text-[10px]"
+                    >
                       +{summary.totalOverrideEarnedXlm} XLM Overrides
                     </text>
                   </g>
@@ -530,21 +546,21 @@ export const ReferralNetworkTree: React.FC = () => {
             {/* Interactive Simulation Trigger (Development only) */}
             {currentNode.tier > 0 &&
               (import.meta.env?.DEV || process.env.NODE_ENV !== "production") && (
-              <div className="border-t border-slate-100 dark:border-zinc-800 pt-4 space-y-2">
-                <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 block">
-                  Simulate Live Sale
-                </span>
-                <Button
-                  size="sm"
-                  onClick={simulateSaleForCurrent}
-                  className="w-full h-9 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-zinc-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
-                  data-testid="btn-simulate-sale-override"
-                >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Log 500 XLM Sale (+10 XLM Override)</span>
-                </Button>
-              </div>
-            )}
+                <div className="border-t border-slate-100 dark:border-zinc-800 pt-4 space-y-2">
+                  <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 block">
+                    Simulate Live Sale
+                  </span>
+                  <Button
+                    size="sm"
+                    onClick={simulateSaleForCurrent}
+                    className="w-full h-9 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-zinc-900 font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm"
+                    data-testid="btn-simulate-sale-override"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                    <span>Log 500 XLM Sale (+10 XLM Override)</span>
+                  </Button>
+                </div>
+              )}
           </Card>
         </div>
       )}
@@ -593,49 +609,49 @@ export const ReferralNetworkTree: React.FC = () => {
                       ),
                   )
                   .map((rel) => (
-                  <tr
-                    key={rel.childAddress}
-                    className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/30 transition-colors"
-                    data-testid={`row-recruit-${rel.childAddress}`}
-                  >
-                    <td className="py-4 px-6">
-                      <div className="flex flex-col">
-                        <span className="font-bold text-zinc-900 dark:text-white">
-                          {rel.childName}
-                        </span>
-                        <div className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-400 mt-0.5">
-                          <span>{formatAffiliateAddress(rel.childAddress)}</span>
-                          <CopyButton text={rel.childAddress} label="Copy" size="sm" />
+                    <tr
+                      key={rel.childAddress}
+                      className="hover:bg-slate-50/80 dark:hover:bg-zinc-800/30 transition-colors"
+                      data-testid={`row-recruit-${rel.childAddress}`}
+                    >
+                      <td className="py-4 px-6">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-zinc-900 dark:text-white">
+                            {rel.childName}
+                          </span>
+                          <div className="flex items-center gap-1.5 font-mono text-[11px] text-zinc-400 mt-0.5">
+                            <span>{formatAffiliateAddress(rel.childAddress)}</span>
+                            <CopyButton text={rel.childAddress} label="Copy" size="sm" />
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-6">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                        Tier {rel.tier}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 font-mono font-bold text-zinc-900 dark:text-white">
-                      {rel.salesCount} orders
-                    </td>
-                    <td className="py-4 px-6 font-mono font-bold text-zinc-900 dark:text-white">
-                      {rel.totalSalesVolumeXlm.toLocaleString()} XLM
-                    </td>
-                    <td className="py-4 px-6 font-mono font-black text-indigo-600 dark:text-indigo-400">
-                      +{rel.totalOverrideEarnedXlm.toLocaleString()} XLM
-                    </td>
-                    <td className="py-4 px-6 text-right">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold capitalize ${
-                          rel.status === "active"
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                        }`}
-                      >
-                        {rel.status || "Active"}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-4 px-6">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                          Tier {rel.tier}
+                        </span>
+                      </td>
+                      <td className="py-4 px-6 font-mono font-bold text-zinc-900 dark:text-white">
+                        {rel.salesCount} orders
+                      </td>
+                      <td className="py-4 px-6 font-mono font-bold text-zinc-900 dark:text-white">
+                        {rel.totalSalesVolumeXlm.toLocaleString()} XLM
+                      </td>
+                      <td className="py-4 px-6 font-mono font-black text-indigo-600 dark:text-indigo-400">
+                        +{rel.totalOverrideEarnedXlm.toLocaleString()} XLM
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-extrabold capitalize ${
+                            rel.status === "active"
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                              : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                          }`}
+                        >
+                          {rel.status || "Active"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </CardContent>
@@ -650,7 +666,8 @@ export const ReferralNetworkTree: React.FC = () => {
               Passive Override Settlement Ledger
             </CardTitle>
             <CardDescription className="text-xs text-zinc-500 mt-1">
-              Historical ledger of passive 2% override commissions settled atomically via Soroban escrow.
+              Historical ledger of passive 2% override commissions settled atomically via Soroban
+              escrow.
             </CardDescription>
           </CardHeader>
 
@@ -688,7 +705,8 @@ export const ReferralNetworkTree: React.FC = () => {
               </table>
             ) : (
               <div className="p-8 text-center text-zinc-500 text-xs">
-                No recent override settlements recorded. Recruited marketers will generate passive overrides here when driving sales.
+                No recent override settlements recorded. Recruited marketers will generate passive
+                overrides here when driving sales.
               </div>
             )}
           </CardContent>
@@ -697,3 +715,5 @@ export const ReferralNetworkTree: React.FC = () => {
     </div>
   );
 };
+
+export { B2CNetworkTree } from "./B2CNetworkTree";
