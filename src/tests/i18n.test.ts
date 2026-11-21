@@ -104,4 +104,20 @@ describe("i18n framework (#213)", () => {
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("en");
     expect(document.documentElement.dir).toBe("ltr");
   });
+
+  it("switches locale from the header language selector", async () => {
+    const { createElement } = await import("react");
+    const { cleanup, fireEvent, render, screen, waitFor } = await import("@testing-library/react");
+    const { LanguageSelector } = await import("../components/shared/LanguageSelector");
+
+    render(createElement(LanguageSelector));
+    const select = screen.getByLabelText("Select language") as HTMLSelectElement;
+    expect(select.value).toBe("en");
+
+    fireEvent.change(select, { target: { value: "es" } });
+    expect(select.value).toBe("es");
+    await waitFor(() => expect(i18n.resolvedLanguage).toBe("es"));
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe("es");
+    cleanup();
+  });
 });

@@ -321,7 +321,7 @@ export const LogSaleForm = () => {
         saleAmountXlm: Number(data.saleAmount),
         affiliateAddress: recipientAddress,
         txHash: postbackTxHash,
-      }).catch(() => undefined);
+      });
 
       try {
         const postbacks = await triggerConversionPostback({
