@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import React from "react";
+import { render, screen } from "@testing-library/react";
 import { StrKey } from "@stellar/stellar-sdk";
 import { TxQueueManager } from "../lib/txQueue";
 import {
@@ -8,6 +10,16 @@ import {
   type ContractBatchStep,
   type BatchProgressState,
 } from "../lib/contractBatchExecutor";
+import { BulkSaleLogModal } from "../components/advertiser/BulkSaleLogModal";
+import { NotificationProvider } from "../context/NotificationContext";
+
+vi.mock("../hooks/useWeb3", () => ({
+  useWeb3: () => ({
+    userAddress: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    connectorType: "freighter",
+    isConnected: true,
+  }),
+}));
 
 describe("Smart Contract Invocation Batching and Execution Order (#432)", () => {
   let queueManager: TxQueueManager;
@@ -387,6 +399,55 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(outcome.success).toBe(true);
       expect(executor.getProgress().percentage).toBe(100);
       expect(executor.getProgress().status).toBe("completed");
+    });
+
+    it("renders live batch progress indicator in BulkSaleLogModal with aria progress attributes", () => {
+      render(
+        React.createElement(
+          NotificationProvider,
+          null,
+          React.createElement(BulkSaleLogModal, {
+            initialProgress: {
+              totalBatches: 5,
+              currentBatchIndex: 3,
+              totalSales: 50,
+              processedSales: 30,
+              confirmedSales: 25,
+              failedSales: 5,
+              currentStatus: "submitting",
+            },
+          }),
+        ),
+      );
+
+      const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
+      expect(progressBar).toBeDefined();
+      expect(progressBar.getAttribute("aria-valuenow")).toBeTruthy();
+      expect(screen.getByText(/batch 3 of 5/i)).toBeDefined();
+    });
+
+    it("renders 100% completed progress indicator in BulkSaleLogModal upon full batch completion", () => {
+      render(
+        React.createElement(
+          NotificationProvider,
+          null,
+          React.createElement(BulkSaleLogModal, {
+            initialProgress: {
+              totalBatches: 2,
+              currentBatchIndex: 2,
+              totalSales: 20,
+              processedSales: 20,
+              confirmedSales: 20,
+              failedSales: 0,
+              currentStatus: "completed",
+            },
+          }),
+        ),
+      );
+
+      const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
+      expect(progressBar.getAttribute("aria-valuenow")).toBe("100");
+      expect(screen.getByText("100% Complete")).toBeDefined();
     });
   });
 });
