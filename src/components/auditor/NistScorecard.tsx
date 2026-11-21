@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { z } from "zod";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useFilterState } from "../../hooks/useFilterState";
 import { useNotification } from "../../context/NotificationContext";
 import {
   getStandardNistControls,
@@ -33,14 +35,30 @@ import {
   Check,
 } from "lucide-react";
 
+const NIST_FILTERS_KEY = "auditor.nist-scorecard.filters";
+const nistFiltersSchema = z.object({
+  selectedFamily: z.enum(["ALL", "AC", "AU", "SC"]),
+  searchQuery: z.string().max(120),
+});
+type NistFilters = z.infer<typeof nistFiltersSchema>;
+const DEFAULT_NIST_FILTERS: NistFilters = { selectedFamily: "ALL", searchQuery: "" };
+
 export const NistScorecard: React.FC = () => {
   const { userAddress, network } = useWeb3();
   const { showNotification } = useNotification();
 
   const [controls, setControls] = useState<NistControl[]>(() => getStandardNistControls(network));
   const [isAuditing, setIsAuditing] = useState(false);
-  const [selectedFamily, setSelectedFamily] = useState<"ALL" | NistControlFamily>("ALL");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useFilterState<NistFilters>(
+    NIST_FILTERS_KEY,
+    nistFiltersSchema,
+    DEFAULT_NIST_FILTERS,
+  );
+  const { selectedFamily, searchQuery } = filters;
+  const setSelectedFamily = (value: "ALL" | NistControlFamily) =>
+    setFilters((previous) => ({ ...previous, selectedFamily: value }));
+  const setSearchQuery = (value: string) =>
+    setFilters((previous) => ({ ...previous, searchQuery: value }));
   const [copiedSeal, setCopiedSeal] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
