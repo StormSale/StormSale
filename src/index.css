@@ -46,7 +46,7 @@
     --ring: 142 70% 50%;
   }
 
-  [data-theme='high-contrast'],
+  [data-theme="high-contrast"],
   .high-contrast {
     --background: 0 0% 0%;
     --foreground: 0 0% 100%;
@@ -62,7 +62,7 @@
     --muted-foreground: 0 0% 80%;
     --accent: 0 0% 20%;
     --accent-foreground: 0 0% 100%;
-    --destructive: 0 100% 50%;
+    --destructive: 0 100% 70%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 100%;
     --input: 0 0% 100%;
@@ -130,4 +130,125 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Smooth Light ⇄ Dark ⇄ High Contrast transitions (respecting reduced motion). */
+@media (prefers-reduced-motion: no-preference) {
+  body {
+    transition:
+      background-color 180ms ease,
+      color 180ms ease;
+  }
+}
+
+/*
+ * WCAG 2.1 AAA High Contrast theme.
+ *
+ * The token block above guarantees 7:1+ for foreground/background pairs. The
+ * rules below replace decorative Tailwind palettes with pure black/white
+ * surfaces so every legacy utility-styled surface inherits the same contrast
+ * guarantee without rewriting each component.
+ */
+[data-theme="high-contrast"],
+.high-contrast {
+  color-scheme: dark;
+}
+
+[data-theme="high-contrast"] body,
+.high-contrast body {
+  background-color: #000 !important;
+  color: #fff !important;
+}
+
+[data-theme="high-contrast"]
+  :where(
+    .bg-white,
+    [class*="bg-white/"],
+    [class*="bg-slate-"],
+    [class*="bg-zinc-"],
+    [class*="bg-gray-"],
+    [class*="bg-indigo-"],
+    [class*="bg-emerald-"],
+    [class*="bg-amber-"],
+    [class*="bg-rose-"],
+    [class*="bg-sky-"],
+    [class*="bg-purple-"],
+    [class*="bg-black/"]
+  ) {
+  background-color: #000 !important;
+}
+
+[data-theme="high-contrast"]
+  :where(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    span,
+    div,
+    label,
+    li,
+    td,
+    th,
+    a,
+    button,
+    dt,
+    dd,
+    small,
+    strong,
+    em
+  ) {
+  color: #fff !important;
+}
+
+[data-theme="high-contrast"]
+  :where(
+    [class*="border-slate-"],
+    [class*="border-zinc-"],
+    [class*="border-gray-"],
+    [class*="border-white/"]
+  ) {
+  border-color: #fff !important;
+}
+
+[data-theme="high-contrast"] :where(input, select, textarea) {
+  background-color: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+[data-theme="high-contrast"] :where(input, textarea)::placeholder {
+  color: #d4d4d4 !important;
+}
+
+/* Interactive controls become black-on-white with a visible 2px border. */
+[data-theme="high-contrast"] :where(button, [role="button"], select) {
+  background-color: #000 !important;
+  color: #fff !important;
+  border: 2px solid #fff !important;
+}
+
+[data-theme="high-contrast"] :where(button, [role="button"]):disabled {
+  opacity: 1 !important;
+  color: #d4d4d4 !important;
+  border-style: dashed !important;
+}
+
+/* Bold, high-visibility focus ring (yellow on black is ~19:1). */
+[data-theme="high-contrast"] :where(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: 3px solid #ffff00 !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 6px #000 !important;
+}
+
+/* Right-to-left groundwork for Arabic and Hebrew locales. */
+html[dir="rtl"] body {
+  direction: rtl;
+}
+
+html[dir="rtl"] .sr-only {
+  direction: ltr;
 }

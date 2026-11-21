@@ -2,7 +2,9 @@ import { Button } from "../../components/ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useTelegram } from "../../hooks/useTelegram";
 import { ThemeToggle } from "./ThemeToggle";
+import { LanguageSelector } from "./LanguageSelector";
 import { TerminologyTooltip, TerminologyGuideButton } from "../ui/tooltip";
+import { useTranslation } from "react-i18next";
 import {
   Wallet,
   Menu,
@@ -46,6 +48,7 @@ export const resolveWalletNetwork = async (
  * Application header with wallet navigation, status indicators, and network verification controls.
  */
 export const Header = ({ onNavigate }: HeaderProps) => {
+  const { t } = useTranslation();
   const {
     userAddress,
     openWalletModal,
@@ -117,15 +120,15 @@ export const Header = ({ onNavigate }: HeaderProps) => {
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
   const navLinks = [
-    { label: "Home", href: "/" },
-    { label: "About Us", href: "#about-us" },
-    { label: "Features", href: "#features" },
-    { label: "How it Works", href: "#how-it-works" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "Stats", href: "#stats" },
-    { label: "Community", href: "#community" },
-    { label: "FAQ", href: "#faq" },
-    { label: "Contact", href: "#community" },
+    { label: t("header.home"), href: "/" },
+    { label: t("header.aboutUs"), href: "#about-us" },
+    { label: t("header.features"), href: "#features" },
+    { label: t("header.howItWorks"), href: "#how-it-works" },
+    { label: t("header.pricing"), href: "#pricing" },
+    { label: t("header.stats"), href: "#stats" },
+    { label: t("header.community"), href: "#community" },
+    { label: t("header.faq"), href: "#faq" },
+    { label: t("header.contact"), href: "#community" },
   ];
 
   return (
@@ -143,7 +146,11 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           {isTelegram && (
             <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 dark:bg-sky-950/40 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800/50">
               <Send className="w-3 h-3 text-sky-500" />
-              {user ? (user.username ? `@${user.username}` : user.first_name) : `TMA (${platform})`}
+              {user
+                ? user.username
+                  ? `@${user.username}`
+                  : user.first_name
+                : t("header.telegramMiniApp", { platform })}
             </span>
           )}
         </div>
@@ -171,10 +178,10 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               disabled={isSwitchingNetwork}
               aria-label={
                 verifiedNetwork?.isStellarNetwork
-                  ? `Verified Stellar ${verifiedNetwork.network} wallet network`
-                  : "Verify wallet network"
+                  ? t("header.verifiedWalletNetwork", { network: verifiedNetwork.network })
+                  : t("header.verifyWalletNetwork")
               }
-              title="Switch networks in your wallet, then verify the active network here"
+              title={t("header.switchNetworkTitle")}
               className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white/70 px-2.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-slate-100 disabled:cursor-default dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:bg-zinc-800"
             >
               {isSwitchingNetwork ? (
@@ -186,7 +193,9 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                 />
               )}
               <span>
-                {verifiedNetwork ? `Wallet: ${verifiedNetwork.network}` : "Verify wallet network"}
+                {verifiedNetwork
+                  ? t("header.walletNetwork", { network: verifiedNetwork.network })
+                  : t("header.verifyWalletNetwork")}
               </span>
             </button>
           )}
@@ -195,7 +204,10 @@ export const Header = ({ onNavigate }: HeaderProps) => {
             type="button"
             onClick={openRpcModal}
             className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-100/70 dark:bg-zinc-900/70 hover:bg-slate-200/60 dark:hover:bg-zinc-800 transition-colors text-xs font-semibold cursor-pointer"
-            title={`Active Soroban & BlockDAG RPC: ${activeRpcEndpoint?.name || "Primary"} (${activeRpcEndpoint?.status || "healthy"}). Click to inspect fallbacks.`}
+            title={t("header.rpcActive", {
+              name: activeRpcEndpoint?.name || "Primary",
+              status: activeRpcEndpoint?.status || "healthy",
+            })}
           >
             <span
               className={`w-2 h-2 rounded-full ${
@@ -223,6 +235,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
             )}
           </button>
           <ThemeToggle />
+          <LanguageSelector />
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
@@ -237,7 +250,9 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   title="Stellar SEP-0030 Multi-Signature Escrow Coordination"
                 >
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>Multi-Sig ({multiSigInfo?.signers.length || 2})</span>
+                  <span>
+                    {t("header.multiSig")} ({multiSigInfo?.signers.length || 2})
+                  </span>
                 </Button>
               )}
             </div>
@@ -247,7 +262,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               className="h-10 px-5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm shadow-md transition-all"
             >
               <Wallet className="w-4 h-4 mr-2" />
-              Connect Wallet
+              {t("header.connectWallet")}
             </Button>
           )}
         </div>
@@ -259,8 +274,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
             type="button"
             onClick={openRpcModal}
             className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 relative"
-            title="Soroban & BlockDAG RPC Health"
-            aria-label="RPC Status"
+            title={t("header.rpcHealth")}
+            aria-label={t("header.rpcStatus")}
           >
             <span
               className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ${
@@ -283,8 +298,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               disabled={isSwitchingNetwork}
               aria-label={
                 verifiedNetwork?.isStellarNetwork
-                  ? `Verified Stellar ${verifiedNetwork.network} wallet network`
-                  : "Verify wallet network"
+                  ? t("header.verifiedWalletNetwork", { network: verifiedNetwork.network })
+                  : t("header.verifyWalletNetwork")
               }
               className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:cursor-default"
             >
@@ -300,6 +315,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           )}
 
           <ThemeToggle />
+          <LanguageSelector />
           {!isConnected ? (
             <Button
               size="sm"
@@ -307,7 +323,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               className="h-9 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
             >
               <Wallet className="w-3.5 h-3.5 mr-1" />
-              Connect
+              {t("header.connect")}
             </Button>
           ) : (
             <UserMenu compact onNavigate={onNavigate} />
@@ -315,7 +331,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="p-2 rounded-xl text-zinc-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
-            aria-label="Toggle Menu"
+            aria-label={t("header.toggleMenu")}
           >
             {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -347,14 +363,16 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                     <ShieldCheck className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-zinc-400">CONNECTED WALLET</div>
+                    <div className="text-[11px] font-bold text-zinc-400">
+                      {t("header.connectedWallet")}
+                    </div>
                     <div className="text-xs font-mono font-bold text-zinc-900 dark:text-white">
                       {userAddress && formatAddress(userAddress)}
                     </div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-[11px] font-bold text-zinc-400">BALANCE</div>
+                  <div className="text-[11px] font-bold text-zinc-400">{t("header.balance")}</div>
                   <TerminologyTooltip term="xlm" side="bottom">
                     <div className="text-xs font-bold text-indigo-600 dark:text-indigo-400 flex items-center cursor-help">
                       <Coins className="w-3 h-3 mr-1" />
@@ -379,7 +397,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               >
                 <span className="flex items-center space-x-2">
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Multi-Sig Escrow Approvals</span>
+                  <span>{t("header.multiSigApprovals")}</span>
                 </span>
                 <span className="text-[10px] bg-amber-500/20 px-1.5 py-0.5 rounded font-mono font-bold">
                   SEP-0030
@@ -410,7 +428,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   }}
                   className="w-full rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/20"
                 >
-                  Disconnect Wallet
+                  {t("header.disconnectWallet")}
                 </Button>
               ) : (
                 <Button
@@ -421,7 +439,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs"
                 >
                   <Wallet className="w-3.5 h-3.5 mr-2" />
-                  Select Stellar Wallet
+                  {t("header.selectWallet")}
                 </Button>
               )}
             </div>

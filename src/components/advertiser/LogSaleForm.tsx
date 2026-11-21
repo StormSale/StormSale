@@ -22,6 +22,7 @@ import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";
 import { notifyTelegramConversion } from "../../lib/telegramClient";
+import { dispatchHighValueConversionAlert } from "../../lib/slackAlerts";
 import { resolveRecipient } from "../../lib/stellar";
 import { FederatedAddressInput } from "../shared/FederatedAddressInput";
 import { Shield, Zap, Users, FileKey, FileSpreadsheet, Lock, GitBranch } from "lucide-react";
@@ -219,6 +220,18 @@ export const LogSaleForm = () => {
         status: "confirmed",
       };
       void dispatchWebhookEvent("conversion.created", conversionPayload);
+
+      // Fire-and-forget: only posts when the advertiser configured a Slack
+      // webhook and the sale meets their high-value threshold.
+      void dispatchHighValueConversionAlert({
+        campaignId: data.campaignAddress,
+        campaignName: initialMockCampaigns.find(
+          (c) => c.id === data.campaignAddress || String(c.onChainId) === data.campaignAddress,
+        )?.name,
+        saleAmountXlm: Number(data.saleAmount),
+        affiliateAddress: recipientAddress,
+        txHash: postbackTxHash,
+      }).catch(() => undefined);
 
       try {
         const postbacks = await triggerConversionPostback({

@@ -46,6 +46,11 @@ import {
   calculateEscrowReserveStatus,
   depositEscrowRefillContractCall,
 } from "../../lib/escrowAutoRefill";
+import {
+  LOW_ESCROW_THRESHOLD_PERCENT,
+  dispatchLowEscrowAlert,
+  remainingEscrowPercent,
+} from "../../lib/slackAlerts";
 import type { MultiSigRefundProposal } from "../../lib/multiSigSafe";
 import {
   isLargeRefund,
@@ -372,6 +377,30 @@ export const MyCampaignsList = () => {
         c.id,
       ).isLowReserve,
   );
+
+  const slackAlertedCampaignsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    for (const campaign of campaigns) {
+      if (campaign.status !== "Active") continue;
+      const initial = campaign.initialBudgetXlm ?? campaign.escrowInitial;
+      const current = campaign.currentBalanceXlm ?? campaign.escrowBalance;
+      const percent = remainingEscrowPercent(current, initial);
+      if (percent >= LOW_ESCROW_THRESHOLD_PERCENT) {
+        slackAlertedCampaignsRef.current.delete(campaign.id);
+        continue;
+      }
+      if (slackAlertedCampaignsRef.current.has(campaign.id)) continue;
+      slackAlertedCampaignsRef.current.add(campaign.id);
+      void dispatchLowEscrowAlert({
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        currentBalanceXlm: current,
+        initialBudgetXlm: initial,
+        remainingPercent: percent,
+      }).catch(() => undefined);
+    }
+  }, [campaigns]);
 
   const handleQuickRefill = async (campaign: Campaign, amountXlm: number = 500) => {
     if (!hasCapability("escrow:refill")) {
