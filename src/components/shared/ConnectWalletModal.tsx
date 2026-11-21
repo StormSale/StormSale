@@ -262,10 +262,6 @@ export const ConnectWalletModal: React.FC = () => {
         {/* Modal Window */}
         <motion.div
           ref={modalRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="connect-wallet-title"
-          aria-describedby="connect-wallet-desc"
           initial={{ scale: 0.95, opacity: 0, y: 15 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 15 }}
@@ -292,16 +288,10 @@ export const ConnectWalletModal: React.FC = () => {
                     Stellar Network • Soroban Smart Accounts
                   </span>
                 </div>
-                <h2
-                  id="connect-wallet-title"
-                  className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight mt-1"
-                >
+                <h2 className="text-xl sm:text-2xl font-black text-zinc-900 dark:text-white tracking-tight mt-1">
                   {showQrView ? "Scan WalletConnect QR" : "Connect Stellar Wallet"}
                 </h2>
-                <p
-                  id="connect-wallet-desc"
-                  className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5"
-                >
+                <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-0.5">
                   {showQrView
                     ? "Scan this code with any WalletConnect compatible mobile app."
                     : "Select your preferred hardware, biometric passkey, or extension wallet."}

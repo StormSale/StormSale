@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { FuzzySearchIndex } from "../lib/fuzzySearch";
 
 interface CampaignItem {
@@ -39,6 +39,17 @@ describe("fuzzy-search-perf test suite (Issue #506)", () => {
     maxEdits: 2,
   });
 
+  beforeAll(() => {
+    // Warmup JIT with a tiny sample so cold engine start doesn't inflate microbenchmarks
+    const warmupRecords = generateRecords(50);
+    const warmupIndex = new FuzzySearchIndex<CampaignItem>({
+      keys: ["title", "category", "advertiser"],
+      maxEdits: 2,
+    });
+    warmupIndex.buildIndex(warmupRecords);
+    warmupIndex.search("strm");
+  });
+
   it("1. Test index construction time < 50ms for 5,000 records", () => {
     const start = performance.now();
     index.buildIndex(records);
@@ -48,6 +59,9 @@ describe("fuzzy-search-perf test suite (Issue #506)", () => {
   });
 
   it("2. Verify search query execution time < 5ms per keystroke", () => {
+    // Ensure index is built
+    index.buildIndex(records);
+
     // Simulate typical search keystrokes: "s", "st", "sto", "stor", "storm"
     const keystrokes = ["s", "st", "sto", "stor", "storm", "defi", "escrow", "yield"];
 
