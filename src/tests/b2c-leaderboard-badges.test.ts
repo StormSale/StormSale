@@ -409,11 +409,23 @@ describe("b2c leaderboard: current-user position indicator", () => {
     expect(tableRows()[0].className).not.toContain("bg-indigo-50/50");
   });
 
-  it("matches the connected address case-insensitively", () => {
-    mocks.userAddress = USER.toLowerCase();
-    setUserGrossSales(USER.toLowerCase(), { monthly: 9_999_999 });
+  it("matches a seeded affiliate case-insensitively without duplicating their row", () => {
+    // Seeded addresses contain uppercase characters; connect with the lowercased form.
+    const seeded = getLeaderboardRankings("monthly", "", "sales", null).items[0];
+    expect(seeded.address).not.toBe(seeded.address.toLowerCase());
+    const lower = seeded.address.toLowerCase();
+    mocks.userAddress = lower;
+    setUserGrossSales(lower, { monthly: 9_999_999 });
+
+    const { items } = getLeaderboardRankings("monthly", "", "sales", lower);
+    expect(items.filter((i) => i.address.toLowerCase() === lower)).toHaveLength(1);
+    expect(items).toHaveLength(50);
+
     render(createElement(AffiliateLeaderboard));
-    expect(within(tableRows()[0]).getByText("You")).toBeTruthy();
+    const rows = tableRows();
+    expect(rows).toHaveLength(50);
+    expect(screen.getAllByText("You")).toHaveLength(1);
+    expect(within(rows[0]).getByText("You")).toBeTruthy();
   });
 
   it("keeps the 'You' tag when the user masks their address", () => {
