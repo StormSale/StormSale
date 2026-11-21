@@ -1,4 +1,5 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { Worker as NodeWorker } from "node:worker_threads";
 import {
   computeMerkleTree,
   getMerkleProof,
@@ -7,89 +8,36 @@ import {
   verifyMerkleProof,
 } from "../lib/merkleTree";
 import { SAMPLE_STELLAR_KEYS } from "../lib/batchSaleParser";
+import {
+  MERKLE_WORKER_SOURCE,
+  verifyMerkleProofInWorker,
+  type MerkleProofWorkerRequest,
+  type MerkleProofWorkerResponse,
+} from "../lib/merkleProofWorker";
 import type { MerkleProofStep, MerkleTreeResult } from "../types/batchSale";
 
-interface MerkleWorkerRequest {
-  id: string;
-  leaves: string[];
-  targetIndex: number;
-  expectedRoot: string;
-  leafHash?: string;
-}
-
-interface MerkleWorkerResponse {
-  id: string;
-  success: boolean;
-  isValid?: boolean;
-  error?: string;
-}
-
-interface WorkerLike {
-  onmessage: ((event: MessageEvent) => void) | null;
-  onerror: ((event: ErrorEvent) => void) | null;
-  postMessage(message: MerkleWorkerRequest): void;
-}
-
-class DeferredMerkleWorker implements WorkerLike {
+class NodeThreadMerkleWorker {
   public onmessage: ((event: MessageEvent) => void) | null = null;
   public onerror: ((event: ErrorEvent) => void) | null = null;
-  public readonly received: MerkleWorkerRequest[] = [];
-  private readonly pending = new Map<string, () => void>();
+  private readonly thread: NodeWorker;
 
-  postMessage(request: MerkleWorkerRequest): void {
-    this.received.push(request);
-    this.pending.set(request.id, () => {
-      try {
-        const proof = getMerkleProof(request.leaves, request.targetIndex);
-        const isValid = verifyMerkleProof(
-          request.leafHash ?? request.leaves[request.targetIndex],
-          proof,
-          request.expectedRoot,
-        );
-        this.onmessage?.({
-          data: { id: request.id, success: true, isValid },
-        } as unknown as MessageEvent);
-      } catch (error) {
-        this.onmessage?.({
-          data: {
-            id: request.id,
-            success: false,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        } as unknown as MessageEvent);
-      }
+  constructor() {
+    this.thread = new NodeWorker(MERKLE_WORKER_SOURCE, { eval: true });
+    this.thread.on("message", (data: MerkleProofWorkerResponse) => {
+      this.onmessage?.({ data } as unknown as MessageEvent);
+    });
+    this.thread.on("error", (error: Error) => {
+      this.onerror?.(error as unknown as ErrorEvent);
     });
   }
 
-  flush(id: string): void {
-    const run = this.pending.get(id);
-    this.pending.delete(id);
-    run?.();
+  postMessage(request: MerkleProofWorkerRequest): void {
+    this.thread.postMessage(request);
   }
 
-  terminate(): void {}
-}
-
-function verifyProofInWorker(
-  worker: WorkerLike,
-  request: Omit<MerkleWorkerRequest, "id">,
-): { id: string; result: Promise<boolean> } {
-  const id = `job_${Math.random().toString(36).slice(2)}`;
-  const result = new Promise<boolean>((resolve, reject) => {
-    worker.onmessage = (event: MessageEvent) => {
-      const response = event.data as MerkleWorkerResponse;
-      if (response.id !== id) return;
-      if (response.success) {
-        resolve(response.isValid === true);
-        return;
-      }
-      reject(new Error(response.error ?? "Merkle verification worker failed"));
-    };
-    worker.onerror = () => reject(new Error("Merkle verification worker failed"));
-    worker.postMessage({ id, ...request });
-  });
-
-  return { id, result };
+  terminate(): void {
+    void this.thread.terminate();
+  }
 }
 
 describe("Client-side Merkle proof generator and tree validator (#459)", () => {
@@ -101,10 +49,6 @@ describe("Client-side Merkle proof generator and tree validator (#459)", () => {
       sha256(`whitelist-allocation:${index}`),
     );
     largeTree = computeMerkleTree(leaves);
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
   });
 
   describe("1. Leaf hashing and SHA-256 tree generation", () => {
@@ -225,51 +169,56 @@ describe("Client-side Merkle proof generator and tree validator (#459)", () => {
   });
 
   describe("4. Web Worker verification of a 10,000-leaf tree", () => {
-    it("verifies a real claim and rejects a modified claim inside the worker", async () => {
-      vi.stubGlobal("Worker", DeferredMerkleWorker);
-      const worker = new Worker("blob:merkle-proof-validator") as unknown as DeferredMerkleWorker;
+    const createWorker = () => new NodeThreadMerkleWorker() as unknown as Worker;
+
+    it("verifies a real claim and rejects a modified claim on a separate thread", async () => {
       expect(largeTree.totalValidSales).toBe(LEAF_COUNT);
 
-      const validJob = verifyProofInWorker(worker, {
-        leaves: largeTree.leaves,
-        targetIndex: LEAF_COUNT - 1,
-        expectedRoot: largeTree.root,
-      });
-      worker.flush(validJob.id);
-      expect(await validJob.result).toBe(true);
+      const valid = await verifyMerkleProofInWorker(
+        {
+          leaves: largeTree.leaves,
+          targetIndex: LEAF_COUNT - 1,
+          expectedRoot: largeTree.root,
+        },
+        { workerFactory: createWorker },
+      );
+      expect(valid.success).toBe(true);
+      expect(valid.isValid).toBe(true);
+      expect(valid.root).toBe(largeTree.rootWithoutPrefix);
+      expect(valid.proofLength).toBeGreaterThan(0);
 
-      const forgedJob = verifyProofInWorker(worker, {
-        leaves: largeTree.leaves,
-        targetIndex: LEAF_COUNT - 1,
-        expectedRoot: largeTree.root,
-        leafHash: sha256("unauthorized-claim"),
-      });
-      worker.flush(forgedJob.id);
-      expect(await forgedJob.result).toBe(false);
+      const forged = await verifyMerkleProofInWorker(
+        {
+          leaves: largeTree.leaves,
+          targetIndex: LEAF_COUNT - 1,
+          expectedRoot: largeTree.root,
+          leafHash: sha256("unauthorized-claim"),
+        },
+        { workerFactory: createWorker },
+      );
+      expect(forged.success).toBe(true);
+      expect(forged.isValid).toBe(false);
     });
 
-    it("keeps UI ticks running while the 10,000-leaf proof is verified off-thread", async () => {
-      vi.stubGlobal("Worker", DeferredMerkleWorker);
-      const worker = new Worker("blob:merkle-proof-validator") as unknown as DeferredMerkleWorker;
+    it("keeps UI ticks running while the worker verifies a 10,000-leaf proof", async () => {
       let uiTicks = 0;
       const ticker = setInterval(() => {
         uiTicks += 1;
       }, 1);
 
       try {
-        const job = verifyProofInWorker(worker, {
-          leaves: largeTree.leaves,
-          targetIndex: 0,
-          expectedRoot: largeTree.root,
-        });
+        const ticksBeforeVerification = uiTicks;
+        const result = await verifyMerkleProofInWorker(
+          {
+            leaves: largeTree.leaves,
+            targetIndex: 0,
+            expectedRoot: largeTree.root,
+          },
+          { workerFactory: createWorker },
+        );
 
-        await new Promise<void>((resolve) => setTimeout(resolve, 30));
-        expect(worker.received).toHaveLength(1);
-        expect(uiTicks).toBeGreaterThan(0);
-
-        worker.flush(job.id);
-        expect(await job.result).toBe(true);
-        expect(uiTicks).toBeGreaterThan(0);
+        expect(result.isValid).toBe(true);
+        expect(uiTicks - ticksBeforeVerification).toBeGreaterThan(0);
       } finally {
         clearInterval(ticker);
       }
