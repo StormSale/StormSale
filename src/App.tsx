@@ -36,6 +36,7 @@ export const Affiliate = lazy(() =>
   import("./pages/Affiliate").then((m) => ({ default: m.Affiliate })),
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
+export const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
     default: m.BrandedCampaignView,
@@ -152,6 +153,7 @@ const VALID_PAGES = [
   "leaderboard",
   "milestones",
   "auditor",
+  "admin",
 ] as const;
 
 type Page = (typeof VALID_PAGES)[number];
@@ -342,6 +344,13 @@ function Router() {
                 <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
                   <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
                     <Auditor onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
+              {currentPage === "admin" && (
+                <ProtectedRoute requiredRole="ADMIN" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
+                    <Admin onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>
               )}
