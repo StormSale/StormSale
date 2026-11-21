@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import QRCode from "qrcode";
 import {
   Card,
@@ -29,6 +29,12 @@ import {
 import { useWeb3 } from "../../context/Web3Context";
 import { getAffiliateProfile } from "../../lib/affiliateLeaderboard";
 import { VerifiedRevenueBadge } from "./VerifiedRevenueBadge";
+import { getAllCustomLinks } from "../../lib/customLinks";
+import {
+  computeAggregateConversionAnalytics,
+  syncBackendConversions,
+} from "../../lib/conversionAnalytics";
+import type { CustomerConversion } from "../../lib/cohortAnalysis";
 
 const toBase64Url = (bytes: Uint8Array) => {
   let binary = "";
@@ -298,6 +304,30 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
 }) => {
   const { userAddress } = useWeb3();
   const profile = getAffiliateProfile(userAddress || "", userAddress);
+  const [conversions, setConversions] = useState<CustomerConversion[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void syncBackendConversions().then((res) => {
+      if (active) setConversions(res.conversions);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const activeLinks = useMemo(() => getAllCustomLinks(), []);
+  const analytics = useMemo(
+    () => computeAggregateConversionAnalytics(activeLinks, conversions),
+    [activeLinks, conversions],
+  );
+
+  const displayCvr = analytics.totalClicks > 0 ? analytics.formattedOverallCvr : "3.2%";
+  const displayCvrTrend =
+    analytics.totalClicks > 0
+      ? `${analytics.overallTrend.formattedDelta} vs baseline`
+      : "+0.4% vs last month";
+
   const stats = [
     {
       title: "Total Earnings",
@@ -308,8 +338,8 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
     { title: "Active Campaigns", value: "8", change: "+2 this week", icon: Users },
     {
       title: "Conversion Rate",
-      value: "3.2%",
-      change: "+0.4% vs last month",
+      value: displayCvr,
+      change: displayCvrTrend,
       icon: TrendingUp,
     },
     { title: "Monthly Goal", value: "85%", change: "On track", icon: Target },
@@ -529,12 +559,15 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
               Recruit Sub-Affiliates
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
-              Earn an automated 2% passive override commission whenever your recruited marketers drive verified sales.
+              Earn an automated 2% passive override commission whenever your recruited marketers
+              drive verified sales.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4 space-y-3">
             <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              Build your marketing team with your recruiter invite link. View interactive tree hierarchies, recruited partner performance, and real-time override splits in the Referral Network dashboard.
+              Build your marketing team with your recruiter invite link. View interactive tree
+              hierarchies, recruited partner performance, and real-time override splits in the
+              Referral Network dashboard.
             </p>
           </CardContent>
         </Card>
@@ -555,12 +588,14 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
               Proof of Revenue ($50K+)
             </CardTitle>
             <CardDescription className="text-zinc-500 dark:text-zinc-400 text-xs">
-              Cryptographically prove your historic volume to exclusive brands without leaking buyer or transaction data.
+              Cryptographically prove your historic volume to exclusive brands without leaking buyer
+              or transaction data.
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-4 space-y-3">
             <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              Compile historic on-chain conversions into blinded Merkle commitments. Generate shareable verification links that third-party brands can validate with 1 click.
+              Compile historic on-chain conversions into blinded Merkle commitments. Generate
+              shareable verification links that third-party brands can validate with 1 click.
             </p>
           </CardContent>
         </Card>
