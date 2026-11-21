@@ -45,6 +45,8 @@ import {
   isAffiliatePaused,
   fetchAuthoritativeAffiliatePauseState,
 } from "../../lib/fraudRiskEngine";
+import { isAffiliateSybilRestricted } from "../../lib/sybilDefense";
+import { RestrictedModeBanner } from "./RestrictedModeBanner";
 import { motion, AnimatePresence } from "framer-motion";
 
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
@@ -63,6 +65,8 @@ export const ClaimPayouts = () => {
   const [isFrozen, setIsFrozen] = useState(() =>
     userAddress ? isAffiliatePaused(userAddress) : false,
   );
+  const isSybilRestricted = userAddress ? isAffiliateSybilRestricted(userAddress) : false;
+  const isClaimsBlocked = isFrozen || isSybilRestricted;
 
   useEffect(() => {
     let active = true;
@@ -159,6 +163,15 @@ export const ClaimPayouts = () => {
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
 
+    if (isSybilRestricted) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Restricted",
+        message: "Your affiliate account is in restricted mode due to Sybil cluster detection. Instant claims are disabled.",
+      });
+      return;
+    }
+
     if (isFrozen) {
       showNotification({
         type: "error",
@@ -243,6 +256,15 @@ export const ClaimPayouts = () => {
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
+    if (isSybilRestricted) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Restricted",
+        message: "Your affiliate account is in restricted mode due to Sybil cluster detection. Instant claims are disabled.",
+      });
+      return;
+    }
+
     if (isFrozen) {
       showNotification({
         type: "error",
@@ -314,6 +336,11 @@ export const ClaimPayouts = () => {
           Matured commissions cleared by Soroban smart contract escrow are ready to withdraw.
         </p>
       </div>
+
+      {/* Sybil Attack Defense Restricted Mode Banner (Issue #473) */}
+      {isSybilRestricted && (
+        <RestrictedModeBanner affiliateAddress={userAddress || undefined} />
+      )}
 
       {/* Frozen Alert Banner (#152) */}
       {isFrozen && (
@@ -440,9 +467,9 @@ export const ClaimPayouts = () => {
               onClick={handleBatchClaim}
               loading={isBatchClaiming}
               cooldown
-              disabled={isBatchClaiming || selectedCampaigns.length === 0 || isFrozen}
+              disabled={isBatchClaiming || selectedCampaigns.length === 0 || isClaimsBlocked}
               className={`w-full rounded-2xl text-white font-extrabold text-sm h-13 px-6 transition-transform border-0 ${
-                isFrozen
+                isClaimsBlocked
                   ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
                   : "bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 shadow-xl shadow-indigo-500/30 hover:scale-[1.02]"
               }`}
@@ -453,10 +480,10 @@ export const ClaimPayouts = () => {
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   <span>Signing Single Envelope...</span>
                 </>
-              ) : isFrozen ? (
+              ) : isClaimsBlocked ? (
                 <>
                   <Lock className="w-4 h-4 mr-2 text-rose-400" />
-                  <span>Payouts Frozen (Review Pending)</span>
+                  <span>{isSybilRestricted ? "Payouts Restricted (Sybil Mode)" : "Payouts Frozen (Review Pending)"}</span>
                 </>
               ) : (
                 <>
@@ -775,11 +802,11 @@ export const ClaimPayouts = () => {
                             !isMatured ||
                             claimingId === camp.campaignId ||
                             isBatchClaiming ||
-                            isFrozen
+                            isClaimsBlocked
                           }
                           onClick={() => handleSingleClaim(camp.campaignId)}
                           className={`rounded-xl text-xs font-semibold h-8 px-3 transition-colors ${
-                            isFrozen
+                            isClaimsBlocked
                               ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
                               : isMatured
                                 ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white"
@@ -787,10 +814,10 @@ export const ClaimPayouts = () => {
                           }`}
                           data-testid={`btn-claim-single-${camp.campaignId}`}
                         >
-                          {isFrozen ? (
+                          {isClaimsBlocked ? (
                             <>
                               <Lock className="w-3 h-3 mr-1 text-rose-400" />
-                              <span>Frozen</span>
+                              <span>{isSybilRestricted ? "Restricted" : "Frozen"}</span>
                             </>
                           ) : (
                             <>
