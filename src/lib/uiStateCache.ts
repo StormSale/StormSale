@@ -1,9 +1,9 @@
 /**
  * Versioned, schema-safe localStorage cache for dashboard UI state.
  *
- * Tabs and navigation already persist through `usePreference`. This module
- * extends that idea to structured filter state (search queries, status
- * filters, time ranges) where a loose JSON blob is not safe enough:
+ * Tabs, navigation, and theme preferences persist through `usePreference`.
+ * Structured filter state (search queries, status filters, time ranges) uses
+ * `useFilterState`, because a loose JSON blob is not safe enough there:
  *
  *   stormsale.ui.<key> = { v, updatedAt, value }
  *
@@ -11,6 +11,11 @@
  * Entries with an unknown version, a corrupt payload, a shape that no longer
  * matches the schema, or an expired TTL are evicted instead of rendered.
  * Storage access is wrapped so private-mode or SSR environments never throw.
+ *
+ * The low-level `readVersionedState`/`writeVersionedState` helpers also back
+ * `usePreference`, so both preference keys and namespaced filter keys share the
+ * same envelope, validation, and migration rules. Legacy preference entries
+ * written as `{ v, value }` are upgraded in place on first read.
  */
 import { z, type ZodType } from "zod";
 
@@ -26,9 +31,20 @@ const envelopeSchema = z.object({
   value: z.unknown(),
 });
 
+/** Pre-#73 preference entries carried a version but no timestamp. */
+const legacyEnvelopeSchema = z.object({
+  v: z.number().int(),
+  value: z.unknown(),
+});
+
 export interface UIStateOptions {
   /** Overrides `UI_STATE_TTL_MS` for this cache entry. */
   ttlMs?: number;
+}
+
+export interface VersionedReadOptions extends UIStateOptions {
+  /** Accept `{ v, value }` entries and rewrite them with a timestamp. */
+  migrateLegacy?: boolean;
 }
 
 export interface UIStateCacheInitResult {
@@ -43,7 +59,11 @@ export interface UIStateCache<T> {
   clear: () => void;
 }
 
-function getStorage(): Storage | null {
+/**
+ * Returns localStorage when it is reachable, otherwise null. Access can throw
+ * when storage is disabled by the browser or when running without a DOM.
+ */
+export function getSafeStorage(): Storage | null {
   try {
     if (typeof window !== "undefined" && window.localStorage) {
       return window.localStorage;
@@ -76,39 +96,58 @@ function removeKey(storage: Storage, storageKey: string): void {
 
 /**
  * Reads a value only when the envelope version and zod schema both match.
- * Invalid entries are evicted and the caller's default is returned.
+ * Invalid entries are evicted and the caller's default is returned. With
+ * `migrateLegacy`, a legacy `{ v, value }` preference is upgraded to the
+ * current envelope instead of being discarded.
  */
-export function readUIState<T>(
-  key: string,
+export function readVersionedState<T>(
+  storageKey: string,
   schema: ZodType<T>,
   defaultValue: T,
-  options: UIStateOptions = {},
+  options: VersionedReadOptions = {},
 ): T {
-  const storage = getStorage();
+  const storage = getSafeStorage();
   if (!storage) return defaultValue;
-
-  const storageKey = uiStateStorageKey(key);
 
   try {
     const raw = storage.getItem(storageKey);
     if (!raw) return defaultValue;
 
-    const envelope = envelopeSchema.safeParse(JSON.parse(raw));
-    if (!envelope.success || envelope.data.v !== UI_STATE_VERSION) {
+    const parsed: unknown = JSON.parse(raw);
+
+    let rawValue: unknown;
+    let legacy = false;
+
+    const envelope = envelopeSchema.safeParse(parsed);
+    if (envelope.success && envelope.data.v === UI_STATE_VERSION) {
+      const ttlMs = options.ttlMs ?? UI_STATE_TTL_MS;
+      if (isExpired(envelope.data.updatedAt, ttlMs)) {
+        removeKey(storage, storageKey);
+        return defaultValue;
+      }
+      rawValue = envelope.data.value;
+    } else if (options.migrateLegacy) {
+      const previous = legacyEnvelopeSchema.safeParse(parsed);
+      if (!previous.success || previous.data.v !== UI_STATE_VERSION) {
+        removeKey(storage, storageKey);
+        return defaultValue;
+      }
+      rawValue = previous.data.value;
+      legacy = true;
+    } else {
       removeKey(storage, storageKey);
       return defaultValue;
     }
 
-    const ttlMs = options.ttlMs ?? UI_STATE_TTL_MS;
-    if (isExpired(envelope.data.updatedAt, ttlMs)) {
-      removeKey(storage, storageKey);
-      return defaultValue;
-    }
-
-    const value = schema.safeParse(envelope.data.value);
+    const value = schema.safeParse(rawValue);
     if (!value.success) {
       removeKey(storage, storageKey);
       return defaultValue;
+    }
+
+    if (legacy) {
+      // Best-effort rewrite: a failed upgrade still returns the valid value.
+      writeVersionedState(storageKey, schema, value.data);
     }
 
     return value.data;
@@ -120,11 +159,11 @@ export function readUIState<T>(
 }
 
 /**
- * Validates before writing so a bad filter value can never poison storage.
+ * Validates before writing so a bad value can never poison storage.
  * Returns false when storage is unavailable or the value is off-schema.
  */
-export function writeUIState<T>(key: string, schema: ZodType<T>, value: T): boolean {
-  const storage = getStorage();
+export function writeVersionedState<T>(storageKey: string, schema: ZodType<T>, value: T): boolean {
+  const storage = getSafeStorage();
   if (!storage) return false;
 
   const parsed = schema.safeParse(value);
@@ -132,7 +171,7 @@ export function writeUIState<T>(key: string, schema: ZodType<T>, value: T): bool
 
   try {
     storage.setItem(
-      uiStateStorageKey(key),
+      storageKey,
       JSON.stringify({
         v: UI_STATE_VERSION,
         updatedAt: Date.now(),
@@ -146,10 +185,64 @@ export function writeUIState<T>(key: string, schema: ZodType<T>, value: T): bool
   }
 }
 
+/**
+ * Reads a namespaced filter entry from the versioned cache.
+ */
+export function readUIState<T>(
+  key: string,
+  schema: ZodType<T>,
+  defaultValue: T,
+  options: UIStateOptions = {},
+): T {
+  return readVersionedState(uiStateStorageKey(key), schema, defaultValue, options);
+}
+
+/**
+ * Validates and writes a namespaced filter entry.
+ */
+export function writeUIState<T>(key: string, schema: ZodType<T>, value: T): boolean {
+  return writeVersionedState(uiStateStorageKey(key), schema, value);
+}
+
 export function clearUIState(key: string): void {
-  const storage = getStorage();
+  const storage = getSafeStorage();
   if (!storage) return;
   removeKey(storage, uiStateStorageKey(key));
+}
+
+/**
+ * Subscribes to `storage` events for a single key. Fires when another tab
+ * writes or removes the key. `event.key === null` means another tab cleared
+ * storage, so every subscriber is notified.
+ */
+export function subscribeToStorageKey(storageKey: string, onChange: () => void): () => void {
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") {
+    return () => {};
+  }
+
+  const handler = (event: StorageEvent) => {
+    if (event.key !== null && event.key !== storageKey) return;
+    onChange();
+  };
+
+  window.addEventListener("storage", handler);
+  return () => window.removeEventListener("storage", handler);
+}
+
+/**
+ * Cross-tab subscription for a namespaced filter entry. Re-reads through the
+ * schema so a malformed write from another tab can never reach the UI.
+ */
+export function subscribeUIState<T>(
+  key: string,
+  schema: ZodType<T>,
+  defaultValue: T,
+  onChange: (value: T) => void,
+  options: UIStateOptions = {},
+): () => void {
+  return subscribeToStorageKey(uiStateStorageKey(key), () => {
+    onChange(readUIState(key, schema, defaultValue, options));
+  });
 }
 
 /**
@@ -157,7 +250,7 @@ export function clearUIState(key: string): void {
  * entries before the first render. Safe to call on every start-up.
  */
 export function initUIStateCache(options: UIStateOptions = {}): UIStateCacheInitResult {
-  const storage = getStorage();
+  const storage = getSafeStorage();
   if (!storage) return { scanned: 0, purged: 0 };
 
   const ttlMs = options.ttlMs ?? UI_STATE_TTL_MS;
