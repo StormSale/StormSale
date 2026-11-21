@@ -157,6 +157,23 @@ export async function fetchAffiliateMaturedClaims(
 }
 
 /**
+ * Minimum claimable balance per asset required to submit a claim (micro-payout guard).
+ * Prevents claims whose value would be dwarfed by network fees.
+ */
+export const MIN_CLAIM_THRESHOLDS: Record<string, number> = {
+  XLM: 1,
+  USDC: 0.5,
+};
+
+export function getMinClaimThreshold(assetCode?: string): number {
+  return MIN_CLAIM_THRESHOLDS[assetCode ?? "XLM"] ?? MIN_CLAIM_THRESHOLDS.XLM;
+}
+
+export function isBelowMinClaimThreshold(amount: number, assetCode?: string): boolean {
+  return !Number.isFinite(amount) || amount < getMinClaimThreshold(assetCode);
+}
+
+/**
  * Calculates total withdrawable XLM balance across an array of matured claim items.
  */
 export function calculateTotalClaimableXlm(items: ClaimableCampaignItem[]): number {
