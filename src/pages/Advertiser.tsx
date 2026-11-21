@@ -8,6 +8,7 @@ import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
 import { CampaignAnalytics } from "../components/advertiser/CampaignAnalytics";
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { WebhookManager } from "../components/advertiser/WebhookManager";
+import { SlackSettingsCard } from "../components/advertiser/SlackSettingsCard";
 import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
 import { AuditAccessPortal } from "../components/advertiser/AuditAccessPortal";
 import { CohortVisualizer } from "../components/advertiser/CohortVisualizer";
@@ -45,6 +46,7 @@ import {
   ShieldAlert,
   CheckCircle2,
   Clock,
+  MessageSquare,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -63,6 +65,7 @@ const ADVERTISER_TABS = [
   "batch-sales",
   "cohort-analysis",
   "webhooks",
+  "slack-alerts",
   "grant-access",
   "audit-logs",
   "analytics",
@@ -89,6 +92,7 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
     { id: "batch-sales", label: "Batch Sales (CSV/JSON)", icon: FileSpreadsheet },
     { id: "cohort-analysis", label: "Cohort & LTV Analysis", icon: Layers },
     { id: "webhooks", label: "Postback Webhooks", icon: Radio },
+    { id: "slack-alerts", label: "Slack Alerts", icon: MessageSquare },
     { id: "grant-access", label: "Grant Audit Access", icon: Eye },
     { id: "audit-logs", label: "Audit Access Logs", icon: FileSearch },
     { id: "analytics", label: "Campaign Analytics", icon: BarChart3 },
@@ -119,6 +123,8 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
         return <CohortVisualizer />;
       case "webhooks":
         return <WebhookManager />;
+      case "slack-alerts":
+        return <SlackSettingsCard />;
       case "grant-access":
         return <GrantAccessForm />;
       case "audit-logs":
