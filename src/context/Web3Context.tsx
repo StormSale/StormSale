@@ -40,6 +40,7 @@ import {
 import { recordReferralSale } from "../lib/referralTree";
 import type { TwoTierCommissionSplit } from "../types/referral";
 import { txQueueManager, type TxQueueStatusSummary } from "../lib/txQueue";
+import { useTransactionAnnouncer } from "./TransactionAnnouncementContext";
 
 export interface OptimisticAction {
   id: string;
@@ -52,6 +53,16 @@ export interface OptimisticAction {
     assetBalances: Record<SupportedEscrowAssetCode, string>;
     tokenAllowance: number;
   };
+}
+
+function extractTransactionHash(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || !("txHash" in result)) return undefined;
+  const hash = (result as { txHash?: unknown }).txHash;
+  return typeof hash === "string" && hash.length > 0 ? hash : undefined;
+}
+
+function extractTransactionError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export interface Web3ContextType {
@@ -227,6 +238,7 @@ export function Web3Provider({
     txQueueManager.getStatus(),
   );
   const isTxQueueBusy = txQueueStatus.isProcessing || txQueueStatus.pendingCount > 0;
+  const { announceTransaction } = useTransactionAnnouncer();
 
   useEffect(() => {
     txQueueManager.setAccount(userAddress);
@@ -259,6 +271,7 @@ export function Web3Provider({
       };
     },
     operation: (sequence: string) => Promise<T>,
+    amount?: string,
   ): Promise<T> => {
     const actionId = `opt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
     const snapshotStartTime = performance.now();
@@ -274,6 +287,7 @@ export function Web3Provider({
       rollbackSnapshot: previousSnapshot,
     };
     setOptimisticActions((prev) => [action, ...prev.slice(0, 19)]);
+    announceTransaction({ status: "submitting", amount, description });
     console.log(
       `[Optimistic UI] Applied optimistic update for "${description}" in ${(
         performance.now() - snapshotStartTime
@@ -282,10 +296,27 @@ export function Web3Provider({
 
     // 2. Sequential Queue Execution with Sequence Desync Auto-Recovery (#130)
     return (async () => {
+      announceTransaction({ status: "queued", amount, description });
       try {
         const result = await txQueueManager.enqueue(actionType, description, async (seq) => {
           return await operation(seq);
         });
+        const transactionHash = extractTransactionHash(result);
+        const wasUnsuccessful = Boolean(
+          result && typeof result === "object" && "success" in result && result.success === false,
+        );
+
+        if (wasUnsuccessful) {
+          announceTransaction({
+            status: "failed",
+            amount,
+            description,
+            transactionHash,
+            error: "Transaction was not successful",
+          });
+        } else {
+          announceTransaction({ status: "confirmed", amount, description, transactionHash });
+        }
 
         // Mark confirmed on success
         setOptimisticActions((prev) =>
@@ -293,6 +324,12 @@ export function Web3Provider({
         );
         return result;
       } catch (err: unknown) {
+        announceTransaction({
+          status: "failed",
+          amount,
+          description,
+          error: extractTransactionError(err),
+        });
         // 3. Reliable State Revert on Txn Failure (#68)
         console.warn(
           `[Optimistic UI] Operation failed, reverting state for "${description}":`,
@@ -746,6 +783,7 @@ export function Web3Provider({
           };
         }
       },
+      `${budgetAmount} ${assetCode}`,
     );
   };
 
@@ -844,6 +882,7 @@ export function Web3Provider({
           };
         }
       },
+      `${amountXlm} XLM`,
     );
   };
 
@@ -908,6 +947,7 @@ export function Web3Provider({
           };
         }
       },
+      assetCode,
     );
   };
 
@@ -1032,6 +1072,7 @@ export function Web3Provider({
           };
         }
       },
+      `${amount} ${assetCode}`,
     );
   };
 
