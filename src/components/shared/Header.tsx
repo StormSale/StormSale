@@ -101,6 +101,17 @@ export const Header = ({ onNavigate }: HeaderProps) => {
   }, [network]);
 
   useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileMenuOpen]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!isConnected) {
       setVerifiedNetwork(null);
@@ -469,12 +480,19 @@ export const Header = ({ onNavigate }: HeaderProps) => {
       {/* Mobile Dropdown Navigation Drawer */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="sm:hidden border-t border-slate-200 dark:border-zinc-800 bg-white/98 dark:bg-zinc-950/98 backdrop-blur-xl px-4 py-4 space-y-3"
-          >
+          <>
+            <div
+              data-testid="mobile-drawer-overlay"
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="fixed inset-0 z-40 bg-black/40 sm:hidden"
+            />
+            <motion.div
+              data-testid="mobile-navigation-drawer"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="relative z-50 sm:hidden border-t border-slate-200 dark:border-zinc-800 bg-white/98 dark:bg-zinc-950/98 backdrop-blur-xl px-4 py-4 space-y-3"
+            >
             {isConnected && (
               <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 flex items-center justify-between mb-2">
                 <div className="flex items-center space-x-2">
@@ -561,7 +579,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               )}
             </div>
           </motion.div>
-        )}
+        </>
+      )}
       </AnimatePresence>
       <ContractIntegrityModal
         isOpen={isContractIntegrityModalOpen}

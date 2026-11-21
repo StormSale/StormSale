@@ -1,5 +1,6 @@
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/shared/Sidebar";
+import { CreateCampaignWizard } from "../components/advertiser/CreateCampaignWizard";
 import { CreateCampaignForm } from "../components/advertiser/CreateCampaignForm";
 import { LogSaleForm } from "../components/advertiser/LogSaleForm";
 import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
@@ -91,7 +92,14 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
   const renderContent = () => {
     switch (activeTab) {
       case "create-campaign":
-        return <CreateCampaignForm />;
+        return (
+          <div className="space-y-8">
+            <CreateCampaignForm />
+            <div className="pt-8 border-t border-slate-200 dark:border-zinc-800">
+              <CreateCampaignWizard onNavigateToMyCampaigns={() => setActiveTab("my-campaigns")} />
+            </div>
+          </div>
+        );
       case "brand-customizer":
         return <BrandCustomizer />;
       case "team-management":

@@ -47,6 +47,11 @@ export const AffiliateLeaderboard = lazy(() =>
     default: m.AffiliateLeaderboard,
   })),
 );
+export const MarketplaceExplorer = lazy(() =>
+  import("./components/marketplace/MarketplaceExplorer").then((m) => ({
+    default: m.MarketplaceExplorer,
+  })),
+);
 
 export function IndigoBootLoader({
   isExiting = false,
@@ -154,6 +159,7 @@ const VALID_PAGES = [
   "milestones",
   "auditor",
   "admin",
+  "marketplace",
 ] as const;
 
 type Page = (typeof VALID_PAGES)[number];
@@ -289,6 +295,73 @@ function Router() {
     );
   }
 
+  const isMarketplaceRoute =
+    typeof window !== "undefined" &&
+    (window.location.pathname === "/marketplace" ||
+      window.location.pathname.startsWith("/marketplace") ||
+      new URLSearchParams(window.location.search).get("view") === "marketplace");
+
+  if (isMarketplaceRoute) {
+    return (
+      <>
+        <ConnectWalletModal />
+        <div className="min-h-screen bg-slate-50 dark:bg-[#09090b] font-sans selection:bg-indigo-500/30">
+          <header className="border-b border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 backdrop-blur-xl sticky top-0 z-50">
+            <div className="container mx-auto px-4 py-3 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    window.history.pushState({}, "", "/");
+                    window.location.href = "/";
+                  }}
+                  className="rounded-xl font-bold text-xs"
+                >
+                  <ArrowLeft className="w-4 h-4 mr-1.5" />
+                  Back to StormSale
+                </Button>
+                <div className="hidden sm:flex items-center space-x-2 border-l border-slate-200 dark:border-zinc-800 pl-3">
+                  <img src={logo} alt="StormSale Icon" className="h-7 w-auto object-contain" />
+                  <span className="font-black text-sm tracking-tight text-zinc-900 dark:text-white">
+                    StormSale
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center space-x-3">
+                <ThemeToggle />
+                {!isConnected ? (
+                  <Button
+                    onClick={openWalletModal}
+                    className="rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    <Zap className="w-3.5 h-3.5 mr-1.5" />
+                    Connect Wallet
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={() => {
+                      window.history.pushState({}, "", "/");
+                      setCurrentPage("dashboard");
+                    }}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
+                  >
+                    Dashboard
+                  </Button>
+                )}
+              </div>
+            </div>
+          </header>
+          <main className="container mx-auto px-4 py-8 max-w-6xl">
+            <Suspense fallback={<PageLoader />}>
+              <MarketplaceExplorer />
+            </Suspense>
+          </main>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <ConnectWalletModal />
@@ -353,6 +426,11 @@ function Router() {
                     <Admin onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>
+              )}
+              {currentPage === "marketplace" && (
+                <Suspense fallback={<PageLoader />}>
+                  <MarketplaceExplorer />
+                </Suspense>
               )}
             </main>
           </div>
