@@ -1,145 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { TxQueueManager, type TxQueueStatusSummary, type TxQueueItemStatus } from "../lib/txQueue";
-
-/**
- * Web3 Contract Invocation Batching & Sequential Execution Engine
- *
- * Implements:
- * 1. Sequential execution of interdependent smart contract calls (e.g. approve -> create -> fund -> verify).
- * 2. Atomic state rollback in frontend state if any sub-operation fails mid-flight.
- * 3. Progress bar indicator with percentage tracking and error state management.
- */
-
-export interface ContractBatchStep<TInput = unknown, TOutput = unknown> {
-  id: string;
-  name: string;
-  execute: (input: TInput, prevResults: Record<string, unknown>) => Promise<TOutput>;
-  rollback?: (input: TInput, error: Error) => Promise<void> | void;
-}
-
-export interface BatchProgressState {
-  currentStepIndex: number;
-  totalSteps: number;
-  percentage: number;
-  currentStepName: string;
-  status: "idle" | "in_progress" | "completed" | "failed" | "rolled_back";
-  error?: string;
-  results: Record<string, unknown>;
-}
-
-export type BatchProgressSubscriber = (state: BatchProgressState) => void;
-
-export class ContractBatchExecutor {
-  private steps: ContractBatchStep<any, any>[] = [];
-  private progress: BatchProgressState = {
-    currentStepIndex: 0,
-    totalSteps: 0,
-    percentage: 0,
-    currentStepName: "",
-    status: "idle",
-    results: {},
-  };
-  private subscribers: Set<BatchProgressSubscriber> = new Set();
-  private snapshotState: Record<string, unknown> = {};
-
-  constructor(steps: ContractBatchStep<any, any>[] = []) {
-    this.steps = steps;
-    this.progress.totalSteps = steps.length;
-  }
-
-  public subscribe(callback: BatchProgressSubscriber): () => void {
-    this.subscribers.add(callback);
-    callback(this.getProgress());
-    return () => this.subscribers.delete(callback);
-  }
-
-  public getProgress(): BatchProgressState {
-    return { ...this.progress, results: { ...this.progress.results } };
-  }
-
-  private notify() {
-    const current = this.getProgress();
-    for (const sub of this.subscribers) {
-      try {
-        sub(current);
-      } catch (err) {
-        console.error("Batch progress subscriber error:", err);
-      }
-    }
-  }
-
-  public async executeBatch(
-    initialState: Record<string, unknown>,
-    onStateRollback?: (snapshot: Record<string, unknown>) => void
-  ): Promise<{ success: boolean; results: Record<string, unknown>; error?: Error }> {
-    // 1. Take atomic snapshot of frontend state before execution begins
-    this.snapshotState = JSON.parse(JSON.stringify(initialState));
-    this.progress.status = "in_progress";
-    this.progress.currentStepIndex = 0;
-    this.progress.percentage = 0;
-    this.progress.results = {};
-    delete this.progress.error;
-    this.notify();
-
-    const executedSteps: ContractBatchStep<any, any>[] = [];
-
-    for (let i = 0; i < this.steps.length; i++) {
-      const step = this.steps[i];
-      this.progress.currentStepIndex = i + 1;
-      this.progress.currentStepName = step.name;
-      this.progress.percentage = Math.round((i / this.steps.length) * 100);
-      this.notify();
-
-      try {
-        const stepResult = await step.execute(this.snapshotState, this.progress.results);
-        this.progress.results[step.id] = stepResult;
-        executedSteps.push(step);
-      } catch (stepErr: any) {
-        // Step failed: perform atomic rollback
-        const error = stepErr instanceof Error ? stepErr : new Error(String(stepErr));
-        this.progress.status = "failed";
-        this.progress.error = error.message;
-        this.notify();
-
-        // Roll back executed sub-operations in reverse order
-        for (let r = executedSteps.length - 1; r >= 0; r--) {
-          const executed = executedSteps[r];
-          if (executed.rollback) {
-            try {
-              await executed.rollback(this.snapshotState, error);
-            } catch (rbErr) {
-              console.error(`Rollback failed for step ${executed.id}:`, rbErr);
-            }
-          }
-        }
-
-        // Restore frontend state from pre-execution snapshot
-        if (onStateRollback) {
-          onStateRollback(this.snapshotState);
-        }
-
-        this.progress.status = "rolled_back";
-        this.notify();
-
-        return {
-          success: false,
-          results: this.progress.results,
-          error,
-        };
-      }
-    }
-
-    this.progress.status = "completed";
-    this.progress.percentage = 100;
-    this.progress.currentStepName = "Complete";
-    this.notify();
-
-    return {
-      success: true,
-      results: this.progress.results,
-    };
-  }
-}
+import { TxQueueManager } from "../lib/txQueue";
+import {
+  ContractBatchExecutor,
+  executeContractBatch,
+  type ContractBatchStep,
+  type BatchProgressState,
+} from "../lib/contractBatchExecutor";
 
 describe("Smart Contract Invocation Batching and Execution Order (#432)", () => {
   let queueManager: TxQueueManager;
@@ -225,6 +91,18 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
 
       expect(callOrder).toEqual(["step_1", "step_2"]);
       expect(BigInt(res2.seq)).toBeGreaterThan(BigInt(res1.seq));
+    });
+
+    it("verifies executeContractBatch functional helper runs successfully", async () => {
+      const step: ContractBatchStep = {
+        id: "single_step",
+        name: "Single Step Execution",
+        execute: async () => ({ value: 42 }),
+      };
+
+      const outcome = await executeContractBatch([step], { test: 1 });
+      expect(outcome.success).toBe(true);
+      expect(outcome.results["single_step"]).toEqual({ value: 42 });
     });
   });
 
@@ -409,6 +287,15 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(finalState.error).toContain("insufficient gas");
       // Step 3 was never executed
       expect(finalState.results["step_3"]).toBeUndefined();
+    });
+
+    it("handles empty batch gracefully", async () => {
+      const executor = new ContractBatchExecutor([]);
+      expect(executor.stepCount).toBe(0);
+      const outcome = await executor.executeBatch({});
+      expect(outcome.success).toBe(true);
+      expect(executor.getProgress().percentage).toBe(100);
+      expect(executor.getProgress().status).toBe("completed");
     });
   });
 });
