@@ -7,6 +7,7 @@ import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 const mocks = vi.hoisted(() => ({
   showNotification: vi.fn(),
   getAllCustomLinks: vi.fn(),
+  fetchAllCustomLinks: vi.fn(),
   deleteCustomShortLink: vi.fn(),
   getShortLinkUrl: vi.fn((slug: string) => `https://stormsale.xyz/c/${slug}`),
   userAddress: "Gaffiliate-wallet",
@@ -20,6 +21,7 @@ vi.mock("../context/NotificationContext", () => ({
 }));
 vi.mock("../lib/customLinks", () => ({
   getAllCustomLinks: mocks.getAllCustomLinks,
+  fetchAllCustomLinks: mocks.fetchAllCustomLinks,
   deleteCustomShortLink: mocks.deleteCustomShortLink,
   getShortLinkUrl: mocks.getShortLinkUrl,
 }));
@@ -84,7 +86,12 @@ describe("CustomLinksManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getAllCustomLinks.mockReturnValue(sampleLinks);
+    mocks.fetchAllCustomLinks.mockResolvedValue(sampleLinks);
     mocks.deleteCustomShortLink.mockResolvedValue(true);
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    });
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
@@ -162,6 +169,7 @@ describe("CustomLinksManager", () => {
 
   it("shows the empty state, opens the generator, and adds a created link", () => {
     mocks.getAllCustomLinks.mockReturnValue([]);
+    mocks.fetchAllCustomLinks.mockResolvedValue([]);
     render(<CustomLinksManager />);
     expect(screen.getByText("No custom short links found")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Generate Short Link" }));
@@ -177,5 +185,47 @@ describe("CustomLinksManager", () => {
     });
     expect(screen.getByText("Try adjusting your search criteria.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Generate Short Link" })).toBeNull();
+  });
+
+  it("calculates and displays real-time CVR percentages and trend indicators for active links", async () => {
+    render(<CustomLinksManager />);
+
+    // Table headers for CVR analytics
+    expect(screen.getByText("Sales")).toBeTruthy();
+    expect(screen.getByText("CVR %")).toBeTruthy();
+    expect(screen.getByText("Trend")).toBeTruthy();
+
+    // Bento stat card for CVR
+    expect(screen.getByText("Real-time CVR")).toBeTruthy();
+
+    // Verify CVR calculation for active links
+    await waitFor(() => {
+      // link-one has 1250 clicks and matching demo conversions
+      expect(screen.getByTestId("cvr-percentage-tech-deals")).toBeTruthy();
+      expect(screen.getByTestId("cvr-trend-tech-deals")).toBeTruthy();
+      expect(screen.getByTestId("sales-count-tech-deals")).toBeTruthy();
+
+      // link-two has 0 clicks -> 0.00% CVR
+      const wellnessCvr = screen.getByTestId("cvr-percentage-wellness");
+      expect(wellnessCvr.textContent).toContain("0.00%");
+    });
+  });
+
+  it("handles manual sync conversions trigger and shows feedback notification", async () => {
+    render(<CustomLinksManager />);
+
+    const syncBtn = screen.getByTestId("sync-conversions-btn");
+    await waitFor(() => expect(syncBtn.getAttribute("disabled")).toBeNull());
+
+    fireEvent.click(syncBtn);
+
+    await waitFor(() => {
+      expect(mocks.showNotification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "success",
+          title: "Conversion Data Synced",
+        }),
+      );
+    });
   });
 });
