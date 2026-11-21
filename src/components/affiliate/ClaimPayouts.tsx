@@ -276,7 +276,7 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const res = await claimPayoutOnChain(campaignId, target?.assetCode);
+      const res = await claimPayoutOnChain(campaignId, target?.assetCode, claimAmount);
       recordAffiliateClaim(userAddress || "", campaignId, claimAmount);
       refreshQuota();
       setCampaigns((prev) =>
