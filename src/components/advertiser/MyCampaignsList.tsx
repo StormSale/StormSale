@@ -1,7 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { z } from "zod";
 import { useIndexerQuery } from "../../hooks/useIndexerQuery";
-import { useFilterState } from "../../hooks/useFilterState";
 import { CAMPAIGN_HISTORY_QUERY, type IndexerCampaign } from "../../lib/indexer/goldskyIndexer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";

@@ -29,6 +29,7 @@ import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { STELLAR_CONFIG } from "../../config/stellar";
 import { StrKey, Keypair } from "@stellar/stellar-sdk";
+import { ResourceDiagnosticAccordion } from "../shared/ResourceDiagnosticAccordion";
 
 export interface BulkSaleLogModalProps {
   onClose?: () => void;
@@ -833,6 +834,9 @@ export const BulkSaleLogModal: React.FC<BulkSaleLogModalProps> = ({
             </div>
           );
         })()}
+
+          {/* Resource Diagnostic Accordion */}
+          <ResourceDiagnosticAccordion className="my-2" />
 
           {/* Action Button */}
           <div className="pt-2">
