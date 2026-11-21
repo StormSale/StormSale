@@ -39,20 +39,13 @@ import {
 } from "../lib/rpcFallback";
 import { recordReferralSale } from "../lib/referralTree";
 import type { TwoTierCommissionSplit } from "../types/referral";
-import { txQueueManager, type TxQueueStatusSummary } from "../lib/txQueue";
-
-export interface OptimisticAction {
-  id: string;
-  type: string;
-  description: string;
-  timestamp: number;
-  status: "pending" | "confirmed" | "reverted";
-  rollbackSnapshot: {
-    xlmBalance: string;
-    assetBalances: Record<SupportedEscrowAssetCode, string>;
-    tokenAllowance: number;
-  };
-}
+import {
+  authenticateWithSep10,
+  getActiveSep10Session,
+  clearSep10Session,
+  type Sep10AuthSession,
+  type Sep10AuthResult,
+} from "../lib/sep10Auth";
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -178,6 +171,10 @@ export interface Web3ContextType {
   provider: any;
   signer: any;
   switchToStellarNetwork: () => Promise<boolean>;
+
+  // Stellar SEP-0010 Challenge-Response Authentication (#112)
+  sep10Session: Sep10AuthSession | null;
+  authenticateSep10: (role?: string) => Promise<Sep10AuthResult>;
 }
 
 export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -218,96 +215,27 @@ export function Web3Provider({
   const [activeMultiSigXdr, setActiveMultiSigXdr] = useState<string | null>(null);
   const [activeMultiSigDescription, setActiveMultiSigDescription] = useState<string | null>(null);
 
-  // In-flight optimistic operations state (#68)
-  const [optimisticActions, setOptimisticActions] = useState<OptimisticAction[]>([]);
-  const isOptimisticActive = optimisticActions.some((a) => a.status === "pending");
-
-  // In-flight sequential transaction queue state (#130)
-  const [txQueueStatus, setTxQueueStatus] = useState<TxQueueStatusSummary>(() =>
-    txQueueManager.getStatus(),
+  // Stellar SEP-0010 Authentication Session State (#112)
+  const [sep10Session, setSep10Session] = useState<Sep10AuthSession | null>(() =>
+    getActiveSep10Session(),
   );
-  const isTxQueueBusy = txQueueStatus.isProcessing || txQueueStatus.pendingCount > 0;
 
-  useEffect(() => {
-    txQueueManager.setAccount(userAddress);
-    const unsubscribe = txQueueManager.subscribe((status) => {
-      setTxQueueStatus(status);
-    });
-    return unsubscribe;
-  }, [userAddress]);
-
-  useEffect(() => {
-    txQueueManager.sequenceFetcher = async (addr: string) => {
-      try {
-        const server = rpcFallbackManager.getActiveRpcServer();
-        const acc = await server.getAccount(addr);
-        return acc.sequenceNumber();
-      } catch {
-        return (BigInt(Date.now()) * 1000n).toString();
+  const authenticateSep10 = useCallback(
+    async (roleOverride?: string): Promise<Sep10AuthResult> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const targetRole = roleOverride || userRole || "affiliate";
+      const isMock = connectorType === "mock";
+      const result = await authenticateWithSep10(userAddress, targetRole, isMock);
+      if (result.success && result.session) {
+        setSep10Session(result.session);
+        if (result.session.role) {
+          setUserRole(result.session.role);
+        }
       }
-    };
-  }, []);
-
-  const executeWithOptimismAndQueue = <T,>(
-    actionType: string,
-    description: string,
-    optimisticMutator: () => {
-      previousSnapshot: {
-        xlmBalance: string;
-        assetBalances: Record<SupportedEscrowAssetCode, string>;
-        tokenAllowance: number;
-      };
+      return result;
     },
-    operation: (sequence: string) => Promise<T>,
-  ): Promise<T> => {
-    const actionId = `opt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-    const snapshotStartTime = performance.now();
-
-    // 1. Instant optimistic state update (<50ms latency guarantee)
-    const { previousSnapshot } = optimisticMutator();
-    const action: OptimisticAction = {
-      id: actionId,
-      type: actionType,
-      description,
-      timestamp: Date.now(),
-      status: "pending",
-      rollbackSnapshot: previousSnapshot,
-    };
-    setOptimisticActions((prev) => [action, ...prev.slice(0, 19)]);
-    console.log(
-      `[Optimistic UI] Applied optimistic update for "${description}" in ${(
-        performance.now() - snapshotStartTime
-      ).toFixed(2)}ms`,
-    );
-
-    // 2. Sequential Queue Execution with Sequence Desync Auto-Recovery (#130)
-    return (async () => {
-      try {
-        const result = await txQueueManager.enqueue(actionType, description, async (seq) => {
-          return await operation(seq);
-        });
-
-        // Mark confirmed on success
-        setOptimisticActions((prev) =>
-          prev.map((a) => (a.id === actionId ? { ...a, status: "confirmed" } : a)),
-        );
-        return result;
-      } catch (err: unknown) {
-        // 3. Reliable State Revert on Txn Failure (#68)
-        console.warn(
-          `[Optimistic UI] Operation failed, reverting state for "${description}":`,
-          err,
-        );
-        setXlmBalance(previousSnapshot.xlmBalance);
-        setAssetBalances(previousSnapshot.assetBalances);
-        setTokenAllowance(previousSnapshot.tokenAllowance);
-        setOptimisticActions((prev) =>
-          prev.map((a) => (a.id === actionId ? { ...a, status: "reverted" } : a)),
-        );
-        throw err;
-      }
-    })();
-  };
+    [userAddress, userRole, connectorType],
+  );
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -597,8 +525,8 @@ export function Web3Provider({
     setIsMultiSigModalOpen(false);
     setActiveMultiSigXdr(null);
     setActiveMultiSigDescription(null);
-    setOptimisticActions([]);
-    txQueueManager.clear();
+    setSep10Session(null);
+    clearSep10Session();
     void purgeOnLogout();
   };
 
@@ -1186,6 +1114,8 @@ export function Web3Provider({
         simulateRpcFailover,
         checkRpcHealth,
         addCustomRpcEndpoint,
+        sep10Session,
+        authenticateSep10,
       }}
     >
       {children}
