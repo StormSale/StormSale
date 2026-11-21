@@ -1,5 +1,33 @@
 # Changelog
 
+# [1.2.0](https://github.com/StormSale/StormSale/compare/v1.1.2...v1.2.0) (2026-11-21)
+
+
+### Bug Fixes
+
+* **affiliate:** address review feedback for sales ledger, claim toasts, and fuzz tests ([18c68d5](https://github.com/StormSale/StormSale/commit/18c68d50a040d7ce77f55e600ae31b9ce7094e7f))
+* **ci:** exclude e2e from vitest, fix date drift in heatmap test, and ignore gitleaks false positives ([cebbbd4](https://github.com/StormSale/StormSale/commit/cebbbd43f8f39d7327549355a342b6b2a8cf9b5f))
+* **e2e:** await advertiser command center mount and increase expect timeout to 10s for webkit ([5f31127](https://github.com/StormSale/StormSale/commit/5f31127472244a89599abd645e21a3080e5e41bd))
+* **e2e:** prevent status role collision in Playwright and add defensive context mocks ([70887dd](https://github.com/StormSale/StormSale/commit/70887dd997c140cfada12f6ab1257018c5a93762))
+* **useEscrow:** add safe fallbacks for partial stellar config test mocks ([fd5901c](https://github.com/StormSale/StormSale/commit/fd5901c716fdfccb3ea8f7822c0b93def75cd2c9))
+* **useEscrow:** skip overlapping poll ticks with in-flight guard ([2bb72fe](https://github.com/StormSale/StormSale/commit/2bb72fe738c89d7a6d294b72574c4dbe64f48d9a))
+
+
+### Features
+
+* admin emergency kill-switch, automated wallet E2E, Soroban profiler, and PWA offline shell ([#86](https://github.com/StormSale/StormSale/issues/86), [#92](https://github.com/StormSale/StormSale/issues/92), [#129](https://github.com/StormSale/StormSale/issues/129), [#205](https://github.com/StormSale/StormSale/issues/205)) ([d2a6ef2](https://github.com/StormSale/StormSale/commit/d2a6ef2c217a3a85d45ac28dd852f581e8a71ffa))
+* **advertiser,auditor:** commission caps, attribution engine, price oracle, and master decryption portal ([f587230](https://github.com/StormSale/StormSale/commit/f5872308f03f8ab963bc1cb5a71b763ae0e498a0))
+* **affiliate:** earnings history and performance charts ([#48](https://github.com/StormSale/StormSale/issues/48)) ([60052e2](https://github.com/StormSale/StormSale/commit/60052e260c3537a44ed5e8a912503510ca5df7cf))
+* **auditor:** contract integrity verification UI and warning modal ([#65](https://github.com/StormSale/StormSale/issues/65)) ([8585b51](https://github.com/StormSale/StormSale/commit/8585b513fe58b7cda4352f581b0086f7123ef594))
+* **infra:** add Playwright smoke tests for wallet connectors and core flows ([8c8d243](https://github.com/StormSale/StormSale/commit/8c8d24339cafa360c077cf536c215ed2cba95c66))
+* **platform:** implement auditable ledger, claim confetti toasts, vitest integration, and validation fuzzing ([#51](https://github.com/StormSale/StormSale/issues/51), [#53](https://github.com/StormSale/StormSale/issues/53), [#87](https://github.com/StormSale/StormSale/issues/87), [#96](https://github.com/StormSale/StormSale/issues/96)) ([e815bb6](https://github.com/StormSale/StormSale/commit/e815bb693df85a0b267e0754ce4866640430c3a9))
+* **state:** add high-fidelity indigo boot loader ([98be277](https://github.com/StormSale/StormSale/commit/98be277b3206e5eea1a11c6e52b3886f7583229d)), closes [hi#fidelity](https://github.com/hi/issues/fidelity)
+* **state:** implement useEscrowBalance contract monitor with polling and multi-token support ([#71](https://github.com/StormSale/StormSale/issues/71)) ([3fd6d44](https://github.com/StormSale/StormSale/commit/3fd6d44ac946ccae4b38174daa0928b28549249c))
+* visual skeleton system, Soroban event streaming, A/B testing attribution, and solvency oracle ([d39d964](https://github.com/StormSale/StormSale/commit/d39d9645d07d750f605ba471492978b69b2fa5c6))
+* **web3:** add soroban event indexer pipeline, dashboard query integration, and header tx queue status widget ([25eb728](https://github.com/StormSale/StormSale/commit/25eb72819d1c5a3732bab74bd723c393aca56bc7))
+* **web3:** automated SAC token allowance delegation & TTL extension for stablecoin escrows ([#119](https://github.com/StormSale/StormSale/issues/119)) ([bdb38c8](https://github.com/StormSale/StormSale/commit/bdb38c8bffabda5eec11ba18a4ccf7912ad387e0))
+* **web3:** graphql indexer, optimistic ui, tx queue desync recovery, and component snapshots ([fc30dc9](https://github.com/StormSale/StormSale/commit/fc30dc949bda51e839891a3a62fa81e4c80e7db2))
+
 ## [1.1.2](https://github.com/StormSale/StormSale/compare/v1.1.1...v1.1.2) (2026-11-15)
 
 
