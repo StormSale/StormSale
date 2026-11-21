@@ -11,6 +11,7 @@ import {
   type PaymentSplitConfig,
   type BatchSalePaymentItem,
 } from "../lib/multiAssetSplit";
+import * as priceOracle from "../lib/priceOracle";
 import type { OracleRates } from "../lib/priceOracle";
 
 describe("Multi-Asset Batch Sale Payment Split Calculations (#466)", () => {
@@ -261,6 +262,70 @@ describe("Multi-Asset Batch Sale Payment Split Calculations (#466)", () => {
       expect(formatBaseUnits(convertedUsdc)).toBe("1.2500000");
     });
 
+    it("fetches live rates from oracle module when customRates is omitted and propagates source", async () => {
+      const fetchSpy = vi.spyOn(priceOracle, "fetchLiveOracleRates").mockResolvedValueOnce({
+        rates: {
+          USD: 0.2,
+          EUR: 0.18,
+          USDC: 0.2,
+        },
+        source: "CoinGecko",
+        updatedAt: Date.now(),
+        isStale: false,
+        cached: false,
+      });
+
+      // Call without third argument (customRates omitted)
+      const quote = await fetchDynamicAssetQuote("XLM", "USDC");
+      expect(fetchSpy).toHaveBeenCalled();
+      expect(quote.rate).toBe(0.2);
+      expect(quote.source).toBe("oracle");
+
+      // Verify converted amount with this quote rate
+      const xlmAmount = 100n * 10_000_000n; // 100 XLM
+      expect(convertAssetAmount(xlmAmount, quote)).toBe(20n * 10_000_000n); // 20 USDC
+
+      // Change the mocked rate and verify the converted amount changes
+      fetchSpy.mockResolvedValueOnce({
+        rates: {
+          USD: 0.5,
+          EUR: 0.45,
+          USDC: 0.5,
+        },
+        source: "Pyth",
+        updatedAt: Date.now(),
+        isStale: false,
+        cached: false,
+      });
+
+      const updatedQuote = await fetchDynamicAssetQuote("XLM", "USDC");
+      expect(updatedQuote.rate).toBe(0.5);
+      expect(updatedQuote.source).toBe("oracle");
+      expect(convertAssetAmount(xlmAmount, updatedQuote)).toBe(50n * 10_000_000n); // 50 USDC
+    });
+
+    it("marks quote source as fallback when oracle fails or returns authoritative fallback", async () => {
+      vi.spyOn(priceOracle, "fetchLiveOracleRates").mockResolvedValueOnce({
+        rates: priceOracle.FALLBACK_RATES,
+        source: "Authoritative Fallback",
+        updatedAt: Date.now(),
+        isStale: true,
+        cached: false,
+      });
+
+      const quote = await fetchDynamicAssetQuote("XLM", "USDC");
+      expect(quote.source).toBe("fallback");
+      expect(quote.rate).toBe(priceOracle.FALLBACK_RATES.USDC || priceOracle.FALLBACK_RATES.USD);
+
+      // And when fetchLiveOracleRates rejects
+      vi.spyOn(priceOracle, "fetchLiveOracleRates").mockRejectedValueOnce(
+        new Error("Network offline"),
+      );
+      const fallbackQuote = await fetchDynamicAssetQuote("XLM", "EURC");
+      expect(fallbackQuote.source).toBe("fallback");
+      expect(fallbackQuote.rate).toBe(priceOracle.FALLBACK_RATES.EUR);
+    });
+
     it("retains full decimal precision for rates with more than seven decimal places", () => {
       // 12-decimal precision rate
       const highPrecisionQuote = {
@@ -443,6 +508,13 @@ describe("Multi-Asset Batch Sale Payment Split Calculations (#466)", () => {
       // Large exponent 1e3
       expect(parseToBaseUnits(1e3)).toBe(1_000n * 10_000_000n);
       expect(parseToBaseUnits("1000")).toBe(1_000n * 10_000_000n);
+    });
+
+    it("preserves exact base units when parsing exponent strings without precision loss", () => {
+      const expStr = "1.0000005e1";
+      const positionalStr = "10.000005";
+      expect(parseToBaseUnits(expStr)).toBe(parseToBaseUnits(positionalStr));
+      expect(parseToBaseUnits(expStr)).toBe(100_000_050n);
     });
   });
 });

@@ -131,23 +131,48 @@ export function formatBaseUnits(amount: bigint): string {
 }
 
 /**
+ * Expands numeric strings in scientific notation (e.g. "1.0000005e1" -> "10.000005")
+ * using exact string manipulation to prevent IEEE 754 precision loss.
+ */
+export function expandScientificNotation(rawStr: string): string {
+  const str = rawStr.trim();
+  const eIndex = str.search(/[eE]/);
+  if (eIndex === -1) return str;
+
+  const mantissa = str.slice(0, eIndex);
+  const exp = parseInt(str.slice(eIndex + 1), 10);
+  if (isNaN(exp) || exp === 0) return mantissa;
+
+  const isNeg = mantissa.startsWith("-");
+  const cleanMantissa = isNeg ? mantissa.slice(1) : mantissa;
+  const [wholeStr = "", fracStr = ""] = cleanMantissa.split(".");
+
+  if (exp > 0) {
+    if (exp < fracStr.length) {
+      const newWhole = wholeStr + fracStr.slice(0, exp);
+      const newFrac = fracStr.slice(exp);
+      return `${isNeg ? "-" : ""}${newWhole}.${newFrac}`;
+    } else {
+      const zeros = "0".repeat(exp - fracStr.length);
+      return `${isNeg ? "-" : ""}${wholeStr}${fracStr}${zeros}`;
+    }
+  } else {
+    const absExp = -exp;
+    const zeros = "0".repeat(absExp - 1);
+    const combined = `${zeros}${wholeStr}${fracStr}`;
+    return `${isNeg ? "-" : ""}0.${combined}`;
+  }
+}
+
+/**
  * Parses a decimal string (e.g. "12.3456789") into base units (7 decimals).
  */
 export function parseToBaseUnits(amountStr: string | number): bigint {
-  let str: string;
-  if (typeof amountStr === "number") {
-    if (!Number.isFinite(amountStr)) return 0n;
-    str = amountStr.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
-  } else {
-    str = String(amountStr).trim();
-  }
-  if (!str || isNaN(Number(str))) return 0n;
+  const rawStr = String(amountStr).trim();
+  if (!rawStr) return 0n;
 
-  if (str.includes("e") || str.includes("E")) {
-    const num = Number(str);
-    if (!Number.isFinite(num)) return 0n;
-    str = num.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 20 });
-  }
+  const str = expandScientificNotation(rawStr);
+  if (!str || isNaN(Number(str))) return 0n;
 
   const parts = str.split(".");
   const whole = BigInt(parts[0] || "0");
@@ -247,7 +272,22 @@ export async function fetchDynamicAssetQuote(
     };
   }
 
-  const rates: OracleRates = customRates || (await fetchLiveOracleRates()).rates || FALLBACK_RATES;
+  let rates: OracleRates;
+  let source: "direct" | "oracle" | "fallback";
+
+  if (customRates) {
+    rates = customRates;
+    source = "oracle";
+  } else {
+    try {
+      const oracleResp = await fetchLiveOracleRates();
+      rates = oracleResp.rates || FALLBACK_RATES;
+      source = oracleResp.source === "Authoritative Fallback" ? "fallback" : "oracle";
+    } catch {
+      rates = FALLBACK_RATES;
+      source = "fallback";
+    }
+  }
 
   const usdRate = rates.USDC || rates.USD;
   const eurRate = rates.EUR;
@@ -298,7 +338,7 @@ export async function fetchDynamicAssetQuote(
     toAsset,
     rate,
     quotedAt,
-    source: customRates ? "oracle" : "oracle",
+    source,
   };
 }
 
