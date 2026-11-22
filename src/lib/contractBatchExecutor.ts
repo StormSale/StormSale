@@ -1,5 +1,8 @@
+import type { BatchExecutionProgress, BatchSaleItemResult } from "./batchSaleLogging";
+
 /**
  * Smart Contract Invocation Batching, Sequential Execution & Rollback Engine (Issue #432)
+
  *
  * Implements:
  * 1. Sequential execution of interdependent contract calls.
@@ -133,7 +136,7 @@ export class ContractBatchExecutor {
    */
   public async executeBatch(
     initialState: Record<string, unknown>,
-    onStateRollback?: (snapshot: Record<string, unknown>) => void
+    onStateRollback?: (snapshot: Record<string, unknown>) => void | Promise<void>
   ): Promise<BatchExecutionResult> {
     if (this.isRunning) {
       throw new Error("ContractBatchExecutor is already executing a batch");
@@ -199,7 +202,7 @@ export class ContractBatchExecutor {
           // 3. Atomically restore frontend state to original pre-execution snapshot
           if (onStateRollback) {
             try {
-              onStateRollback(deepClone(this.snapshotState));
+              await Promise.resolve(onStateRollback(deepClone(this.snapshotState)));
             } catch (rbErr: unknown) {
               const err = rbErr instanceof Error ? rbErr : new Error(String(rbErr));
               rollbackErrors.push(err);
@@ -245,8 +248,43 @@ export class ContractBatchExecutor {
 export async function executeContractBatch(
   steps: ContractBatchStep<any, any>[],
   initialState: Record<string, unknown>,
-  onRollback?: (snapshot: Record<string, unknown>) => void
+  onRollback?: (snapshot: Record<string, unknown>) => void | Promise<void>
 ): Promise<BatchExecutionResult> {
   const executor = new ContractBatchExecutor(steps);
   return executor.executeBatch(initialState, onRollback);
 }
+
+/**
+ * Adapts internal BatchProgressState to the application's BatchExecutionProgress indicator.
+ */
+export function adaptBatchProgressStateToExecutionProgress(
+  state: BatchProgressState,
+  options?: { totalSales?: number; recentItemResults?: BatchSaleItemResult[] }
+): BatchExecutionProgress {
+  const totalSales = options?.totalSales ?? Math.max(1, state.totalSteps);
+  const processedSales = Math.min(totalSales, Math.round((state.percentage / 100) * totalSales));
+  const confirmedSales = state.status === "completed" ? totalSales : processedSales;
+  const failedSales = state.status === "failed" || state.status === "rollback_failed" ? 1 : 0;
+
+  const currentStatusMap: Record<BatchExecutionStatus, BatchExecutionProgress["currentStatus"]> = {
+    idle: "idle",
+    in_progress: "submitting",
+    completed: "completed",
+    failed: "error",
+    rolled_back: "recovering_partial",
+    rollback_failed: "error",
+  };
+
+  return {
+    totalBatches: state.totalSteps || 1,
+    currentBatchIndex: Math.min(state.totalSteps || 1, Math.max(1, state.currentStepIndex || 1)),
+    totalSales,
+    processedSales,
+    confirmedSales,
+    failedSales,
+    currentStatus: currentStatusMap[state.status] || "submitting",
+    recentItemResults: options?.recentItemResults ?? [],
+    message: state.error ? `Error: ${state.error}` : `Processing step: ${state.currentStepName} (${state.percentage}%)`,
+  };
+}
+
