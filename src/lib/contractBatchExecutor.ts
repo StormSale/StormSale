@@ -45,11 +45,15 @@ export interface BatchExecutionResult {
   rollbackErrors?: Error[];
 }
 
+export interface AdaptedBatchExecutionProgress extends BatchExecutionProgress {
+  percentage: number;
+}
+
 /**
  * Maps ContractBatchExecutor progress state to application-level BatchExecutionProgress
  * suitable for progress UI indicators such as BulkSaleLogModal.
  */
-export function toBatchExecutionProgress(state: BatchProgressState): BatchExecutionProgress {
+export function toBatchExecutionProgress(state: BatchProgressState): AdaptedBatchExecutionProgress {
   let appStatus: AppBatchExecutionStatus = "idle";
   if (state.status === "in_progress") {
     appStatus = "submitting";
@@ -68,10 +72,11 @@ export function toBatchExecutionProgress(state: BatchProgressState): BatchExecut
     totalSales: totalSteps,
     processedSales: state.currentStepIndex,
     confirmedSales: state.status === "completed" ? totalSteps : Math.max(0, state.currentStepIndex - 1),
-    failedSales: state.error ? 1 : 0,
+    failedSales: (state.status === "failed" || state.status === "rollback_failed" || state.status === "rolled_back") ? 1 : 0,
     currentStatus: appStatus,
     recentItemResults: [],
     message: state.currentStepName ? `Step: ${state.currentStepName}` : undefined,
+    percentage: state.percentage,
   };
 }
 
