@@ -14,7 +14,13 @@ export interface ContractBatchStep<TInput = Record<string, unknown>, TOutput = u
   rollback?: (input: TInput, error: Error) => Promise<void> | void;
 }
 
-export type BatchExecutionStatus = "idle" | "in_progress" | "completed" | "failed" | "rolled_back";
+export type BatchExecutionStatus =
+  | "idle"
+  | "in_progress"
+  | "completed"
+  | "failed"
+  | "rolled_back"
+  | "rollback_failed";
 
 export interface BatchProgressState {
   currentStepIndex: number;
@@ -32,6 +38,7 @@ export interface BatchExecutionResult {
   success: boolean;
   results: Record<string, unknown>;
   error?: Error;
+  rollbackErrors?: Error[];
 }
 
 /**
@@ -89,6 +96,7 @@ export class ContractBatchExecutor {
   };
   private subscribers: Set<BatchProgressSubscriber> = new Set();
   private snapshotState: Record<string, unknown> = {};
+  private isRunning: boolean = false;
 
   constructor(steps: ContractBatchStep<any, any>[] = []) {
     this.steps = steps;
@@ -127,6 +135,10 @@ export class ContractBatchExecutor {
     initialState: Record<string, unknown>,
     onStateRollback?: (snapshot: Record<string, unknown>) => void
   ): Promise<BatchExecutionResult> {
+    if (this.isRunning) {
+      throw new Error("ContractBatchExecutor is already executing a batch");
+    }
+
     if (!this.steps.length) {
       this.progress.status = "completed";
       this.progress.percentage = 100;
@@ -134,79 +146,96 @@ export class ContractBatchExecutor {
       return { success: true, results: {} };
     }
 
-    // 1. Take atomic pristine snapshot of frontend state before execution begins
-    // Uses deepClone to safely preserve BigInt and complex structures without JSON.stringify throwing
-    this.snapshotState = deepClone(initialState || {});
-    this.progress.status = "in_progress";
-    this.progress.currentStepIndex = 0;
-    this.progress.percentage = 0;
-    this.progress.results = {};
-    delete this.progress.error;
-    this.notify();
-
-    const executedSteps: ContractBatchStep<any, any>[] = [];
-
-    for (let i = 0; i < this.steps.length; i++) {
-      const step = this.steps[i];
-      this.progress.currentStepIndex = i + 1;
-      this.progress.currentStepName = step.name;
-      this.progress.percentage = Math.round((i / this.steps.length) * 100);
+    this.isRunning = true;
+    try {
+      // 1. Take atomic pristine snapshot of frontend state before execution begins
+      // Uses deepClone to safely preserve BigInt and complex structures without JSON.stringify throwing
+      this.snapshotState = deepClone(initialState || {});
+      this.progress.status = "in_progress";
+      this.progress.currentStepIndex = 0;
+      this.progress.percentage = 0;
+      this.progress.results = {};
+      delete this.progress.error;
       this.notify();
 
-      try {
-        // Pass an independent working copy to the step execution so mutations do not taint the rollback snapshot
-        const workingInput = deepClone(this.snapshotState);
-        const stepResult = await step.execute(workingInput, this.progress.results);
-        this.progress.results[step.id] = stepResult;
-        executedSteps.push(step);
-      } catch (stepErr: unknown) {
-        const error = stepErr instanceof Error ? stepErr : new Error(String(stepErr));
-        this.progress.status = "failed";
-        this.progress.error = error.message;
+      const executedSteps: ContractBatchStep<any, any>[] = [];
+
+      for (let i = 0; i < this.steps.length; i++) {
+        const step = this.steps[i];
+        this.progress.currentStepIndex = i + 1;
+        this.progress.currentStepName = step.name;
+        this.progress.percentage = Math.round((i / this.steps.length) * 100);
         this.notify();
 
-        // 2. Roll back executed sub-operations in reverse compensation order
-        for (let r = executedSteps.length - 1; r >= 0; r--) {
-          const executed = executedSteps[r];
-          if (executed.rollback) {
-            try {
-              const rollbackInput = deepClone(this.snapshotState);
-              await executed.rollback(rollbackInput, error);
-            } catch (rbErr) {
-              console.error(`[ContractBatchExecutor] Rollback failed for step ${executed.id}:`, rbErr);
+        try {
+          // Pass an independent working copy to the step execution so mutations do not taint the rollback snapshot
+          const workingInput = deepClone(this.snapshotState);
+          const stepResult = await step.execute(workingInput, this.progress.results);
+          this.progress.results[step.id] = stepResult;
+          executedSteps.push(step);
+        } catch (stepErr: unknown) {
+          const error = stepErr instanceof Error ? stepErr : new Error(String(stepErr));
+          this.progress.status = "failed";
+          this.progress.error = error.message;
+          this.notify();
+
+          const rollbackErrors: Error[] = [];
+
+          // 2. Roll back executed sub-operations in reverse compensation order
+          for (let r = executedSteps.length - 1; r >= 0; r--) {
+            const executed = executedSteps[r];
+            if (executed.rollback) {
+              try {
+                const rollbackInput = deepClone(this.snapshotState);
+                await executed.rollback(rollbackInput, error);
+              } catch (rbErr: unknown) {
+                const err = rbErr instanceof Error ? rbErr : new Error(String(rbErr));
+                rollbackErrors.push(err);
+                console.error(`[ContractBatchExecutor] Rollback failed for step ${executed.id}:`, rbErr);
+              }
             }
           }
-        }
 
-        // 3. Atomically restore frontend state to original pre-execution snapshot
-        if (onStateRollback) {
-          try {
-            onStateRollback(deepClone(this.snapshotState));
-          } catch (rbErr) {
-            console.error("[ContractBatchExecutor] Frontend rollback callback failed:", rbErr);
+          // 3. Atomically restore frontend state to original pre-execution snapshot
+          if (onStateRollback) {
+            try {
+              onStateRollback(deepClone(this.snapshotState));
+            } catch (rbErr: unknown) {
+              const err = rbErr instanceof Error ? rbErr : new Error(String(rbErr));
+              rollbackErrors.push(err);
+              console.error("[ContractBatchExecutor] Frontend rollback callback failed:", rbErr);
+            }
           }
+
+          if (rollbackErrors.length > 0) {
+            this.progress.status = "rollback_failed";
+            this.progress.error = `Execution failed: ${error.message}. Rollback errors: ${rollbackErrors.map((e) => e.message).join("; ")}`;
+          } else {
+            this.progress.status = "rolled_back";
+          }
+          this.notify();
+
+          return {
+            success: false,
+            results: this.progress.results,
+            error,
+            rollbackErrors: rollbackErrors.length > 0 ? rollbackErrors : undefined,
+          };
         }
-
-        this.progress.status = "rolled_back";
-        this.notify();
-
-        return {
-          success: false,
-          results: this.progress.results,
-          error,
-        };
       }
+
+      this.progress.status = "completed";
+      this.progress.percentage = 100;
+      this.progress.currentStepName = "Complete";
+      this.notify();
+
+      return {
+        success: true,
+        results: this.progress.results,
+      };
+    } finally {
+      this.isRunning = false;
     }
-
-    this.progress.status = "completed";
-    this.progress.percentage = 100;
-    this.progress.currentStepName = "Complete";
-    this.notify();
-
-    return {
-      success: true,
-      results: this.progress.results,
-    };
   }
 }
 
