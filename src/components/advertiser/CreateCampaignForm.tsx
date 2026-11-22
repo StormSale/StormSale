@@ -301,9 +301,12 @@ export const CreateCampaignForm = () => {
       return;
     }
 
+    const effectiveCommissionRate = tieredCommissionsEnabled
+      ? String(getCommissionRateForSales(commissionTiers, 0))
+      : commissionRate;
     const result = getCreateCampaignSchema(maxDecimals).safeParse({
       campaignName,
-      commissionRate,
+      commissionRate: effectiveCommissionRate,
       budget,
       clearingPeriod,
       dailyPayoutCap: dailyPayoutCap.trim() || undefined,
@@ -402,9 +405,7 @@ export const CreateCampaignForm = () => {
       const campaignResult = await createCampaignOnChain(
         result.data.campaignName,
         budgetNum,
-        tieredCommissionsEnabled
-          ? getCommissionRateForSales(commissionTiers, 0)
-          : Number(result.data.commissionRate),
+        Number(result.data.commissionRate),
         parseInt(result.data.clearingPeriod, 10),
         selectedAsset,
       );
@@ -1333,7 +1334,9 @@ export const CreateCampaignForm = () => {
                       Commission Rate
                     </div>
                     <div className="font-bold text-zinc-900 dark:text-white text-lg">
-                      {commissionRate || "0"}%
+                      {tieredCommissionsEnabled
+                        ? getCommissionRateForSales(commissionTiers, 0)
+                        : commissionRate || "0"}%
                     </div>
                   </div>
                   <div className="space-y-2">

@@ -208,6 +208,20 @@ describe("CreateCampaignForm", () => {
     expect(screen.queryByText(/Tx Hash:/)).toBeNull();
   });
 
+  it("uses the base tier when tiered commissions are enabled without a scalar rate", async () => {
+    render(<CreateCampaignForm />);
+    fillCampaign();
+    fireEvent.change(screen.getByPlaceholderText("e.g., 15 for 15%"), {
+      target: { value: "" },
+    });
+    fireEvent.click(screen.getByTestId("commission-tier-toggle"));
+
+    await submitCampaign();
+
+    await waitFor(() => expect(titles()).toContain("Campaign Escrow Live on Stellar!"));
+    expect(web3.createCampaignOnChain).toHaveBeenCalledWith("Launch Week", 100, 10, 86400, "XLM");
+  });
+
   it("records a public campaign when the toggle is left off", async () => {
     render(<CreateCampaignForm />);
     fillCampaign();

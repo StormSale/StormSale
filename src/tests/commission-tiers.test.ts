@@ -23,7 +23,7 @@ describe("commission tiers", () => {
     expect(
       validateCommissionTiers([
         tiers[0],
-        { id: "duplicate", thresholdSales: 100, ratePercent: 20 },
+        { id: "duplicate", thresholdSales: 0, ratePercent: 20 },
       ]),
     ).toMatch(/unique/i);
   });
