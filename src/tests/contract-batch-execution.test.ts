@@ -6,9 +6,7 @@ import { TxQueueManager } from "../lib/txQueue";
 import {
   ContractBatchExecutor,
   executeContractBatch,
-  deepClone,
   type ContractBatchStep,
-  type BatchProgressState,
 } from "../lib/contractBatchExecutor";
 import { BulkSaleLogModal } from "../components/advertiser/BulkSaleLogModal";
 import { NotificationProvider } from "../context/NotificationContext";
@@ -203,7 +201,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         memo: "escrow_seed",
       };
 
-      let restoredState: typeof stateWithBigInt | null = null;
+      let restoredState: { tokenAmount: bigint; feeStroops: bigint; memo: string } | null = null;
 
       const step1: ContractBatchStep = {
         id: "step_bigint_verify",
@@ -225,13 +223,14 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
 
       const executor = new ContractBatchExecutor([step1, step2]);
       const outcome = await executor.executeBatch(stateWithBigInt, (snapshot) => {
-        restoredState = snapshot as typeof stateWithBigInt;
+        restoredState = snapshot as { tokenAmount: bigint; feeStroops: bigint; memo: string };
       });
 
       expect(outcome.success).toBe(false);
       expect(restoredState).not.toBeNull();
-      expect(restoredState?.tokenAmount).toBe(1000000000000000000n);
-      expect(restoredState?.feeStroops).toBe(25000n);
+      const verifiedRestored = (restoredState as unknown) as { tokenAmount: bigint; feeStroops: bigint; memo: string };
+      expect(verifiedRestored.tokenAmount).toBe(1000000000000000000n);
+      expect(verifiedRestored.feeStroops).toBe(25000n);
     });
 
     it("keeps rollback snapshot pristine when step execution directly mutates supplied input", async () => {
@@ -240,7 +239,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         settings: { autoWithdraw: false },
       };
 
-      let restoredState: typeof initialState | null = null;
+      let restoredState: { userBalance: number; settings: { autoWithdraw: boolean } } | null = null;
 
       const step1: ContractBatchStep = {
         id: "step_mutator",
@@ -263,14 +262,15 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
 
       const executor = new ContractBatchExecutor([step1, step2]);
       const outcome = await executor.executeBatch(initialState, (snapshot) => {
-        restoredState = snapshot as typeof initialState;
+        restoredState = snapshot as { userBalance: number; settings: { autoWithdraw: boolean } };
       });
 
       expect(outcome.success).toBe(false);
       expect(restoredState).not.toBeNull();
+      const verifiedState = (restoredState as unknown) as { userBalance: number; settings: { autoWithdraw: boolean } };
       // Original values must NOT be corrupted by step1's mutation
-      expect(restoredState?.userBalance).toBe(5000);
-      expect(restoredState?.settings.autoWithdraw).toBe(false);
+      expect(verifiedState.userBalance).toBe(5000);
+      expect(verifiedState.settings.autoWithdraw).toBe(false);
     });
 
     it("prevents partial side-effects if step 1 passes but step 2 aborts", async () => {
@@ -415,6 +415,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
               confirmedSales: 25,
               failedSales: 5,
               currentStatus: "submitting",
+              recentItemResults: [],
             },
           }),
         ),
@@ -440,6 +441,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
               confirmedSales: 20,
               failedSales: 0,
               currentStatus: "completed",
+              recentItemResults: [],
             },
           }),
         ),
