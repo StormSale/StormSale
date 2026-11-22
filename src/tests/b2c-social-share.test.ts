@@ -109,7 +109,7 @@ describe("B2C Social Share Card Preview & Web Share API Integration Suite", () =
         })
       );
 
-      expect(screen.getByText((content, element) => element?.textContent?.includes(mockBrandConfig.campaignTitle) || false)).toBeDefined();
+      expect(screen.getByText(mockBrandConfig.campaignTitle)).toBeDefined();
       expect(screen.getByText(mockBrandConfig.rewardRateText)).toBeDefined();
       expect(screen.getByText(mockBrandConfig.welcomeMessage)).toBeDefined();
 

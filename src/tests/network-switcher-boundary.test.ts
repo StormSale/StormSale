@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { verifyFreighterNetwork } from "../lib/networkVerification";
 import { getContractAddress, isValidStellarAddress } from "../lib/contracts";
 
 describe("Network Switcher and Alert Boundary Tests (Issue #430)", () => {
