@@ -70,7 +70,7 @@ describe("B2C Social Share Card Preview & Web Share API Integration Suite", () =
         url: mockReferralUrl,
       };
 
-      const nav = navigator as Navigator & { share?: (data: any) => Promise<void> };
+      const nav = navigator as Navigator & { share?: (data: Record<string, unknown>) => Promise<void> };
       if (nav.share) {
         await nav.share(shareData);
       }
