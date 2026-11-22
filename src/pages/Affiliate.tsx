@@ -10,6 +10,7 @@ import { CustomLinksManager } from "../components/affiliate/CustomLinksManager";
 import { CampaignApplication } from "../components/affiliate/CampaignApplication";
 import { AffiliateLeaderboard } from "../components/affiliate/AffiliateLeaderboard";
 import { MilestoneBadges } from "../components/affiliate/MilestoneBadges";
+import { TierCommissionCalculator } from "../components/affiliate/TierCommissionCalculator";
 import { AffiliateEarningsCharts } from "../components/affiliate/AffiliateEarningsCharts";
 import { ReferralNetworkTree } from "../components/affiliate/ReferralNetworkTree";
 import {
@@ -56,6 +57,7 @@ const AFFILIATE_TABS = [
   "milestones",
   "join-campaign",
   "my-sales",
+  "tier-calculator",
   "claim-payouts",
   "settings",
   "security",
@@ -87,6 +89,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
     { id: "join-campaign", label: "Join Campaign", icon: Users },
     { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
+    { id: "tier-calculator", label: "Tier & Commission Calculator", icon: TrendingUp },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
     { id: "security", label: "Security & Keys", icon: Shield },
@@ -116,6 +119,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
         return <CampaignApplication />;
       case "my-sales":
         return <SalesList />;
+      case "tier-calculator":
+        return <TierCommissionCalculator />;
       case "claim-payouts":
         return <ClaimPayouts />;
       case "settings":
