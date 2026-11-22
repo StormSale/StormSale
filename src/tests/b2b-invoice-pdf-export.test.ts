@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import type { EnterpriseInvoiceData, TaxInvoiceMetadata } from "../types/invoice";
+import type { EnterpriseInvoiceData } from "../types/invoice";
 
 /**
  * #438: test(b2b): enterprise billing statement and tax invoice PDF export tests
@@ -73,7 +73,7 @@ describe("Enterprise Billing Statement and Tax Invoice PDF Export (#438)", () =>
     } as unknown as HTMLAnchorElement;
 
     const originalCreateElement = document.createElement;
-    vi.spyOn(document, "createElement").mockImplementation(function (this, tagName: string) {
+    vi.spyOn(document, "createElement").mockImplementation(function(tagName: string) {
       if (tagName === "a") {
         return downloadLinkMock;
       }
@@ -361,7 +361,7 @@ async function downloadInvoicePDF(data: EnterpriseInvoiceData): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-async function convertHTMLToPDF(html: string): Promise<ArrayBuffer> {
+async function convertHTMLToPDF(_html: string): Promise<ArrayBuffer> {
   // Mock implementation - in real code this would use a PDF library
   return new ArrayBuffer(100);
 }

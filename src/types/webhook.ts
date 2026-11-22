@@ -1,43 +1,79 @@
-/**
- * Webhook configuration and delivery types
- */
-
 export type WebhookEventType =
+  | "campaign.created"
+  | "conversion.created"
+  | "payout.created"
   | "conversion.confirmed"
-  | "conversion.disputed"
-  | "payout.processed"
-  | "affiliate.approved"
-  | "affiliate.rejected";
+  | "campaign.funded"
+  | "commission.escrowed"
+  | "payout.claimed"
+  | "ping.test";
+
+export type DeliveryStatus = "queued" | "delivering" | "delivered" | "retrying" | "failed";
+
+export type SimulationMode = "live" | "mock_200" | "mock_500" | "mock_503" | "mock_flaky";
 
 export interface WebhookEndpoint {
   id: string;
-  url: string;
   name: string;
+  url: string;
   secret: string;
-  isActive: boolean;
   events: WebhookEventType[];
+  isActive: boolean;
   createdAt: string;
-  lastPingedAt?: string;
-  deliveryCount: number;
+  description?: string;
+  simulationMode?: SimulationMode;
+  failureCount: number;
+  totalDeliveries: number;
+  lastDeliveryStatus?: "delivered" | "retrying" | "failed";
+  lastDeliveryAt?: string;
+}
+
+export interface WebhookDeliveryAttempt {
+  attemptNumber: number;
+  timestamp: string;
+  httpStatusCode: number;
+  statusText: string;
+  durationMs: number;
+  requestHeaders: Record<string, string>;
+  requestPayload: unknown;
+  responseBody: string;
+  error?: string;
 }
 
 export interface WebhookDelivery {
   id: string;
-  endpointId: string;
+  webhookId: string;
+  webhookName: string;
+  url: string;
   event: WebhookEventType;
-  statusCode: number;
-  statusText: string;
-  responseTime: number;
-  payload: unknown;
-  timestamp: string;
-  retryCount: number;
-  success: boolean;
+  status: DeliveryStatus;
+  attempts: number;
+  maxRetries: number;
+  nextRetryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  payload: Record<string, unknown>;
+  logs: WebhookDeliveryAttempt[];
+  signatureHeader: string;
 }
 
-export type SimulationMode = "live" | "test" | "sandbox";
+export interface ConversionPayloadData {
+  saleId: string;
+  campaignAddress: string;
+  affiliateAddress: string;
+  advertiserAddress: string;
+  saleAmount: string | number;
+  currency: string;
+  stellarTxHash: string;
+  ledgerTimestamp: string;
+  customerRef?: string;
+  status: "CONFIRMED_ON_LEDGER";
+}
 
-export interface WebhookPayload {
-  event: WebhookEventType;
-  timestamp: string;
-  data: unknown;
+export interface WebhookSignatureVerificationResult {
+  isValid: boolean;
+  reason?: string;
+  timestamp?: number;
+  nonce?: string;
+  ageSeconds?: number;
 }
