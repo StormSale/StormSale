@@ -63,8 +63,6 @@ import { Sep24WithdrawModal } from "./Sep24WithdrawModal";
 
 const DEFAULT_XLM_USD_RATE = 0.125;
 
-const DEFAULT_XLM_USD_RATE = 0.125;
-
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
 const SLIPPAGE_PRESETS = [50, 100, 300];
 
