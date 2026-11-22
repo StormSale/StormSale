@@ -40,6 +40,7 @@ import {
 import { recordReferralSale } from "../lib/referralTree";
 import type { TwoTierCommissionSplit } from "../types/referral";
 import { txQueueManager, type TxQueueStatusSummary } from "../lib/txQueue";
+import { useTransactionAnnouncer } from "./TransactionAnnouncementContext";
 
 export interface OptimisticAction {
   id: string;
@@ -53,6 +54,18 @@ export interface OptimisticAction {
     tokenAllowance: number;
   };
 }
+
+function extractTransactionHash(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || !("txHash" in result)) return undefined;
+  const hash = (result as { txHash?: unknown }).txHash;
+  return typeof hash === "string" && hash.length > 0 ? hash : undefined;
+}
+
+function extractTransactionError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type TransactionAnnouncementAmount<T> = string | ((result?: T) => string | undefined);
 
 export interface Web3ContextType {
   userAddress: string | null;
@@ -108,6 +121,7 @@ export interface Web3ContextType {
   claimPayoutOnChain: (
     campaignId: number,
     assetCode?: SupportedEscrowAssetCode,
+    payoutAmount?: number,
   ) => Promise<{
     success: boolean;
     txHash?: string;
@@ -227,6 +241,7 @@ export function Web3Provider({
     txQueueManager.getStatus(),
   );
   const isTxQueueBusy = txQueueStatus.isProcessing || txQueueStatus.pendingCount > 0;
+  const { announceTransaction } = useTransactionAnnouncer();
 
   useEffect(() => {
     txQueueManager.setAccount(userAddress);
@@ -259,9 +274,12 @@ export function Web3Provider({
       };
     },
     operation: (sequence: string) => Promise<T>,
+    amount?: TransactionAnnouncementAmount<T>,
   ): Promise<T> => {
     const actionId = `opt_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
     const snapshotStartTime = performance.now();
+    const announcementAmount = (result?: T): string | undefined =>
+      typeof amount === "function" ? amount(result) : amount;
 
     // 1. Instant optimistic state update (<50ms latency guarantee)
     const { previousSnapshot } = optimisticMutator();
@@ -274,6 +292,7 @@ export function Web3Provider({
       rollbackSnapshot: previousSnapshot,
     };
     setOptimisticActions((prev) => [action, ...prev.slice(0, 19)]);
+    announceTransaction({ status: "submitting", amount: announcementAmount(), description });
     console.log(
       `[Optimistic UI] Applied optimistic update for "${description}" in ${(
         performance.now() - snapshotStartTime
@@ -286,6 +305,37 @@ export function Web3Provider({
         const result = await txQueueManager.enqueue(actionType, description, async (seq) => {
           return await operation(seq);
         });
+        const transactionHash = extractTransactionHash(result);
+        const resolvedAmount = announcementAmount(result);
+        const wasUnsuccessful = Boolean(
+          result && typeof result === "object" && "success" in result && result.success === false,
+        );
+
+        if (transactionHash) {
+          announceTransaction({
+            status: "queued",
+            amount: resolvedAmount,
+            description,
+            transactionHash,
+          });
+        }
+
+        if (wasUnsuccessful) {
+          announceTransaction({
+            status: "failed",
+            amount: resolvedAmount,
+            description,
+            transactionHash,
+            error: "Transaction was not successful",
+          });
+        } else {
+          announceTransaction({
+            status: "confirmed",
+            amount: resolvedAmount,
+            description,
+            transactionHash,
+          });
+        }
 
         // Mark confirmed on success
         setOptimisticActions((prev) =>
@@ -293,6 +343,12 @@ export function Web3Provider({
         );
         return result;
       } catch (err: unknown) {
+        announceTransaction({
+          status: "failed",
+          amount: announcementAmount(),
+          description,
+          error: extractTransactionError(err),
+        });
         // 3. Reliable State Revert on Txn Failure (#68)
         console.warn(
           `[Optimistic UI] Operation failed, reverting state for "${description}":`,
@@ -746,6 +802,7 @@ export function Web3Provider({
           };
         }
       },
+      `${budgetAmount} ${assetCode}`,
     );
   };
 
@@ -844,11 +901,16 @@ export function Web3Provider({
           };
         }
       },
+      `${amountXlm} XLM`,
     );
   };
 
   // Soroban: Claim Affiliate Commission
-  const claimPayoutOnChain = async (campaignId: number, assetCode?: SupportedEscrowAssetCode) => {
+  const claimPayoutOnChain = async (
+    campaignId: number,
+    assetCode?: SupportedEscrowAssetCode,
+    payoutAmount?: number,
+  ) => {
     if (!userAddress) throw new Error("Wallet not connected");
     if (isAffiliatePaused(userAddress)) {
       throw new Error(
@@ -907,6 +969,20 @@ export function Web3Provider({
             ...(assetCode ? { asset: assetCode } : {}),
           };
         }
+      },
+      (result) => {
+        const receipt = (result && typeof result === "object" ? result : {}) as {
+          asset?: unknown;
+          claimedAmount?: unknown;
+          amount?: unknown;
+        };
+        const receiptAmount = receipt.claimedAmount ?? receipt.amount;
+        const quantity =
+          payoutAmount ?? (typeof receiptAmount === "number" ? receiptAmount : undefined);
+        const resolvedAsset =
+          (typeof receipt.asset === "string" ? receipt.asset : "") || assetCode || "XLM";
+
+        return quantity !== undefined ? `${quantity} ${resolvedAsset}` : undefined;
       },
     );
   };
@@ -1032,6 +1108,7 @@ export function Web3Provider({
           };
         }
       },
+      `${amount} ${assetCode}`,
     );
   };
 

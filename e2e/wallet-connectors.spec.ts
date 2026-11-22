@@ -79,7 +79,9 @@ test.describe("E2E Automated Smoke Tests: Wallet Connectors & Core Flows", () =>
     await copyBtn.click();
 
     // Assert copy confirmation feedback
-    const statusNotice = page.getByRole("status");
+    const statusNotice = page.getByText(
+      /Link copied to clipboard|Clipboard access is unavailable/i,
+    );
     await expect(statusNotice).toBeVisible();
     if (browserName === "chromium") {
       await expect(statusNotice).toHaveText(/Link copied to clipboard/i);

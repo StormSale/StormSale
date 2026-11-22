@@ -102,6 +102,12 @@ export interface ReferralTreeSummary {
   totalNetworkSize: number;
   /** Cumulative network sales volume in XLM */
   totalNetworkVolumeXlm: number;
+  /** Tier 1 direct recruited sales volume in XLM */
+  tier1VolumeXlm?: number;
+  /** Tier 2 indirect downstream sales volume in XLM */
+  tier2VolumeXlm?: number;
+  /** Total downstream sales volume (Tier 1 + Tier 2) in XLM */
+  totalDownstreamVolumeXlm?: number;
   /** Cumulative passive override commission earned in XLM */
   totalOverrideEarnedXlm: number;
   /** Top producing recruited sub-affiliate */
