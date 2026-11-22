@@ -6,9 +6,10 @@ import { TxQueueManager } from "../lib/txQueue";
 import {
   ContractBatchExecutor,
   executeContractBatch,
-  adaptBatchProgressStateToExecutionProgress,
+  toBatchExecutionProgress,
   type ContractBatchStep,
 } from "../lib/contractBatchExecutor";
+import type { BatchExecutionProgress } from "../lib/batchSaleLogging";
 import { BulkSaleLogModal } from "../components/advertiser/BulkSaleLogModal";
 import { NotificationProvider } from "../context/NotificationContext";
 
@@ -343,6 +344,56 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(outcome.rollbackErrors?.[1].message).toBe("Frontend rollback callback crashed");
     });
 
+    it("awaits asynchronous frontend restoration callback before releasing running lock and returning", async () => {
+      let asyncRestored = false;
+      const executionOrder: string[] = [];
+
+      const step1: ContractBatchStep = {
+        id: "step_async_fail",
+        name: "Failing Step",
+        execute: async () => {
+          throw new Error("Trigger async rollback");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1]);
+      const outcome = await executor.executeBatch({ counter: 42 }, async (snapshot) => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        asyncRestored = true;
+        executionOrder.push("restored");
+        expect(snapshot.counter).toBe(42);
+      });
+
+      executionOrder.push("finished");
+      expect(asyncRestored).toBe(true);
+      expect(executionOrder).toEqual(["restored", "finished"]);
+      expect(outcome.success).toBe(false);
+      expect(outcome.rollbackErrors).toBeUndefined();
+      expect(executor.getProgress().status).toBe("rolled_back");
+    });
+
+    it("captures rejected promise from async onStateRollback in rollbackErrors", async () => {
+      const step1: ContractBatchStep = {
+        id: "step_reject",
+        name: "Failing Step for Async Throw",
+        execute: async () => {
+          throw new Error("Trigger async error");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1]);
+      const outcome = await executor.executeBatch({ val: 1 }, async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        throw new Error("Async frontend restoration failed");
+      });
+
+      expect(outcome.success).toBe(false);
+      expect(outcome.rollbackErrors).toBeDefined();
+      expect(outcome.rollbackErrors?.length).toBe(1);
+      expect(outcome.rollbackErrors?.[0].message).toBe("Async frontend restoration failed");
+      expect(executor.getProgress().status).toBe("rollback_failed");
+    });
+
     it("prevents concurrent executeBatch calls on the same executor instance", async () => {
       const slowStep: ContractBatchStep = {
         id: "slow_step",
@@ -460,50 +511,98 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(executor.getProgress().status).toBe("completed");
     });
 
-    it("connects executor-produced progress directly to BulkSaleLogModal progress indicator", async () => {
+    it("connects executor progress to BulkSaleLogModal progress indicator during multi-step flow", async () => {
       const step1: ContractBatchStep = {
-        id: "step_init",
-        name: "Init Campaign",
-        execute: async () => ({ status: "ready" }),
+        id: "step_1",
+        name: "Check balance",
+        execute: async () => ({ step: 1 }),
       };
       const step2: ContractBatchStep = {
-        id: "step_fund",
-        name: "Fund Escrow",
-        execute: async () => ({ funded: true }),
+        id: "step_2",
+        name: "Invoke batch contract",
+        execute: async () => ({ step: 2 }),
       };
-      const executor = new ContractBatchExecutor([step1, step2]);
 
-      let capturedProgress = adaptBatchProgressStateToExecutionProgress(executor.getProgress(), {
-        totalSales: 20,
-      });
+      const executor = new ContractBatchExecutor([step1, step2]);
+      const capturedProgress: BatchExecutionProgress[] = [];
 
       executor.subscribe((state) => {
-        capturedProgress = adaptBatchProgressStateToExecutionProgress(state, {
-          totalSales: 20,
-        });
+        capturedProgress.push(toBatchExecutionProgress(state));
       });
 
-      // Execute batch to completion and verify live executor progress reaches modal
-      await executor.executeBatch({});
+      const outcome = await executor.executeBatch({});
+      expect(outcome.success).toBe(true);
 
-      expect(capturedProgress.currentStatus).toBe("completed");
-      expect(capturedProgress.totalBatches).toBe(2);
-      expect(capturedProgress.processedSales).toBe(20);
+      // Verify progress telemetry was captured across the flow
+      expect(capturedProgress.length).toBeGreaterThanOrEqual(3);
 
-      render(
+      const midProgress = capturedProgress.find((p) => p.currentBatchIndex === 1 && p.currentStatus === "submitting");
+      expect(midProgress).toBeDefined();
+
+      const { rerender } = render(
         React.createElement(
           NotificationProvider,
           null,
           React.createElement(BulkSaleLogModal as any, {
-            initialProgress: capturedProgress,
+            initialProgress: midProgress,
           }),
         ),
       );
 
       const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
       expect(progressBar).toBeDefined();
-      expect(progressBar.getAttribute("aria-valuenow")).toBe("100");
+      expect(progressBar.getAttribute("aria-valuenow")).toBeTruthy();
+      expect(screen.getByText(/batch 1 of 2/i)).toBeDefined();
+
+      // Render with final executor progress
+      const finalProgress = capturedProgress[capturedProgress.length - 1];
+      expect(finalProgress.currentStatus).toBe("completed");
+
+      rerender(
+        React.createElement(
+          NotificationProvider,
+          null,
+          React.createElement(BulkSaleLogModal as any, {
+            initialProgress: finalProgress,
+          }),
+        ),
+      );
+
+      const finalProgressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
+      expect(finalProgressBar.getAttribute("aria-valuenow")).toBe("100");
       expect(screen.getByText("100% Complete")).toBeDefined();
+    });
+
+    it("renders live batch progress indicator in BulkSaleLogModal from executor progress adapter", () => {
+      const mockState = {
+        currentStepIndex: 3,
+        totalSteps: 5,
+        percentage: 60,
+        currentStepName: "Transfer Tokens",
+        status: "in_progress" as const,
+        results: {},
+      };
+
+      const adaptedProgress = toBatchExecutionProgress(mockState);
+      expect(adaptedProgress.currentBatchIndex).toBe(3);
+      expect(adaptedProgress.totalBatches).toBe(5);
+      expect(adaptedProgress.currentStatus).toBe("submitting");
+
+      render(
+        React.createElement(
+          NotificationProvider,
+          null,
+          React.createElement(BulkSaleLogModal as any, {
+            initialProgress: adaptedProgress,
+          }),
+        ),
+      );
+
+      const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
+      expect(progressBar).toBeDefined();
+      expect(progressBar.getAttribute("aria-valuenow")).toBeTruthy();
+      expect(screen.getByText(/batch 3 of 5/i)).toBeDefined();
     });
   });
 });
+
