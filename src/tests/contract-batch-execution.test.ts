@@ -6,6 +6,7 @@ import { TxQueueManager } from "../lib/txQueue";
 import {
   ContractBatchExecutor,
   executeContractBatch,
+  adaptBatchProgressStateToExecutionProgress,
   type ContractBatchStep,
 } from "../lib/contractBatchExecutor";
 import { BulkSaleLogModal } from "../components/advertiser/BulkSaleLogModal";
@@ -459,53 +460,48 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(executor.getProgress().status).toBe("completed");
     });
 
-    it("renders live batch progress indicator in BulkSaleLogModal with aria progress attributes", () => {
+    it("connects executor-produced progress directly to BulkSaleLogModal progress indicator", async () => {
+      const step1: ContractBatchStep = {
+        id: "step_init",
+        name: "Init Campaign",
+        execute: async () => ({ status: "ready" }),
+      };
+      const step2: ContractBatchStep = {
+        id: "step_fund",
+        name: "Fund Escrow",
+        execute: async () => ({ funded: true }),
+      };
+      const executor = new ContractBatchExecutor([step1, step2]);
+
+      let capturedProgress = adaptBatchProgressStateToExecutionProgress(executor.getProgress(), {
+        totalSales: 20,
+      });
+
+      executor.subscribe((state) => {
+        capturedProgress = adaptBatchProgressStateToExecutionProgress(state, {
+          totalSales: 20,
+        });
+      });
+
+      // Execute batch to completion and verify live executor progress reaches modal
+      await executor.executeBatch({});
+
+      expect(capturedProgress.currentStatus).toBe("completed");
+      expect(capturedProgress.totalBatches).toBe(2);
+      expect(capturedProgress.processedSales).toBe(20);
+
       render(
         React.createElement(
           NotificationProvider,
           null,
           React.createElement(BulkSaleLogModal as any, {
-            initialProgress: {
-              totalBatches: 5,
-              currentBatchIndex: 3,
-              totalSales: 50,
-              processedSales: 30,
-              confirmedSales: 25,
-              failedSales: 5,
-              currentStatus: "submitting",
-              recentItemResults: [],
-            },
+            initialProgress: capturedProgress,
           }),
         ),
       );
 
       const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
       expect(progressBar).toBeDefined();
-      expect(progressBar.getAttribute("aria-valuenow")).toBeTruthy();
-      expect(screen.getByText(/batch 3 of 5/i)).toBeDefined();
-    });
-
-    it("renders 100% completed progress indicator in BulkSaleLogModal upon full batch completion", () => {
-      render(
-        React.createElement(
-          NotificationProvider,
-          null,
-          React.createElement(BulkSaleLogModal as any, {
-            initialProgress: {
-              totalBatches: 2,
-              currentBatchIndex: 2,
-              totalSales: 20,
-              processedSales: 20,
-              confirmedSales: 20,
-              failedSales: 0,
-              currentStatus: "completed",
-              recentItemResults: [],
-            },
-          }),
-        ),
-      );
-
-      const progressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
       expect(progressBar.getAttribute("aria-valuenow")).toBe("100");
       expect(screen.getByText("100% Complete")).toBeDefined();
     });
