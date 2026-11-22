@@ -1,14 +1,13 @@
-import type { BatchExecutionProgress, BatchSaleItemResult } from "./batchSaleLogging";
-
 /**
  * Smart Contract Invocation Batching, Sequential Execution & Rollback Engine (Issue #432)
-
  *
  * Implements:
  * 1. Sequential execution of interdependent contract calls.
  * 2. Pre-execution frontend state snapshotting and atomic rollback on intermediate failure.
  * 3. Progress bar indicator calculation (0-100%) and real-time state telemetry.
  */
+
+import type { BatchExecutionProgress, BatchExecutionStatus as AppBatchExecutionStatus } from "./batchSaleLogging";
 
 export interface ContractBatchStep<TInput = Record<string, unknown>, TOutput = unknown> {
   id: string;
@@ -37,11 +36,43 @@ export interface BatchProgressState {
 
 export type BatchProgressSubscriber = (state: BatchProgressState) => void;
 
+export type StateRollbackCallback<T = Record<string, unknown>> = (snapshot: T) => void | Promise<void>;
+
 export interface BatchExecutionResult {
   success: boolean;
   results: Record<string, unknown>;
   error?: Error;
   rollbackErrors?: Error[];
+}
+
+/**
+ * Maps ContractBatchExecutor progress state to application-level BatchExecutionProgress
+ * suitable for progress UI indicators such as BulkSaleLogModal.
+ */
+export function toBatchExecutionProgress(state: BatchProgressState): BatchExecutionProgress {
+  let appStatus: AppBatchExecutionStatus = "idle";
+  if (state.status === "in_progress") {
+    appStatus = "submitting";
+  } else if (state.status === "completed") {
+    appStatus = "completed";
+  } else if (state.status === "failed" || state.status === "rolled_back" || state.status === "rollback_failed") {
+    appStatus = "error";
+  }
+
+  const totalSteps = state.totalSteps || 1;
+  const currentStep = Math.max(1, Math.min(state.currentStepIndex || 1, totalSteps));
+
+  return {
+    totalBatches: totalSteps,
+    currentBatchIndex: currentStep,
+    totalSales: totalSteps,
+    processedSales: state.currentStepIndex,
+    confirmedSales: state.status === "completed" ? totalSteps : Math.max(0, state.currentStepIndex - 1),
+    failedSales: state.error ? 1 : 0,
+    currentStatus: appStatus,
+    recentItemResults: [],
+    message: state.currentStepName ? `Step: ${state.currentStepName}` : undefined,
+  };
 }
 
 /**
@@ -202,7 +233,7 @@ export class ContractBatchExecutor {
           // 3. Atomically restore frontend state to original pre-execution snapshot
           if (onStateRollback) {
             try {
-              await Promise.resolve(onStateRollback(deepClone(this.snapshotState)));
+              await onStateRollback(deepClone(this.snapshotState));
             } catch (rbErr: unknown) {
               const err = rbErr instanceof Error ? rbErr : new Error(String(rbErr));
               rollbackErrors.push(err);
@@ -253,38 +284,3 @@ export async function executeContractBatch(
   const executor = new ContractBatchExecutor(steps);
   return executor.executeBatch(initialState, onRollback);
 }
-
-/**
- * Adapts internal BatchProgressState to the application's BatchExecutionProgress indicator.
- */
-export function adaptBatchProgressStateToExecutionProgress(
-  state: BatchProgressState,
-  options?: { totalSales?: number; recentItemResults?: BatchSaleItemResult[] }
-): BatchExecutionProgress {
-  const totalSales = options?.totalSales ?? Math.max(1, state.totalSteps);
-  const processedSales = Math.min(totalSales, Math.round((state.percentage / 100) * totalSales));
-  const confirmedSales = state.status === "completed" ? totalSales : processedSales;
-  const failedSales = state.status === "failed" || state.status === "rollback_failed" ? 1 : 0;
-
-  const currentStatusMap: Record<BatchExecutionStatus, BatchExecutionProgress["currentStatus"]> = {
-    idle: "idle",
-    in_progress: "submitting",
-    completed: "completed",
-    failed: "error",
-    rolled_back: "recovering_partial",
-    rollback_failed: "error",
-  };
-
-  return {
-    totalBatches: state.totalSteps || 1,
-    currentBatchIndex: Math.min(state.totalSteps || 1, Math.max(1, state.currentStepIndex || 1)),
-    totalSales,
-    processedSales,
-    confirmedSales,
-    failedSales,
-    currentStatus: currentStatusMap[state.status] || "submitting",
-    recentItemResults: options?.recentItemResults ?? [],
-    message: state.error ? `Error: ${state.error}` : `Processing step: ${state.currentStepName} (${state.percentage}%)`,
-  };
-}
-
