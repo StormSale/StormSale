@@ -1,6 +1,7 @@
 import {
   rpc,
   Contract,
+  Transaction,
   TransactionBuilder,
   nativeToScVal,
   Address,
@@ -20,6 +21,12 @@ import { signWalletTransaction, getSorobanRpcServer, type WalletType } from "./s
  * multi-call contract or batching host extension. MAX_BATCH_SIZE sets the upper limit for transaction chunking.
  */
 export const MAX_BATCH_SIZE = 15;
+
+/**
+ * Maximum serialized transaction envelope size permitted by the Stellar/Soroban network (bytes).
+ * Consensual limit for transaction envelopes in Soroban (Protocol 20+) is 128 KB (131,072 bytes).
+ */
+export const STELLAR_MAX_TX_SIZE_BYTES = 131_072;
 
 export interface SaleItem {
   id: string;
@@ -62,6 +69,8 @@ export interface BatchExecutionProgress {
   currentStatus: BatchExecutionStatus;
   recentItemResults: BatchSaleItemResult[];
   message?: string;
+  completedBatchIndices?: number[];
+  failedBatchIndices?: number[];
 }
 
 export type BatchProgressCallback = (progress: BatchExecutionProgress) => void;
@@ -74,6 +83,72 @@ export interface FootprintOptimizationStats {
   redundantReadKeysPurged: number;
 }
 
+export interface SubBatchProgressState {
+  totalBatches: number;
+  completedIndices: number[];
+  failedIndices: number[];
+  percent: number;
+  isComplete: boolean;
+}
+
+/**
+ * Progress tracker recording the exact sub-batch completion and failure state.
+ */
+export class BatchAllocationProgressTracker {
+  private totalChunks: number;
+  private completedChunkIndices: Set<number> = new Set();
+  private failedChunkIndices: Set<number> = new Set();
+
+  constructor(totalChunks: number) {
+    this.totalChunks = totalChunks;
+  }
+
+  public markChunkComplete(index: number): void {
+    this.completedChunkIndices.add(index);
+    this.failedChunkIndices.delete(index);
+  }
+
+  public markChunkFailed(index: number): void {
+    this.failedChunkIndices.add(index);
+    this.completedChunkIndices.delete(index);
+  }
+
+  public isChunkComplete(index: number): boolean {
+    return this.completedChunkIndices.has(index);
+  }
+
+  public isChunkFailed(index: number): boolean {
+    return this.failedChunkIndices.has(index);
+  }
+
+  public getCompletedChunkIndices(): number[] {
+    return Array.from(this.completedChunkIndices).sort((a, b) => a - b);
+  }
+
+  public getFailedChunkIndices(): number[] {
+    return Array.from(this.failedChunkIndices).sort((a, b) => a - b);
+  }
+
+  public getProgressPercentage(): number {
+    if (this.totalChunks === 0) return 100;
+    return Math.floor((this.completedChunkIndices.size / this.totalChunks) * 100);
+  }
+
+  public isAllComplete(): boolean {
+    return this.totalChunks > 0 && this.completedChunkIndices.size === this.totalChunks;
+  }
+
+  public getState(): SubBatchProgressState {
+    return {
+      totalBatches: this.totalChunks,
+      completedIndices: this.getCompletedChunkIndices(),
+      failedIndices: this.getFailedChunkIndices(),
+      percent: this.getProgressPercentage(),
+      isComplete: this.isAllComplete(),
+    };
+  }
+}
+
 export interface BatchSaleSummaryReceipt {
   success: boolean;
   totalSalesCount: number;
@@ -83,6 +158,9 @@ export interface BatchSaleSummaryReceipt {
   transactionHashes: string[];
   itemizedResults: BatchSaleItemResult[];
   footprintStats: FootprintOptimizationStats;
+  completedBatchIndices?: number[];
+  failedBatchIndices?: number[];
+  progressTracker?: BatchAllocationProgressTracker;
 }
 
 /**
@@ -114,7 +192,11 @@ export function validateSaleItems(sales: SaleItem[]): void {
         `Affiliate address "${s.affiliateAddress}" is not a valid Stellar public key (G...) or contract ID (C...) for sale ${s.id}.`,
       );
     }
-    if (typeof s.saleAmountXlm !== "number" || !Number.isFinite(s.saleAmountXlm) || s.saleAmountXlm <= 0) {
+    if (
+      typeof s.saleAmountXlm !== "number" ||
+      !Number.isFinite(s.saleAmountXlm) ||
+      s.saleAmountXlm <= 0
+    ) {
       throw new Error(`Invalid saleAmountXlm for sale ${s.id}. Must be a positive number.`);
     }
     const stroops = s.saleAmountXlm * 1e7;
@@ -178,9 +260,10 @@ function getXdrValue<T = any>(parent: any, field: string): T {
  * 3. Removes any readOnly key that is already contained in readWrite (readWrite subsumes readOnly).
  * This eliminates duplicate key collisions and minimizes Soroban ledger footprints.
  */
-export function consolidateFootprint(
-  footprint: xdr.LedgerFootprint,
-): { optimizedFootprint: xdr.LedgerFootprint; stats: FootprintOptimizationStats } {
+export function consolidateFootprint(footprint: xdr.LedgerFootprint): {
+  optimizedFootprint: xdr.LedgerFootprint;
+  stats: FootprintOptimizationStats;
+} {
   const originalReadOnly = getXdrArray<xdr.LedgerKey>(footprint, "readOnly");
   const originalReadWrite = getXdrArray<xdr.LedgerKey>(footprint, "readWrite");
 
@@ -234,9 +317,10 @@ export function consolidateFootprint(
 /**
  * Optimizes SorobanTransactionData (or SorobanDataBuilder) by consolidating its LedgerFootprint.
  */
-export function optimizeSorobanTransactionData(
-  txData: xdr.SorobanTransactionData | any,
-): { optimizedTxData: any; stats: FootprintOptimizationStats } {
+export function optimizeSorobanTransactionData(txData: xdr.SorobanTransactionData | any): {
+  optimizedTxData: any;
+  stats: FootprintOptimizationStats;
+} {
   // If txData is a SorobanDataBuilder (as returned by simulateTransaction in stellar-sdk)
   if (
     txData &&
@@ -272,10 +356,10 @@ export function optimizeSorobanTransactionData(
     typeof rawResourceFee === "bigint"
       ? rawResourceFee
       : typeof rawResourceFee === "number"
-      ? BigInt(rawResourceFee)
-      : rawResourceFee
-      ? BigInt(rawResourceFee.toString())
-      : 0n;
+        ? BigInt(rawResourceFee)
+        : rawResourceFee
+          ? BigInt(rawResourceFee.toString())
+          : 0n;
 
   const optimizedTxData = new xdr.SorobanTransactionData({
     ext,
@@ -320,7 +404,8 @@ export function buildLogSaleArgs(advertiserAddress: string, sale: SaleItem): xdr
  */
 function generateMockTxHash(): string {
   const bytes = new Uint8Array(32);
-  const cryptoObj = globalThis.crypto ?? (globalThis as unknown as { webcrypto?: Crypto }).webcrypto;
+  const cryptoObj =
+    globalThis.crypto ?? (globalThis as unknown as { webcrypto?: Crypto }).webcrypto;
   if (cryptoObj?.getRandomValues) {
     cryptoObj.getRandomValues(bytes);
   } else {
@@ -407,9 +492,48 @@ export async function waitForConfirmation(
     (timeoutErr as any).txHash = txHash;
     throw timeoutErr;
   }
-  const genericTimeoutErr = new Error(`Batch transaction ${txHash} timed out waiting for ledger confirmation.`);
+  const genericTimeoutErr = new Error(
+    `Batch transaction ${txHash} timed out waiting for ledger confirmation.`,
+  );
   (genericTimeoutErr as any).txHash = txHash;
   throw genericTimeoutErr;
+}
+
+/**
+ * Assembles a batch transaction, gracefully handling multi-operation envelopes
+ * where standard SDK assembleTransaction requires exactly 1 Soroban operation.
+ */
+function assembleBatchTransaction(
+  rawTx: Transaction,
+  simulation: rpc.Api.SimulateTransactionResponse,
+): TransactionBuilder {
+  try {
+    return rpc.assembleTransaction(rawTx, simulation as rpc.Api.SimulateTransactionSuccessResponse);
+  } catch {
+    let sorobanData: xdr.SorobanTransactionData | undefined;
+    const simWithTxData = simulation as {
+      transactionData?:
+        { build?: () => xdr.SorobanTransactionData } | string | xdr.SorobanTransactionData;
+    };
+    if (simWithTxData?.transactionData) {
+      if (
+        typeof simWithTxData.transactionData === "object" &&
+        "build" in simWithTxData.transactionData &&
+        typeof simWithTxData.transactionData.build === "function"
+      ) {
+        sorobanData = simWithTxData.transactionData.build();
+      } else if (typeof simWithTxData.transactionData === "string") {
+        sorobanData = xdr.SorobanTransactionData.fromXDR(simWithTxData.transactionData, "base64");
+      } else {
+        sorobanData = simWithTxData.transactionData as xdr.SorobanTransactionData;
+      }
+    }
+    return TransactionBuilder.cloneFrom(rawTx, {
+      sorobanData,
+      fee: rawTx.fee,
+      networkPassphrase: rawTx.networkPassphrase,
+    });
+  }
 }
 
 /**
@@ -575,7 +699,9 @@ async function processBatchChunk(
     let recoverySimToAssemble: rpc.Api.SimulateTransactionSuccessResponse = simResponse;
 
     if (simResponse.transactionData) {
-      const { optimizedTxData, stats } = optimizeSorobanTransactionData(simResponse.transactionData);
+      const { optimizedTxData, stats } = optimizeSorobanTransactionData(
+        simResponse.transactionData,
+      );
       recoveryOptimizationStats = stats;
       recoverySimToAssemble = {
         ...simResponse,
@@ -584,7 +710,7 @@ async function processBatchChunk(
     }
 
     // Proceed to assemble and submit valid items
-    const preparedTx = rpc.assembleTransaction(recoveryTx, recoverySimToAssemble).build();
+    const preparedTx = assembleBatchTransaction(recoveryTx, recoverySimToAssemble).build();
 
     onProgress?.("signing", undefined, "Waiting for wallet signature...");
     const signedXdr = await signWalletTransaction(preparedTx.toXDR(), walletType);
@@ -651,7 +777,7 @@ async function processBatchChunk(
     };
   }
 
-  const assembledTx = rpc.assembleTransaction(preliminaryTx, simToAssemble).build();
+  const assembledTx = assembleBatchTransaction(preliminaryTx, simToAssemble).build();
 
   // 3. Sign & Submit
   onProgress?.("signing", undefined, "Awaiting wallet signature...");
@@ -664,9 +790,7 @@ async function processBatchChunk(
     const errorDetail = sendResponse.errorResult
       ? JSON.stringify(sendResponse.errorResult)
       : JSON.stringify(sendResponse);
-    throw new Error(
-      `Failed to submit batch transaction (${sendResponse.status}): ${errorDetail}`,
-    );
+    throw new Error(`Failed to submit batch transaction (${sendResponse.status}): ${errorDetail}`);
   }
   const txHash = sendResponse.hash;
 
@@ -698,17 +822,36 @@ async function processBatchChunk(
   };
 }
 
+export interface ExecuteBatchSaleLoggingOptions {
+  walletType?: WalletType;
+  onProgress?: BatchProgressCallback;
+  targetBatchIndices?: number[];
+  tracker?: BatchAllocationProgressTracker;
+}
+
 /**
  * Main entry point: Executes bulk sale logging with batching (up to 15 per envelope),
- * Soroban footprint optimization, live progress reporting, and partial revert tolerance.
+ * Soroban footprint optimization, live progress reporting, sub-batch index tracking,
+ * and partial failure resumption.
  */
 export async function executeBatchSaleLogging(
   advertiserAddress: string,
   sales: SaleItem[],
-  walletType: WalletType = "freighter",
-  onProgress?: BatchProgressCallback,
+  walletTypeOrOptions: WalletType | ExecuteBatchSaleLoggingOptions = "freighter",
+  onProgressCallback?: BatchProgressCallback,
 ): Promise<BatchSaleSummaryReceipt> {
   validateSaleItems(sales);
+
+  const options: ExecuteBatchSaleLoggingOptions =
+    typeof walletTypeOrOptions === "object"
+      ? walletTypeOrOptions
+      : {
+          walletType: walletTypeOrOptions,
+          onProgress: onProgressCallback,
+        };
+
+  const walletType: WalletType = options.walletType ?? "freighter";
+  const onProgress = options.onProgress ?? onProgressCallback;
 
   if (walletType === "readonly") {
     throw new Error("Read-only wallet cannot sign batch transactions.");
@@ -729,6 +872,20 @@ export async function executeBatchSaleLogging(
   const totalBatches = chunks.length;
   const totalSales = sales.length;
 
+  // Validate targetBatchIndices if provided
+  if (options.targetBatchIndices !== undefined) {
+    for (const idx of options.targetBatchIndices) {
+      if (!Number.isInteger(idx) || idx < 0 || idx >= totalBatches) {
+        throw new RangeError(
+          `Batch index ${idx} is out of bounds for allocation chunks [0, ${totalBatches - 1}].`,
+        );
+      }
+    }
+  }
+
+  const tracker = options.tracker ?? new BatchAllocationProgressTracker(totalBatches);
+  const indicesToProcess = options.targetBatchIndices ?? chunks.map((_, i) => i);
+
   let processedSales = 0;
   let confirmedSales = 0;
   let failedSales = 0;
@@ -744,7 +901,23 @@ export async function executeBatchSaleLogging(
     redundantReadKeysPurged: 0,
   };
 
-  for (let i = 0; i < chunks.length; i++) {
+  if (indicesToProcess.length === 0) {
+    return {
+      success: true,
+      totalSalesCount: totalSales,
+      confirmedCount: 0,
+      failedCount: 0,
+      batchesExecuted: 0,
+      transactionHashes: [],
+      itemizedResults: [],
+      footprintStats: aggregateStats,
+      completedBatchIndices: tracker.getCompletedChunkIndices(),
+      failedBatchIndices: tracker.getFailedChunkIndices(),
+      progressTracker: tracker,
+    };
+  }
+
+  for (const i of indicesToProcess) {
     const chunk = chunks[i];
     const currentBatchIndex = i + 1;
 
@@ -759,6 +932,8 @@ export async function executeBatchSaleLogging(
       currentStatus: "simulating",
       recentItemResults: allItemResults.slice(-5),
       message: `Starting batch ${currentBatchIndex}/${totalBatches} (${chunk.length} operations)...`,
+      completedBatchIndices: tracker.getCompletedChunkIndices(),
+      failedBatchIndices: tracker.getFailedChunkIndices(),
     });
 
     try {
@@ -778,6 +953,8 @@ export async function executeBatchSaleLogging(
             currentStatus: status,
             recentItemResults: allItemResults.slice(-5),
             message: msg,
+            completedBatchIndices: tracker.getCompletedChunkIndices(),
+            failedBatchIndices: tracker.getFailedChunkIndices(),
           });
         },
       );
@@ -789,7 +966,8 @@ export async function executeBatchSaleLogging(
       // Aggregate footprint stats
       aggregateStats = {
         originalReadOnlyCount: aggregateStats.originalReadOnlyCount + stats.originalReadOnlyCount,
-        originalReadWriteCount: aggregateStats.originalReadWriteCount + stats.originalReadWriteCount,
+        originalReadWriteCount:
+          aggregateStats.originalReadWriteCount + stats.originalReadWriteCount,
         consolidatedReadOnlyCount:
           aggregateStats.consolidatedReadOnlyCount + stats.consolidatedReadOnlyCount,
         consolidatedReadWriteCount:
@@ -798,15 +976,23 @@ export async function executeBatchSaleLogging(
           aggregateStats.redundantReadKeysPurged + stats.redundantReadKeysPurged,
       };
 
+      let chunkHasFailures = false;
       for (const res of results) {
         allItemResults.push(res);
         if (res.status === "confirmed") {
           confirmedSales++;
         } else {
           failedSales++;
+          chunkHasFailures = true;
         }
       }
       processedSales += chunk.length;
+
+      if (chunkHasFailures) {
+        tracker.markChunkFailed(i);
+      } else {
+        tracker.markChunkComplete(i);
+      }
 
       // Report batch completion
       onProgress?.({
@@ -820,6 +1006,8 @@ export async function executeBatchSaleLogging(
         currentStatus: "confirmed",
         recentItemResults: allItemResults.slice(-5),
         message: `Batch ${currentBatchIndex}/${totalBatches} processed successfully.`,
+        completedBatchIndices: tracker.getCompletedChunkIndices(),
+        failedBatchIndices: tracker.getFailedChunkIndices(),
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -844,6 +1032,7 @@ export async function executeBatchSaleLogging(
         failedSales++;
       }
       processedSales += chunk.length;
+      tracker.markChunkFailed(i);
 
       onProgress?.({
         totalBatches,
@@ -856,6 +1045,8 @@ export async function executeBatchSaleLogging(
         currentStatus: "error",
         recentItemResults: allItemResults.slice(-5),
         message: `Batch ${currentBatchIndex} encountered error: ${errMsg}`,
+        completedBatchIndices: tracker.getCompletedChunkIndices(),
+        failedBatchIndices: tracker.getFailedChunkIndices(),
       });
     }
   }
@@ -871,6 +1062,8 @@ export async function executeBatchSaleLogging(
     currentStatus: "completed",
     recentItemResults: allItemResults.slice(-10),
     message: `Bulk sale logging completed. ${confirmedSales} confirmed, ${failedSales} failed.`,
+    completedBatchIndices: tracker.getCompletedChunkIndices(),
+    failedBatchIndices: tracker.getFailedChunkIndices(),
   });
 
   return {
@@ -878,9 +1071,87 @@ export async function executeBatchSaleLogging(
     totalSalesCount: totalSales,
     confirmedCount: confirmedSales,
     failedCount: failedSales,
-    batchesExecuted: totalBatches,
+    batchesExecuted: indicesToProcess.length,
     transactionHashes,
     itemizedResults: allItemResults,
     footprintStats: aggregateStats,
+    completedBatchIndices: tracker.getCompletedChunkIndices(),
+    failedBatchIndices: tracker.getFailedChunkIndices(),
+    progressTracker: tracker,
+  };
+}
+
+/**
+ * Convenience entry point: Resumes logging for specified failed batch indices.
+ */
+export async function resumeFailedBatchLogging(
+  advertiserAddress: string,
+  sales: SaleItem[],
+  failedBatchIndices: number[],
+  walletType: WalletType = "freighter",
+  onProgress?: BatchProgressCallback,
+  existingTracker?: BatchAllocationProgressTracker,
+): Promise<BatchSaleSummaryReceipt> {
+  return executeBatchSaleLogging(advertiserAddress, sales, {
+    walletType,
+    onProgress,
+    targetBatchIndices: failedBatchIndices,
+    tracker: existingTracker,
+  });
+}
+
+export type ChunkSubmitter<T> = (
+  chunk: T[],
+  chunkIndex: number,
+) => Promise<{ success: boolean; txHash?: string; error?: string }>;
+
+/**
+ * Generic sub-batch resumption runner:
+ * Re-submits only the designated failed chunk indices and updates tracker state.
+ */
+export async function resumeBatchAllocationSubmission<T>(
+  chunks: T[][],
+  failedChunkIndices: number[],
+  submitFn: ChunkSubmitter<T>,
+  tracker?: BatchAllocationProgressTracker,
+): Promise<{
+  submittedIndices: number[];
+  succeededIndices: number[];
+  failedIndices: number[];
+}> {
+  for (const idx of failedChunkIndices) {
+    if (idx < 0 || idx >= chunks.length || !Number.isInteger(idx)) {
+      throw new RangeError(
+        `Failed chunk index ${idx} is out of bounds for allocation chunks [0, ${chunks.length - 1}].`,
+      );
+    }
+  }
+
+  const submittedIndices: number[] = [];
+  const succeededIndices: number[] = [];
+  const stillFailedIndices: number[] = [];
+
+  for (const index of failedChunkIndices) {
+    submittedIndices.push(index);
+    const chunk = chunks[index];
+    try {
+      const res = await submitFn(chunk, index);
+      if (res.success) {
+        succeededIndices.push(index);
+        tracker?.markChunkComplete(index);
+      } else {
+        stillFailedIndices.push(index);
+        tracker?.markChunkFailed(index);
+      }
+    } catch {
+      stillFailedIndices.push(index);
+      tracker?.markChunkFailed(index);
+    }
+  }
+
+  return {
+    submittedIndices,
+    succeededIndices,
+    failedIndices: stillFailedIndices,
   };
 }

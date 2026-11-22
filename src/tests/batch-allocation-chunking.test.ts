@@ -1,13 +1,29 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   chunkSaleBatch,
   buildBatchTransactionEnvelope,
+  executeBatchSaleLogging,
+  resumeFailedBatchLogging,
+  resumeBatchAllocationSubmission,
+  BatchAllocationProgressTracker,
   MAX_BATCH_SIZE,
+  STELLAR_MAX_TX_SIZE_BYTES,
   type SaleItem,
+  type ChunkSubmitter,
 } from "../lib/batchSaleLogging";
-import { SOROBAN_MAX_MEMORY_BYTES } from "../lib/sorobanProfiler";
-import { Account, Keypair } from "@stellar/stellar-sdk";
+import { STELLAR_CONFIG } from "../config/stellar";
+import * as stellarLib from "../lib/stellar";
+import {
+  Account,
+  Keypair,
+  Contract,
+  TransactionBuilder,
+  SorobanDataBuilder,
+  StrKey,
+  xdr,
+  rpc,
+} from "@stellar/stellar-sdk";
 
 // Ephemeral mock keypairs for testing - generated in memory, never real secrets
 const dummyAdvertiser = Keypair.random().publicKey();
@@ -17,7 +33,7 @@ const dummyAffiliate2 = Keypair.random().publicKey();
 /**
  * Programmatically generates N allocation records for batch tests without inline fixtures.
  */
-export function makeAllocations(count: number): SaleItem[] {
+function makeAllocations(count: number): SaleItem[] {
   return Array.from({ length: count }, (_, i) => ({
     id: `ALLOC_${i + 1}`,
     campaignId: 100 + (i % 5),
@@ -27,121 +43,11 @@ export function makeAllocations(count: number): SaleItem[] {
   }));
 }
 
-/**
- * Result of a chunk submission attempt.
- */
-export interface ChunkSubmissionResult {
-  success: boolean;
-  txHash?: string;
-  error?: string;
-}
-
-/**
- * Handler for submitting a single sub-batch chunk.
- */
-export type ChunkSubmitter<T> = (chunk: T[], chunkIndex: number) => Promise<ChunkSubmissionResult>;
-
-/**
- * Progress tracker recording the completion and failure states of sub-batches.
- */
-export class BatchAllocationProgressTracker {
-  private totalChunks: number;
-  private completedChunkIndices: Set<number> = new Set();
-  private failedChunkIndices: Set<number> = new Set();
-
-  constructor(totalChunks: number) {
-    this.totalChunks = totalChunks;
-  }
-
-  public markChunkComplete(index: number): void {
-    this.completedChunkIndices.add(index);
-    this.failedChunkIndices.delete(index);
-  }
-
-  public markChunkFailed(index: number): void {
-    this.failedChunkIndices.add(index);
-    this.completedChunkIndices.delete(index);
-  }
-
-  public isChunkComplete(index: number): boolean {
-    return this.completedChunkIndices.has(index);
-  }
-
-  public isChunkFailed(index: number): boolean {
-    return this.failedChunkIndices.has(index);
-  }
-
-  public getCompletedChunkIndices(): number[] {
-    return Array.from(this.completedChunkIndices).sort((a, b) => a - b);
-  }
-
-  public getFailedChunkIndices(): number[] {
-    return Array.from(this.failedChunkIndices).sort((a, b) => a - b);
-  }
-
-  public getProgressPercentage(): number {
-    if (this.totalChunks === 0) return 100;
-    return Math.floor((this.completedChunkIndices.size / this.totalChunks) * 100);
-  }
-
-  public isAllComplete(): boolean {
-    return this.totalChunks > 0 && this.completedChunkIndices.size === this.totalChunks;
-  }
-}
-
-/**
- * Partial failure resumption runner:
- * Re-submits only the specified failed chunk indices and updates tracker state.
- */
-export async function resumeBatchAllocationSubmission<T>(
-  chunks: T[][],
-  failedChunkIndices: number[],
-  submitFn: ChunkSubmitter<T>,
-  tracker?: BatchAllocationProgressTracker,
-): Promise<{
-  submittedIndices: number[];
-  succeededIndices: number[];
-  failedIndices: number[];
-}> {
-  // Validate chunk index bounds to prevent invalid access
-  for (const idx of failedChunkIndices) {
-    if (idx < 0 || idx >= chunks.length || !Number.isInteger(idx)) {
-      throw new RangeError(
-        `Failed chunk index ${idx} is out of bounds for allocation chunks [0, ${chunks.length - 1}].`,
-      );
-    }
-  }
-
-  const submittedIndices: number[] = [];
-  const succeededIndices: number[] = [];
-  const stillFailedIndices: number[] = [];
-
-  for (const index of failedChunkIndices) {
-    submittedIndices.push(index);
-    const chunk = chunks[index];
-    try {
-      const res = await submitFn(chunk, index);
-      if (res.success) {
-        succeededIndices.push(index);
-        tracker?.markChunkComplete(index);
-      } else {
-        stillFailedIndices.push(index);
-        tracker?.markChunkFailed(index);
-      }
-    } catch {
-      stillFailedIndices.push(index);
-      tracker?.markChunkFailed(index);
-    }
-  }
-
-  return {
-    submittedIndices,
-    succeededIndices,
-    failedIndices: stillFailedIndices,
-  };
-}
-
 describe("batch allocation chunking", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
   describe("array slicing", () => {
     it("splits 5000 allocations into deterministic sub-batches", () => {
       const totalCount = 5000;
@@ -212,82 +118,160 @@ describe("batch allocation chunking", () => {
       const tx = builder.build();
       const xdrBuffer = tx.toEnvelope().toXDR();
 
-      // Using SOROBAN_MAX_MEMORY_BYTES constant defined in src/lib/sorobanProfiler.ts
-      expect(xdrBuffer.length).toBeLessThanOrEqual(SOROBAN_MAX_MEMORY_BYTES);
+      // Serialized envelope must be within Stellar's 128 KB transaction byte ceiling
+      expect(xdrBuffer.length).toBeLessThanOrEqual(STELLAR_MAX_TX_SIZE_BYTES);
       expect(xdrBuffer.length).toBeGreaterThan(0);
     });
 
-    it.skip("chunk one entry over the limit exceeds the XDR size limit", () => {
-      // Skipped: The codebase defines SOROBAN_MAX_MEMORY_BYTES and MAX_BATCH_SIZE,
-      // but does not expose an offline transaction XDR byte limit validator or constant
-      // without performing Soroban RPC network simulation calls.
+    it("chunk one entry over the limit exceeds the XDR size limit", () => {
+      // Derive a boundary case exceeding STELLAR_MAX_TX_SIZE_BYTES (131,072 bytes)
+      const account = new Account(dummyAdvertiser, "1000");
+      const contractId = StrKey.isValidContract(STELLAR_CONFIG.contractId)
+        ? STELLAR_CONFIG.contractId
+        : "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526";
+      const contract = new Contract(contractId);
+
+      // Construct an envelope with an ScVal bytes payload sized to exceed the 128 KB limit
+      const oversizedPayload = xdr.ScVal.scvBytes(Buffer.alloc(STELLAR_MAX_TX_SIZE_BYTES, 65));
+      const builder = new TransactionBuilder(account, {
+        fee: "100000",
+        networkPassphrase: STELLAR_CONFIG.networkPassphrase,
+      });
+      builder.addOperation(contract.call("log_sale", oversizedPayload));
+      const oversizedTx = builder.setTimeout(90).build();
+      const oversizedXdr = oversizedTx.toEnvelope().toXDR();
+
+      expect(oversizedXdr.length).toBeGreaterThan(STELLAR_MAX_TX_SIZE_BYTES);
     });
 
     it("packing is deterministic — same input produces identical XDR bytes", () => {
-      const chunk = makeAllocations(MAX_BATCH_SIZE);
-      const account1 = new Account(dummyAdvertiser, "1000");
-      const account2 = new Account(dummyAdvertiser, "1000");
+      // Freeze Date.now() across both builds so setTimeout(90) assigns identical maxTime
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      try {
+        const chunk = makeAllocations(MAX_BATCH_SIZE);
+        const account1 = new Account(dummyAdvertiser, "1000");
+        const account2 = new Account(dummyAdvertiser, "1000");
 
-      const tx1 = buildBatchTransactionEnvelope(account1, dummyAdvertiser, chunk).build();
-      const tx2 = buildBatchTransactionEnvelope(account2, dummyAdvertiser, chunk).build();
+        const tx1 = buildBatchTransactionEnvelope(account1, dummyAdvertiser, chunk).build();
+        const tx2 = buildBatchTransactionEnvelope(account2, dummyAdvertiser, chunk).build();
 
-      const bytes1 = tx1.toEnvelope().toXDR();
-      const bytes2 = tx2.toEnvelope().toXDR();
+        const bytes1 = tx1.toEnvelope().toXDR();
+        const bytes2 = tx2.toEnvelope().toXDR();
 
-      expect(bytes1).toEqual(bytes2);
-      expect(tx1.toXDR()).toBe(tx2.toXDR());
+        expect(bytes1).toEqual(bytes2);
+        expect(tx1.toXDR()).toBe(tx2.toXDR());
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
   describe("partial failure resumption", () => {
     it("re-submitting only failed chunk indices skips successful chunks", async () => {
-      const chunks = chunkSaleBatch(makeAllocations(45), MAX_BATCH_SIZE); // 3 chunks
+      const sales = makeAllocations(45); // 3 chunks: [0, 1, 2] of 15 each
+      const chunks = chunkSaleBatch(sales, MAX_BATCH_SIZE);
       expect(chunks.length).toBe(3);
 
+      const dummyAccount = new Account(dummyAdvertiser, "100");
+      const mockSimSuccess = {
+        transactionData: new SorobanDataBuilder().build().toXDR("base64"),
+        minResourceFee: "100",
+        results: [{ auth: [] }],
+      };
+
+      let sendCallCount = 0;
+      const sentTxHashes: string[] = [];
+      const mockServer = {
+        getAccount: vi.fn().mockResolvedValue(dummyAccount),
+        simulateTransaction: vi.fn().mockImplementation(async (_tx: unknown) => {
+          return mockSimSuccess;
+        }),
+        sendTransaction: vi.fn().mockImplementation(async () => {
+          sendCallCount++;
+          if (sendCallCount === 2) {
+            // Fail second chunk (chunk 1)
+            return {
+              status: "ERROR",
+              errorResult: "Transaction rejected on ledger",
+            };
+          }
+          const hash = `${sendCallCount}`.repeat(64);
+          sentTxHashes.push(hash);
+          return {
+            status: "PENDING",
+            hash,
+          };
+        }),
+        getTransaction: vi.fn().mockResolvedValue({ status: "SUCCESS" }),
+      };
+
+      vi.spyOn(stellarLib, "getSorobanRpcServer").mockReturnValue(
+        mockServer as unknown as rpc.Server,
+      );
+      vi.spyOn(stellarLib, "signWalletTransaction").mockImplementation(async (xdrStr) => xdrStr);
+
       const tracker = new BatchAllocationProgressTracker(chunks.length);
-      // Chunks 0 and 2 succeeded; chunk 1 failed
-      tracker.markChunkComplete(0);
-      tracker.markChunkFailed(1);
-      tracker.markChunkComplete(2);
 
-      const resumeSubmit = vi
-        .fn<ChunkSubmitter<SaleItem>>()
-        .mockResolvedValue({ success: true, txHash: "mock_tx_hash_recovered" });
+      // Initial execution: chunks 0, 1, 2 submitted; chunk 1 fails
+      const initialReceipt = await executeBatchSaleLogging(dummyAdvertiser, sales, {
+        walletType: "freighter",
+        tracker,
+      });
 
-      const failedIndices = tracker.getFailedChunkIndices();
-      expect(failedIndices).toEqual([1]);
+      expect(initialReceipt.completedBatchIndices).toEqual([0, 2]);
+      expect(initialReceipt.failedBatchIndices).toEqual([1]);
+      expect(tracker.isChunkComplete(0)).toBe(true);
+      expect(tracker.isChunkFailed(1)).toBe(true);
+      expect(tracker.isChunkComplete(2)).toBe(true);
+      expect(tracker.isAllComplete()).toBe(false);
 
-      const result = await resumeBatchAllocationSubmission(
-        chunks,
-        failedIndices,
-        resumeSubmit,
+      // Reset mock server spy to monitor retry behavior
+      mockServer.sendTransaction.mockClear();
+      mockServer.sendTransaction.mockResolvedValue({
+        status: "PENDING",
+        hash: "7".repeat(64),
+      });
+
+      // Resume only the failed chunk index (1)
+      const resumeReceipt = await resumeFailedBatchLogging(
+        dummyAdvertiser,
+        sales,
+        initialReceipt.failedBatchIndices ?? [],
+        "freighter",
+        undefined,
         tracker,
       );
 
-      // Assert only chunk 1 is re-submitted
-      expect(resumeSubmit).toHaveBeenCalledTimes(1);
-      expect(resumeSubmit).toHaveBeenCalledWith(chunks[1], 1);
-      expect(result.submittedIndices).toEqual([1]);
-      expect(result.succeededIndices).toEqual([1]);
-      expect(result.failedIndices).toEqual([]);
+      // Assert only chunk 1 was re-submitted, skipping chunks 0 and 2
+      expect(mockServer.sendTransaction).toHaveBeenCalledTimes(1);
+      expect(resumeReceipt.batchesExecuted).toBe(1);
+      expect(resumeReceipt.confirmedCount).toBe(15);
+      expect(resumeReceipt.failedCount).toBe(0);
 
-      // Tracker now reflects that all chunks succeeded
+      // Successful chunks 0 and 2 completion state was preserved; all chunks now complete
       expect(tracker.isChunkComplete(0)).toBe(true);
       expect(tracker.isChunkComplete(1)).toBe(true);
       expect(tracker.isChunkComplete(2)).toBe(true);
       expect(tracker.isAllComplete()).toBe(true);
+      expect(tracker.getProgressPercentage()).toBe(100);
     });
 
     it("resumption with no failed chunks is a no-op", async () => {
-      const chunks = chunkSaleBatch(makeAllocations(30), MAX_BATCH_SIZE);
-      const resumeSubmit = vi.fn<ChunkSubmitter<SaleItem>>();
+      const sales = makeAllocations(30);
+      const mockServer = {
+        getAccount: vi.fn(),
+        sendTransaction: vi.fn(),
+      };
+      vi.spyOn(stellarLib, "getSorobanRpcServer").mockReturnValue(
+        mockServer as unknown as rpc.Server,
+      );
 
-      const result = await resumeBatchAllocationSubmission(chunks, [], resumeSubmit);
+      const result = await resumeFailedBatchLogging(dummyAdvertiser, sales, [], "freighter");
 
-      expect(resumeSubmit).not.toHaveBeenCalled();
-      expect(result.submittedIndices).toEqual([]);
-      expect(result.succeededIndices).toEqual([]);
-      expect(result.failedIndices).toEqual([]);
+      expect(mockServer.sendTransaction).not.toHaveBeenCalled();
+      expect(result.batchesExecuted).toBe(0);
+      expect(result.confirmedCount).toBe(0);
     });
 
     it("resumption with all chunks failed re-submits all", async () => {
@@ -307,20 +291,17 @@ describe("batch allocation chunking", () => {
     });
 
     it("failed chunk index out of range is rejected", async () => {
-      const chunks = chunkSaleBatch(makeAllocations(30), MAX_BATCH_SIZE); // 2 chunks: 0, 1
-      const dummySubmit = vi.fn<ChunkSubmitter<SaleItem>>();
+      const sales = makeAllocations(30); // 2 chunks: 0, 1
 
       // Negative index
-      await expect(resumeBatchAllocationSubmission(chunks, [-1], dummySubmit)).rejects.toThrow(
-        RangeError,
-      );
+      await expect(
+        resumeFailedBatchLogging(dummyAdvertiser, sales, [-1], "freighter"),
+      ).rejects.toThrow(RangeError);
 
       // Out-of-bounds upper index
-      await expect(resumeBatchAllocationSubmission(chunks, [2], dummySubmit)).rejects.toThrow(
-        RangeError,
-      );
-
-      expect(dummySubmit).not.toHaveBeenCalled();
+      await expect(
+        resumeFailedBatchLogging(dummyAdvertiser, sales, [2], "freighter"),
+      ).rejects.toThrow(RangeError);
     });
   });
 
