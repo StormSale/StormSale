@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-li
 import { BatchSaleUploader } from "../components/advertiser/BatchSaleUploader";
 import { NotificationProvider } from "../context/NotificationContext";
 import { SAMPLE_STELLAR_KEYS } from "../lib/batchSaleParser";
+import { verifyMerkleProof } from "../lib/merkleTree";
 
 const web3 = vi.hoisted(() => ({
   isConnected: true,
@@ -43,6 +44,15 @@ function renderUploader() {
   );
 }
 
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
 async function uploadFile(container: HTMLElement, name: string, content: string) {
   const input = container.querySelector("#batch-file-input") as HTMLInputElement;
   const file = new File([content], name, { type: "text/plain" });
@@ -56,16 +66,21 @@ function rowFor(text: string): HTMLElement {
 
 describe("BatchSaleUploader component", () => {
   let downloads: string[];
+  let downloadedBlobs: Blob[];
 
   beforeEach(() => {
     downloads = [];
+    downloadedBlobs = [];
     web3.isConnected = true;
     web3.logSaleOnChain.mockReset();
     web3.openWalletModal.mockReset();
     postback.mockReset();
     vi.stubGlobal("navigator", { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
     vi.stubGlobal("URL", {
-      createObjectURL: vi.fn().mockReturnValue("blob:mock"),
+      createObjectURL: vi.fn((blob: Blob) => {
+        downloadedBlobs.push(blob);
+        return "blob:mock";
+      }),
       revokeObjectURL: vi.fn(),
     });
     const realCreate = document.createElement.bind(document);
@@ -198,6 +213,15 @@ describe("BatchSaleUploader component", () => {
     fireEvent.click(screen.getByText("Audit Manifest (.json)"));
     expect(downloads[0]).toMatch(/^merkle_audit_manifest_1_\d+\.json$/);
 
+    const manifest = JSON.parse(await readBlob(downloadedBlobs[0]));
+    expect(manifest.merkleRoot).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(manifest.validCount).toBe(2);
+    expect(manifest.malformedCount).toBe(1);
+    expect(manifest.sales).toHaveLength(2);
+    for (const sale of manifest.sales) {
+      expect(verifyMerkleProof(sale.leafHash, sale.proof, manifest.merkleRoot)).toBe(true);
+    }
+
     const verifyInput = screen.getByPlaceholderText(/Enter Order ID to verify/);
     fireEvent.change(verifyInput, { target: { value: "ord-b" } });
     fireEvent.click(screen.getByText("Verify Proof"));
@@ -285,6 +309,13 @@ describe("BatchSaleUploader component", () => {
 
     fireEvent.click(screen.getByText("Download Settlement CSV"));
     expect(downloads.at(-1)).toMatch(/^settlement_report_\d+\.csv$/);
+    const settlementCsv = await readBlob(downloadedBlobs.at(-1)!);
+    expect(settlementCsv).toContain(
+      "Row #,Order ID,Affiliate Address,Sale Amount XLM,Timestamp,Status,On-Chain Tx Hash",
+    );
+    expect(settlementCsv).toContain(`1,"ORD-A","${KEY_A}",100,`);
+    expect(settlementCsv).toContain('"success","abc123"');
+    expect(settlementCsv).toContain('"error",""');
   });
 
   it("pauses, resumes and cancels an in-flight batch", async () => {
