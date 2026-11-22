@@ -36,7 +36,7 @@ describe("Network Switcher and Alert Boundary Tests (Issue #430)", () => {
 
   describe("3. Network Mismatch Banner Boundary", () => {
     it("detects mismatch between wallet network and dApp target passphrase", () => {
-      const activeWalletNetwork = "PUBLIC"; // Mainnet
+      const activeWalletNetwork = "PUBLIC" as string; // Mainnet
       const configuredPassphrase = "Test SDF Network ; September 2015"; // Testnet
 
       const isMismatch =

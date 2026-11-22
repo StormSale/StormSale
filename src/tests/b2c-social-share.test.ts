@@ -70,8 +70,9 @@ describe("B2C Social Share Card Preview & Web Share API Integration Suite", () =
         url: mockReferralUrl,
       };
 
-      if (navigator.share) {
-        await navigator.share(shareData);
+      const nav = navigator as Navigator & { share?: (data: any) => Promise<void> };
+      if (nav.share) {
+        await nav.share(shareData);
       }
 
       expect(mockShare).toHaveBeenCalledWith(shareData);
@@ -91,7 +92,8 @@ describe("B2C Social Share Card Preview & Web Share API Integration Suite", () =
         writable: true,
       });
 
-      if (!navigator.share && navigator.clipboard) {
+      const nav = navigator as Navigator & { share?: unknown };
+      if (!nav.share && navigator.clipboard) {
         await navigator.clipboard.writeText(mockReferralUrl);
       }
 
