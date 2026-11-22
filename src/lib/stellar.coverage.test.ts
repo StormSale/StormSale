@@ -541,7 +541,9 @@ describe("Soroban invocation engine", () => {
 
     await expect(
       withFakeTimers(() => stellar.invokeSorobanMethod(PUBKEY, "noop", [], "freighter")),
-    ).rejects.toThrow(/timed out/);
+    ).rejects.toThrow(
+      "Transaction confirmation timed out after 25 attempts. Check transaction tx-hash status or resume tracking this hash before considering resubmission.",
+    );
   });
 });
 

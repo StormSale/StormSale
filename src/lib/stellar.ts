@@ -987,7 +987,7 @@ export async function invokeSorobanMethod(
   }
 
   throw new Error(
-    `Transaction timed out awaiting confirmation after ${maxAttempts} attempts. Hash: ${txHash}. Retry the transaction if the network is still available.`,
+    `Transaction confirmation timed out after ${maxAttempts} attempts. Check transaction ${txHash} status or resume tracking this hash before considering resubmission.`,
   );
 }
 
