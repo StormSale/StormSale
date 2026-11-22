@@ -6,10 +6,13 @@
  * Uses vi.spyOn(global, "fetch") to control HTTP responses and exercise every
  * branch in:
  *   - fetchWithTimeout()         (AbortError path, non-JSON body)
+ *   - requireHttpsUrl()          (missing, invalid URL, non-HTTPS) — via callers
  *   - discoverTransferServer()   (200 TOML, 4xx error, timeout, missing key,
- *                                 fallback TRANSFER_SERVER key)
- *   - initiateSep24Withdrawal()  (success, non-2xx, unexpected body shape)
- *   - parseSep24Transaction()    (all field mappings, fallback paths)
+ *                                 fallback TRANSFER_SERVER key, non-HTTPS URL)
+ *   - initiateSep24Withdrawal()  (success, non-2xx, unexpected body shape,
+ *                                 missing/invalid url)
+ *   - parseSep24Transaction()    (all field mappings, validation errors,
+ *                                 fallback paths)
  *   - fetchSep24Transaction()    (success, non-2xx, missing transaction object)
  *   - pollSep24Transaction()     (terminal statuses, onStatusChange, maxAttempts)
  */
@@ -32,15 +35,13 @@ import {
 function mockFetchOnce(
   status: number,
   body: unknown,
-  contentType = "application/json",
 ): ReturnType<typeof vi.spyOn> {
-  const isText = contentType.startsWith("text/");
-  const responseBody = isText ? (body as string) : JSON.stringify(body);
+  const responseBody = JSON.stringify(body);
   return vi.spyOn(global, "fetch").mockResolvedValueOnce({
     ok: status >= 200 && status < 300,
     status,
-    text: () => Promise.resolve(isText ? responseBody : responseBody),
-    json: () => (isText ? Promise.reject(new SyntaxError("Not JSON")) : Promise.resolve(body)),
+    text: () => Promise.resolve(responseBody),
+    json: () => Promise.resolve(body),
   } as unknown as Response);
 }
 
@@ -103,10 +104,29 @@ describe("discoverTransferServer() – real implementation", () => {
     );
   });
 
+  it("throws when discovered TRANSFER_SERVER_SEP0024 URL is not HTTPS", async () => {
+    mockFetchToml(
+      `[DOCUMENTATION]\nTRANSFER_SERVER_SEP0024 = "http://insecure.example/sep24"\n`,
+    );
+
+    await expect(discoverTransferServer("anchor.example")).rejects.toThrow(
+      /must use HTTPS/i,
+    );
+  });
+
+  it("throws when discovered TRANSFER_SERVER fallback URL is not a valid URL", async () => {
+    mockFetchToml(
+      `[DOCUMENTATION]\nTRANSFER_SERVER = "not-a-valid-url"\n`,
+    );
+
+    await expect(discoverTransferServer("anchor.example")).rejects.toThrow(
+      /not a valid URL/i,
+    );
+  });
+
   it("throws with AbortError message when TOML fetch times out", async () => {
     vi.spyOn(global, "fetch").mockImplementationOnce((_url, init) => {
       return new Promise((_resolve, reject) => {
-        // Simulate abort by triggering the signal's abort event
         (init?.signal as AbortSignal)?.addEventListener("abort", () => {
           const err = new Error("The operation was aborted.");
           err.name = "AbortError";
@@ -129,9 +149,7 @@ describe("initiateSep24Withdrawal() – real implementation", () => {
   const TOML_OK = `TRANSFER_SERVER_SEP0024 = "https://anchor.example/sep24"\n`;
 
   it("returns id and url on a successful interactive response", async () => {
-    // First fetch: TOML discovery
     mockFetchToml(TOML_OK);
-    // Second fetch: POST /transactions/withdraw/interactive
     mockFetchOnce(200, {
       type: "interactive_customer_info_needed",
       id: "txn_abc",
@@ -151,7 +169,6 @@ describe("initiateSep24Withdrawal() – real implementation", () => {
 
   it("throws when anchor POST returns non-2xx with error field", async () => {
     mockFetchToml(TOML_OK);
-    // Simulate 401 with JSON error body
     vi.spyOn(global, "fetch").mockResolvedValueOnce({
       ok: false,
       status: 401,
@@ -201,11 +218,11 @@ describe("initiateSep24Withdrawal() – real implementation", () => {
     ).rejects.toThrow(/expected type=interactive_customer_info_needed/i);
   });
 
-  it("throws when anchor response is missing id or url fields", async () => {
+  it("throws when anchor response is missing id field", async () => {
     mockFetchToml(TOML_OK);
     mockFetchOnce(200, {
       type: "interactive_customer_info_needed",
-      // id and url intentionally absent
+      url: "https://anchor.example/interactive",
     });
 
     await expect(
@@ -215,6 +232,40 @@ describe("initiateSep24Withdrawal() – real implementation", () => {
         account: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZG5ZC3Q02I6Q4A5DRJNV",
       }),
     ).rejects.toThrow(/expected type=interactive_customer_info_needed/i);
+  });
+
+  it("throws when anchor returns a non-HTTPS interactive URL", async () => {
+    mockFetchToml(TOML_OK);
+    mockFetchOnce(200, {
+      type: "interactive_customer_info_needed",
+      id: "txn_abc",
+      url: "http://insecure.example/interactive",
+    });
+
+    await expect(
+      initiateSep24Withdrawal({
+        anchorDomain: "anchor.example",
+        assetCode: "USDC",
+        account: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZG5ZC3Q02I6Q4A5DRJNV",
+      }),
+    ).rejects.toThrow(/must use HTTPS/i);
+  });
+
+  it("throws when anchor returns an invalid URL string", async () => {
+    mockFetchToml(TOML_OK);
+    mockFetchOnce(200, {
+      type: "interactive_customer_info_needed",
+      id: "txn_abc",
+      url: "not-a-valid-url",
+    });
+
+    await expect(
+      initiateSep24Withdrawal({
+        anchorDomain: "anchor.example",
+        assetCode: "USDC",
+        account: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZG5ZC3Q02I6Q4A5DRJNV",
+      }),
+    ).rejects.toThrow(/not a valid URL/i);
   });
 });
 
@@ -233,6 +284,7 @@ describe("parseSep24Transaction() – real implementation", () => {
       amount_in: "50.00",
       amount_out: "49.50",
       amount_in_asset: "USDC",
+      amount_out_asset: "USD",
       started_at: "2026-11-19T08:00:00Z",
       completed_at: "2026-11-19T08:05:00Z",
       more_info_url: "https://anchor.example/info",
@@ -247,6 +299,7 @@ describe("parseSep24Transaction() – real implementation", () => {
     expect(tx.amountIn).toBe("50.00");
     expect(tx.amountOut).toBe("49.50");
     expect(tx.assetCode).toBe("USDC");
+    expect(tx.amountOutAsset).toBe("USD");
     expect(tx.startedAt).toBe("2026-11-19T08:00:00Z");
     expect(tx.completedAt).toBe("2026-11-19T08:05:00Z");
     expect(tx.moreInfoUrl).toBe("https://anchor.example/info");
@@ -266,6 +319,11 @@ describe("parseSep24Transaction() – real implementation", () => {
 
   it("sets kind to 'withdrawal' for any non-deposit kind value", () => {
     const tx = parseSep24Transaction({ id: "t1", kind: "unknown", status: "incomplete" });
+    expect(tx.kind).toBe("withdrawal");
+  });
+
+  it("defaults kind to 'withdrawal' when kind is absent", () => {
+    const tx = parseSep24Transaction({ id: "t1", status: "incomplete" });
     expect(tx.kind).toBe("withdrawal");
   });
 
@@ -289,9 +347,60 @@ describe("parseSep24Transaction() – real implementation", () => {
     expect(tx.message).toBe("https://anchor.example/moreinfo");
   });
 
-  it("sets id to empty string when raw.id is undefined", () => {
-    const tx = parseSep24Transaction({ kind: "withdrawal", status: "incomplete" });
-    expect(tx.id).toBe("");
+  it("throws when raw is null", () => {
+    expect(() => parseSep24Transaction(null)).toThrow(/non-object/i);
+  });
+
+  it("throws when raw is not an object", () => {
+    expect(() => parseSep24Transaction("string")).toThrow(/non-object/i);
+  });
+
+  it("throws when id is missing", () => {
+    expect(() =>
+      parseSep24Transaction({ kind: "withdrawal", status: "incomplete" }),
+    ).toThrow(/missing required field: id/i);
+  });
+
+  it("throws when id is an empty string", () => {
+    expect(() =>
+      parseSep24Transaction({ id: "", kind: "withdrawal", status: "incomplete" }),
+    ).toThrow(/missing required field: id/i);
+  });
+
+  it("throws when status is not a recognised SEP-0024 status value", () => {
+    expect(() =>
+      parseSep24Transaction({ id: "t1", kind: "withdrawal", status: "bogus_status" }),
+    ).toThrow(/unrecognised status/i);
+  });
+
+  it("defaults status to 'incomplete' when status field is absent", () => {
+    const tx = parseSep24Transaction({ id: "t1", kind: "withdrawal" });
+    expect(tx.status).toBe("incomplete");
+  });
+
+  it("preserves amountOutAsset separately from assetCode", () => {
+    const tx = parseSep24Transaction({
+      id: "t1",
+      kind: "withdrawal",
+      status: "completed",
+      amount_in_asset: "USDC",
+      amount_out_asset: "EUR",
+    });
+    expect(tx.assetCode).toBe("USDC");
+    expect(tx.amountOutAsset).toBe("EUR");
+  });
+
+  it("returns undefined for optional fields when absent", () => {
+    const tx = parseSep24Transaction({ id: "t1", status: "incomplete" });
+    expect(tx.message).toBeUndefined();
+    expect(tx.externalTransactionId).toBeUndefined();
+    expect(tx.amountIn).toBeUndefined();
+    expect(tx.amountOut).toBeUndefined();
+    expect(tx.assetCode).toBeUndefined();
+    expect(tx.amountOutAsset).toBeUndefined();
+    expect(tx.startedAt).toBeUndefined();
+    expect(tx.completedAt).toBeUndefined();
+    expect(tx.moreInfoUrl).toBeUndefined();
   });
 });
 
@@ -340,7 +449,6 @@ describe("fetchSep24Transaction() – real implementation", () => {
 
 describe("pollSep24Transaction() – real implementation", () => {
   it("resolves immediately when first poll returns a terminal status", async () => {
-    // Single fetch returns 'completed'
     mockFetchOnce(200, {
       transaction: { id: "txn_1", kind: "withdrawal", status: "completed" },
     });
@@ -407,8 +515,6 @@ describe("pollSep24Transaction() – real implementation", () => {
   it("calls onStatusChange only when status changes between polls", async () => {
     const onStatusChange = vi.fn();
 
-    // First two polls: same 'pending_anchor' status → onStatusChange called only once
-    // Third poll: 'completed' → onStatusChange called again
     vi.spyOn(global, "fetch")
       .mockResolvedValueOnce({
         ok: true,
@@ -426,7 +532,6 @@ describe("pollSep24Transaction() – real implementation", () => {
         json: () => Promise.resolve({ transaction: { id: "t", kind: "withdrawal", status: "completed" } }),
       } as unknown as Response);
 
-    // Advance timers automatically so the sleep resolves
     vi.useFakeTimers({ shouldAdvanceTime: true });
 
     const promise = pollSep24Transaction({
@@ -439,14 +544,12 @@ describe("pollSep24Transaction() – real implementation", () => {
 
     await promise;
 
-    // Status changed: pending_anchor (1st) → same (no call) → completed (2nd call)
     expect(onStatusChange).toHaveBeenCalledTimes(2);
     expect(onStatusChange.mock.calls[0][0].status).toBe("pending_anchor");
     expect(onStatusChange.mock.calls[1][0].status).toBe("completed");
   });
 
   it("throws after maxAttempts without reaching a terminal status", async () => {
-    // Always return a non-terminal status
     vi.spyOn(global, "fetch").mockResolvedValue({
       ok: true,
       status: 200,
@@ -462,6 +565,6 @@ describe("pollSep24Transaction() – real implementation", () => {
       maxAttempts: 3,
     });
 
-    await expect(promise).rejects.toThrow(/did not reach a terminal status after 3 attempts/i);
+    await expect(promise).rejects.toThrow(/status check timed out after 3 attempts/i);
   });
 });
