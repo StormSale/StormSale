@@ -539,11 +539,12 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       const midProgress = capturedProgress.find((p) => p.currentBatchIndex === 1 && p.currentStatus === "submitting");
       expect(midProgress).toBeDefined();
 
-      const { rerender } = render(
+      const { unmount: unmountRunning } = render(
         React.createElement(
           NotificationProvider,
           null,
           React.createElement(BulkSaleLogModal as any, {
+            key: "running-snapshot",
             initialProgress: midProgress,
           }),
         ),
@@ -553,16 +554,19 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(progressBar).toBeDefined();
       expect(progressBar.getAttribute("aria-valuenow")).toBeTruthy();
       expect(screen.getByText(/batch 1 of 2/i)).toBeDefined();
+      unmountRunning();
 
       // Render with final executor progress
       const finalProgress = capturedProgress[capturedProgress.length - 1];
       expect(finalProgress.currentStatus).toBe("completed");
+      expect(finalProgress.percentage).toBe(100);
 
-      rerender(
+      render(
         React.createElement(
           NotificationProvider,
           null,
           React.createElement(BulkSaleLogModal as any, {
+            key: "completed-snapshot",
             initialProgress: finalProgress,
           }),
         ),
@@ -571,6 +575,49 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       const finalProgressBar = screen.getByRole("progressbar", { name: /batch execution progress/i });
       expect(finalProgressBar.getAttribute("aria-valuenow")).toBe("100");
       expect(screen.getByText("100% Complete")).toBeDefined();
+    });
+
+    it("preserves exact executor percentages for running, failed, and completed snapshots", async () => {
+      const step1: ContractBatchStep = {
+        id: "step1",
+        name: "Step 1",
+        execute: async () => ({ ok: true }),
+      };
+      const step2Fail: ContractBatchStep = {
+        id: "step2",
+        name: "Step 2",
+        execute: async () => {
+          throw new Error("Step 2 failed");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1, step2Fail]);
+      const captured: any[] = [];
+
+      executor.subscribe((s) => {
+        captured.push(toBatchExecutionProgress(s));
+      });
+
+      const outcome = await executor.executeBatch({});
+      expect(outcome.success).toBe(false);
+
+      // Verify running percentage is 50%
+      const runningSnapshot = captured.find((p) => p.currentBatchIndex === 1);
+      expect(runningSnapshot).toBeDefined();
+      expect(runningSnapshot.percentage).toBe(50);
+
+      // Verify failed snapshot preserves exact percentage (50%)
+      const failedSnapshot = captured[captured.length - 1];
+      expect(failedSnapshot.percentage).toBe(50);
+      expect(failedSnapshot.currentStatus).toBe("error");
+
+      // Verify completed snapshot on successful batch
+      const successExecutor = new ContractBatchExecutor([step1]);
+      const successOutcome = await successExecutor.executeBatch({});
+      expect(successOutcome.success).toBe(true);
+      const completedProgress = toBatchExecutionProgress(successExecutor.getProgress());
+      expect(completedProgress.percentage).toBe(100);
+      expect(completedProgress.currentStatus).toBe("completed");
     });
 
     it("renders live batch progress indicator in BulkSaleLogModal from executor progress adapter", () => {
