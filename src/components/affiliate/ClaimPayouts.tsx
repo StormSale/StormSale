@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -18,6 +18,7 @@ import {
   X,
   Repeat,
   Lock,
+  Building2,
 } from "lucide-react";
 import {
   type ClaimableCampaignItem,
@@ -58,6 +59,7 @@ import {
 import { TaxFormModal } from "./TaxFormModal";
 import { TaxStatusBanner } from "./TaxStatusBanner";
 import { motion, AnimatePresence } from "framer-motion";
+import { Sep24WithdrawModal } from "./Sep24WithdrawModal";
 
 const DEFAULT_XLM_USD_RATE = 0.125;
 
@@ -108,6 +110,9 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   const [autoSwapEnabled, setAutoSwapEnabled] = useState(false);
   const [targetToken, setTargetToken] = useState<SwapToken>("USDC");
   const [maxSlippageBps, setMaxSlippageBps] = useState(100);
+
+  // SEP-0024 Fiat Payout Bridge (Issue #137)
+  const [sep24ModalOpen, setSep24ModalOpen] = useState(false);
 
   // Daily Commission Payout Cap per Affiliate per 24-Hour Window (Issue #156)
   const DAILY_PAYOUT_CAP_XLM = 1000;
@@ -271,10 +276,6 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
           type: "success",
           title: "Batch Commission Claim Settled!",
           message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.${swapNote}`,
-          confetti: true,
-          receiptTxHash: resultReceipt.txHash,
-          actionLabel: "View Receipt",
-          onViewReceipt: () => setReceipt(resultReceipt),
         });
       }
     } catch (err: any) {
@@ -335,9 +336,6 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
           type: "success",
           title: "Commission Paid Out!",
           message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
-          confetti: true,
-          receiptTxHash: res.txHash,
-          actionLabel: "View Receipt",
         });
       }
     } catch (err: any) {
@@ -539,6 +537,18 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
                   </span>
                 </>
               )}
+            </Button>
+
+            {/* SEP-0024 Fiat Payout Bridge (Issue #137) â€“ AC1 */}
+            <Button
+              variant="outline"
+              onClick={() => setSep24ModalOpen(true)}
+              disabled={isFrozen || !userAddress}
+              className="w-full rounded-2xl border-2 border-indigo-400/40 dark:border-indigo-600/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 font-bold text-xs h-10 transition-colors"
+              data-testid="btn-sep24-withdraw"
+            >
+              <Building2 className="w-4 h-4 mr-2" />
+              Withdraw to Local Bank (SEP-0024)
             </Button>
           </div>
         </div>
@@ -1059,7 +1069,16 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
             </motion.div>
           </div>
         )}
+      {/* SEP-0024 Hosted Fiat Payout Bridge Modal (Issue #137) â€“ AC2 & AC3 */}
+      <Sep24WithdrawModal
+        open={sep24ModalOpen}
+        onClose={() => setSep24ModalOpen(false)}
+        userAddress={userAddress ?? ""}
+        assetCode="USDC"
+        data-testid="sep24-withdraw-modal-root"
+      />
       </AnimatePresence>
     </div>
   );
 };
+

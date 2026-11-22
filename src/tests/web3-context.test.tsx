@@ -72,6 +72,42 @@ vi.mock("../lib/escrowTopUp", async (importOriginal) => {
   };
 });
 
+
+vi.mock("../lib/rpcFallback", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/rpcFallback")>();
+  // Prevent real network calls that would cause the checkRpcHealth test to time out.
+  const mockManager = {
+    ...actual.rpcFallbackManager,
+    checkAllHealth: vi.fn().mockResolvedValue([]),
+    getActiveEndpoint: vi.fn().mockReturnValue({
+      id: "sdf-testnet", name: "Stellar SDF Testnet (Primary)",
+      url: "https://soroban-testnet.stellar.org", type: "primary",
+      isLocal: false, priority: 1, status: "healthy",
+      latencyMs: 42, lastCheckedAt: new Date().toISOString(),
+      consecutiveFailures: 0, totalRequests: 150, failedRequests: 0,
+    }),
+    getAllEndpoints: vi.fn().mockReturnValue([]),
+    getFailoverHistory: vi.fn().mockReturnValue([{ id: 'failover_1', timestamp: new Date().toISOString(), fromEndpointId: 'sdf-testnet', fromUrl: 'https://soroban-testnet.stellar.org', toEndpointId: 'sdf-testnet', toUrl: 'https://soroban-testnet.stellar.org', reason: 'Test failover', durationMs: 120 }]),
+    failoverToNext: vi.fn().mockReturnValue({
+      id: "sdf-testnet", name: "Stellar SDF Testnet (Primary)",
+      url: "https://soroban-testnet.stellar.org", type: "primary",
+      isLocal: false, priority: 1, status: "healthy",
+      latencyMs: 42, lastCheckedAt: new Date().toISOString(),
+      consecutiveFailures: 0, totalRequests: 150, failedRequests: 0,
+    }),
+    setActiveEndpoint: vi.fn().mockReturnValue({
+      id: "sdf-testnet", name: "Stellar SDF Testnet (Primary)",
+      url: "https://soroban-testnet.stellar.org", type: "primary",
+      isLocal: false, priority: 1, status: "healthy",
+      latencyMs: 42, lastCheckedAt: new Date().toISOString(),
+      consecutiveFailures: 0, totalRequests: 150, failedRequests: 0,
+    }),
+    addEndpoint: vi.fn(),
+    subscribe: vi.fn().mockReturnValue(() => {}),
+    getTimeoutMs: vi.fn().mockReturnValue(5000),
+  };
+  return { ...actual, rpcFallbackManager: mockManager };
+});
 vi.mock("../utils/api", () => ({
   registerUser: vi.fn().mockImplementation((_addr, role) => Promise.resolve({ success: true, role })),
 }));
@@ -81,15 +117,6 @@ describe("Web3Context Suite — Automated Escrow Top-Up & Wallet Integration (#1
 
   beforeEach(() => {
     vi.useFakeTimers();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { status: "healthy" } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
-    );
     localStorageMock = {};
     const mockStorage = {
       getItem: (key: string) => localStorageMock[key] ?? null,
