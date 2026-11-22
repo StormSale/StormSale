@@ -213,10 +213,12 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         },
       };
 
+      let step2Ran = false;
       const step2: ContractBatchStep = {
         id: "step_bigint_fail",
         name: "Fail and Rollback BigInt",
         execute: async () => {
+          step2Ran = true;
           throw new Error("Simulation rejected");
         },
       };
@@ -227,6 +229,8 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       });
 
       expect(outcome.success).toBe(false);
+      expect(outcome.error?.message).toBe("Simulation rejected");
+      expect(step2Ran).toBe(true);
       expect(restoredState).not.toBeNull();
       const verifiedRestored = (restoredState as unknown) as { tokenAmount: bigint; feeStroops: bigint; memo: string };
       expect(verifiedRestored.tokenAmount).toBe(1000000000000000000n);
@@ -252,10 +256,12 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         },
       };
 
+      let step2MutatorRan = false;
       const step2: ContractBatchStep = {
         id: "step_fail",
         name: "Fail Execution",
         execute: async () => {
+          step2MutatorRan = true;
           throw new Error("Step 2 failed");
         },
       };
@@ -266,6 +272,8 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       });
 
       expect(outcome.success).toBe(false);
+      expect(outcome.error?.message).toBe("Step 2 failed");
+      expect(step2MutatorRan).toBe(true);
       expect(restoredState).not.toBeNull();
       const verifiedState = (restoredState as unknown) as { userBalance: number; settings: { autoWithdraw: boolean } };
       // Original values must NOT be corrupted by step1's mutation
@@ -301,6 +309,56 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
       expect(outcome.success).toBe(false);
       expect(compensatedSteps).toEqual(["step_a"]);
       expect(executor.getProgress().status).toBe("rolled_back");
+    });
+
+    it("reports rollback_failed and collects errors if rollback callback or step compensation throws", async () => {
+      const step1: ContractBatchStep = {
+        id: "step_comp_fail",
+        name: "Step with Failing Rollback",
+        execute: async () => ({ ok: true }),
+        rollback: () => {
+          throw new Error("Step compensation failed");
+        },
+      };
+
+      const step2: ContractBatchStep = {
+        id: "step_trigger_fail",
+        name: "Step Trigger Fail",
+        execute: async () => {
+          throw new Error("Trigger step failed");
+        },
+      };
+
+      const executor = new ContractBatchExecutor([step1, step2]);
+      const outcome = await executor.executeBatch({ count: 1 }, () => {
+        throw new Error("Frontend rollback callback crashed");
+      });
+
+      expect(outcome.success).toBe(false);
+      expect(executor.getProgress().status).toBe("rollback_failed");
+      expect(outcome.rollbackErrors).toBeDefined();
+      expect(outcome.rollbackErrors?.length).toBe(2);
+      expect(outcome.rollbackErrors?.[0].message).toBe("Step compensation failed");
+      expect(outcome.rollbackErrors?.[1].message).toBe("Frontend rollback callback crashed");
+    });
+
+    it("prevents concurrent executeBatch calls on the same executor instance", async () => {
+      const slowStep: ContractBatchStep = {
+        id: "slow_step",
+        name: "Slow Step",
+        execute: async () => {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return { done: true };
+        },
+      };
+
+      const executor = new ContractBatchExecutor([slowStep]);
+      const firstRun = executor.executeBatch({ val: 1 });
+      await expect(executor.executeBatch({ val: 2 })).rejects.toThrow(
+        /already executing a batch/i
+      );
+      const firstOutcome = await firstRun;
+      expect(firstOutcome.success).toBe(true);
     });
   });
 
@@ -406,7 +464,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         React.createElement(
           NotificationProvider,
           null,
-          React.createElement(BulkSaleLogModal, {
+          React.createElement(BulkSaleLogModal as any, {
             initialProgress: {
               totalBatches: 5,
               currentBatchIndex: 3,
@@ -432,7 +490,7 @@ describe("Smart Contract Invocation Batching and Execution Order (#432)", () => 
         React.createElement(
           NotificationProvider,
           null,
-          React.createElement(BulkSaleLogModal, {
+          React.createElement(BulkSaleLogModal as any, {
             initialProgress: {
               totalBatches: 2,
               currentBatchIndex: 2,
