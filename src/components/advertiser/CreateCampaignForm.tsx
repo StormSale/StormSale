@@ -43,6 +43,12 @@ import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
 import { LandingVariantConfig } from "./LandingVariantConfig";
 import type { LandingPageVariant } from "../../utils/abTesting";
+import {
+  DEFAULT_COMMISSION_TIERS,
+  getCommissionRateForSales,
+  validateCommissionTiers,
+  type CommissionTier,
+} from "../../lib/commissionTiers";
 
 const STROOPS_PER_XLM_DIGITS = 7;
 
@@ -80,6 +86,10 @@ export type FlowStep =
 export const CreateCampaignForm = () => {
   const [selectedAsset, setSelectedAsset] = useState<SupportedEscrowAssetCode>("XLM");
   const [commissionRate, setCommissionRate] = useState("");
+  const [tieredCommissionsEnabled, setTieredCommissionsEnabled] = useState(false);
+  const [commissionTiers, setCommissionTiers] = useState<CommissionTier[]>(
+    DEFAULT_COMMISSION_TIERS,
+  );
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
@@ -301,6 +311,15 @@ export const CreateCampaignForm = () => {
       attributionWindowDays,
     });
 
+    if (tieredCommissionsEnabled) {
+      const tierError = validateCommissionTiers(commissionTiers);
+      if (tierError) {
+        setErrors({ commissionTiers: tierError });
+        showNotification({ type: "error", title: "Invalid Commission Tiers", message: tierError });
+        return;
+      }
+    }
+
     if (!result.success) {
       const fieldErrors = getFieldErrors(result.error);
       setErrors(fieldErrors);
@@ -383,7 +402,9 @@ export const CreateCampaignForm = () => {
       const campaignResult = await createCampaignOnChain(
         result.data.campaignName,
         budgetNum,
-        Number(result.data.commissionRate),
+        tieredCommissionsEnabled
+          ? getCommissionRateForSales(commissionTiers, 0)
+          : Number(result.data.commissionRate),
         parseInt(result.data.clearingPeriod, 10),
         selectedAsset,
       );
@@ -431,6 +452,8 @@ export const CreateCampaignForm = () => {
       // reserve snapshot so Max and the spendable check do not use stale data.
       void refreshReserve();
       setCommissionRate("");
+      setTieredCommissionsEnabled(false);
+      setCommissionTiers(DEFAULT_COMMISSION_TIERS);
       setClearingPeriod("");
       setCampaignName("");
       setBudget("");
@@ -651,6 +674,116 @@ export const CreateCampaignForm = () => {
                     </div>
                   </div>
                 </InputField>
+
+                <div className="md:col-span-2 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/20 p-5 space-y-4">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={tieredCommissionsEnabled}
+                      onChange={(e) => setTieredCommissionsEnabled(e.target.checked)}
+                      className="mt-1 h-4 w-4 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500"
+                      data-testid="commission-tier-toggle"
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-zinc-900 dark:text-white">
+                        Enable tiered commissions
+                      </span>
+                      <span className="block text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+                        Set higher commission rates as an affiliate reaches sales thresholds.
+                        The 0-sales tier is used for the campaign&apos;s on-chain base rate.
+                      </span>
+                    </span>
+                  </label>
+
+                  {tieredCommissionsEnabled && (
+                    <div className="space-y-3" data-testid="commission-tier-editor">
+                      <div className="grid grid-cols-[1fr_1fr_auto] gap-3 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                        <span>Minimum sales</span>
+                        <span>Commission rate</span>
+                        <span className="sr-only">Remove tier</span>
+                      </div>
+                      {commissionTiers.map((tier, index) => (
+                        <div className="grid grid-cols-[1fr_1fr_auto] gap-3 items-center" key={tier.id}>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={tier.thresholdSales}
+                            disabled={index === 0}
+                            aria-label={`Tier ${index + 1} minimum sales`}
+                            onChange={(e) => {
+                              const thresholdSales = Number(e.target.value);
+                              setCommissionTiers((current) =>
+                                current.map((item) =>
+                                  item.id === tier.id ? { ...item, thresholdSales } : item,
+                                ),
+                              );
+                            }}
+                            className="h-10 rounded-lg"
+                          />
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              min="1"
+                              max="50"
+                              step="0.1"
+                              value={tier.ratePercent}
+                              aria-label={`Tier ${index + 1} commission rate`}
+                              onChange={(e) => {
+                                const ratePercent = Number(e.target.value);
+                                setCommissionTiers((current) =>
+                                  current.map((item) =>
+                                    item.id === tier.id ? { ...item, ratePercent } : item,
+                                  ),
+                                );
+                              }}
+                              className="h-10 rounded-lg pr-8"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400">
+                              %
+                            </span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={commissionTiers.length <= 1 || index === 0}
+                            onClick={() =>
+                              setCommissionTiers((current) =>
+                                current.filter((item) => item.id !== tier.id),
+                              )
+                            }
+                            aria-label={`Remove tier ${index + 1}`}
+                            className="h-10 rounded-lg"
+                          >
+                            ×
+                          </Button>
+                        </div>
+                      ))}
+                      {errors.commissionTiers && (
+                        <p className="text-xs text-red-600 dark:text-red-400">{errors.commissionTiers}</p>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setCommissionTiers((current) => [
+                            ...current,
+                            {
+                              id: `tier-${Date.now()}`,
+                              thresholdSales: (current.at(-1)?.thresholdSales ?? 0) + 100,
+                              ratePercent: Math.min(50, (current.at(-1)?.ratePercent ?? 10) + 5),
+                            },
+                          ])
+                        }
+                        className="rounded-lg"
+                      >
+                        + Add tier
+                      </Button>
+                    </div>
+                  )}
+                </div>
 
                 <InputField
                   label={
