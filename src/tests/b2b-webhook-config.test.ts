@@ -3,7 +3,6 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type {
   WebhookEndpoint,
   WebhookEventType,
-  WebhookDelivery,
 } from "../types/webhook";
 
 /**
@@ -27,10 +26,11 @@ describe("Enterprise Webhook Endpoint Configuration and Ping Test Suite (#439)",
     name: "Conversion Webhook",
     secret: "whsec_1234567890abcdef",
     isActive: true,
-    events: ["conversion.confirmed", "conversion.disputed"],
+    events: ["conversion.confirmed", "payout.claimed"],
     createdAt: "2026-01-15T10:00:00Z",
-    lastPingedAt: "2026-11-20T15:30:00Z",
-    deliveryCount: 1250,
+    description: "Test webhook",
+    failureCount: 0,
+    totalDeliveries: 1250,
   };
 
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -38,7 +38,7 @@ describe("Enterprise Webhook Endpoint Configuration and Ping Test Suite (#439)",
 
   beforeEach(() => {
     fetchMock = vi.fn();
-    global.fetch = fetchMock;
+    global.fetch = fetchMock as unknown as typeof fetch;
 
     performanceNowSpy = vi.spyOn(performance, "now").mockImplementation(() => 100);
 
@@ -298,8 +298,8 @@ describe("Enterprise Webhook Endpoint Configuration and Ping Test Suite (#439)",
     it("should display all subscribed event types with examples", () => {
       const eventTypes: WebhookEventType[] = [
         "conversion.confirmed",
-        "conversion.disputed",
-        "payout.processed",
+        "payout.claimed",
+        "campaign.created",
       ];
 
       const examples = eventTypes.map((event) => getPayloadExample(event));
@@ -332,12 +332,12 @@ describe("Enterprise Webhook Endpoint Configuration and Ping Test Suite (#439)",
     it("should display all available webhook event types", () => {
       const availableEvents = getAvailableWebhookEvents();
       expect(availableEvents).toContain("conversion.confirmed");
-      expect(availableEvents).toContain("conversion.disputed");
+      expect(availableEvents).toContain("payout.claimed");
       expect(availableEvents.length).toBeGreaterThan(0);
     });
 
     it("should allow selecting multiple events", () => {
-      const selectedEvents: WebhookEventType[] = ["conversion.confirmed", "payout.processed"];
+      const selectedEvents: WebhookEventType[] = ["conversion.confirmed", "payout.claimed"];
       const endpoint = updateWebhookEvents(mockWebhookEndpoint, selectedEvents);
 
       expect(endpoint.events).toEqual(selectedEvents);
@@ -352,7 +352,7 @@ describe("Enterprise Webhook Endpoint Configuration and Ping Test Suite (#439)",
     });
 
     it("should validate event types before saving", () => {
-      const invalidEvents = ["invalid.event", "another.invalid"] as WebhookEventType[];
+      const invalidEvents = ["invalid.event", "another.invalid"] as unknown as WebhookEventType[];
       expect(() => updateWebhookEvents(mockWebhookEndpoint, invalidEvents)).toThrow();
     });
   });
@@ -492,12 +492,12 @@ function generateHMACSignature(payload: string, secret: string): string {
   return `sha256_${hash.slice(0, 32)}`;
 }
 
-async function showRegenerationConfirmation(endpoint: WebhookEndpoint): Promise<boolean> {
+async function showRegenerationConfirmation(_endpoint: WebhookEndpoint): Promise<boolean> {
   return true;
 }
 
 function getRegenerationWarning(endpoint: WebhookEndpoint): string {
-  return `This webhook has ${endpoint.deliveryCount} deliveries. Regenerating the secret will invalidate the old one.`;
+  return `This webhook has ${endpoint.totalDeliveries} deliveries. Regenerating the secret will invalidate the old one.`;
 }
 
 async function regenerateWebhookSecret(endpoint: WebhookEndpoint): Promise<WebhookEndpoint> {
@@ -523,16 +523,41 @@ function getPayloadExample(eventType: WebhookEventType): Record<string, unknown>
       amount: 99.99,
       timestamp: new Date().toISOString(),
     },
-    "conversion.disputed": {
-      event: "conversion.disputed",
-      campaignId: 123,
-      reason: "Fraud detected",
-      timestamp: new Date().toISOString(),
-    },
-    "payout.processed": {
-      event: "payout.processed",
+    "payout.claimed": {
+      event: "payout.claimed",
       affiliateId: 456,
       amount: 500.0,
+      timestamp: new Date().toISOString(),
+    },
+    "campaign.created": {
+      event: "campaign.created",
+      campaignId: 123,
+      timestamp: new Date().toISOString(),
+    },
+    "campaign.funded": {
+      event: "campaign.funded",
+      campaignId: 123,
+      amount: 1000.0,
+      timestamp: new Date().toISOString(),
+    },
+    "commission.escrowed": {
+      event: "commission.escrowed",
+      campaignId: 123,
+      amount: 100.0,
+      timestamp: new Date().toISOString(),
+    },
+    "conversion.created": {
+      event: "conversion.created",
+      campaignId: 123,
+      timestamp: new Date().toISOString(),
+    },
+    "payout.created": {
+      event: "payout.created",
+      payoutId: 123,
+      timestamp: new Date().toISOString(),
+    },
+    "ping.test": {
+      event: "ping.test",
       timestamp: new Date().toISOString(),
     },
   };
@@ -552,10 +577,10 @@ async function copyPayloadToClipboard(payload: unknown): Promise<boolean> {
 function getAvailableWebhookEvents(): WebhookEventType[] {
   return [
     "conversion.confirmed",
-    "conversion.disputed",
-    "payout.processed",
-    "affiliate.approved",
-    "affiliate.rejected",
+    "payout.claimed",
+    "campaign.created",
+    "campaign.funded",
+    "commission.escrowed",
   ];
 }
 
