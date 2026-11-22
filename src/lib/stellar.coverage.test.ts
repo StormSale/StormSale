@@ -485,6 +485,33 @@ describe("Soroban invocation engine", () => {
     expect(server.sendTransaction).toHaveBeenCalled();
   });
 
+  it("backs off transaction confirmation polling and caps the delay", async () => {
+    server.getTransaction
+      .mockResolvedValueOnce({ status: "PENDING" })
+      .mockResolvedValueOnce({ status: "PENDING" })
+      .mockResolvedValueOnce({ status: "PENDING" })
+      .mockResolvedValueOnce({ status: "PENDING" })
+      .mockResolvedValueOnce({ status: "SUCCESS" });
+
+    vi.useFakeTimers();
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    try {
+      const promise = stellar.invokeSorobanMethod(PUBKEY, "noop", [], "freighter");
+      promise.catch(() => {});
+      await vi.runAllTimersAsync();
+      await expect(promise).resolves.toMatchObject({ success: true, txHash: "tx-hash" });
+      expect(
+        timeoutSpy.mock.calls
+          .map(([, delay]) => Number(delay))
+          .filter((delay) => [1500, 3000, 6000, 10000].includes(delay)),
+      ).toEqual([
+        1500, 3000, 6000, 10000, 10000,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("wraps simulation errors during preparation", async () => {
     sdk.isSimulationError.mockReturnValue(true);
     await expect(stellar.invokeSorobanMethod(PUBKEY, "noop", [], "freighter")).rejects.toThrow(

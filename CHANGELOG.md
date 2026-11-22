@@ -1,12 +1,5 @@
 # Changelog
 
-# [1.3.0](https://github.com/StormSale/StormSale/compare/v1.2.0...v1.3.0) (2026-11-21)
-
-
-### Features
-
-* **dev:** batch features, performance optimizations, and test stabilization on dev ([115dc71](https://github.com/StormSale/StormSale/commit/115dc71d77a663aeb433cf3ae877e91b83b07f3e))
-
 # [1.2.0](https://github.com/StormSale/StormSale/compare/v1.1.2...v1.2.0) (2026-11-21)
 
 

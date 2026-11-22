@@ -3,6 +3,7 @@ import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { TransactionAnnouncementProvider } from "./context/TransactionAnnouncementContext";
 import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
@@ -412,17 +413,19 @@ function App() {
       {booting && <IndigoBootLoader isExiting={isExiting} onExited={handleExited} />}
       <NotificationWrapper>
         <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
-          <Web3Provider>
-            <WalletConnectProvider>
-              <NotificationProvider>
-                <SorobanEventsProvider>
-                  <TooltipProvider delayDuration={300}>
-                    <Router />
-                  </TooltipProvider>
-                </SorobanEventsProvider>
-              </NotificationProvider>
-            </WalletConnectProvider>
-          </Web3Provider>
+          <TransactionAnnouncementProvider>
+            <Web3Provider>
+              <WalletConnectProvider>
+                <NotificationProvider>
+                  <SorobanEventsProvider>
+                    <TooltipProvider delayDuration={300}>
+                      <Router />
+                    </TooltipProvider>
+                  </SorobanEventsProvider>
+                </NotificationProvider>
+              </WalletConnectProvider>
+            </Web3Provider>
+          </TransactionAnnouncementProvider>
         </Sentry.ErrorBoundary>
       </NotificationWrapper>
     </>

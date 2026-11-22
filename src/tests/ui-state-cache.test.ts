@@ -153,7 +153,9 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
       const corruptKey = uiStateStorageKey("test.corrupt");
       const oldVersionKey = uiStateStorageKey("test.old-version");
       const expiredKey = uiStateStorageKey("test.expired");
-      const unrelatedKey = "stormsale.advertiser.tab";
+      const futureKey = uiStateStorageKey("test.future");
+      const legacyPreferenceKey = "stormsale.advertiser.tab";
+      const unrelatedKey = "stormsale.profile.displayName.GABC";
 
       localStorage.setItem(
         validKey,
@@ -172,16 +174,89 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
           value: DEFAULT_FILTERS,
         }),
       );
-      localStorage.setItem(unrelatedKey, JSON.stringify({ v: 1, value: "advertiser" }));
+      localStorage.setItem(
+        futureKey,
+        JSON.stringify({
+          v: UI_STATE_VERSION,
+          updatedAt: Date.now() + 60 * 60 * 1000,
+          value: DEFAULT_FILTERS,
+        }),
+      );
+      localStorage.setItem(legacyPreferenceKey, JSON.stringify({ v: 1, value: "advertiser" }));
+      localStorage.setItem(unrelatedKey, "Morgan");
 
       const result = initUIStateCache();
 
-      expect(result).toEqual({ scanned: 4, purged: 3 });
+      expect(result).toEqual({ scanned: 7, purged: 4, migrated: 1 });
       expect(localStorage.getItem(validKey)).toBeTruthy();
       expect(localStorage.getItem(corruptKey)).toBeNull();
       expect(localStorage.getItem(oldVersionKey)).toBeNull();
       expect(localStorage.getItem(expiredKey)).toBeNull();
-      expect(localStorage.getItem(unrelatedKey)).toBeTruthy();
+      expect(localStorage.getItem(futureKey)).toBeNull();
+      expect(JSON.parse(localStorage.getItem(legacyPreferenceKey) ?? "null")).toMatchObject({
+        v: UI_STATE_VERSION,
+        value: "advertiser",
+      });
+      expect(JSON.parse(localStorage.getItem(legacyPreferenceKey) ?? "null").updatedAt).toEqual(
+        expect.any(Number),
+      );
+      expect(localStorage.getItem(unrelatedKey)).toBe("Morgan");
+    });
+
+    it("preserves a legacy preference when migration cannot be written", () => {
+      const legacyPreferenceKey = "stormsale.advertiser.tab";
+      const raw = JSON.stringify({ v: UI_STATE_VERSION, value: "advertiser" });
+      localStorage.setItem(legacyPreferenceKey, raw);
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("quota exceeded");
+      });
+
+      try {
+        expect(initUIStateCache()).toEqual({ scanned: 1, purged: 0, migrated: 0 });
+        expect(localStorage.getItem(legacyPreferenceKey)).toBe(raw);
+      } finally {
+        setItem.mockRestore();
+      }
+    });
+
+    it("honours per-key TTL overrides during boot", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-01T00:00:00Z"));
+      const storageKey = uiStateStorageKey("test.custom-ttl");
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          v: UI_STATE_VERSION,
+          updatedAt: Date.now() - 40 * 24 * 60 * 60 * 1000,
+          value: DEFAULT_FILTERS,
+        }),
+      );
+
+      expect(
+        initUIStateCache({
+          ttlMsByKey: { [storageKey]: 60 * 24 * 60 * 60 * 1000 },
+        }),
+      ).toEqual({ scanned: 1, purged: 0, migrated: 0 });
+      expect(localStorage.getItem(storageKey)).toBeTruthy();
+
+      expect(initUIStateCache()).toEqual({ scanned: 1, purged: 1, migrated: 0 });
+    });
+
+    it("evicts future-dated entries on read as well as at boot", () => {
+      const storageKey = uiStateStorageKey("test.future-read");
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          v: UI_STATE_VERSION,
+          updatedAt: Date.now() + 60 * 60 * 1000,
+          value: { status: "active", search: "future" },
+        }),
+      );
+
+      expect(readUIState("test.future-read", filtersSchema, DEFAULT_FILTERS)).toEqual(
+        DEFAULT_FILTERS,
+      );
+      expect(localStorage.getItem(storageKey)).toBeNull();
     });
   });
 
@@ -302,6 +377,38 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
       render(React.createElement(FilterHarness));
 
       writeFromAnotherTab("test.sync.invalid", { status: "deleted-role", search: "x" });
+
+      expect(screen.getByTestId("status").textContent).toBe("all");
+    });
+
+    it("ignores storage events originating from sessionStorage", () => {
+      function FilterHarness() {
+        const [filters] = useFilterState<Filters>(
+          "test.sync.session-storage",
+          filtersSchema,
+          DEFAULT_FILTERS,
+        );
+        return React.createElement("span", { "data-testid": "status" }, filters.status);
+      }
+
+      render(React.createElement(FilterHarness));
+      const storageKey = uiStateStorageKey("test.sync.session-storage");
+      const newValue = JSON.stringify({
+        v: UI_STATE_VERSION,
+        updatedAt: Date.now(),
+        value: { status: "paused", search: "wrong-area" },
+      });
+      localStorage.setItem(storageKey, newValue);
+
+      act(() => {
+        window.dispatchEvent(
+          new StorageEvent("storage", {
+            key: storageKey,
+            newValue,
+            storageArea: window.sessionStorage,
+          }),
+        );
+      });
 
       expect(screen.getByTestId("status").textContent).toBe("all");
     });

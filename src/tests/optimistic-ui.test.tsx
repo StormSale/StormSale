@@ -4,8 +4,9 @@ globalThis.Buffer = Buffer;
 
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, screen, cleanup } from "@testing-library/react";
 import { Web3Provider, useWeb3 } from "../context/Web3Context";
+import { TransactionAnnouncementProvider } from "../context/TransactionAnnouncementContext";
 import * as stellarMod from "../lib/stellar";
 
 vi.mock("../config/stellar", () => ({
@@ -73,6 +74,7 @@ vi.mock("../utils/api", () => ({
 
 describe("[State] Optimistic UI & Revert Logic Suite (#68)", () => {
   beforeEach(() => {
+    cleanup();
     vi.clearAllMocks();
   });
 
@@ -185,5 +187,56 @@ describe("[State] Optimistic UI & Revert Logic Suite (#68)", () => {
     expect(result.current.assetBalances.USDC).toBe("500.00");
     const revertedAction = result.current.optimisticActions[0];
     expect(revertedAction.status).toBe("reverted");
+  });
+
+  const announcementWrapper = ({ children }: { children: React.ReactNode }) => (
+    <TransactionAnnouncementProvider>
+      <Web3Provider>{children}</Web3Provider>
+    </TransactionAnnouncementProvider>
+  );
+
+  it("announces claim payouts with the payout quantity and explicit asset", async () => {
+    vi.mocked(stellarMod.claimPayoutContractCall).mockResolvedValueOnce({
+      success: true,
+      txHash: "tx_claim_explicit",
+    });
+
+    const { result } = renderHook(() => useWeb3(), { wrapper: announcementWrapper });
+
+    await act(async () => {
+      await result.current.connectWallet("freighter");
+    });
+
+    await act(async () => {
+      await result.current.claimPayoutOnChain(101, "USDC", 25);
+    });
+
+    const announcement = screen.getByTestId("transaction-announcement-polite-message").textContent;
+    expect(announcement).toContain("Amount: 25 USDC");
+    expect(announcement).toContain("Transaction hash: tx_claim_explicit");
+    expect(announcement).not.toContain("Transaction hash pending.");
+  });
+
+  it("announces claim payouts with the asset resolved from the receipt when none is supplied", async () => {
+    vi.mocked(stellarMod.claimPayoutContractCall).mockResolvedValueOnce({
+      success: true,
+      txHash: "tx_claim_inferred",
+      asset: "EURC",
+      claimedAmount: 75,
+    } as unknown as Awaited<ReturnType<typeof stellarMod.claimPayoutContractCall>>);
+
+    const { result } = renderHook(() => useWeb3(), { wrapper: announcementWrapper });
+
+    await act(async () => {
+      await result.current.connectWallet("freighter");
+    });
+
+    await act(async () => {
+      await result.current.claimPayoutOnChain(101);
+    });
+
+    const announcement = screen.getByTestId("transaction-announcement-polite-message").textContent;
+    expect(announcement).toContain("Amount: 75 EURC");
+    expect(announcement).toContain("Transaction hash: tx_claim_inferred");
   });
 });

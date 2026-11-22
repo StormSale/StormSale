@@ -1,6 +1,8 @@
 import * as React from "react";
 import { motion } from "framer-motion";
 import { cn } from "../../lib/utils";
+import { readRaw, writeRaw } from "../../hooks/usePreference";
+import { subscribeToStorageKey } from "../../lib/uiStateCache";
 
 interface TabsContextValue {
   value: string;
@@ -21,6 +23,40 @@ function getTabValues(children: React.ReactNode): string[] {
     }
   });
   return values;
+}
+
+function readVersionedTab(
+  preferenceKey: string,
+  fallbackValue: string,
+  validValues: string[],
+): string {
+  const isValid = (candidate: unknown): candidate is string =>
+    typeof candidate === "string" && validValues.includes(candidate);
+
+  // Migrate the unversioned value written by older builds before readRaw sees
+  // it and evicts it as malformed JSON.
+  try {
+    const raw = window.localStorage.getItem(preferenceKey);
+    if (raw !== null) {
+      if (isValid(raw)) {
+        writeRaw(preferenceKey, raw, isValid);
+        return raw;
+      }
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (isValid(parsed)) {
+          writeRaw(preferenceKey, parsed, isValid);
+          return parsed;
+        }
+      } catch {
+        // Legacy plain values are not JSON; handled above.
+      }
+    }
+  } catch {
+    // Storage may be unavailable in private browsing contexts.
+  }
+
+  return readRaw(preferenceKey, fallbackValue, isValid);
 }
 
 function useTabsContext() {
@@ -69,12 +105,9 @@ export function Tabs({
       ? new URLSearchParams(window.location.search).get(queryParam)
       : null;
     if (requestedValue && validValues.includes(requestedValue)) return requestedValue;
-    try {
-      const savedValue = preferenceKey ? window.localStorage.getItem(preferenceKey) : null;
-      return savedValue && validValues.includes(savedValue) ? savedValue : fallbackValue;
-    } catch {
-      return fallbackValue;
-    }
+    return preferenceKey
+      ? readVersionedTab(preferenceKey, fallbackValue, validValues)
+      : fallbackValue;
   });
   const activeValue = validValues.includes(value ?? internalValue)
     ? (value ?? internalValue)
@@ -85,12 +118,8 @@ export function Tabs({
       if (valueRef.current === undefined) setInternalValue(nextValue);
       onValueChangeRef.current?.(nextValue);
 
-      if (validValues.includes(nextValue) && preferenceKey && typeof window !== "undefined") {
-        try {
-          window.localStorage.setItem(preferenceKey, nextValue);
-        } catch {
-          // Storage may be unavailable in private browsing contexts.
-        }
+      if (validValues.includes(nextValue) && preferenceKey) {
+        writeRaw(preferenceKey, nextValue, (candidate) => validValues.includes(candidate));
       }
 
       if (validValues.includes(nextValue) && queryParam && typeof window !== "undefined") {
@@ -119,16 +148,26 @@ export function Tabs({
       if (valueRef.current === undefined) setInternalValue(resolvedValue);
       onValueChangeRef.current?.(resolvedValue);
       if (preferenceKey) {
-        try {
-          window.localStorage.setItem(preferenceKey, resolvedValue);
-        } catch {
-          // Storage may be unavailable in private browsing contexts.
-        }
+        writeRaw(preferenceKey, resolvedValue, (candidate) => validValues.includes(candidate));
       }
     };
 
     window.addEventListener("popstate", syncFromLocation);
     return () => window.removeEventListener("popstate", syncFromLocation);
+  }, [fallbackValue, preferenceKey, queryParam, validValues]);
+
+  React.useEffect(() => {
+    if (!preferenceKey || typeof window === "undefined") return;
+
+    return subscribeToStorageKey(preferenceKey, () => {
+      const requestedValue = queryParam
+        ? new URLSearchParams(window.location.search).get(queryParam)
+        : null;
+      if (requestedValue && validValues.includes(requestedValue)) return;
+
+      const nextValue = readVersionedTab(preferenceKey, fallbackValue, validValues);
+      if (valueRef.current === undefined) setInternalValue(nextValue);
+    });
   }, [fallbackValue, preferenceKey, queryParam, validValues]);
 
   const contextValue = React.useMemo(
