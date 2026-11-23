@@ -41,6 +41,7 @@
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^17.1.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-query": "^5.108.3",
     "@upstash/redis": "^1.39.0",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
