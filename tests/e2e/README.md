@@ -50,11 +50,11 @@ Journey captured in a real browser: wallet modal, role selection with consent, a
 
 Pixel-level comparison suite that checks for UI breaks between **375px mobile** and **1440px desktop** viewports.
 
-| File | Purpose |
-| :--- | :--- |
+| File                          | Purpose                                                                                            |
+| :---------------------------- | :------------------------------------------------------------------------------------------------- |
 | `visual-regression.config.ts` | Standalone Playwright config: `mobile-375` (375×812, dpr=2) and `desktop-1440` (1440×900) projects |
-| `visual-regression.e2e.ts` | 4-test suite: Landing Page, Wallet Modal, Role Dashboard, Pixel Snapshot |
-| `diff-generator.ts` | `VisualDiffReporter` — accumulates layout metrics and generates HTML + JSON diff report |
+| `visual-regression.e2e.ts`    | 4-test suite: Landing Page, Wallet Modal, Role Dashboard, Pixel Snapshot                           |
+| `diff-generator.ts`           | `VisualDiffReporter` — accumulates layout metrics and generates HTML + JSON diff report            |
 
 ### Running locally
 
@@ -73,7 +73,7 @@ open test-results/visual-regression/visual-regression-report.html
 
 ```mermaid
 flowchart LR
-  A["CI: pull_request"] --> B["npm run test:visual"]
+  A["Developer / Dedicated Visual Run"] --> B["npm run test:visual"]
   B --> C["mobile-375 project\n375×812px · dpr=2 · isMobile"]
   B --> D["desktop-1440 project\n1440×900px · dpr=1"]
   C --> E["visual-regression.e2e.ts"]
@@ -93,6 +93,7 @@ flowchart LR
 ### Baseline snapshots
 
 Snapshots are stored in `tests/e2e/__snapshots__/` per project:
+
 - `mobile-375/landing-page-baseline.png`
 - `desktop-1440/landing-page-baseline.png`
 

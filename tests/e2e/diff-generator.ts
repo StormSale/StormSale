@@ -44,7 +44,12 @@ export class VisualDiffReporter {
   }
 
   public addComparison(comparison: MultiResolutionComparison) {
-    this.comparisons.push(comparison);
+    const existingIndex = this.comparisons.findIndex((c) => c.id === comparison.id);
+    if (existingIndex >= 0) {
+      this.comparisons[existingIndex] = comparison;
+    } else {
+      this.comparisons.push(comparison);
+    }
   }
 
   public getComparisons(): MultiResolutionComparison[] {
@@ -57,7 +62,18 @@ export class VisualDiffReporter {
     }
 
     const jsonPath = path.join(this.outputDirectory, "multi-resolution-diff-summary.json");
-    fs.writeFileSync(jsonPath, JSON.stringify(this.comparisons, null, 2), "utf-8");
+    const strippedComparisons = this.comparisons.map((c) => ({
+      ...c,
+      mobileMetrics: {
+        ...c.mobileMetrics,
+        screenshotBase64: undefined,
+      },
+      desktopMetrics: {
+        ...c.desktopMetrics,
+        screenshotBase64: undefined,
+      },
+    }));
+    fs.writeFileSync(jsonPath, JSON.stringify(strippedComparisons, null, 2), "utf-8");
 
     const htmlPath = path.join(this.outputDirectory, "visual-regression-report.html");
     const htmlContent = this.renderHtmlReport();

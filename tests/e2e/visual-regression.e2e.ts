@@ -76,17 +76,19 @@ test.describe("Multi-Resolution Visual Regression: 375px vs 1440px (#94)", () =>
     const { htmlPath, jsonPath } = diffReporter.generateReport();
     console.log(`[VISUAL REGRESSION REPORT]: Generated at ${htmlPath} and ${jsonPath}`);
 
-    // Copy visual proof to tests/e2e/__proof__ directory
-    const proofDir = path.resolve("tests/e2e/__proof__");
-    if (!fs.existsSync(proofDir)) {
-      fs.mkdirSync(proofDir, { recursive: true });
+    // Update proof only when explicitly requested (e.g. during test:visual:update), otherwise write under test-results/
+    if (process.env.UPDATE_PROOF === "true" || process.env.UPDATE_SNAPSHOTS === "true") {
+      const proofDir = path.resolve("tests/e2e/__proof__");
+      if (!fs.existsSync(proofDir)) {
+        fs.mkdirSync(proofDir, { recursive: true });
+      }
+      const reportSummaryProof = path.join(proofDir, "04-visual-regression-summary.json");
+      fs.writeFileSync(
+        reportSummaryProof,
+        JSON.stringify(diffReporter.getComparisons(), null, 2),
+        "utf-8",
+      );
     }
-    const reportSummaryProof = path.join(proofDir, "04-visual-regression-summary.json");
-    fs.writeFileSync(
-      reportSummaryProof,
-      JSON.stringify(diffReporter.getComparisons(), null, 2),
-      "utf-8",
-    );
   });
 
   test("Landing Page: 375px Mobile vs 1440px Desktop layout comparison", async ({ page }) => {
@@ -140,9 +142,12 @@ test.describe("Multi-Resolution Visual Regression: 375px vs 1440px (#94)", () =>
         },
         {
           property: "Horizontal Overflow (UI Break)",
-          mobileValue: `${mobileMetrics.scrollWidth}px (Safe)`,
-          desktopValue: `${desktopMetrics.scrollWidth}px (Safe)`,
-          notes: "No horizontal clipping or broken scrollbars at either breakpoint.",
+          mobileValue: `${mobileMetrics.scrollWidth}px (${mobileMetrics.hasHorizontalOverflow ? "Overflow" : "Safe"})`,
+          desktopValue: `${desktopMetrics.scrollWidth}px (${desktopMetrics.hasHorizontalOverflow ? "Overflow" : "Safe"})`,
+          notes:
+            !mobileMetrics.hasHorizontalOverflow && !desktopMetrics.hasHorizontalOverflow
+              ? "No horizontal clipping or broken scrollbars at either breakpoint."
+              : "Horizontal overflow detected during inspection.",
         },
       ],
       timestamp: new Date().toISOString(),
@@ -211,7 +216,8 @@ test.describe("Multi-Resolution Visual Regression: 375px vs 1440px (#94)", () =>
           property: "Connector List Stacking",
           mobileValue: "Full-width touch buttons",
           desktopValue: "Desktop interactive items with hover states",
-          notes: "All 5 wallet providers accessible across both resolutions.",
+          notes:
+            "Asserted 4 wallet connectors (Freighter, Albedo, xBull, Demo) across both resolutions.",
         },
       ],
       timestamp: new Date().toISOString(),
@@ -272,7 +278,7 @@ test.describe("Multi-Resolution Visual Regression: 375px vs 1440px (#94)", () =>
       description:
         "Validates vertical column stacking on 375px mobile and side-by-side grid layout on 1440px desktop. " +
         "Any horizontal overflow is captured as a regression finding.",
-      passed: !desktopMetrics.hasHorizontalOverflow,
+      passed: !mobileMetrics.hasHorizontalOverflow && !desktopMetrics.hasHorizontalOverflow,
       mobileMetrics,
       desktopMetrics,
       responsiveDifferences: [
@@ -293,8 +299,15 @@ test.describe("Multi-Resolution Visual Regression: 375px vs 1440px (#94)", () =>
     });
   });
 
-  test("Visual Snapshot Pixel Check: Project Viewport Regression Baselines", async ({ page }) => {
-    // Tests snapshot visual matching for whichever project viewport is active
+  test("Visual Snapshot Pixel Check: Project Viewport Regression Baselines", async ({
+    page,
+  }, testInfo) => {
+    // Tests snapshot visual matching only for project viewports configured with baselines
+    test.skip(
+      !["mobile-375", "desktop-1440"].includes(testInfo.project.name),
+      `Snapshot pixel check applies only to mobile-375 and desktop-1440 (current: ${testInfo.project.name})`,
+    );
+
     await page.goto("/");
     await stabilizePage(page);
 
