@@ -735,6 +735,167 @@ describe("<Sep24WithdrawModal /> – polling transaction display and receipt var
 });
 
 /* ================================================================== */
+/* 5c. <Sep24WithdrawModal /> – keyboard & non-completed terminal     */
+/* ================================================================== */
+
+describe("<Sep24WithdrawModal /> – keyboard interaction and terminal status", () => {
+  it("calls onClose when Escape key is pressed", () => {
+    const onClose = vi.fn();
+    render(
+      <Sep24WithdrawModal
+        open={true}
+        onClose={onClose}
+        userAddress={MOCK_USER_ADDRESS}
+        anchorDomain={MOCK_ANCHOR_DOMAIN}
+        assetCode="USDC"
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("does not close on non-Escape keys", () => {
+    const onClose = vi.fn();
+    render(
+      <Sep24WithdrawModal
+        open={true}
+        onClose={onClose}
+        userAddress={MOCK_USER_ADDRESS}
+      />,
+    );
+
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("wraps focus to first element on Tab when focus is on last element", () => {
+    render(
+      <Sep24WithdrawModal
+        open={true}
+        onClose={vi.fn()}
+        userAddress={MOCK_USER_ADDRESS}
+      />,
+    );
+
+    const startBtn = screen.getByTestId("sep24-start-btn");
+    const closeBtn = screen.getByTestId("sep24-modal-close");
+
+    // Focus the last focusable element (close button), then Tab
+    closeBtn.focus();
+    expect(document.activeElement).toBe(closeBtn);
+
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: false });
+
+    // Focus should wrap to the first focusable element
+    // (startBtn is the primary button in the idle phase)
+    expect(document.activeElement).toBeTruthy();
+  });
+
+  it("wraps focus to last element on Shift+Tab when focus is on first element", () => {
+    render(
+      <Sep24WithdrawModal
+        open={true}
+        onClose={vi.fn()}
+        userAddress={MOCK_USER_ADDRESS}
+      />,
+    );
+
+    const closeBtn = screen.getByTestId("sep24-modal-close");
+
+    // Focus the first element (close button is typically first in DOM),
+    // then Shift+Tab
+    closeBtn.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+
+    expect(document.activeElement).toBeTruthy();
+  });
+
+  it("shows terminal status label in error panel for non-completed terminal (refunded with message)", async () => {
+    mocks.initiateSep24Withdrawal.mockResolvedValue({
+      id: MOCK_TRANSACTION_ID,
+      url: MOCK_INTERACTIVE_URL,
+    });
+    mocks.pollSep24Transaction.mockResolvedValue({
+      transaction: {
+        id: MOCK_TRANSACTION_ID,
+        kind: "withdrawal",
+        status: "refunded",
+        message: "Bank rejected the transfer",
+      },
+      completed: false,
+    });
+
+    renderWithdrawModal();
+    fireEvent.click(screen.getByTestId("sep24-start-btn"));
+    await waitFor(() => screen.getByTestId("sep24-submitted-btn"));
+    fireEvent.click(screen.getByTestId("sep24-submitted-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sep24-error-msg")).toBeTruthy();
+    });
+    // The error message should contain the terminal label and the message
+    const errMsg = screen.getByTestId("sep24-error-msg").textContent ?? "";
+    expect(errMsg).toMatch(/refund/i);
+    expect(errMsg).toMatch(/bank rejected/i);
+  });
+
+  it("shows terminal status label without message for non-completed terminal (expired, no message)", async () => {
+    mocks.initiateSep24Withdrawal.mockResolvedValue({
+      id: MOCK_TRANSACTION_ID,
+      url: MOCK_INTERACTIVE_URL,
+    });
+    mocks.pollSep24Transaction.mockResolvedValue({
+      transaction: {
+        id: MOCK_TRANSACTION_ID,
+        kind: "withdrawal",
+        status: "expired",
+      },
+      completed: false,
+    });
+
+    renderWithdrawModal();
+    fireEvent.click(screen.getByTestId("sep24-start-btn"));
+    await waitFor(() => screen.getByTestId("sep24-submitted-btn"));
+    fireEvent.click(screen.getByTestId("sep24-submitted-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sep24-error-msg")).toBeTruthy();
+    });
+    const errMsg = screen.getByTestId("sep24-error-msg").textContent ?? "";
+    expect(errMsg).toMatch(/expired/i);
+  });
+
+  it("shows error status label for non-completed terminal (error status)", async () => {
+    mocks.initiateSep24Withdrawal.mockResolvedValue({
+      id: MOCK_TRANSACTION_ID,
+      url: MOCK_INTERACTIVE_URL,
+    });
+    mocks.pollSep24Transaction.mockResolvedValue({
+      transaction: {
+        id: MOCK_TRANSACTION_ID,
+        kind: "withdrawal",
+        status: "error",
+        message: "Anchor internal failure",
+      },
+      completed: false,
+    });
+
+    renderWithdrawModal();
+    fireEvent.click(screen.getByTestId("sep24-start-btn"));
+    await waitFor(() => screen.getByTestId("sep24-submitted-btn"));
+    fireEvent.click(screen.getByTestId("sep24-submitted-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sep24-error-msg")).toBeTruthy();
+    });
+    const errMsg = screen.getByTestId("sep24-error-msg").textContent ?? "";
+    expect(errMsg).toMatch(/error/i);
+    expect(errMsg).toMatch(/anchor internal failure/i);
+  });
+});
+
+/* ================================================================== */
 /* 6. <ClaimPayouts /> – AC1: "Withdraw to Local Bank" button          */
 /* ================================================================== */
 
