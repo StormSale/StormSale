@@ -229,4 +229,75 @@ describe("ClaimPayouts Daily Payout Cap & Quota Banner (#156)", () => {
       expect(screen.queryByText(/Batch Payout Complete/i)).toBeNull();
     });
   });
+
+  it("shows 'Daily Cap Reached' badge when cap is fully exhausted", async () => {
+    // Record full 1000 XLM claim volume
+    recordAffiliateClaim(AFFILIATE_ADDRESS, 101, 1000);
+
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Daily Cap Reached/i)).toBeTruthy();
+    });
+  });
+
+  it("shows SEP-0024 withdraw button in idle state", async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("btn-sep24-withdraw")).toBeTruthy();
+    });
+  });
+
+  it("opens Sep24WithdrawModal when SEP-0024 button is clicked", async () => {
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-sep24-withdraw"));
+    fireEvent.click(screen.getByTestId("btn-sep24-withdraw"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sep24-withdraw-modal")).toBeTruthy();
+    });
+  });
+
+  it("records claim volume and refreshes quota after successful single claim", async () => {
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-claim-single-101"));
+    fireEvent.click(screen.getByTestId("btn-claim-single-101"));
+
+    await waitFor(() => {
+      expect(mockClaimPayoutOnChain).toHaveBeenCalledWith(101, undefined, 45.5);
+    });
+
+    // Volume should be recorded after claim
+    const vol = getRolling24HourClaimVolume(AFFILIATE_ADDRESS);
+    expect(vol).toBeGreaterThan(0);
+  });
+
+  it("records claim volume after batch claim and refreshes quota", async () => {
+    mockBatchClaimPayoutsOnChain.mockResolvedValueOnce({
+      txHash: "0xbatch_quota",
+      totalClaimedXlm: 155.75,
+      itemizedClaims: [
+        { campaignId: 101, campaignName: "Alpha", claimedXlm: 45.5 },
+        { campaignId: 102, campaignName: "Beta", claimedXlm: 110.25 },
+      ],
+      splitAllocations: [],
+      paymentOperationCount: 2,
+    });
+
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-batch-claim"));
+    fireEvent.click(screen.getByTestId("btn-batch-claim"));
+
+    await waitFor(() => {
+      expect(mockBatchClaimPayoutsOnChain).toHaveBeenCalled();
+    });
+
+    // Volume should be updated after batch
+    const vol = getRolling24HourClaimVolume(AFFILIATE_ADDRESS);
+    expect(vol).toBeGreaterThan(0);
+  });
 });
