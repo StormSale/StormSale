@@ -234,3 +234,108 @@ export function SkeletonTable({
     </div>
   );
 }
+
+/**
+ * Individual table row skeleton for incremental loading and infinite scroll
+ * without layout shifts.
+ */
+export interface SkeletonTableRowProps extends React.HTMLAttributes<HTMLDivElement> {
+  columns?: number;
+  columnWidths?: string[];
+}
+
+export function SkeletonTableRow({
+  columns = 4,
+  columnWidths = ["w-28", "w-1/4", "w-1/3", "w-1/5"],
+  className,
+  ...props
+}: SkeletonTableRowProps) {
+  return (
+    <div
+      role="row"
+      className={cn(
+        "p-4 flex items-center gap-4 border-b border-zinc-100 dark:border-zinc-800/50",
+        className,
+      )}
+      {...props}
+    >
+      {Array.from({ length: columns }).map((_, colIndex) => (
+        <Skeleton
+          key={`row-cell-${colIndex}`}
+          className={cn("h-4", columnWidths[colIndex % columnWidths.length])}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Standard card skeleton loader matching dashboard card boundaries.
+ */
+export interface SkeletonCardProps extends React.HTMLAttributes<HTMLDivElement> {
+  showHeader?: boolean;
+  lines?: number;
+  showFooter?: boolean;
+}
+
+export function SkeletonCard({
+  showHeader = true,
+  lines = 3,
+  showFooter = false,
+  className,
+  ...props
+}: SkeletonCardProps) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 space-y-4 shadow-sm",
+        className,
+      )}
+      {...props}
+    >
+      {showHeader && (
+        <div className="space-y-2 pb-2 border-b border-zinc-100 dark:border-zinc-800/60">
+          <Skeleton className="h-5 w-1/3" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      )}
+      <SkeletonText lines={lines} />
+      {showFooter && (
+        <div className="pt-2 flex justify-end gap-2 border-t border-zinc-100 dark:border-zinc-800/60">
+          <SkeletonButton size="sm" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Comprehensive dashboard overview skeleton coordinating KPI cards, widget charts,
+ * and data tables with matching layout dimensions to completely eliminate CLS.
+ */
+export interface SkeletonDashboardOverviewProps extends React.HTMLAttributes<HTMLDivElement> {
+  metricCount?: number;
+  tableRows?: number;
+}
+
+export function SkeletonDashboardOverview({
+  metricCount = 4,
+  tableRows = 5,
+  className,
+  ...props
+}: SkeletonDashboardOverviewProps) {
+  return (
+    <div className={cn("space-y-6 w-full", className)} {...props}>
+      {/* Metric Cards Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {Array.from({ length: metricCount }).map((_, i) => (
+          <SkeletonMetric key={`metric-skel-${i}`} />
+        ))}
+      </div>
+      {/* Visual Chart / Widget Skeleton */}
+      <SkeletonWidget height="h-64" showHeaderAction={true} />
+      {/* Table Skeleton */}
+      <SkeletonTable rows={tableRows} columns={4} showPagination={true} />
+    </div>
+  );
+}

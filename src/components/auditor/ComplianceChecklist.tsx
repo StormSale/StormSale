@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
+import { z } from "zod";
 import {
   Card,
   CardContent,
@@ -11,6 +12,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { useNotification } from "../../context/NotificationContext";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useFilterState } from "../../hooks/useFilterState";
 import { cn } from "../../lib/utils";
 import {
   COMPLIANCE_CONTROLS,
@@ -64,6 +66,26 @@ import {
   Target,
   UserRound,
 } from "lucide-react";
+
+const CHECKLIST_FILTERS_KEY = "auditor.compliance-checklist.filters";
+const checklistFiltersSchema = z.object({
+  statusFilter: z.enum([
+    "all",
+    "not-assessed",
+    "in-progress",
+    "compliant",
+    "exception",
+    "not-applicable",
+  ]),
+  severityFilter: z.enum(["all", "critical", "high", "medium"]),
+  query: z.string().max(200),
+});
+type ChecklistFilters = z.infer<typeof checklistFiltersSchema>;
+const DEFAULT_CHECKLIST_FILTERS: ChecklistFilters = {
+  statusFilter: "all",
+  severityFilter: "all",
+  query: "",
+};
 
 // ---------------------------------------------------------------------------
 // Presentation maps
@@ -194,9 +216,17 @@ export const ComplianceChecklist = () => {
   const [loadedKey, setLoadedKey] = useState(storageKey);
   const [checklist, setChecklist] = useState<ChecklistState>(() => loadChecklist(storageKey));
   const [activeFramework, setActiveFramework] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<ControlStatus | "all">("all");
-  const [severityFilter, setSeverityFilter] = useState<ControlSeverity | "all">("all");
-  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useFilterState<ChecklistFilters>(
+    CHECKLIST_FILTERS_KEY,
+    checklistFiltersSchema,
+    DEFAULT_CHECKLIST_FILTERS,
+  );
+  const { statusFilter, severityFilter, query } = filters;
+  const setStatusFilter = (value: ControlStatus | "all") =>
+    setFilters((previous) => ({ ...previous, statusFilter: value }));
+  const setSeverityFilter = (value: ControlSeverity | "all") =>
+    setFilters((previous) => ({ ...previous, severityFilter: value }));
+  const setQuery = (value: string) => setFilters((previous) => ({ ...previous, query: value }));
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   // Reset the checklist when the connected auditor identity changes (render-phase state sync).

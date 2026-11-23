@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
 import {
   chunkSaleBatch,
@@ -12,7 +13,14 @@ import {
   type SaleItem,
   type BatchExecutionProgress,
 } from "../lib/batchSaleLogging";
-import { xdr, Account, Keypair, scValToNative, StrKey, SorobanDataBuilder } from "@stellar/stellar-sdk";
+import {
+  xdr,
+  Account,
+  Keypair,
+  scValToNative,
+  StrKey,
+  SorobanDataBuilder,
+} from "@stellar/stellar-sdk";
 import * as stellarLib from "../lib/stellar";
 
 describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () => {
@@ -319,9 +327,9 @@ describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () =
         buildBatchTransactionEnvelope(account, dummyMerchant, sales, "INVALID_CONTRACT_ID"),
       ).toThrow(/Invalid contract ID/);
 
-      expect(() =>
-        buildBatchTransactionEnvelope(account, dummyMerchant, sales, ""),
-      ).toThrow(/Invalid contract ID/);
+      expect(() => buildBatchTransactionEnvelope(account, dummyMerchant, sales, "")).toThrow(
+        /Invalid contract ID/,
+      );
     });
   });
 
@@ -334,12 +342,7 @@ describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () =
         progressSnapshots.push({ ...progress });
       });
 
-      const receipt = await executeBatchSaleLogging(
-        dummyMerchant,
-        sales,
-        "mock",
-        onProgress,
-      );
+      const receipt = await executeBatchSaleLogging(dummyMerchant, sales, "mock", onProgress);
 
       expect(receipt.success).toBe(true);
       expect(receipt.totalSalesCount).toBe(28);
@@ -407,9 +410,9 @@ describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () =
 
     it("should reject batch execution when wallet is readonly", async () => {
       const sales = generateSalesList(2);
-      await expect(
-        executeBatchSaleLogging(dummyMerchant, sales, "readonly"),
-      ).rejects.toThrow(/Read-only wallet cannot sign/);
+      await expect(executeBatchSaleLogging(dummyMerchant, sales, "readonly")).rejects.toThrow(
+        /Read-only wallet cannot sign/,
+      );
     });
 
     it("should handle error during executeBatchSaleLogging gracefully and mark items as failed", async () => {
@@ -503,7 +506,9 @@ describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () =
       expect(receipt.confirmedCount).toBe(1);
       expect(receipt.failedCount).toBe(1);
       expect(receipt.itemizedResults.find((i) => i.saleId === sales[0].id)?.status).toBe("failed");
-      expect(receipt.itemizedResults.find((i) => i.saleId === sales[1].id)?.status).toBe("confirmed");
+      expect(receipt.itemizedResults.find((i) => i.saleId === sales[1].id)?.status).toBe(
+        "confirmed",
+      );
     });
   });
 
@@ -561,9 +566,9 @@ describe("Soroban Footprint Optimization & Multi-Operation Batches (#133)", () =
       } as any;
 
       const dummyTxHash = "d".repeat(64);
-      await expect(
-        waitForConfirmation(mockServer, dummyTxHash, 50, 10),
-      ).rejects.toThrow(/timed out/);
+      await expect(waitForConfirmation(mockServer, dummyTxHash, 50, 10)).rejects.toThrow(
+        /timed out/,
+      );
     });
   });
 });

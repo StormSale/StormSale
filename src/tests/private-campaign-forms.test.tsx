@@ -95,13 +95,18 @@ vi.mock("../lib/stellar", () => ({
       numSponsored: 0,
     };
   },
-  fetchStellarAccountDetails: vi.fn(async () => ({
-    exists: false,
-    balanceXlm: 0,
+  fetchStellarAccountDetails: vi.fn(async (addr: string) => ({
+    address: addr,
+    exists: true,
+    status: "active",
+    balanceXlm: 500,
     subentries: 0,
     trustlineCount: 0,
     numSponsoring: 0,
     numSponsored: 0,
+    sellingLiabilitiesXlm: 0,
+    reserveXlm: 1,
+    spendableXlm: 499,
   })),
 }));
 vi.mock("../lib/crypto", () => crypto);

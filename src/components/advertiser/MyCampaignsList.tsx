@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { z } from "zod";
 import { useIndexerQuery } from "../../hooks/useIndexerQuery";
+import { useFilterState } from "../../hooks/useFilterState";
 import { CAMPAIGN_HISTORY_QUERY, type IndexerCampaign } from "../../lib/indexer/goldskyIndexer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -63,6 +65,14 @@ import {
 } from "../../lib/contractTTL";
 
 export type CampaignStatus = "Active" | "Paused" | "Completed";
+
+const CAMPAIGN_FILTERS_KEY = "advertiser.campaigns.filters";
+const campaignFiltersSchema = z.object({
+  search: z.string().max(200),
+  statusFilter: z.enum(["All", "LowEscrow", "Active", "Paused", "Completed"]),
+});
+type CampaignFilters = z.infer<typeof campaignFiltersSchema>;
+const DEFAULT_CAMPAIGN_FILTERS: CampaignFilters = { search: "", statusFilter: "All" };
 
 export interface Campaign {
   id: string;
@@ -240,8 +250,15 @@ const statusConfig: Record<CampaignStatus, { badge: string; dot: string }> = {
  */
 export const MyCampaignsList = () => {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialMockCampaigns);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<CampaignStatus | "All" | "LowEscrow">("All");
+  const [filters, setFilters] = useFilterState<CampaignFilters>(
+    CAMPAIGN_FILTERS_KEY,
+    campaignFiltersSchema,
+    DEFAULT_CAMPAIGN_FILTERS,
+  );
+  const { search, statusFilter } = filters;
+  const setSearch = (value: string) => setFilters((previous) => ({ ...previous, search: value }));
+  const setStatusFilter = (value: CampaignFilters["statusFilter"]) =>
+    setFilters((previous) => ({ ...previous, statusFilter: value }));
   const [refundingCampaignId, setRefundingCampaignId] = useState<string | null>(null);
   const [activeMultiSigProposal, setActiveMultiSigProposal] =
     useState<MultiSigRefundProposal | null>(null);
@@ -339,7 +356,7 @@ export const MyCampaignsList = () => {
   const [extendingId, setExtendingId] = useState<string | null>(null);
 
   const lowTTLCount = campaigns.filter(
-    (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 10000,
+    (c) => c.status === "Active" && (c.ttlRemainingLedgers ?? 0) < 50000,
   ).length;
 
   const handleExtendCampaignTTL = async (campaignId: string, contractAddress: string) => {
@@ -593,15 +610,25 @@ export const MyCampaignsList = () => {
 
       // Check pre-authorized allowance
       if (effectiveAllowance < amount) {
-        const deficit = amount - effectiveAllowance;
-        showNotification({
-          type: "warning",
-          title: "Pre-Authorized Allowance Deficit",
-          message: `Current allowance is ${effectiveAllowance.toLocaleString()} XLM. Refill requires ${amount.toLocaleString()} XLM (-${deficit.toLocaleString()} XLM deficit). Please pre-authorize allowance.`,
-          actionLabel: "Authorize Allowance",
-          onAction: () => handleAuthorizeAllowance(Math.max(5000, amount)),
-        });
-        return false;
+        if (isAutomated) {
+          // Automated SAC allowance delegation before escrow top-up (#119)
+          showNotification({
+            type: "info",
+            title: "Automated SAC Allowance Delegation",
+            message: `Delegating SAC token allowance of ${amount.toLocaleString()} XLM for automated top-up...`,
+          });
+          await handleAuthorizeAllowance(amount);
+        } else {
+          const deficit = amount - effectiveAllowance;
+          showNotification({
+            type: "warning",
+            title: "Pre-Authorized Allowance Deficit",
+            message: `Current allowance is ${effectiveAllowance.toLocaleString()} XLM. Refill requires ${amount.toLocaleString()} XLM (-${deficit.toLocaleString()} XLM deficit). Please pre-authorize allowance.`,
+            actionLabel: "Authorize Allowance",
+            onAction: () => handleAuthorizeAllowance(Math.max(5000, amount)),
+          });
+          return false;
+        }
       }
 
       const onChainId = campaign.onChainId ?? Number.parseInt(campaign.id, 10);
@@ -703,7 +730,15 @@ export const MyCampaignsList = () => {
             getDefaultAutoTopUpConfig(campaign.id, campaign.escrowInitial);
 
           const evaluation = evaluateAutoTopUpTrigger(campaign, config, remainingAllowance);
-          if (evaluation.shouldTrigger) {
+          const shouldRun =
+            evaluation.shouldTrigger ||
+            (isManualTrigger &&
+              config.enabled &&
+              campaign.status === "Active" &&
+              config.topUpCountToday < config.maxTopUpsPerDay &&
+              (campaign.escrowBalance ?? 0) <= evaluation.thresholdAmount);
+
+          if (shouldRun) {
             const success = await executeTopUp(
               campaign,
               config.topUpAmount,

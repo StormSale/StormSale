@@ -39,6 +39,7 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
       expect(raw).toBeDefined();
       const parsed = JSON.parse(raw);
       expect(parsed.v).toBe(SCHEMA_VERSION);
+      expect(parsed.updatedAt).toEqual(expect.any(Number));
       expect(parsed.value).toBe("analytics");
     });
 
@@ -48,6 +49,51 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
 
       const retrieved = readRaw(key, "default-value");
       expect(retrieved).toBe("custom-value");
+    });
+
+    it("migrates legacy { v, value } entries to the timestamped envelope", () => {
+      const key = "stormsale.test.legacy";
+      mockStorage[key] = JSON.stringify({ v: SCHEMA_VERSION, value: "legacy-value" });
+
+      const retrieved = readRaw(key, "default-value");
+
+      expect(retrieved).toBe("legacy-value");
+      const migrated = JSON.parse(mockStorage[key]);
+      expect(migrated.v).toBe(SCHEMA_VERSION);
+      expect(migrated.updatedAt).toEqual(expect.any(Number));
+      expect(migrated.value).toBe("legacy-value");
+    });
+
+    it("rejects timestamped entries with invalid timestamps instead of migrating them", () => {
+      const key = "stormsale.test.invalid-timestamp";
+      const raw = JSON.stringify({ v: SCHEMA_VERSION, updatedAt: -1, value: "tampered" });
+      mockStorage[key] = raw;
+
+      expect(readRaw(key, "fallback")).toBe("fallback");
+      expect(mockStorage[key]).toBeUndefined();
+    });
+
+    it("evicts legacy values rejected by the validate guard during migration", () => {
+      const key = "stormsale.test.legacy-invalid";
+      mockStorage[key] = JSON.stringify({ v: SCHEMA_VERSION, value: "removed-tab" });
+
+      const retrieved = readRaw(key, "overview", (value: string) =>
+        ["overview", "analytics"].includes(value),
+      );
+
+      expect(retrieved).toBe("overview");
+      expect(mockStorage[key]).toBeUndefined();
+    });
+
+    it("keeps long-lived preferences past the filter TTL", () => {
+      const key = "stormsale.test.long-lived";
+      mockStorage[key] = JSON.stringify({
+        v: SCHEMA_VERSION,
+        updatedAt: Date.now() - 90 * 24 * 60 * 60 * 1000,
+        value: "kept",
+      });
+
+      expect(readRaw(key, "fallback")).toBe("kept");
     });
 
     it("evicts stale schema version and falls back to default value", () => {
@@ -82,6 +128,20 @@ describe("Persistent UI & Filter State Cache (#73)", () => {
 
       const retrieved = readRaw(key, true);
       expect(retrieved).toBe(false);
+    });
+
+    it("rejects off-schema writes so invalid preferences never reach storage", () => {
+      const key = "stormsale.test.rejected-write";
+      const isValidTab = (value: string) => ["overview", "analytics"].includes(value);
+
+      expect(writeRaw(key, "disallowed-tab", isValidTab)).toBe(false);
+      expect(mockStorage[key]).toBeUndefined();
+
+      expect(writeRaw(key, "analytics", isValidTab)).toBe(true);
+      expect(JSON.parse(mockStorage[key])).toMatchObject({
+        v: SCHEMA_VERSION,
+        value: "analytics",
+      });
     });
   });
 

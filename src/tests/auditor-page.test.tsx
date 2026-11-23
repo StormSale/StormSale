@@ -103,6 +103,9 @@ vi.mock("../components/auditor/NetworkRiskVisualizer", () => ({
 vi.mock("../components/auditor/PrivacyVerification", () => ({
   PrivacyVerification: () => <div>Privacy panel</div>,
 }));
+vi.mock("../components/auditor/SolvencyHUD", () => ({
+  SolvencyHUD: () => <div>Solvency panel</div>,
+}));
 
 import { Auditor } from "../pages/Auditor";
 
@@ -128,6 +131,7 @@ describe("Auditor page", () => {
       ["Transaction Network", "Network panel"],
       ["SOC 2 Evidence", "SOC2 panel"],
       ["Privacy", "Privacy panel"],
+      ["Protocol Solvency & TVL", "Solvency panel"],
       ["Dashboard Overview", "Overview panel"],
     ];
     for (const [label, panel] of panels) {

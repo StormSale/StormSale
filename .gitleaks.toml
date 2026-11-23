@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Ignore mock team signatures and test crypto keys"
+paths = [
+  '''src/lib/teamPermissions\.ts''',
+  '''plugins/stormsale-woocommerce/tests/.*''',
+]

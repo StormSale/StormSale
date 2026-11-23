@@ -17,6 +17,12 @@ import type {
   ReferralTreeNode,
   ReferralTreeSummary,
 } from "../types/referral";
+export type {
+  AffiliateReferralRelation,
+  TwoTierCommissionSplit,
+  ReferralTreeNode,
+  ReferralTreeSummary,
+};
 import { getLocalStorage } from "./storage";
 
 export const REFERRAL_TREE_STORAGE_KEY = "stormsale.referral.tree";
@@ -59,6 +65,22 @@ export function formatAffiliateAddress(address: string): string {
 }
 
 /**
+ * Privacy masking for referee wallet addresses into standard compact format (GAB...392).
+ * Formats Stellar addresses keeping first 3 chars, ellipsis, and last 3 chars.
+ */
+export function maskRefereeAddress(
+  address: string,
+  options?: { prefixLength?: number; suffixLength?: number },
+): string {
+  if (!address || typeof address !== "string") return "Unknown";
+  const trimmed = address.trim();
+  const prefix = options?.prefixLength ?? 3;
+  const suffix = options?.suffixLength ?? 3;
+  if (trimmed.length <= prefix + suffix) return trimmed;
+  return `${trimmed.slice(0, prefix)}...${trimmed.slice(-suffix)}`;
+}
+
+/**
  * Calculates two-tier commission split for a verified sale.
  *
  * Example:
@@ -80,8 +102,8 @@ export function calculateTwoTierCommission(
 
   const hasRecruiter = Boolean(
     recruiterAddress &&
-      recruiterAddress.trim() !== "" &&
-      recruiterAddress.trim() !== sellingAffiliateAddress.trim(),
+    recruiterAddress.trim() !== "" &&
+    recruiterAddress.trim() !== sellingAffiliateAddress.trim(),
   );
 
   let sellingRate = safeTotalRate;
@@ -243,7 +265,10 @@ export function registerSubAffiliate(
 
   const rawRate = options.overrideRatePercent;
   const overrideRate =
-    rawRate !== undefined && Number.isFinite(rawRate) && rawRate >= 0 && rawRate <= DEFAULT_TOTAL_COMMISSION_PERCENT
+    rawRate !== undefined &&
+    Number.isFinite(rawRate) &&
+    rawRate >= 0 &&
+    rawRate <= DEFAULT_TOTAL_COMMISSION_PERCENT
       ? rawRate
       : DEFAULT_OVERRIDE_RATE_PERCENT;
   const directRate = Math.max(0, DEFAULT_TOTAL_COMMISSION_PERCENT - overrideRate);
@@ -285,7 +310,8 @@ export function getRecruiterForAffiliate(
 ): AffiliateReferralRelation | undefined {
   const list = relationsList || loadReferralRelations();
   return list.find(
-    (r) => r.childAddress.toLowerCase() === childAddress.trim().toLowerCase() && r.status === "active",
+    (r) =>
+      r.childAddress.toLowerCase() === childAddress.trim().toLowerCase() && r.status === "active",
   );
 }
 
@@ -297,9 +323,126 @@ export function getSubAffiliatesForParent(
   relationsList?: AffiliateReferralRelation[],
 ): AffiliateReferralRelation[] {
   const list = relationsList || loadReferralRelations();
-  return list.filter(
-    (r) => r.parentAddress.toLowerCase() === parentAddress.trim().toLowerCase(),
-  );
+  return list.filter((r) => r.parentAddress.toLowerCase() === parentAddress.trim().toLowerCase());
+}
+
+/**
+ * Builds a hierarchical referral tree recursively for visualization.
+ * Uses indexed Map lookups for high performance with >500 nodes.
+ */
+export function buildRecursiveReferralTree(
+  masterAddress: string,
+  allRelations?: AffiliateReferralRelation[],
+  maxDepth: number = 20,
+): ReferralTreeNode {
+  const relations = allRelations || loadReferralRelations();
+  const cleanMaster = masterAddress.trim();
+
+  // Index relations by parentAddress in O(N) linear time for high-scale performance
+  const relationsByParent = new Map<string, AffiliateReferralRelation[]>();
+  const relationByChild = new Map<string, AffiliateReferralRelation>();
+
+  for (let i = 0; i < relations.length; i++) {
+    const r = relations[i];
+    const parentKey = r.parentAddress.trim().toLowerCase();
+    const childKey = r.childAddress.trim().toLowerCase();
+    relationByChild.set(childKey, r);
+
+    const existing = relationsByParent.get(parentKey);
+    if (existing) {
+      existing.push(r);
+    } else {
+      relationsByParent.set(parentKey, [r]);
+    }
+  }
+
+  function buildNode(
+    addr: string,
+    name: string,
+    tier: number,
+    recruitedAt: string,
+    visited: Set<string>,
+  ): ReferralTreeNode {
+    const lower = addr.trim().toLowerCase();
+    const childrenRels = (relationsByParent.get(lower) || []).filter(
+      (r) => !visited.has(r.childAddress.trim().toLowerCase()),
+    );
+
+    const nextVisited = new Set(visited);
+    nextVisited.add(lower);
+
+    let childrenNodes: ReferralTreeNode[] = [];
+    if (tier < maxDepth) {
+      childrenNodes = childrenRels.map((cr) => {
+        return buildNode(cr.childAddress, cr.childName, tier + 1, cr.recruitedAt, nextVisited);
+      });
+    }
+
+    const roleLabel: ReferralTreeNode["roleLabel"] =
+      tier === 0
+        ? "Master Affiliate"
+        : tier === 1
+          ? "Sub-Affiliate (Tier 1)"
+          : tier === 2
+            ? "Sub-Affiliate (Tier 2)"
+            : (`Sub-Affiliate (Tier ${tier})` as any);
+
+    if (tier === 0) {
+      let masterVolume = 0;
+      let masterOverrideEarnings = 0;
+      let masterSalesCount = 0;
+
+      for (const t1 of childrenNodes) {
+        masterVolume += t1.salesVolumeXlm;
+        for (const t2 of t1.children) {
+          masterVolume += t2.salesVolumeXlm;
+        }
+        masterOverrideEarnings += t1.overrideEarningsXlm;
+        masterSalesCount += t1.salesCount;
+      }
+
+      return {
+        address: addr,
+        name,
+        tier: 0,
+        roleLabel: "Master Affiliate",
+        recruitedAt,
+        salesCount: masterSalesCount,
+        salesVolumeXlm: Number(masterVolume.toFixed(2)),
+        directEarningsXlm: 0,
+        overrideEarningsXlm: Number(masterOverrideEarnings.toFixed(2)),
+        isActive: true,
+        children: childrenNodes,
+      };
+    }
+
+    const directRel = relationByChild.get(lower);
+    const directVolume = directRel ? directRel.totalSalesVolumeXlm : 0;
+    const directSales = directRel ? directRel.salesCount : 0;
+    const directEarnings = directRel ? directRel.totalDirectCommissionEarnedXlm : 0;
+    const directOverride = directRel ? directRel.totalOverrideEarnedXlm : 0;
+    const isActive = directRel ? directRel.status === "active" : true;
+
+    // Subtree override aggregation (for tier 1, includes direct + tier 2 child overrides)
+    const childOverrides = childrenNodes.reduce((sum, c) => sum + c.overrideEarningsXlm, 0);
+
+    return {
+      address: addr,
+      name,
+      tier,
+      roleLabel,
+      parentAddress: directRel?.parentAddress,
+      recruitedAt,
+      salesCount: directSales,
+      salesVolumeXlm: directVolume,
+      directEarningsXlm: directEarnings,
+      overrideEarningsXlm: directOverride + childOverrides,
+      isActive,
+      children: childrenNodes,
+    };
+  }
+
+  return buildNode(cleanMaster, "Master Affiliate (You)", 0, new Date().toISOString(), new Set());
 }
 
 /**
@@ -308,78 +451,9 @@ export function getSubAffiliatesForParent(
 export function buildReferralTree(
   masterAddress: string,
   allRelations?: AffiliateReferralRelation[],
+  maxDepth: number = 20,
 ): ReferralTreeNode {
-  const relations = allRelations || loadReferralRelations();
-  const cleanMaster = masterAddress.trim();
-
-  // Find Tier-1 direct recruits
-  const tier1Relations = relations.filter(
-    (r) => r.parentAddress.toLowerCase() === cleanMaster.toLowerCase(),
-  );
-
-  let masterVolume = 0;
-  const masterDirectEarnings = 0;
-  let masterOverrideEarnings = 0;
-  let masterSalesCount = 0;
-
-  const childrenNodes: ReferralTreeNode[] = tier1Relations.map((t1) => {
-    // Find Tier-2 recruits (recruited by this tier-1 partner)
-    const tier2Relations = relations.filter(
-      (r) => r.parentAddress.toLowerCase() === t1.childAddress.toLowerCase(),
-    );
-
-    const tier2Children: ReferralTreeNode[] = tier2Relations.map((t2) => ({
-      address: t2.childAddress,
-      name: t2.childName,
-      tier: 2,
-      roleLabel: "Sub-Affiliate (Tier 2)",
-      parentAddress: t2.parentAddress,
-      recruitedAt: t2.recruitedAt,
-      salesCount: t2.salesCount,
-      salesVolumeXlm: t2.totalSalesVolumeXlm,
-      directEarningsXlm: t2.totalDirectCommissionEarnedXlm,
-      overrideEarningsXlm: t2.totalOverrideEarnedXlm,
-      isActive: t2.status === "active",
-      children: [],
-    }));
-
-    // Aggregate sub-tree totals
-    const t1SubVolume = tier2Children.reduce((sum, c) => sum + c.salesVolumeXlm, 0);
-    const t1Override = tier2Children.reduce((sum, c) => sum + c.overrideEarningsXlm, 0);
-
-    masterVolume += t1.totalSalesVolumeXlm + t1SubVolume;
-    masterOverrideEarnings += t1.totalOverrideEarnedXlm;
-    masterSalesCount += t1.salesCount;
-
-    return {
-      address: t1.childAddress,
-      name: t1.childName,
-      tier: 1,
-      roleLabel: "Sub-Affiliate (Tier 1)",
-      parentAddress: t1.parentAddress,
-      recruitedAt: t1.recruitedAt,
-      salesCount: t1.salesCount,
-      salesVolumeXlm: t1.totalSalesVolumeXlm,
-      directEarningsXlm: t1.totalDirectCommissionEarnedXlm,
-      overrideEarningsXlm: t1.totalOverrideEarnedXlm + t1Override,
-      isActive: t1.status === "active",
-      children: tier2Children,
-    };
-  });
-
-  return {
-    address: cleanMaster,
-    name: "Master Affiliate (You)",
-    tier: 0,
-    roleLabel: "Master Affiliate",
-    recruitedAt: new Date().toISOString(),
-    salesCount: masterSalesCount,
-    salesVolumeXlm: Number(masterVolume.toFixed(2)),
-    directEarningsXlm: Number(masterDirectEarnings.toFixed(2)),
-    overrideEarningsXlm: Number(masterOverrideEarnings.toFixed(2)),
-    isActive: true,
-    children: childrenNodes,
-  };
+  return buildRecursiveReferralTree(masterAddress, allRelations, maxDepth);
 }
 
 /**
@@ -399,10 +473,11 @@ export function getReferralTreeSummary(
     directAddresses.has(r.parentAddress.toLowerCase()),
   );
 
-  const totalNetworkVolumeXlm = directRecruits.reduce(
-    (acc, r) => acc + r.totalSalesVolumeXlm,
-    0,
-  );
+  const totalNetworkVolumeXlm = directRecruits.reduce((acc, r) => acc + r.totalSalesVolumeXlm, 0);
+  const tier1VolumeXlm = totalNetworkVolumeXlm;
+  const tier2VolumeXlm = secondTierRecruits.reduce((acc, r) => acc + r.totalSalesVolumeXlm, 0);
+  const totalDownstreamVolumeXlm = Number((tier1VolumeXlm + tier2VolumeXlm).toFixed(2));
+
   const totalOverrideEarnedXlm = directRecruits.reduce(
     (acc, r) => acc + r.totalOverrideEarnedXlm,
     0,
@@ -449,10 +524,326 @@ export function getReferralTreeSummary(
     secondTierRecruitsCount: secondTierRecruits.length,
     totalNetworkSize: directRecruits.length + secondTierRecruits.length,
     totalNetworkVolumeXlm: Number(totalNetworkVolumeXlm.toFixed(2)),
+    tier1VolumeXlm: Number(tier1VolumeXlm.toFixed(2)),
+    tier2VolumeXlm: Number(tier2VolumeXlm.toFixed(2)),
+    totalDownstreamVolumeXlm,
     totalOverrideEarnedXlm: Number(totalOverrideEarnedXlm.toFixed(2)),
     topPerformer,
     recentOverrides,
   };
+}
+
+export interface NetworkVolumeAggregation {
+  tier1Volume: number;
+  tier2Volume: number;
+  totalVolume: number;
+  tier1Count: number;
+  tier2Count: number;
+  totalCount: number;
+  tier1Overrides: number;
+  tier2Overrides: number;
+  totalOverrides: number;
+  volumeByTier: Record<number, number>;
+}
+
+/**
+ * Aggregates network volume and commission totals recursively across tiers.
+ */
+export function aggregateNetworkVolume(
+  source: ReferralTreeNode | AffiliateReferralRelation[],
+  _masterAddress?: string,
+): NetworkVolumeAggregation {
+  if (Array.isArray(source)) {
+    const relations = source;
+    let t1Vol = 0;
+    let t2Vol = 0;
+    let totalVol = 0;
+    let t1Count = 0;
+    let t2Count = 0;
+    let t1Overrides = 0;
+    let t2Overrides = 0;
+    let totalOverrides = 0;
+    const volByTier: Record<number, number> = {};
+
+    for (let i = 0; i < relations.length; i++) {
+      const r = relations[i];
+      const tier = r.tier || 1;
+      const vol = r.totalSalesVolumeXlm || 0;
+      const ovr = r.totalOverrideEarnedXlm || 0;
+
+      totalVol += vol;
+      totalOverrides += ovr;
+      volByTier[tier] = (volByTier[tier] || 0) + vol;
+
+      if (tier === 1) {
+        t1Vol += vol;
+        t1Count += 1;
+        t1Overrides += ovr;
+      } else if (tier === 2) {
+        t2Vol += vol;
+        t2Count += 1;
+        t2Overrides += ovr;
+      }
+    }
+
+    return {
+      tier1Volume: Number(t1Vol.toFixed(2)),
+      tier2Volume: Number(t2Vol.toFixed(2)),
+      totalVolume: Number(totalVol.toFixed(2)),
+      tier1Count: t1Count,
+      tier2Count: t2Count,
+      totalCount: relations.length,
+      tier1Overrides: Number(t1Overrides.toFixed(2)),
+      tier2Overrides: Number(t2Overrides.toFixed(2)),
+      totalOverrides: Number(totalOverrides.toFixed(2)),
+      volumeByTier: volByTier,
+    };
+  }
+
+  const root = source;
+  let t1Vol = 0;
+  let t2Vol = 0;
+  let totalVol = 0;
+  let t1Count = 0;
+  let t2Count = 0;
+  let t1Overrides = 0;
+  let t2Overrides = 0;
+  let totalOverrides = 0;
+  let totalCount = 0;
+  const volByTier: Record<number, number> = {};
+
+  function traverse(node: ReferralTreeNode) {
+    if (node.tier > 0) {
+      totalCount++;
+      const vol = node.salesVolumeXlm || 0;
+      const ovr = node.overrideEarningsXlm || 0;
+      totalVol += vol;
+      totalOverrides += ovr;
+      volByTier[node.tier] = (volByTier[node.tier] || 0) + vol;
+
+      if (node.tier === 1) {
+        t1Vol += vol;
+        t1Count++;
+        t1Overrides += ovr;
+      } else if (node.tier === 2) {
+        t2Vol += vol;
+        t2Count++;
+        t2Overrides += ovr;
+      }
+    }
+    for (const child of node.children) {
+      traverse(child);
+    }
+  }
+
+  traverse(root);
+
+  return {
+    tier1Volume: Number(t1Vol.toFixed(2)),
+    tier2Volume: Number(t2Vol.toFixed(2)),
+    totalVolume: Number(totalVol.toFixed(2)),
+    tier1Count: t1Count,
+    tier2Count: t2Count,
+    totalCount,
+    tier1Overrides: Number(t1Overrides.toFixed(2)),
+    tier2Overrides: Number(t2Overrides.toFixed(2)),
+    totalOverrides: Number(totalOverrides.toFixed(2)),
+    volumeByTier: volByTier,
+  };
+}
+
+export interface RefereeFilterOptions {
+  query?: string;
+  alias?: string;
+  date?: string;
+  startDate?: string;
+  endDate?: string;
+  tier?: number | "all";
+  status?: "all" | "active" | "paused";
+}
+
+/**
+ * Filters a downstream referee network by alias, date, tier, or query text.
+ */
+export function filterRefereeNetwork<T extends AffiliateReferralRelation | ReferralTreeNode>(
+  items: T[],
+  filter: string | RefereeFilterOptions,
+): T[] {
+  if (!items || items.length === 0) return [];
+  const options: RefereeFilterOptions = typeof filter === "string" ? { query: filter } : filter;
+
+  const rawQuery = (options.query || "").trim().toLowerCase();
+  const aliasQuery = (options.alias || "").trim().toLowerCase();
+  const dateQuery = (options.date || "").trim();
+  const startDate = options.startDate ? new Date(options.startDate).getTime() : undefined;
+  const endDate = options.endDate ? new Date(options.endDate).getTime() : undefined;
+  const tierFilter = options.tier;
+  const statusFilter = options.status;
+
+  return items.filter((item) => {
+    const isRelation = "childAddress" in item;
+    const name =
+      (isRelation
+        ? (item as AffiliateReferralRelation).childName
+        : (item as ReferralTreeNode).name) || "";
+    const address =
+      (isRelation
+        ? (item as AffiliateReferralRelation).childAddress
+        : (item as ReferralTreeNode).address) || "";
+    const recruitedAt = item.recruitedAt || "";
+    const tier = item.tier;
+    const status = isRelation
+      ? (item as AffiliateReferralRelation).status
+      : (item as ReferralTreeNode).isActive
+        ? "active"
+        : "paused";
+
+    // 1. Alias query
+    if (aliasQuery && !name.toLowerCase().includes(aliasQuery)) {
+      return false;
+    }
+
+    // 2. Date query (e.g. YYYY-MM-DD or partial ISO)
+    if (dateQuery) {
+      const itemDateStr = recruitedAt.slice(0, 10);
+      if (!recruitedAt.includes(dateQuery) && itemDateStr !== dateQuery) {
+        return false;
+      }
+    }
+
+    // 3. Date range
+    if (startDate !== undefined || endDate !== undefined) {
+      const itemTime = new Date(recruitedAt).getTime();
+      if (startDate !== undefined && !isNaN(startDate) && itemTime < startDate) return false;
+      if (endDate !== undefined && !isNaN(endDate) && itemTime > endDate) return false;
+    }
+
+    // 4. Tier filter
+    if (tierFilter !== undefined && tierFilter !== "all" && tier !== tierFilter) {
+      return false;
+    }
+
+    // 5. Status filter
+    if (statusFilter && statusFilter !== "all" && status !== statusFilter) {
+      return false;
+    }
+
+    // 6. General query
+    if (rawQuery) {
+      const matchesName = name.toLowerCase().includes(rawQuery);
+      const matchesAddr = address.toLowerCase().includes(rawQuery);
+      const matchesDate = recruitedAt.toLowerCase().includes(rawQuery);
+      if (!matchesName && !matchesAddr && !matchesDate) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+export interface PaginationResult<T> {
+  items: T[];
+  totalItems: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+/**
+ * Paginates an array of referee items with boundary checking.
+ */
+export function paginateReferees<T>(
+  items: T[],
+  page: number = 1,
+  pageSize: number = 10,
+): PaginationResult<T> {
+  const safePageSize = Math.max(1, pageSize);
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / safePageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+
+  const startIndex = (currentPage - 1) * safePageSize;
+  const endIndex = Math.min(startIndex + safePageSize, totalItems);
+  const pageItems = items.slice(startIndex, endIndex);
+
+  return {
+    items: pageItems,
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize: safePageSize,
+    hasNextPage: currentPage < totalPages,
+    hasPrevPage: currentPage > 1,
+  };
+}
+
+/**
+ * Generates a high-volume mock sub-network with >500 nodes for stress and performance validation.
+ */
+export function generateLargeNetworkMock(
+  masterAddress: string,
+  count: number = 550,
+): AffiliateReferralRelation[] {
+  const relations: AffiliateReferralRelation[] = [];
+  const baseTime = Date.now() - 60 * 24 * 3600 * 1000;
+
+  const tier1Count = Math.min(count, 50);
+  const tier2Count = Math.max(0, count - tier1Count);
+
+  const t1Addresses: string[] = [];
+
+  for (let i = 0; i < tier1Count; i++) {
+    const pad = String(i + 1).padStart(4, "0");
+    const childAddress = `GABT1MEMBER${pad}0000000000000000000000000000000392`;
+    t1Addresses.push(childAddress);
+    const date = new Date(baseTime + i * 3600000).toISOString();
+    relations.push({
+      childAddress,
+      childName: `Tier 1 Affiliate ${i + 1}`,
+      parentAddress: masterAddress,
+      parentName: "Master Recruiter",
+      recruitedAt: date,
+      tier: 1,
+      overrideRatePercent: 2.0,
+      directCommissionRatePercent: 8.0,
+      status: "active",
+      recruiterTag: "growth-tier1",
+      totalSalesVolumeXlm: 100 + (i % 20) * 50,
+      totalDirectCommissionEarnedXlm: 8 + (i % 20) * 4,
+      totalOverrideEarnedXlm: 2 + (i % 20) * 1,
+      salesCount: 1 + (i % 5),
+      lastSaleAt: date,
+    });
+  }
+
+  for (let j = 0; j < tier2Count; j++) {
+    const parentAddr = t1Addresses[j % t1Addresses.length];
+    const pad = String(j + 1).padStart(4, "0");
+    const childAddress = `GABT2REFEREE${pad}00000000000000000000000000000392`;
+    const date = new Date(baseTime + (tier1Count + j) * 1800000).toISOString();
+    relations.push({
+      childAddress,
+      childName: `Referee SubNode ${j + 1}`,
+      parentAddress: parentAddr,
+      parentName: `Tier 1 Affiliate ${(j % t1Addresses.length) + 1}`,
+      recruitedAt: date,
+      tier: 2,
+      overrideRatePercent: 2.0,
+      directCommissionRatePercent: 8.0,
+      status: j % 10 === 0 ? "paused" : "active",
+      recruiterTag: "growth-tier2",
+      totalSalesVolumeXlm: 50 + (j % 10) * 25,
+      totalDirectCommissionEarnedXlm: 4 + (j % 10) * 2,
+      totalOverrideEarnedXlm: 1 + (j % 10) * 0.5,
+      salesCount: 1 + (j % 3),
+      lastSaleAt: date,
+    });
+  }
+
+  return relations;
 }
 
 /**
@@ -536,7 +927,8 @@ export function generateRecruiterInviteLink(
   baseUrl?: string,
   options: { tag?: string; overrideRate?: number } = {},
 ): string {
-  const origin = baseUrl || (typeof window !== "undefined" ? window.location.origin : "https://stormsale.xyz");
+  const origin =
+    baseUrl || (typeof window !== "undefined" ? window.location.origin : "https://stormsale.xyz");
   const url = new URL("/affiliate", origin);
   url.searchParams.set("recruiter", masterAddress.trim());
   if (options.tag) {
@@ -551,9 +943,11 @@ export function generateRecruiterInviteLink(
 /**
  * Parses recruiter information from a URL query string or URL object.
  */
-export function parseRecruiterInviteFromUrl(
-  urlString: string,
-): { recruiterAddress: string | null; tag?: string; overrideRate?: number } {
+export function parseRecruiterInviteFromUrl(urlString: string): {
+  recruiterAddress: string | null;
+  tag?: string;
+  overrideRate?: number;
+} {
   try {
     const url = new URL(urlString, "https://stormsale.xyz");
     const recruiter = url.searchParams.get("recruiter") || url.searchParams.get("ref");

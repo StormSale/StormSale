@@ -1,21 +1,16 @@
 import { useEffect } from "react";
 import { Moon, Sun } from "lucide-react";
-import { usePreference, SCHEMA_VERSION } from "../../hooks/usePreference";
+import { readRaw, usePreference, writeRaw } from "../../hooks/usePreference";
 
 export function resolveEffectiveTheme(): boolean {
   try {
     if (typeof localStorage !== "undefined") {
-      const versioned = localStorage.getItem("stormsale.theme.dark");
-      if (versioned) {
-        try {
-          const parsed = JSON.parse(versioned);
-          if (parsed && parsed.v === SCHEMA_VERSION && typeof parsed.value === "boolean") {
-            return parsed.value;
-          }
-        } catch {
-          // fallback
-        }
-      }
+      const versioned = readRaw<boolean | null>(
+        "stormsale.theme.dark",
+        null,
+        (value) => typeof value === "boolean",
+      );
+      if (versioned !== null) return versioned;
 
       const stored = localStorage.getItem("darkMode");
       if (stored !== null) {
@@ -49,10 +44,7 @@ export function applyTheme(newDarkMode: boolean) {
   try {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem("darkMode", newDarkMode.toString());
-      localStorage.setItem(
-        "stormsale.theme.dark",
-        JSON.stringify({ v: SCHEMA_VERSION, value: newDarkMode }),
-      );
+      writeRaw("stormsale.theme.dark", newDarkMode, (value) => typeof value === "boolean");
 
       const raw = localStorage.getItem("stormsale_affiliate_settings");
       if (raw) {
@@ -89,20 +81,13 @@ export function ThemeToggle() {
     // Prioritize versioned preference; migrate legacy darkMode only when versioned key is absent
     try {
       if (typeof localStorage !== "undefined") {
-        const versionedRaw = localStorage.getItem("stormsale.theme.dark");
-        let hasValidVersioned = false;
-        if (versionedRaw) {
-          try {
-            const parsed = JSON.parse(versionedRaw);
-            if (parsed && parsed.v === SCHEMA_VERSION && typeof parsed.value === "boolean") {
-              hasValidVersioned = true;
-            }
-          } catch {
-            // ignore
-          }
-        }
+        const versioned = readRaw<boolean | null>(
+          "stormsale.theme.dark",
+          null,
+          (value) => typeof value === "boolean",
+        );
         const legacy = localStorage.getItem("darkMode");
-        if (!hasValidVersioned && legacy !== null) {
+        if (versioned === null && legacy !== null) {
           const isLegacyDark = legacy === "true";
           setDarkMode(isLegacyDark);
           if (typeof document !== "undefined") {

@@ -9,6 +9,7 @@ import {
 import { Button } from "../../components/ui/button";
 import { BarChart3, TrendingUp, Users, DollarSign, Eye, Download, Calendar } from "lucide-react";
 import { CohortVisualizer } from "./CohortVisualizer";
+import { VariantComparisonAnalytics } from "./VariantComparisonAnalytics";
 import { FraudRiskBadge } from "./FraudRiskBadge";
 import { useFraudRisk } from "../../hooks/useFraudRisk";
 
@@ -282,6 +283,9 @@ export const CampaignAnalytics = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* A/B Testing Attribution Optimizer for Landing Variants */}
+      <VariantComparisonAnalytics />
 
       {/* Cohort Retention & Customer LTV Heatmap */}
       <CohortVisualizer />

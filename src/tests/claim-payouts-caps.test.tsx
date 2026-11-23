@@ -59,7 +59,7 @@ describe("ClaimPayouts Daily Payout Cap & Quota Banner (#156)", () => {
     fireEvent.click(claimBtn);
 
     await waitFor(() => {
-      expect(mockClaimPayoutOnChain).toHaveBeenCalledWith(101, undefined);
+      expect(mockClaimPayoutOnChain).toHaveBeenCalledWith(101, undefined, 45.5);
     });
 
     // Verify claim was recorded to affiliate rolling volume

@@ -14,6 +14,7 @@ const ROLE_OPTIONS = [
   { value: "ADVERTISER", label: "Advertiser", page: "advertiser" },
   { value: "AFFILIATE", label: "Affiliate", page: "affiliate" },
   { value: "AUDITOR", label: "Auditor", page: "auditor" },
+  { value: "ADMIN", label: "Admin", page: "admin" },
 ] as const;
 
 interface UserMenuProps {

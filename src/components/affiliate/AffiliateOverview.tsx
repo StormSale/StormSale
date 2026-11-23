@@ -535,6 +535,7 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
             </div>
             <Button
               variant="ghost"
+              onClick={() => onNavigate?.("earnings-history" as any)}
               className="w-full mt-6 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-slate-50 dark:hover:bg-zinc-900/50"
             >
               View All Payouts
