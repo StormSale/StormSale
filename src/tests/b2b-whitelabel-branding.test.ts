@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -13,16 +13,42 @@ import {
   validateOrganizationLogo,
 } from "../lib/branding";
 import { CustomDomainSettings } from "../components/advertiser/CustomDomainSettings";
+import { BrandCustomizer } from "../components/advertiser/BrandCustomizer";
+import { BrandedCampaignView } from "../components/shared/BrandedCampaignView";
 
 const WALLET = "GADVERTISER442TESTWALLETADDRESS";
 
+const customizerMocks = vi.hoisted(() => ({
+  showNotification: vi.fn(),
+  hasCapability: vi.fn(() => true),
+  userAddress: null as string | null,
+}));
+
+vi.mock("../hooks/useWeb3", () => ({
+  useWeb3: () => ({ userAddress: customizerMocks.userAddress }),
+}));
+
+vi.mock("../context/NotificationContext", () => ({
+  useNotification: () => ({ showNotification: customizerMocks.showNotification }),
+}));
+
+vi.mock("../context/OrganizationContext", () => ({
+  useOrganization: () => ({ hasCapability: customizerMocks.hasCapability }),
+}));
+
 const logoFile = (type: string, size: number, name?: string): File =>
   ({ type, size, name }) as File;
+
+const logoInput = (): HTMLInputElement =>
+  document.querySelector('input[type="file"][accept*="png"]') as HTMLInputElement;
 
 beforeEach(() => {
   localStorage.clear();
   document.documentElement.style.removeProperty("--brand-primary");
   document.documentElement.style.removeProperty("--brand-secondary");
+  customizerMocks.showNotification.mockClear();
+  customizerMocks.hasCapability.mockReturnValue(true);
+  customizerMocks.userAddress = WALLET;
 });
 
 afterEach(cleanup);
@@ -169,5 +195,115 @@ describe("b2b custom domain CNAME verification (#442)", () => {
     );
 
     expect((screen.getByTestId("check-cname") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("calls onDomainChange from the custom domain input", () => {
+    const onDomainChange = vi.fn();
+    render(
+      createElement(CustomDomainSettings, {
+        domain: "portal.acme.com",
+        onDomainChange,
+      }),
+    );
+
+    fireEvent.change(screen.getByTestId("custom-domain-input"), {
+      target: { value: "shop.example.org" },
+    });
+
+    expect(onDomainChange).toHaveBeenCalledWith("shop.example.org");
+  });
+
+  it("uses the same-origin CNAME endpoint for the default lookup", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ records: [`${DEFAULT_CNAME_TARGET}.`, 42] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const result = await checkCnamePropagation("https://portal.acme.com/path");
+      expect(fetchMock).toHaveBeenCalledWith("/api/branding/cname?domain=portal.acme.com");
+      expect(result.status).toBe("propagated");
+      expect(result.actualTargets).toEqual([DEFAULT_CNAME_TARGET]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("handles HTTP errors and malformed CNAME endpoint payloads", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 502 }));
+    const failed = await checkCnamePropagation("portal.acme.com");
+    expect(failed.status).toBe("lookup_failed");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ records: null }) }),
+    );
+    const malformed = await checkCnamePropagation("portal.acme.com");
+    expect(malformed.status).toBe("pending");
+
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("b2b whitelabel storefront domain rendering (#442)", () => {
+  it("renders the configured custom domain on the branded storefront", () => {
+    render(
+      createElement(BrandedCampaignView, {
+        brandConfig: { ...DEFAULT_BRAND_CONFIG, customDomain: "portal.acme.com" },
+      }),
+    );
+
+    expect(screen.getByText(/portal\.acme\.com/)).toBeDefined();
+  });
+
+  it("falls back to the subdomain when no custom domain is configured", () => {
+    render(
+      createElement(BrandedCampaignView, {
+        brandConfig: { ...DEFAULT_BRAND_CONFIG, customDomain: "" },
+      }),
+    );
+
+    expect(screen.getByText(/storm-affiliate\.stormsale\.io/)).toBeDefined();
+  });
+});
+
+describe("b2b whitelabel brand customizer integration (#442)", () => {
+  it("renders the enterprise custom domain settings", () => {
+    render(createElement(BrandCustomizer));
+
+    expect(screen.getByTestId("custom-domain-settings")).toBeDefined();
+    expect(screen.getByTestId("cname-record").textContent).toContain(DEFAULT_CNAME_TARGET);
+  });
+
+  it("rejects an oversized logo with inline and notification errors", () => {
+    render(createElement(BrandCustomizer));
+
+    const oversized = new File(["logo"], "too-big.png", { type: "image/png" });
+    Object.defineProperty(oversized, "size", { value: MAX_ORGANIZATION_LOGO_BYTES + 1 });
+    fireEvent.change(logoInput(), { target: { files: [oversized] } });
+
+    expect(customizerMocks.showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "error", title: "Invalid Logo" }),
+    );
+    expect(screen.getByText("Logo must be 2MB or smaller.")).toBeDefined();
+  });
+
+  it("rejects an unsupported logo type and clears the error after a valid upload", async () => {
+    render(createElement(BrandCustomizer));
+
+    fireEvent.change(logoInput(), {
+      target: { files: [new File(["logo"], "logo.gif", { type: "image/gif" })] },
+    });
+    expect(screen.getByText("Logo must be a PNG or SVG image.")).toBeDefined();
+
+    fireEvent.change(logoInput(), {
+      target: { files: [new File(["logo"], "logo.png", { type: "image/png" })] },
+    });
+
+    await waitFor(() => {
+      expect((screen.getByAltText("Logo") as HTMLImageElement).src).toContain("data:image/png");
+    });
+    expect(screen.queryByText("Logo must be a PNG or SVG image.")).toBeNull();
   });
 });
