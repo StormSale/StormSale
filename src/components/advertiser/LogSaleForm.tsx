@@ -12,12 +12,8 @@ import {
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
 import { useOrganization } from "../../hooks/useOrganization";
-import {
-  generateAESKey,
-  encryptPayload,
-  wrapAESKey,
-  getPublicKeyForAddress,
-} from "../../lib/crypto";
+import { generateAESKey, encryptPayload, wrapAESKey } from "../../lib/cryptoWorkerBridge";
+import { getPublicKeyForAddress } from "../../lib/crypto";
 import { logSaleSchema, getFieldErrors } from "../../lib/validation";
 import { dispatchWebhookEvent, triggerConversionPostback } from "../../lib/webhookEngine";
 import { getAffiliateAccess } from "../../lib/campaignAccess";

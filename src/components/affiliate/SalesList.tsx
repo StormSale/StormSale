@@ -28,8 +28,8 @@ import {
   encryptPayload,
   wrapAESKey,
   unwrapAESKey,
-  getPublicKeyForAddress,
-} from "../../lib/crypto";
+} from "../../lib/cryptoWorkerBridge";
+import { getPublicKeyForAddress } from "../../lib/crypto";
 import { Shield, Lock, CheckCircle2, Clock, Search, ExternalLink, FileText, X } from "lucide-react";
 import { getStellarExpertUrl } from "../../lib/stellar/explorer";
 
