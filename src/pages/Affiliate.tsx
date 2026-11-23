@@ -39,6 +39,7 @@ import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { TelegramAlertsCard } from "../components/affiliate/TelegramAlertsCard";
 import { AffiliateIssueReports } from "../components/affiliate/AffiliateIssueReports";
 import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
+import { DisputesManager } from "../components/affiliate/DisputesManager";
 import { Button } from "../components/ui/button";
 
 interface AffiliateProps {
@@ -61,6 +62,7 @@ const AFFILIATE_TABS = [
   "tier-calculator",
   "issue-reports",
   "claim-payouts",
+  "disputes",
   "settings",
   "security",
   "apply-links",
@@ -94,6 +96,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
     { id: "tier-calculator", label: "Tier & Commission Calculator", icon: TrendingUp },
     { id: "issue-reports", label: "Report an Issue", icon: Shield },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
+    { id: "disputes", label: "Disputes & Mediation", icon: Shield },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
     { id: "security", label: "Security & Keys", icon: Shield },
   ];
@@ -128,6 +131,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
         return <AffiliateIssueReports />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "disputes":
+        return <DisputesManager />;
       case "settings":
         return (
           <div className="space-y-6">
