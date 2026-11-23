@@ -60,6 +60,8 @@ export const BulkCampaignCsvUploader: React.FC<BulkCampaignCsvUploaderProps> = (
   const processCsvText = useCallback(async (content: string, name = "uploaded-campaigns.csv") => {
     setIsParsing(true);
     setFileName(name);
+    setEditingRowId(null);
+    setEditForm({ name: "", url: "", budget: "", payoutRate: "", clearingPeriod: "" });
     try {
       const result = await parseBulkCampaignCsv(content, { useWorker: true });
       setParseResult(result);
@@ -96,6 +98,19 @@ export const BulkCampaignCsvUploader: React.FC<BulkCampaignCsvUploaderProps> = (
       if (typeof text === "string") {
         void processCsvText(text, file.name);
       }
+    };
+    reader.onerror = () => {
+      setParseResult({
+        rows: [],
+        totalRows: 0,
+        validCount: 0,
+        malformedCount: 0,
+        totalBudgetXlm: 0,
+        hasRequiredHeaders: false,
+        missingHeaders: [],
+        headerMapping: {},
+        errorCallout: `Failed to read file "${file.name}". Please check file permissions and try again.`,
+      });
     };
     reader.readAsText(file);
   };
@@ -249,10 +264,18 @@ export const BulkCampaignCsvUploader: React.FC<BulkCampaignCsvUploaderProps> = (
 
         <CardContent>
           <div
+            role="button"
+            tabIndex={0}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
               isDragOver
                 ? "border-indigo-500 bg-indigo-50/10"

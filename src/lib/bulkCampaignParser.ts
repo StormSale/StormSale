@@ -156,7 +156,15 @@ export function validateCampaignPayoutRate(rawRate: unknown): {
     return { isValid: false, value: 0, error: "Payout rate is required." };
   }
 
-  const str = String(rawRate).trim().replace(/%/g, "").replace(/,/g, "");
+  const rawStr = String(rawRate).trim();
+  // Validate percentage syntax: accept at most one trailing percent sign without embedded/repeated percent signs
+  if (rawStr.includes("%")) {
+    if (!rawStr.endsWith("%") || rawStr.indexOf("%") !== rawStr.length - 1) {
+      return { isValid: false, value: 0, error: "Payout rate must be a valid percentage." };
+    }
+  }
+
+  const str = rawStr.replace(/%$/, "").replace(/,/g, "").trim();
   if (!/^(0|[1-9]\d*)(\.\d+)?$/.test(str)) {
     if (str.startsWith("-")) {
       return { isValid: false, value: 0, error: "Payout rate cannot be negative." };
@@ -189,6 +197,10 @@ export function validateClearingPeriod(rawPeriod: unknown): {
   }
 
   const str = String(rawPeriod).trim();
+  if (!/^\d+$/.test(str)) {
+    return { isValid: false, value: 0, error: "Clearing period must be a non-negative integer." };
+  }
+
   const num = parseInt(str, 10);
   if (isNaN(num) || num < 0) {
     return { isValid: false, value: 0, error: "Clearing period must be a non-negative integer." };
@@ -313,13 +325,23 @@ export async function parseBulkCampaignCsv(
     const canUseWorker =
       options.useWorker !== false && typeof Worker !== "undefined" && typeof window !== "undefined";
 
-    Papa.parse<Record<string, string>>(csvContent, {
-      header: true,
-      skipEmptyLines: "greedy",
-      worker: canUseWorker,
-      complete: (results) => resolve(results),
-      error: (error: Error) => reject(error),
-    });
+    if (canUseWorker) {
+      Papa.parse<Record<string, string>>(csvContent, {
+        header: true,
+        skipEmptyLines: "greedy",
+        worker: true,
+        complete: (results: Papa.ParseResult<Record<string, string>>) => resolve(results),
+        error: (error: Error) => reject(error),
+      });
+    } else {
+      Papa.parse<Record<string, string>>(csvContent, {
+        header: true,
+        skipEmptyLines: "greedy",
+        worker: false,
+        complete: (results: Papa.ParseResult<Record<string, string>>) => resolve(results),
+        error: (error: Error) => reject(error),
+      });
+    }
   });
 
   const parsed = await parsePromise;

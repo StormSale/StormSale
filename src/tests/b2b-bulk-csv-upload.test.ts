@@ -149,6 +149,20 @@ describe("B2B Bulk Campaign CSV Upload & Validation Preview (#437)", () => {
 
       expect(validateCampaignPayoutRate("invalid-rate").isValid).toBe(false);
       expect(validateCampaignPayoutRate("").isValid).toBe(false);
+      expect(validateCampaignPayoutRate("10%%").isValid).toBe(false);
+      expect(validateCampaignPayoutRate("1%0").isValid).toBe(false);
+    });
+
+    it("validates clearing periods with 7-day default and strict integer check", () => {
+      expect(validateClearingPeriod("").value).toBe(604800);
+      expect(validateClearingPeriod(null).value).toBe(604800);
+      expect(validateClearingPeriod("86400").value).toBe(86400);
+      expect(validateClearingPeriod("0").value).toBe(0);
+
+      // Rejects decimals and non-integers
+      expect(validateClearingPeriod("86400.5").isValid).toBe(false);
+      expect(validateClearingPeriod("-100").isValid).toBe(false);
+      expect(validateClearingPeriod("abc").isValid).toBe(false);
     });
 
     it("validates individual campaign rows and aggregates multiple field errors", () => {
@@ -533,6 +547,12 @@ describe("B2B Bulk Campaign CSV Upload & Validation Preview (#437)", () => {
       // Dropzone click triggers hidden file input click
       const clickSpy = vi.spyOn(fileInput, "click");
       fireEvent.click(dropZone);
+      expect(clickSpy).toHaveBeenCalled();
+
+      // Keyboard activation via Enter and Space
+      fireEvent.keyDown(dropZone, { key: "Enter" });
+      expect(clickSpy).toHaveBeenCalled();
+      fireEvent.keyDown(dropZone, { key: " " });
       expect(clickSpy).toHaveBeenCalled();
 
       // Drag over and drag leave styling transitions
