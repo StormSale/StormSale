@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { Button } from "../ui/button";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -18,6 +18,7 @@ import {
   X,
   Repeat,
   Lock,
+  Building2,
 } from "lucide-react";
 import {
   type ClaimableCampaignItem,
@@ -49,14 +50,40 @@ import {
 } from "../../lib/fraudRiskEngine";
 import { isAffiliateSybilRestricted } from "../../lib/sybilDefense";
 import { RestrictedModeBanner } from "./RestrictedModeBanner";
+import {
+  buildTaxStatus,
+  computeWithholding,
+  isTaxFormRequired,
+  loadTaxStatus,
+  resolveWithholdingPct,
+  saveTaxStatus,
+  type TaxFormInput,
+  type TaxStatus,
+} from "../../lib/taxCompliance";
+import { TaxFormModal } from "./TaxFormModal";
+import { TaxStatusBanner } from "./TaxStatusBanner";
 import { motion, AnimatePresence } from "framer-motion";
+import { Sep24WithdrawModal } from "./Sep24WithdrawModal";
+
+const DEFAULT_XLM_USD_RATE = 0.125;
 
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
 const SLIPPAGE_PRESETS = [50, 100, 300];
 
-export const ClaimPayouts = () => {
+export interface ClaimPayoutsProps {
+  /** Overrides the earnings figure used for the tax-form threshold (USD). */
+  cumulativeEarningsUsd?: number;
+}
+
+export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
   const { showNotification } = useNotification();
+
+  // Affiliate tax compliance (Issue #457)
+  const [submittedTaxStatus, setSubmittedTaxStatus] = useState<TaxStatus | null>(null);
+  const [taxModalRequested, setTaxModalRequested] = useState(false);
+  const [taxPromptDismissed, setTaxPromptDismissed] = useState(false);
+  const taxStatus = submittedTaxStatus ?? loadTaxStatus(userAddress || "");
 
   const [campaigns, setCampaigns] = useState<ClaimableCampaignItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -89,6 +116,9 @@ export const ClaimPayouts = () => {
   const [autoSwapEnabled, setAutoSwapEnabled] = useState(false);
   const [targetToken, setTargetToken] = useState<SwapToken>("USDC");
   const [maxSlippageBps, setMaxSlippageBps] = useState(100);
+
+  // SEP-0024 Fiat Payout Bridge (Issue #137)
+  const [sep24ModalOpen, setSep24ModalOpen] = useState(false);
 
   // Daily Commission Payout Cap per Affiliate per 24-Hour Window (Issue #156)
   const DAILY_PAYOUT_CAP_XLM = 1000;
@@ -128,6 +158,29 @@ export const ClaimPayouts = () => {
     .reduce((acc, c) => acc + c.claimableXlm, 0);
   const isBatchBelowMin = isBelowMinClaimThreshold(totalWithdrawableXlm, "XLM");
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
+
+  const earningsUsd =
+    cumulativeEarningsUsd ??
+    campaigns.reduce((sum, c) => sum + c.claimableXlm, 0) * DEFAULT_XLM_USD_RATE;
+  const taxFormRequired = isTaxFormRequired(earningsUsd, taxStatus);
+  const withholdingPct = resolveWithholdingPct(earningsUsd, taxStatus);
+  const withholding = computeWithholding(totalWithdrawableXlm, withholdingPct);
+
+  // Prompt once when cumulative earnings cross the regulatory threshold.
+  const isTaxModalOpen = taxModalRequested || (taxFormRequired && !taxPromptDismissed);
+
+  const closeTaxModal = () => {
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
+
+  const handleTaxFormSubmit = (input: TaxFormInput) => {
+    const status = buildTaxStatus(input);
+    saveTaxStatus(userAddress || "", status);
+    setSubmittedTaxStatus(status);
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
 
   // Build the auto-swap config from current selections. Disabled when the
   // affiliate targets XLM (their native payout) or has the toggle off.
@@ -250,10 +303,6 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Batch Commission Claim Settled!",
           message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.${swapNote}`,
-          confetti: true,
-          receiptTxHash: resultReceipt.txHash,
-          actionLabel: "View Receipt",
-          onViewReceipt: () => setReceipt(resultReceipt),
         });
       }
     } catch (err: any) {
@@ -321,7 +370,7 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const res = await claimPayoutOnChain(campaignId, target?.assetCode);
+      const res = await claimPayoutOnChain(campaignId, target?.assetCode, claimAmount);
       recordAffiliateClaim(userAddress || "", campaignId, claimAmount);
       refreshQuota();
       setCampaigns((prev) =>
@@ -332,9 +381,6 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Commission Paid Out!",
           message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
-          confetti: true,
-          receiptTxHash: res.txHash,
-          actionLabel: "View Receipt",
         });
       }
     } catch (err: any) {
@@ -385,6 +431,18 @@ export const ClaimPayouts = () => {
           </div>
         </div>
       )}
+
+      {/* Tax form status banner (Issue #457) */}
+      <TaxStatusBanner
+        status={taxStatus}
+        required={taxFormRequired}
+        onOpenForm={() => setTaxModalRequested(true)}
+      />
+      <TaxFormModal
+        isOpen={isTaxModalOpen}
+        onClose={closeTaxModal}
+        onSubmit={handleTaxFormSubmit}
+      />
 
       {/* 24-Hour Rolling Commission Payout Quota Banner (Issue #156) */}
       <div
@@ -486,6 +544,18 @@ export const ClaimPayouts = () => {
                 {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
                 Selected
               </div>
+              {withholdingPct > 0 && (
+                <div
+                  className="text-[11px] text-amber-300 mt-2 space-y-0.5"
+                  data-testid="withholding-summary"
+                >
+                  <div data-testid="withholding-pct">Tax withholding: {withholdingPct}%</div>
+                  <div data-testid="withholding-net">
+                    Withheld {withholding.withheldXlm.toFixed(2)} XLM · Net{" "}
+                    {withholding.netXlm.toFixed(2)} XLM
+                  </div>
+                </div>
+              )}
             </div>
 
             <Button
@@ -525,6 +595,18 @@ export const ClaimPayouts = () => {
                   </span>
                 </>
               )}
+            </Button>
+
+            {/* SEP-0024 Fiat Payout Bridge (Issue #137) â€“ AC1 */}
+            <Button
+              variant="outline"
+              onClick={() => setSep24ModalOpen(true)}
+              disabled={isFrozen || !userAddress}
+              className="w-full rounded-2xl border-2 border-indigo-400/40 dark:border-indigo-600/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 font-bold text-xs h-10 transition-colors"
+              data-testid="btn-sep24-withdraw"
+            >
+              <Building2 className="w-4 h-4 mr-2" />
+              Withdraw to Local Bank (SEP-0024)
             </Button>
           </div>
         </div>
@@ -1046,7 +1128,16 @@ export const ClaimPayouts = () => {
             </motion.div>
           </div>
         )}
+      {/* SEP-0024 Hosted Fiat Payout Bridge Modal (Issue #137) â€“ AC2 & AC3 */}
+      <Sep24WithdrawModal
+        open={sep24ModalOpen}
+        onClose={() => setSep24ModalOpen(false)}
+        userAddress={userAddress ?? ""}
+        assetCode="USDC"
+        data-testid="sep24-withdraw-modal-root"
+      />
       </AnimatePresence>
     </div>
   );
 };
+

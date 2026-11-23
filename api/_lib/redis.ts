@@ -49,6 +49,14 @@ export const clickKey = (slug: string) => `sl:clicks:${slug.toLowerCase()}`;
  */
 export const clickEventsKey = (slug: string) => `sl:events:${slug.toLowerCase()}`;
 
+/** KV keys for persistent affiliate issue reports and request protection. */
+export const affiliateIssueReportKey = (id: string) => `affiliate-issues:report:${id}`;
+export const affiliateIssueReportsKey = (wallet: string) =>
+  `affiliate-issues:wallet:${wallet}:reports`;
+export const affiliateIssueProofKey = (signature: string) => `affiliate-issues:proof:${signature}`;
+export const affiliateIssueRateLimitKey = (wallet: string, action: string) =>
+  `affiliate-issues:rate:${action}:${wallet}`;
+
 /** Expose for testing / injection */
 export function _setRedisClientForTesting(client: Redis): void {
   _redis = client;

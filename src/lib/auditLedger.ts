@@ -16,7 +16,8 @@ export type AuditAction =
   | "access_granted"
   | "access_denied"
   | "payload_decrypted"
-  | "key_revoked";
+  | "key_revoked"
+  | "dispute_opened";
 
 export interface AuditAccessEvent {
   /** Zero-based position inside the append-only chain */
