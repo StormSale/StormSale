@@ -106,4 +106,127 @@ describe("ClaimPayouts Daily Payout Cap & Quota Banner (#156)", () => {
     const vol = getRolling24HourClaimVolume(AFFILIATE_ADDRESS);
     expect(vol).toBeGreaterThan(0);
   });
+
+  it("shows receipt modal with itemized claims after batch payout", async () => {
+    mockBatchClaimPayoutsOnChain.mockResolvedValueOnce({
+      txHash: "0xreceipt_itemized_abc",
+      totalClaimedXlm: 90.0,
+      itemizedClaims: [
+        { campaignId: 101, campaignName: "Alpha Campaign", claimedXlm: 45.5 },
+        { campaignId: 102, campaignName: "Beta Campaign", claimedXlm: 44.5 },
+      ],
+      splitAllocations: [],
+      paymentOperationCount: 2,
+    });
+
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-batch-claim"));
+    fireEvent.click(screen.getByTestId("btn-batch-claim"));
+
+    await waitFor(() => {
+      // Receipt modal should appear with the total and campaign breakdown
+      expect(screen.getByText(/Batch Payout Complete/i)).toBeTruthy();
+      expect(screen.getByText(/90\.00 XLM/i)).toBeTruthy();
+    });
+
+    // Both campaigns should be listed
+    expect(screen.getByText(/Alpha Campaign/i)).toBeTruthy();
+    expect(screen.getByText(/Beta Campaign/i)).toBeTruthy();
+  });
+
+  it("shows split allocations section in receipt when splitAllocations present", async () => {
+    mockBatchClaimPayoutsOnChain.mockResolvedValueOnce({
+      txHash: "0xreceipt_split_xyz",
+      totalClaimedXlm: 100.0,
+      itemizedClaims: [
+        { campaignId: 101, campaignName: "Alpha Campaign", claimedXlm: 100.0 },
+      ],
+      splitAllocations: [
+        {
+          address: "GDEST1SPLIT1WALLET1ADDRESS1234567890",
+          label: "Revenue Share",
+          percentage: 20,
+          amountStroops: "20000000",
+          amountXlm: 20.0,
+        },
+      ],
+      paymentOperationCount: 2,
+    });
+
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-batch-claim"));
+    fireEvent.click(screen.getByTestId("btn-batch-claim"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Batch Payout Complete/i)).toBeTruthy();
+    });
+
+    // Split allocations section should render
+    expect(screen.getByText(/Auto-Split Payment Operations/i)).toBeTruthy();
+    expect(screen.getByText(/Revenue Share/i)).toBeTruthy();
+  });
+
+  it("shows autoSwap section in receipt when autoSwap is present", async () => {
+    mockBatchClaimPayoutsOnChain.mockResolvedValueOnce({
+      txHash: "0xreceipt_swap_xyz",
+      totalClaimedXlm: 50.0,
+      itemizedClaims: [
+        { campaignId: 101, campaignName: "Alpha Campaign", claimedXlm: 50.0 },
+      ],
+      splitAllocations: [],
+      paymentOperationCount: 1,
+      autoSwap: {
+        routerName: "StellarDEX",
+        hopCount: 1,
+        amountIn: "50.00",
+        tokenIn: "XLM",
+        expectedOut: "49.50",
+        tokenOut: "USDC",
+        minimumOut: "48.00",
+        maxSlippageBps: 100,
+        footprint: ["XLM", "USDC"],
+      },
+    });
+
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-batch-claim"));
+    fireEvent.click(screen.getByTestId("btn-batch-claim"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Batch Payout Complete/i)).toBeTruthy();
+    });
+
+    // Auto-swap section should render
+    expect(screen.getByText(/Atomic Cross-DEX Swap/i)).toBeTruthy();
+    expect(screen.getAllByText(/StellarDEX/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/49\.50/i).length).toBeGreaterThan(0);
+  });
+
+  it("closes receipt modal when Done button is clicked", async () => {
+    mockBatchClaimPayoutsOnChain.mockResolvedValueOnce({
+      txHash: "0xclose_test",
+      totalClaimedXlm: 10.0,
+      itemizedClaims: [{ campaignId: 101, campaignName: "Alpha", claimedXlm: 10.0 }],
+      splitAllocations: [],
+      paymentOperationCount: 1,
+    });
+
+    renderComponent();
+
+    await waitFor(() => screen.getByTestId("btn-batch-claim"));
+    fireEvent.click(screen.getByTestId("btn-batch-claim"));
+
+    await waitFor(() => screen.getByText(/Batch Payout Complete/i));
+
+    // Click Done to close the receipt
+    const doneBtn = screen.getByRole("button", { name: /done/i });
+    fireEvent.click(doneBtn);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Batch Payout Complete/i)).toBeNull();
+    });
+  });
 });

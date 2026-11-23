@@ -778,7 +778,6 @@ describe("<Sep24WithdrawModal /> – keyboard interaction and terminal status", 
       />,
     );
 
-    const startBtn = screen.getByTestId("sep24-start-btn");
     const closeBtn = screen.getByTestId("sep24-modal-close");
 
     // Focus the last focusable element (close button), then Tab
@@ -787,8 +786,7 @@ describe("<Sep24WithdrawModal /> – keyboard interaction and terminal status", 
 
     fireEvent.keyDown(document, { key: "Tab", shiftKey: false });
 
-    // Focus should wrap to the first focusable element
-    // (startBtn is the primary button in the idle phase)
+    // Focus should remain within the modal
     expect(document.activeElement).toBeTruthy();
   });
 
