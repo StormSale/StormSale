@@ -6,6 +6,7 @@ import {
   saveBrandConfig,
   loadBrandConfig,
   isValidSubdomain,
+  validateOrganizationLogo,
 } from "../../lib/branding";
 import { useWeb3 } from "../../hooks/useWeb3";
 import { useNotification } from "../../context/NotificationContext";
@@ -26,6 +27,7 @@ import {
   Eye,
 } from "lucide-react";
 import { BrandedCampaignView } from "../shared/BrandedCampaignView";
+import { CustomDomainSettings } from "./CustomDomainSettings";
 
 const PRESET_COLORS = [
   { name: "Indigo Tech", primary: "#4F46E5", secondary: "#06B6D4" },
@@ -49,6 +51,7 @@ export const BrandCustomizer: React.FC = () => {
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
   const [isPublishingIpfs, setIsPublishingIpfs] = useState(false);
   const [showFullPreview, setShowFullPreview] = useState(false);
+  const [logoError, setLogoError] = useState<string | null>(null);
 
   // Evaluate WCAG 2.1 AA contrast
   const contrast = evaluateWcagCompliance(config.primaryColor);
@@ -110,15 +113,25 @@ export const BrandCustomizer: React.FC = () => {
 
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === "string") {
-          setConfig((prev) => ({ ...prev, logoUrl: reader.result as string }));
-        }
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    const validation = validateOrganizationLogo(file);
+    if (!validation.valid) {
+      const message = validation.error ?? "Invalid logo image.";
+      setLogoError(message);
+      showNotification({ type: "error", title: "Invalid Logo", message });
+      e.target.value = "";
+      return;
     }
+
+    setLogoError(null);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        setConfig((prev) => ({ ...prev, logoUrl: reader.result as string }));
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,6 +272,24 @@ export const BrandCustomizer: React.FC = () => {
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-3xl shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base font-bold flex items-center space-x-2">
+                <Globe className="w-4 h-4 text-indigo-500" />
+                <span>Custom Domain & DNS Verification</span>
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Point a domain you own to your whitelabel portal, then verify CNAME propagation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CustomDomainSettings
+                domain={config.customDomain ?? ""}
+                onDomainChange={(customDomain) => setConfig((prev) => ({ ...prev, customDomain }))}
+              />
             </CardContent>
           </Card>
 
@@ -437,12 +468,13 @@ export const BrandCustomizer: React.FC = () => {
                     Upload
                     <input
                       type="file"
-                      accept="image/*"
+                      accept=".png,.svg,image/png,image/svg+xml"
                       onChange={handleLogoUpload}
                       className="hidden"
                     />
                   </label>
                 </div>
+                {logoError && <p className="text-[11px] text-rose-500 mt-1">{logoError}</p>}
               </div>
 
               <div>

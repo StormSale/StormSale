@@ -64,7 +64,8 @@ export const BrandedCampaignView: React.FC<BrandedCampaignViewProps> = ({
         <div className="flex items-center space-x-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="font-mono text-zinc-400">
-            https://{brandConfig.subdomain}.stormsale.io
+            https://
+            {brandConfig.customDomain || `${brandConfig.subdomain}.stormsale.io`}
           </span>
           <span className="bg-zinc-800 text-[10px] uppercase font-bold px-2 py-0.5 rounded text-zinc-300">
             Verified Merchant Subdomain

@@ -303,6 +303,79 @@ export const customerConversionSchema = z.object({
 /** Schema for fetchConversions API response */
 export const conversionsListResponseSchema = z.array(customerConversionSchema.passthrough());
 
+export function getLocalCalendarDate(date = new Date()): string {
+  const year = date.getFullYear().toString().padStart(4, "0");
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * Returns the latest calendar date (YYYY-MM-DD) currently active in any valid
+ * timezone on Earth (up to UTC+14, e.g. Pacific/Kiritimati). This ensures servers
+ * running in UTC or western time zones accept valid sale dates submitted by users
+ * in eastern time zones without rejecting today's date as being in the future.
+ */
+export function getMaxCalendarDate(now = new Date()): string {
+  const utc14Time = new Date(now.getTime() + 14 * 60 * 60 * 1000);
+  const year = utc14Time.getUTCFullYear().toString().padStart(4, "0");
+  const month = (utc14Time.getUTCMonth() + 1).toString().padStart(2, "0");
+  const day = utc14Time.getUTCDate().toString().padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/** Affiliate issue report statuses returned by the reporting API. */
+export const affiliateIssueStatusSchema = z.enum([
+  "submitted",
+  "under_review",
+  "resolved",
+  "rejected",
+]);
+
+/** Issue report returned by the affiliate reporting API. */
+export const affiliateIssueReportSchema = z
+  .object({
+    id: z.string().min(1),
+    affiliateAddress: z.string().min(1),
+    campaignId: z.string().min(1),
+    saleDate: z.string().min(1),
+    expectedSaleAmount: z.string().optional(),
+    details: z.string().min(1),
+    attachmentCount: z.number().int().min(0).optional(),
+    status: affiliateIssueStatusSchema,
+    statusMessage: z.string().optional(),
+    createdAt: z.string().min(1),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+
+export const affiliateIssueReportsResponseSchema = z.array(affiliateIssueReportSchema);
+
+export const affiliateIssueDraftSchema = z.object({
+  campaignId: z
+    .string()
+    .trim()
+    .min(1, "Campaign ID is required")
+    .max(100, "Campaign ID must be 100 characters or fewer"),
+  saleDate: z
+    .string()
+    .min(1, "Sale date is required")
+    .refine((value) => !Number.isNaN(Date.parse(value)), "Enter a valid sale date")
+    .refine((value) => value <= getMaxCalendarDate(), "Sale date cannot be in the future"),
+  expectedSaleAmount: z
+    .string()
+    .trim()
+    .optional()
+    .refine((value) => !value || (/^\d+(\.\d{1,7})?$/.test(value) && Number(value) > 0), {
+      message: "Enter a positive amount with up to 7 decimal places",
+    }),
+  details: z
+    .string()
+    .trim()
+    .min(20, "Add at least 20 characters describing the missing sale")
+    .max(2000, "Details must be 2,000 characters or fewer"),
+});
+
 // ---------------------------------------------------------------------------
 // Utility helpers
 // ---------------------------------------------------------------------------

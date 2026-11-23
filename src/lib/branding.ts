@@ -10,6 +10,7 @@ export interface AdvertiserBrandConfig {
   heroSubtitle: string;
   ctaText: string;
   contactEmail: string;
+  customDomain?: string;
   ipfsHash?: string;
   updatedAt: number;
 }
@@ -38,8 +39,168 @@ export const DEFAULT_BRAND_CONFIG: AdvertiserBrandConfig = {
     "Instant Soroban-cleared payouts, automated postback tracking, and decentralized cryptographic audit logs.",
   ctaText: "Join Brand Marketplace",
   contactEmail: "partnerships@apexgear.io",
+  customDomain: "",
   updatedAt: Date.now(),
 };
+
+export const MAX_ORGANIZATION_LOGO_BYTES = 2 * 1024 * 1024;
+export const ALLOWED_ORGANIZATION_LOGO_MIME_TYPES = ["image/png", "image/svg+xml"] as const;
+export const DEFAULT_CNAME_TARGET = "cname.stormsale.io";
+
+export interface OrganizationLogoFile {
+  name?: string;
+  type: string;
+  size: number;
+}
+
+export interface LogoValidationResult {
+  valid: boolean;
+  error?: string;
+}
+
+export interface CnameRecordGuidance {
+  type: "CNAME";
+  host: string;
+  value: string;
+}
+
+export type CnamePropagationStatus =
+  | "invalid_domain"
+  | "pending"
+  | "mismatch"
+  | "propagated"
+  | "lookup_failed";
+
+export interface CnamePropagationResult {
+  domain: string;
+  expectedTarget: string;
+  actualTargets: string[];
+  status: CnamePropagationStatus;
+  message: string;
+  checkedAt: number;
+}
+
+export type CnameRecordLookup = (domain: string) => Promise<string[] | null>;
+
+export function applyBrandTheme(
+  config: Pick<AdvertiserBrandConfig, "primaryColor" | "secondaryColor">,
+): void {
+  if (typeof document === "undefined") return;
+
+  const isHexColor = (value: string) => /^#[0-9a-f]{6}$/i.test(value);
+  const primaryColor = isHexColor(config.primaryColor)
+    ? config.primaryColor
+    : DEFAULT_BRAND_CONFIG.primaryColor;
+  const secondaryColor = isHexColor(config.secondaryColor)
+    ? config.secondaryColor
+    : DEFAULT_BRAND_CONFIG.secondaryColor;
+
+  document.documentElement.style.setProperty("--brand-primary", primaryColor);
+  document.documentElement.style.setProperty("--brand-secondary", secondaryColor);
+}
+
+export function validateOrganizationLogo(file: OrganizationLogoFile): LogoValidationResult {
+  if (!Number.isFinite(file.size) || file.size <= 0) {
+    return { valid: false, error: "Select a logo image before uploading." };
+  }
+
+  if (file.size > MAX_ORGANIZATION_LOGO_BYTES) {
+    return { valid: false, error: "Logo must be 2MB or smaller." };
+  }
+
+  const extension = file.name?.toLowerCase().split(".").pop();
+  const mimeType =
+    file.type.toLowerCase() ||
+    (extension === "png" ? "image/png" : extension === "svg" ? "image/svg+xml" : "");
+
+  if (
+    !ALLOWED_ORGANIZATION_LOGO_MIME_TYPES.includes(
+      mimeType as (typeof ALLOWED_ORGANIZATION_LOGO_MIME_TYPES)[number],
+    )
+  ) {
+    return { valid: false, error: "Logo must be a PNG or SVG image." };
+  }
+
+  return { valid: true };
+}
+
+export function normalizeCustomDomain(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split(/[/?#]/)[0]
+    .replace(/\.$/, "");
+}
+
+export function isValidCustomDomain(value: string): boolean {
+  const domain = normalizeCustomDomain(value);
+  if (domain.length < 4 || domain.length > 253) return false;
+  return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/.test(domain);
+}
+
+export function buildCnameRecord(domain: string): CnameRecordGuidance {
+  return {
+    type: "CNAME",
+    host: normalizeCustomDomain(domain),
+    value: DEFAULT_CNAME_TARGET,
+  };
+}
+
+async function fetchCnameRecords(domain: string): Promise<string[] | null> {
+  const response = await fetch(`/api/branding/cname?domain=${encodeURIComponent(domain)}`);
+  if (!response.ok) {
+    throw new Error(`CNAME lookup failed with HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { records?: unknown };
+  if (!Array.isArray(payload.records)) return null;
+
+  return payload.records.filter((record): record is string => typeof record === "string");
+}
+
+export async function checkCnamePropagation(
+  domain: string,
+  lookup: CnameRecordLookup = fetchCnameRecords,
+  expectedTarget: string = DEFAULT_CNAME_TARGET,
+): Promise<CnamePropagationResult> {
+  const normalizedDomain = normalizeCustomDomain(domain);
+  const expected = normalizeCustomDomain(expectedTarget);
+  const checkedAt = Date.now();
+  const result = (status: CnamePropagationStatus, actualTargets: string[], message: string) => ({
+    domain: normalizedDomain,
+    expectedTarget: expected,
+    actualTargets,
+    status,
+    message,
+    checkedAt,
+  });
+
+  if (!isValidCustomDomain(normalizedDomain)) {
+    return result("invalid_domain", [], "Enter a valid custom domain before checking DNS.");
+  }
+
+  try {
+    const records = await lookup(normalizedDomain);
+    const actualTargets = (records ?? [])
+      .map((record) => normalizeCustomDomain(record))
+      .filter(Boolean);
+
+    if (actualTargets.includes(expected)) {
+      return result("propagated", actualTargets, "CNAME is propagated and pointing to StormSale.");
+    }
+    if (actualTargets.length > 0) {
+      return result(
+        "mismatch",
+        actualTargets,
+        `CNAME points to ${actualTargets.join(", ")}; set it to ${expected}.`,
+      );
+    }
+    return result("pending", [], "No CNAME record found yet. DNS changes can take up to 48 hours.");
+  } catch {
+    return result("lookup_failed", [], "CNAME lookup failed. Try again in a moment.");
+  }
+}
 
 /**
  * Calculates relative luminance for a given sRGB component.
@@ -160,6 +321,7 @@ export function saveBrandConfig(advertiserAddress: string, config: AdvertiserBra
   localStorage.setItem(key, json);
   localStorage.setItem(subdomainKey, json);
   localStorage.setItem(`${BRAND_STORAGE_PREFIX}active`, json);
+  applyBrandTheme(config);
 }
 
 /**

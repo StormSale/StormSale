@@ -45,14 +45,39 @@ import {
   isAffiliatePaused,
   fetchAuthoritativeAffiliatePauseState,
 } from "../../lib/fraudRiskEngine";
+import {
+  buildTaxStatus,
+  computeWithholding,
+  isTaxFormRequired,
+  loadTaxStatus,
+  resolveWithholdingPct,
+  saveTaxStatus,
+  type TaxFormInput,
+  type TaxStatus,
+} from "../../lib/taxCompliance";
+import { TaxFormModal } from "./TaxFormModal";
+import { TaxStatusBanner } from "./TaxStatusBanner";
 import { motion, AnimatePresence } from "framer-motion";
+
+const DEFAULT_XLM_USD_RATE = 0.125;
 
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
 const SLIPPAGE_PRESETS = [50, 100, 300];
 
-export const ClaimPayouts = () => {
+export interface ClaimPayoutsProps {
+  /** Overrides the earnings figure used for the tax-form threshold (USD). */
+  cumulativeEarningsUsd?: number;
+}
+
+export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
   const { showNotification } = useNotification();
+
+  // Affiliate tax compliance (Issue #457)
+  const [submittedTaxStatus, setSubmittedTaxStatus] = useState<TaxStatus | null>(null);
+  const [taxModalRequested, setTaxModalRequested] = useState(false);
+  const [taxPromptDismissed, setTaxPromptDismissed] = useState(false);
+  const taxStatus = submittedTaxStatus ?? loadTaxStatus(userAddress || "");
 
   const [campaigns, setCampaigns] = useState<ClaimableCampaignItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -118,6 +143,29 @@ export const ClaimPayouts = () => {
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
+
+  const earningsUsd =
+    cumulativeEarningsUsd ??
+    campaigns.reduce((sum, c) => sum + c.claimableXlm, 0) * DEFAULT_XLM_USD_RATE;
+  const taxFormRequired = isTaxFormRequired(earningsUsd, taxStatus);
+  const withholdingPct = resolveWithholdingPct(earningsUsd, taxStatus);
+  const withholding = computeWithholding(totalWithdrawableXlm, withholdingPct);
+
+  // Prompt once when cumulative earnings cross the regulatory threshold.
+  const isTaxModalOpen = taxModalRequested || (taxFormRequired && !taxPromptDismissed);
+
+  const closeTaxModal = () => {
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
+
+  const handleTaxFormSubmit = (input: TaxFormInput) => {
+    const status = buildTaxStatus(input);
+    saveTaxStatus(userAddress || "", status);
+    setSubmittedTaxStatus(status);
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
 
   // Build the auto-swap config from current selections. Disabled when the
   // affiliate targets XLM (their native payout) or has the toggle off.
@@ -336,6 +384,18 @@ export const ClaimPayouts = () => {
         </div>
       )}
 
+      {/* Tax form status banner (Issue #457) */}
+      <TaxStatusBanner
+        status={taxStatus}
+        required={taxFormRequired}
+        onOpenForm={() => setTaxModalRequested(true)}
+      />
+      <TaxFormModal
+        isOpen={isTaxModalOpen}
+        onClose={closeTaxModal}
+        onSubmit={handleTaxFormSubmit}
+      />
+
       {/* 24-Hour Rolling Commission Payout Quota Banner (Issue #156) */}
       <div
         className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
@@ -433,6 +493,18 @@ export const ClaimPayouts = () => {
                 {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
                 Selected
               </div>
+              {withholdingPct > 0 && (
+                <div
+                  className="text-[11px] text-amber-300 mt-2 space-y-0.5"
+                  data-testid="withholding-summary"
+                >
+                  <div data-testid="withholding-pct">Tax withholding: {withholdingPct}%</div>
+                  <div data-testid="withholding-net">
+                    Withheld {withholding.withheldXlm.toFixed(2)} XLM · Net{" "}
+                    {withholding.netXlm.toFixed(2)} XLM
+                  </div>
+                </div>
+              )}
             </div>
 
             <Button
