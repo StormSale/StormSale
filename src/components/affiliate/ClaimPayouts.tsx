@@ -24,6 +24,8 @@ import {
   type BatchClaimReceipt,
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
+  isBelowMinClaimThreshold,
+  getMinClaimThreshold,
 } from "../../lib/batchClaim";
 import {
   checkDailyPayoutCap,
@@ -121,6 +123,10 @@ export const ClaimPayouts = () => {
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
+  const pendingBalanceXlm = campaigns
+    .filter((c) => c.status !== "claimed")
+    .reduce((acc, c) => acc + c.claimableXlm, 0);
+  const isBatchBelowMin = isBelowMinClaimThreshold(totalWithdrawableXlm, "XLM");
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
 
   // Build the auto-swap config from current selections. Disabled when the
@@ -162,6 +168,14 @@ export const ClaimPayouts = () => {
   // 1-Click Automated Batch Claim Dispatcher
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
+    if (isBatchBelowMin) {
+      showNotification({
+        type: "error",
+        title: "Below Minimum Claim",
+        message: `Minimum claimable balance is ${getMinClaimThreshold("XLM")} XLM.`,
+      });
+      return;
+    }
 
     if (isSybilRestricted) {
       showNotification({
@@ -276,6 +290,15 @@ export const ClaimPayouts = () => {
 
     const target = campaigns.find((c) => c.campaignId === campaignId);
     const claimAmount = target?.claimableXlm || 0;
+
+    if (isBelowMinClaimThreshold(claimAmount, target?.assetCode)) {
+      showNotification({
+        type: "error",
+        title: "Below Minimum Claim",
+        message: `Minimum claimable balance is ${getMinClaimThreshold(target?.assetCode)} ${target?.assetCode ?? "XLM"}.`,
+      });
+      return;
+    }
 
     // Verify rolling 24-hour payout cap constraint (Issue #156)
     const capCheck = checkDailyPayoutCap(userAddress || "", claimAmount, DAILY_PAYOUT_CAP_XLM);
@@ -456,6 +479,9 @@ export const ClaimPayouts = () => {
                 {totalWithdrawableXlm.toFixed(2)}{" "}
                 <span className="text-lg font-bold text-indigo-400">XLM</span>
               </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5" data-testid="pending-balance">
+                Pending: {pendingBalanceXlm.toFixed(2)} XLM
+              </div>
               <div className="text-[11px] text-zinc-400 mt-0.5">
                 {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
                 Selected
@@ -467,7 +493,12 @@ export const ClaimPayouts = () => {
               onClick={handleBatchClaim}
               loading={isBatchClaiming}
               cooldown
-              disabled={isBatchClaiming || selectedCampaigns.length === 0 || isClaimsBlocked}
+              disabled={
+                isBatchClaiming ||
+                selectedCampaigns.length === 0 ||
+                isClaimsBlocked ||
+                isBatchBelowMin
+              }
               className={`w-full rounded-2xl text-white font-extrabold text-sm h-13 px-6 transition-transform border-0 ${
                 isClaimsBlocked
                   ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
@@ -800,6 +831,7 @@ export const ClaimPayouts = () => {
                           cooldown
                           disabled={
                             !isMatured ||
+                            isBelowMinClaimThreshold(camp.claimableXlm, camp.assetCode) ||
                             claimingId === camp.campaignId ||
                             isBatchClaiming ||
                             isClaimsBlocked
