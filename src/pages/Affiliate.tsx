@@ -37,6 +37,7 @@ import { isTelegramMiniApp } from "../lib/telegram";
 import { AffiliateSettings } from "../components/affiliate/AffiliateSettings";
 import { TelegramAlertsCard } from "../components/affiliate/TelegramAlertsCard";
 import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
+import { DisputesManager } from "../components/affiliate/DisputesManager";
 import { Button } from "../components/ui/button";
 
 interface AffiliateProps {
@@ -57,6 +58,7 @@ const AFFILIATE_TABS = [
   "join-campaign",
   "my-sales",
   "claim-payouts",
+  "disputes",
   "settings",
   "security",
   "apply-links",
@@ -88,6 +90,7 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
     { id: "apply-links", label: "Apply & Tracking Links", icon: Link2 },
     { id: "my-sales", label: "My Sales & Commissions", icon: DollarSign },
     { id: "claim-payouts", label: "Claim Payouts", icon: TrendingUp },
+    { id: "disputes", label: "Disputes & Mediation", icon: Shield },
     { id: "settings", label: "Personalized Settings", icon: Sliders },
     { id: "security", label: "Security & Keys", icon: Shield },
   ];
@@ -118,6 +121,8 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
         return <SalesList />;
       case "claim-payouts":
         return <ClaimPayouts />;
+      case "disputes":
+        return <DisputesManager />;
       case "settings":
         return (
           <div className="space-y-6">
