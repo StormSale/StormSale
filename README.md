@@ -88,6 +88,7 @@ StormSale organizes platform features into dedicated personas:
 - **Campaign Marketplace:** Explore active campaigns with verified on-chain budget reserves.
 - **Referral Generation:** One-click generation of verifiable cryptographic tracking links.
 - **Real-Time Payouts:** Claim matured commissions directly into your connected Stellar wallet.
+- **Missing Sale Reporting UI:** Prepare a missing-sale report with evidence; persistence and advertiser review statuses require a reporting backend.
 - **Performance Intelligence:** Live ledger analytics on clicks, conversions, and earnings.
 
 ### 3. 🔍 Auditor Enterprise
