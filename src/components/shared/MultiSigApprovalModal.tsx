@@ -17,6 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import { useWeb3 } from "../../hooks/useWeb3";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { Button } from "../ui/button";
 import {
   type MultiSigAccountInfo,
@@ -41,6 +42,11 @@ export const MultiSigApprovalModal: React.FC = () => {
     activeMultiSigDescription,
     refreshMultiSigInfo,
   } = useWeb3();
+
+  const modalRef = useFocusTrap<HTMLDivElement>({
+    isOpen: isMultiSigModalOpen,
+    onClose: closeMultiSigModal,
+  });
 
   const [activeTab, setActiveTab] = useState<"export" | "import">("export");
   const [userEditedXdr, setUserEditedXdr] = useState<string | null>(null);
@@ -241,6 +247,7 @@ export const MultiSigApprovalModal: React.FC = () => {
   return (
     <AnimatePresence>
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="multisig-modal-title"

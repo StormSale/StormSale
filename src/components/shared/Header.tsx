@@ -14,6 +14,7 @@ import {
   Activity,
   Network,
   LoaderCircle,
+  CheckCircle2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -27,6 +28,7 @@ import {
   type ContractIntegrityResult,
 } from "../../lib/contractIntegrity";
 import { ContractIntegrityModal } from "../auditor/ContractIntegrityModal";
+import { EventStreamStatusPill } from "./EventStreamStatusPill";
 
 interface HeaderProps {
   onNavigate?: (page: string) => void;
@@ -67,6 +69,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     openRpcModal,
     network,
     connectorType,
+    txQueueStatus,
+    isTxQueueBusy,
   } = useWeb3();
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -249,6 +253,8 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               </span>
             )}
           </button>
+          {/* Real-Time Soroban Events Status HUD Pill */}
+          <EventStreamStatusPill className="hidden lg:inline-flex" />
           {/* Contract Integrity Indicator Pill */}
           <button
             type="button"
@@ -279,6 +285,48 @@ export const Header = ({ onNavigate }: HeaderProps) => {
               {contractIntegrity.isVerified ? "Verified" : "Mismatch"}
             </span>
           </button>
+
+          {/* In-Flight Transaction Queue Status Widget (#130) */}
+          {(() => {
+            const isProcessing = Boolean(txQueueStatus?.isProcessing);
+            const inFlightDesc = txQueueStatus?.inFlight
+              ? txQueueStatus.inFlight.description
+              : "None";
+            const currentSeq = txQueueStatus?.currentOptimisticSequence || "Synced";
+            const resyncs = txQueueStatus?.resyncCount || 0;
+            const pendingTotal =
+              (txQueueStatus?.pendingCount || 0) + (txQueueStatus?.inFlight ? 1 : 0);
+            const isBusy = Boolean(isTxQueueBusy || isProcessing || pendingTotal > 0);
+
+            return (
+              <div
+                data-testid="tx-queue-status"
+                className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-100/70 dark:bg-zinc-900/70 text-xs font-semibold"
+                title={`Stellar Tx Queue: ${isProcessing ? "Processing" : "Idle"}. In-flight: ${inFlightDesc}. Sequence: ${currentSeq}. Resyncs: ${resyncs}.`}
+              >
+                {isBusy ? (
+                  <>
+                    <LoaderCircle className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                    <span className="text-indigo-600 dark:text-indigo-400 font-mono text-[11px]">
+                      Queue: {pendingTotal} in-flight
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-zinc-600 dark:text-zinc-400 font-mono text-[11px] hidden sm:inline">
+                      Queue: Idle
+                    </span>
+                  </>
+                )}
+                {resyncs > 0 && (
+                  <span className="text-[10px] bg-amber-500/10 text-amber-600 px-1.5 py-0.5 rounded font-mono">
+                    Resyncs: {resyncs}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           <ThemeToggle />
 

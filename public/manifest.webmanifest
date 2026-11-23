@@ -1,0 +1,32 @@
+{
+  "name": "StormSale - Decentralized Escrow & Affiliate Protocol",
+  "short_name": "StormSale",
+  "description": "Decentralized Escrow, Affiliate and Commission Management Protocol on Stellar Soroban",
+  "theme_color": "#09090b",
+  "background_color": "#09090b",
+  "display": "standalone",
+  "orientation": "any",
+  "start_url": "/",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
+

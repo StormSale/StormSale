@@ -41,6 +41,8 @@ import {
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+import { LandingVariantConfig } from "./LandingVariantConfig";
+import type { LandingPageVariant } from "../../utils/abTesting";
 
 const STROOPS_PER_XLM_DIGITS = 7;
 
@@ -92,6 +94,11 @@ export const CreateCampaignForm = () => {
   // Private campaigns require affiliates to apply and be approved before they
   // can generate tracking links or be credited with sales.
   const [isPrivate, setIsPrivate] = useState(false);
+  const [abTestingEnabled, setAbTestingEnabled] = useState(false);
+  const [landingVariants, setLandingVariants] = useState<LandingPageVariant[]>([
+    { id: "var_a", name: "Variant A (Control)", url: "https://", weight: 50 },
+    { id: "var_b", name: "Variant B (Promo)", url: "https://", weight: 50 },
+  ]);
   const [lastCreatedCampaign, setLastCreatedCampaign] = useState<{
     campaignId: number;
     txHash?: string;
@@ -989,6 +996,14 @@ export const CreateCampaignForm = () => {
                   />
                 </button>
               </div>
+
+              {/* A/B Testing Attribution Optimizer for Landing Variants (#155) */}
+              <LandingVariantConfig
+                enabled={abTestingEnabled}
+                onToggleEnabled={setAbTestingEnabled}
+                variants={landingVariants}
+                onChange={setLandingVariants}
+              />
 
               {/* REAL-TIME TOKEN ALLOWANCE & ESCROW FLOW PANEL */}
               <div className="bg-slate-50 dark:bg-zinc-950/70 p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-6">

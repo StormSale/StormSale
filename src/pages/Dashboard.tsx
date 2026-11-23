@@ -4,6 +4,8 @@ import { ThemeToggle } from "../components/shared/ThemeToggle";
 import { Button } from "../components/ui/button";
 import { useWeb3 } from "../hooks/useWeb3";
 import { useDashboardCache } from "../hooks/useDashboardCache";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { InstallPwaBanner } from "../components/shared/InstallPwaBanner";
 import {
   Megaphone,
   Users,
@@ -14,6 +16,8 @@ import {
   Wallet,
   Activity,
   Trophy,
+  ShieldAlert,
+  WifiOff,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -33,6 +37,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
     connectorType,
   } = useWeb3();
   const { metrics, hydrated, persistMetrics, invalidateCache } = useDashboardCache();
+  const isOnline = useOnlineStatus();
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [hoveredRole, setHoveredRole] = useState<string | null>(null);
   const [isSigning, setIsSigning] = useState(false);
@@ -136,6 +141,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       consentText:
         "By assuming this role, you agree to verify encrypted transactions strictly for compliance purposes.",
     },
+    {
+      id: "admin",
+      title: "Admin",
+      description:
+        "Access platform emergency kill-switch, smart contract circuit breakers, and audit controls.",
+      icon: ShieldAlert,
+      colorClasses: {
+        border: "border-rose-500/50",
+        shadow: "shadow-rose-500/10",
+        bgHover: "bg-rose-600 hover:bg-rose-700",
+        shadowBtn: "shadow-rose-500/25",
+      },
+      gradient: "from-rose-500/20 to-red-500/5",
+      iconColor: "text-rose-500",
+      bgClass: "bg-rose-50 dark:bg-rose-900/20",
+      features: [
+        "Emergency Protocol Kill-Switch",
+        "Contract Circuit Breakers",
+        "Security Audit Trail",
+      ],
+      consentText:
+        "By assuming this role, you acknowledge administrative authorization to execute protocol-wide circuit breakers.",
+    },
   ];
 
   const getBgClass = () => {
@@ -145,6 +173,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       return "bg-emerald-50/50 dark:bg-emerald-950/20";
     if (hoveredRole === "auditor" || expandedRole === "auditor")
       return "bg-slate-100/50 dark:bg-slate-900/30";
+    if (hoveredRole === "admin" || expandedRole === "admin") return "bg-rose-950/20";
     return "bg-slate-50 dark:bg-[#09090b]";
   };
 
@@ -171,6 +200,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
           </div>
 
           <div className="flex items-center space-x-2 sm:space-x-4">
+            {!isOnline && (
+              <div
+                role="status"
+                aria-label="Offline Mode Active"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl bg-amber-500/20 text-amber-500 dark:text-amber-400 border border-amber-500/40 text-xs font-bold animate-pulse"
+              >
+                <WifiOff className="w-3.5 h-3.5 shrink-0" />
+                <span>Offline Mode</span>
+                <span className="hidden sm:inline text-[10px] text-amber-600 dark:text-amber-300 font-medium">
+                  (Cached Data)
+                </span>
+              </div>
+            )}
+
             <ThemeToggle />
 
             {/* Wallet Address & Balance (Responsive) */}
@@ -204,6 +247,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate }) => {
       </div>
 
       <div className="container mx-auto px-4 pt-8 sm:pt-16">
+        {/* PWA Install Banner */}
+        <InstallPwaBanner className="mb-6 sm:mb-8" />
+
         {/* Title */}
         <div className="mb-8 sm:mb-12 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>

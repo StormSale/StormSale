@@ -3,6 +3,8 @@ import * as Sentry from "@sentry/react";
 import { Web3Provider } from "./context/Web3Context";
 import { WalletConnectProvider } from "./context/WalletConnectContext";
 import { NotificationProvider, NotificationWrapper } from "./context/NotificationContext";
+import { TransactionAnnouncementProvider } from "./context/TransactionAnnouncementContext";
+import { SorobanEventsProvider } from "./context/SorobanEventsContext";
 import { useWeb3 } from "./hooks/useWeb3";
 import { usePreference } from "./hooks/usePreference";
 import { ConnectWalletModal } from "./components/shared/ConnectWalletModal";
@@ -35,6 +37,7 @@ export const Affiliate = lazy(() =>
   import("./pages/Affiliate").then((m) => ({ default: m.Affiliate })),
 );
 export const Auditor = lazy(() => import("./pages/Auditor").then((m) => ({ default: m.Auditor })));
+export const Admin = lazy(() => import("./pages/Admin").then((m) => ({ default: m.Admin })));
 export const BrandedCampaignView = lazy(() =>
   import("./components/shared/BrandedCampaignView").then((m) => ({
     default: m.BrandedCampaignView,
@@ -151,6 +154,7 @@ const VALID_PAGES = [
   "leaderboard",
   "milestones",
   "auditor",
+  "admin",
 ] as const;
 
 type Page = (typeof VALID_PAGES)[number];
@@ -344,6 +348,13 @@ function Router() {
                   </Suspense>
                 </ProtectedRoute>
               )}
+              {currentPage === "admin" && (
+                <ProtectedRoute requiredRole="ADMIN" onNavigate={handleNavigate}>
+                  <Suspense fallback={<div className="p-8 text-center">Loading Admin...</div>}>
+                    <Admin onBack={() => handleNavigate("dashboard")} />
+                  </Suspense>
+                </ProtectedRoute>
+              )}
             </main>
           </div>
         )}
@@ -402,15 +413,19 @@ function App() {
       {booting && <IndigoBootLoader isExiting={isExiting} onExited={handleExited} />}
       <NotificationWrapper>
         <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
-          <Web3Provider>
-            <WalletConnectProvider>
-              <NotificationProvider>
-                <TooltipProvider delayDuration={300}>
-                  <Router />
-                </TooltipProvider>
-              </NotificationProvider>
-            </WalletConnectProvider>
-          </Web3Provider>
+          <TransactionAnnouncementProvider>
+            <Web3Provider>
+              <WalletConnectProvider>
+                <NotificationProvider>
+                  <SorobanEventsProvider>
+                    <TooltipProvider delayDuration={300}>
+                      <Router />
+                    </TooltipProvider>
+                  </SorobanEventsProvider>
+                </NotificationProvider>
+              </WalletConnectProvider>
+            </Web3Provider>
+          </TransactionAnnouncementProvider>
         </Sentry.ErrorBoundary>
       </NotificationWrapper>
     </>

@@ -196,8 +196,8 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
       const kp = Keypair.random();
       const challenge = generateOrganizationAuthChallenge("org-test-1", kp.publicKey());
 
-      const messageBuffer = Buffer.from(challenge.messageToSign, "utf8");
-      const signatureBase64 = Buffer.from(kp.sign(messageBuffer)).toString("base64");
+      const messageBytes = new Uint8Array(Buffer.from(challenge.messageToSign, "utf8"));
+      const signatureBase64 = Buffer.from(kp.sign(messageBytes)).toString("base64");
 
       const result = verifyMemberWalletSignature(kp.publicKey(), signatureBase64, challenge);
 
@@ -218,8 +218,8 @@ describe("Team Permission Management & Multi-User Organization Dashboard (#154)"
       const otherKp = Keypair.random();
       const challenge = generateOrganizationAuthChallenge("org-test-1", memberKp.publicKey());
 
-      const messageBuffer = Buffer.from(challenge.messageToSign, "utf8");
-      const bogusSignature = Buffer.from(otherKp.sign(messageBuffer)).toString("base64");
+      const messageBytes = new Uint8Array(Buffer.from(challenge.messageToSign, "utf8"));
+      const bogusSignature = Buffer.from(otherKp.sign(messageBytes)).toString("base64");
 
       // Address mismatch
       expect(verifyMemberWalletSignature(otherKp.publicKey(), bogusSignature, challenge)).toBe(
