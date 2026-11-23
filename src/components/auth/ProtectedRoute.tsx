@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "../ui/button";
 
-export type ProtocolRole = "ADVERTISER" | "AFFILIATE" | "AUDITOR";
+export type ProtocolRole = "ADVERTISER" | "AFFILIATE" | "AUDITOR" | "ADMIN";
 
 export interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -56,6 +56,14 @@ const ROLE_METADATA: Record<
     accentColor: "slate",
     badgeClass:
       "bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-300 border-slate-200 dark:border-zinc-700",
+  },
+  ADMIN: {
+    title: "Admin",
+    description: "Manage protocol security, emergency pauses, and governance circuit breakers.",
+    icon: ShieldAlert,
+    accentColor: "rose",
+    badgeClass:
+      "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 border-rose-200 dark:border-rose-800",
   },
 };
 

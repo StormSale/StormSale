@@ -25,6 +25,7 @@ import type {
   ShortLinkRedirectResult,
 } from "../types/affiliateLink";
 import { isValidStellarAddress } from "./stellar";
+import { routeTrafficToVariant } from "../utils/abTesting";
 
 export const STORMSALE_SHORT_DOMAIN = "stormsale.xyz";
 
@@ -481,7 +482,16 @@ export function buildDestinationRedirectUrl(
   link: CustomShortLink,
   inboundQuery?: string | URLSearchParams,
 ): string {
-  const url = parseHttpDestination(link.destinationUrl);
+  let destination = link.destinationUrl;
+  if (link.landingVariants && link.landingVariants.length > 0) {
+    const seed = link.affiliateWallet || link.walletFingerprint || link.slug;
+    const variant = routeTrafficToVariant(link.landingVariants, seed);
+    if (variant && variant.url) {
+      destination = variant.url;
+    }
+  }
+
+  const url = parseHttpDestination(destination);
   if (!url) {
     throw new Error("Merchant destination must use HTTP or HTTPS.");
   }

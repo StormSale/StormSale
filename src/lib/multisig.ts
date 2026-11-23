@@ -444,10 +444,10 @@ export async function coSignTransaction(
 
     const tx = TransactionBuilder.fromXDR(transactionXdr, networkPassphrase);
     // Add simulated decorated signature
-    const hint = Buffer.from(StrKey.decodeEd25519PublicKey(mockKeypair.publicKey()).slice(-4));
+    const hint = new Uint8Array(StrKey.decodeEd25519PublicKey(mockKeypair.publicKey()).slice(-4));
     const mockSignature = new xdr.DecoratedSignature({
       hint,
-      signature: Buffer.alloc(64, 1),
+      signature: new Uint8Array(64).fill(1),
     });
     tx.signatures.push(mockSignature);
     const updatedXdr = tx.toXDR();

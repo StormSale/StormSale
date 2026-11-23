@@ -41,6 +41,8 @@ import {
 import { setCampaignVisibility } from "../../lib/campaignAccess";
 import { SUPPORTED_ESCROW_ASSETS } from "../../config/stellar";
 import type { SupportedEscrowAssetCode } from "../../config/stellar";
+import { LandingVariantConfig } from "./LandingVariantConfig";
+import type { LandingPageVariant } from "../../utils/abTesting";
 
 const STROOPS_PER_XLM_DIGITS = 7;
 
@@ -81,12 +83,22 @@ export const CreateCampaignForm = () => {
   const [clearingPeriod, setClearingPeriod] = useState("");
   const [campaignName, setCampaignName] = useState("");
   const [budget, setBudget] = useState("");
+  const [dailyPayoutCap, setDailyPayoutCap] = useState("");
+  const [attributionModel, setAttributionModel] = useState<"last_click" | "first_click">(
+    "last_click",
+  );
+  const [attributionWindowDays, setAttributionWindowDays] = useState<"1" | "7" | "30" | "60">("30");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [flowStep, setFlowStep] = useState<FlowStep>("idle");
   const [isRefreshingAllowance, setIsRefreshingAllowance] = useState(false);
   // Private campaigns require affiliates to apply and be approved before they
   // can generate tracking links or be credited with sales.
   const [isPrivate, setIsPrivate] = useState(false);
+  const [abTestingEnabled, setAbTestingEnabled] = useState(false);
+  const [landingVariants, setLandingVariants] = useState<LandingPageVariant[]>([
+    { id: "var_a", name: "Variant A (Control)", url: "https://", weight: 50 },
+    { id: "var_b", name: "Variant B (Promo)", url: "https://", weight: 50 },
+  ]);
   const [lastCreatedCampaign, setLastCreatedCampaign] = useState<{
     campaignId: number;
     txHash?: string;
@@ -284,6 +296,9 @@ export const CreateCampaignForm = () => {
       commissionRate,
       budget,
       clearingPeriod,
+      dailyPayoutCap: dailyPayoutCap.trim() || undefined,
+      attributionModel,
+      attributionWindowDays,
     });
 
     if (!result.success) {
@@ -832,6 +847,108 @@ export const CreateCampaignForm = () => {
                 </div>
               </InputField>
 
+              {/* Daily Commission Payout Cap per Affiliate (Issue #156) */}
+              <InputField
+                label={
+                  <span className="inline-flex items-center gap-1.5">
+                    Daily Maximum Payout Cap (Optional XLM / 24h)
+                    <InfoTooltip text="Set an optional rolling 24-hour commission claim cap per affiliate (e.g. 1,000 XLM / day) to limit liability." />
+                  </span>
+                }
+                description="Optional maximum payout an affiliate may claim every 24 hours"
+                error={errors.dailyPayoutCap}
+              >
+                <div className="relative">
+                  <Input
+                    type="number"
+                    value={dailyPayoutCap}
+                    onChange={(e) => {
+                      setDailyPayoutCap(e.target.value);
+                      if (errors.dailyPayoutCap)
+                        setErrors((prev) => ({ ...prev, dailyPayoutCap: "" }));
+                    }}
+                    placeholder="e.g. 1000 (leave blank for unlimited)"
+                    variant={errors.dailyPayoutCap ? "error" : "default"}
+                    className="h-12 border-slate-200 dark:border-zinc-800 focus:ring-indigo-600 dark:focus:ring-indigo-500 rounded-xl bg-slate-50 dark:bg-zinc-950 pr-24"
+                    data-testid="input-daily-payout-cap"
+                  />
+                  <div className="absolute right-4 top-1/2 transform -translate-y-1/2 text-zinc-400 font-medium text-xs">
+                    XLM / 24h
+                  </div>
+                </div>
+              </InputField>
+
+              {/* Attribution Model & Window Engine (Issue #151) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <InputField
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Attribution Model
+                      <InfoTooltip text="Choose whether first-touch or last-touch affiliate receives the conversion commission." />
+                    </span>
+                  }
+                  description="First-Click or Last-Click attribution"
+                >
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={attributionModel === "last_click" ? "default" : "outline"}
+                      className={`flex-1 h-12 rounded-xl transition-all font-semibold text-xs ${
+                        attributionModel === "last_click"
+                          ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                          : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                      }`}
+                      onClick={() => setAttributionModel("last_click")}
+                      data-testid="btn-attr-last-click"
+                    >
+                      Last-Click (Default)
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={attributionModel === "first_click" ? "default" : "outline"}
+                      className={`flex-1 h-12 rounded-xl transition-all font-semibold text-xs ${
+                        attributionModel === "first_click"
+                          ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                          : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                      }`}
+                      onClick={() => setAttributionModel("first_click")}
+                      data-testid="btn-attr-first-click"
+                    >
+                      First-Click
+                    </Button>
+                  </div>
+                </InputField>
+
+                <InputField
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Attribution Window
+                      <InfoTooltip text="Attribution window duration. Conversions beyond the window are treated as uncommissioned direct sales." />
+                    </span>
+                  }
+                  description="Expiration window for referral clicks"
+                >
+                  <div className="grid grid-cols-4 gap-2">
+                    {(["1", "7", "30", "60"] as const).map((days) => (
+                      <Button
+                        key={days}
+                        type="button"
+                        variant={attributionWindowDays === days ? "default" : "outline"}
+                        className={`h-12 rounded-xl transition-all font-semibold text-xs ${
+                          attributionWindowDays === days
+                            ? "bg-zinc-900 dark:bg-indigo-600 text-white shadow-md border-0"
+                            : "border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300"
+                        }`}
+                        onClick={() => setAttributionWindowDays(days)}
+                        data-testid={`btn-attr-window-${days}`}
+                      >
+                        {days}d
+                      </Button>
+                    ))}
+                  </div>
+                </InputField>
+              </div>
+
               {/* Visibility: public, or private with manual approval */}
               <div className="flex items-start justify-between gap-4 p-5 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950">
                 <div className="flex items-start gap-3">
@@ -879,6 +996,14 @@ export const CreateCampaignForm = () => {
                   />
                 </button>
               </div>
+
+              {/* A/B Testing Attribution Optimizer for Landing Variants (#155) */}
+              <LandingVariantConfig
+                enabled={abTestingEnabled}
+                onToggleEnabled={setAbTestingEnabled}
+                variants={landingVariants}
+                onChange={setLandingVariants}
+              />
 
               {/* REAL-TIME TOKEN ALLOWANCE & ESCROW FLOW PANEL */}
               <div className="bg-slate-50 dark:bg-zinc-950/70 p-6 rounded-2xl border border-slate-200 dark:border-zinc-800 space-y-6">

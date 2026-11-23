@@ -25,6 +25,13 @@ import {
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
 } from "../../lib/batchClaim";
+import {
+  checkDailyPayoutCap,
+  recordAffiliateClaim,
+  getRolling24HourClaimVolume,
+  getNextResetTimeMs,
+  formatTimeUntilReset,
+} from "../../lib/payoutCap";
 import { loadAffiliatePreferences, shouldDeliverAffiliateNotification } from "./AffiliateSettings";
 import { resolveActiveSplitPlan, formatStroopsAsXlm } from "../../lib/commissionSplit";
 import {
@@ -34,15 +41,43 @@ import {
   toBaseUnits,
   formatBaseUnits,
 } from "../../lib/sorobanDex";
-import { isAffiliatePaused, fetchAuthoritativeAffiliatePauseState } from "../../lib/fraudRiskEngine";
+import {
+  isAffiliatePaused,
+  fetchAuthoritativeAffiliatePauseState,
+} from "../../lib/fraudRiskEngine";
+import {
+  buildTaxStatus,
+  computeWithholding,
+  isTaxFormRequired,
+  loadTaxStatus,
+  resolveWithholdingPct,
+  saveTaxStatus,
+  type TaxFormInput,
+  type TaxStatus,
+} from "../../lib/taxCompliance";
+import { TaxFormModal } from "./TaxFormModal";
+import { TaxStatusBanner } from "./TaxStatusBanner";
 import { motion, AnimatePresence } from "framer-motion";
+
+const DEFAULT_XLM_USD_RATE = 0.125;
 
 const SWAP_TARGET_TOKENS: SwapToken[] = ["USDC", "EURC", "XLM"];
 const SLIPPAGE_PRESETS = [50, 100, 300];
 
-export const ClaimPayouts = () => {
+export interface ClaimPayoutsProps {
+  /** Overrides the earnings figure used for the tax-form threshold (USD). */
+  cumulativeEarningsUsd?: number;
+}
+
+export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   const { userAddress, batchClaimPayoutsOnChain, claimPayoutOnChain } = useWeb3();
   const { showNotification } = useNotification();
+
+  // Affiliate tax compliance (Issue #457)
+  const [submittedTaxStatus, setSubmittedTaxStatus] = useState<TaxStatus | null>(null);
+  const [taxModalRequested, setTaxModalRequested] = useState(false);
+  const [taxPromptDismissed, setTaxPromptDismissed] = useState(false);
+  const taxStatus = submittedTaxStatus ?? loadTaxStatus(userAddress || "");
 
   const [campaigns, setCampaigns] = useState<ClaimableCampaignItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -50,7 +85,9 @@ export const ClaimPayouts = () => {
   const [claimingId, setClaimingId] = useState<number | null>(null);
   const [receipt, setReceipt] = useState<BatchClaimReceipt | null>(null);
 
-  const [isFrozen, setIsFrozen] = useState(() => (userAddress ? isAffiliatePaused(userAddress) : false));
+  const [isFrozen, setIsFrozen] = useState(() =>
+    userAddress ? isAffiliatePaused(userAddress) : false,
+  );
 
   useEffect(() => {
     let active = true;
@@ -72,6 +109,26 @@ export const ClaimPayouts = () => {
   const [targetToken, setTargetToken] = useState<SwapToken>("USDC");
   const [maxSlippageBps, setMaxSlippageBps] = useState(100);
 
+  // Daily Commission Payout Cap per Affiliate per 24-Hour Window (Issue #156)
+  const DAILY_PAYOUT_CAP_XLM = 1000;
+  const [current24hVolume, setCurrent24hVolume] = useState<number>(0);
+  const [resetTimeMs, setResetTimeMs] = useState<number>(() => Date.now() + 24 * 60 * 60 * 1000);
+
+  const refreshQuota = () => {
+    if (!userAddress) return;
+    const vol = getRolling24HourClaimVolume(userAddress);
+    setCurrent24hVolume(vol);
+    setResetTimeMs(getNextResetTimeMs(userAddress));
+  };
+
+  useEffect(() => {
+    refreshQuota();
+  }, [userAddress]);
+
+  const remainingDailyQuota = Math.max(0, DAILY_PAYOUT_CAP_XLM - current24hVolume);
+  const timeUntilReset = formatTimeUntilReset(resetTimeMs);
+  const isDailyCapReached = remainingDailyQuota <= 0;
+
   useEffect(() => {
     async function loadClaims() {
       const data = await fetchAffiliateMaturedClaims(userAddress || "");
@@ -86,6 +143,29 @@ export const ClaimPayouts = () => {
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
+
+  const earningsUsd =
+    cumulativeEarningsUsd ??
+    campaigns.reduce((sum, c) => sum + c.claimableXlm, 0) * DEFAULT_XLM_USD_RATE;
+  const taxFormRequired = isTaxFormRequired(earningsUsd, taxStatus);
+  const withholdingPct = resolveWithholdingPct(earningsUsd, taxStatus);
+  const withholding = computeWithholding(totalWithdrawableXlm, withholdingPct);
+
+  // Prompt once when cumulative earnings cross the regulatory threshold.
+  const isTaxModalOpen = taxModalRequested || (taxFormRequired && !taxPromptDismissed);
+
+  const closeTaxModal = () => {
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
+
+  const handleTaxFormSubmit = (input: TaxFormInput) => {
+    const status = buildTaxStatus(input);
+    saveTaxStatus(userAddress || "", status);
+    setSubmittedTaxStatus(status);
+    setTaxModalRequested(false);
+    setTaxPromptDismissed(true);
+  };
 
   // Build the auto-swap config from current selections. Disabled when the
   // affiliate targets XLM (their native payout) or has the toggle off.
@@ -136,6 +216,23 @@ export const ClaimPayouts = () => {
       return;
     }
 
+    // Verify rolling 24-hour payout cap constraint (Issue #156)
+    const capCheck = checkDailyPayoutCap(
+      userAddress || "",
+      totalWithdrawableXlm,
+      DAILY_PAYOUT_CAP_XLM,
+    );
+    if (!capCheck.allowed) {
+      showNotification({
+        type: "error",
+        title: "Daily Claim Cap Exceeded",
+        message:
+          capCheck.reason ||
+          "Daily maximum payout cap reached. Please wait for the 24-hour window to reset.",
+      });
+      return;
+    }
+
     setIsBatchClaiming(true);
     showNotification({
       type: "info",
@@ -147,8 +244,18 @@ export const ClaimPayouts = () => {
       // Apply the affiliate's auto-split plan (if enabled & valid) so the claimed
       // total is routed across vault destinations inside the same atomic envelope.
       const splitPlan = resolveActiveSplitPlan(loadAffiliatePreferences());
-      const resultReceipt = await batchClaimPayoutsOnChain(selectedCampaigns, splitPlan, autoSwapConfig);
+      const resultReceipt = await batchClaimPayoutsOnChain(
+        selectedCampaigns,
+        splitPlan,
+        autoSwapConfig,
+      );
       setReceipt(resultReceipt);
+
+      // Record claims to enforce 24-hour rolling cap
+      selectedCampaigns.forEach((c) => {
+        recordAffiliateClaim(userAddress || "", c.campaignId, c.claimableXlm);
+      });
+      refreshQuota();
 
       // Mark claimed campaigns
       setCampaigns((prev) =>
@@ -164,6 +271,10 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Batch Commission Claim Settled!",
           message: `Claimed ${resultReceipt.totalClaimedXlm} XLM across ${resultReceipt.itemizedClaims.length} campaigns in 1 transaction.${swapNote}`,
+          confetti: true,
+          receiptTxHash: resultReceipt.txHash,
+          actionLabel: "View Receipt",
+          onViewReceipt: () => setReceipt(resultReceipt),
         });
       }
     } catch (err: any) {
@@ -189,6 +300,22 @@ export const ClaimPayouts = () => {
       return;
     }
 
+    const target = campaigns.find((c) => c.campaignId === campaignId);
+    const claimAmount = target?.claimableXlm || 0;
+
+    // Verify rolling 24-hour payout cap constraint (Issue #156)
+    const capCheck = checkDailyPayoutCap(userAddress || "", claimAmount, DAILY_PAYOUT_CAP_XLM);
+    if (!capCheck.allowed) {
+      showNotification({
+        type: "error",
+        title: "Daily Claim Cap Exceeded",
+        message:
+          capCheck.reason ||
+          "Daily maximum payout cap reached. Please wait for the 24-hour window to reset.",
+      });
+      return;
+    }
+
     setClaimingId(campaignId);
     showNotification({
       type: "info",
@@ -197,8 +324,9 @@ export const ClaimPayouts = () => {
     });
 
     try {
-      const target = campaigns.find((c) => c.campaignId === campaignId);
-      const res = await claimPayoutOnChain(campaignId, target?.assetCode);
+      const res = await claimPayoutOnChain(campaignId, target?.assetCode, claimAmount);
+      recordAffiliateClaim(userAddress || "", campaignId, claimAmount);
+      refreshQuota();
       setCampaigns((prev) =>
         prev.map((c) => (c.campaignId === campaignId ? { ...c, status: "claimed" } : c)),
       );
@@ -207,6 +335,9 @@ export const ClaimPayouts = () => {
           type: "success",
           title: "Commission Paid Out!",
           message: `Settled on Stellar ledger. Tx: ${res.txHash ? res.txHash.slice(0, 10) + "..." : "Confirmed"}`,
+          confetti: true,
+          receiptTxHash: res.txHash,
+          actionLabel: "View Receipt",
         });
       }
     } catch (err: any) {
@@ -252,6 +383,60 @@ export const ClaimPayouts = () => {
           </div>
         </div>
       )}
+
+      {/* Tax form status banner (Issue #457) */}
+      <TaxStatusBanner
+        status={taxStatus}
+        required={taxFormRequired}
+        onOpenForm={() => setTaxModalRequested(true)}
+      />
+      <TaxFormModal
+        isOpen={isTaxModalOpen}
+        onClose={closeTaxModal}
+        onSubmit={handleTaxFormSubmit}
+      />
+
+      {/* 24-Hour Rolling Commission Payout Quota Banner (Issue #156) */}
+      <div
+        className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        data-testid="daily-payout-cap-banner"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-500/20">
+            <Clock className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="font-extrabold text-sm text-zinc-900 dark:text-white">
+                Rolling 24-Hour Claim Quota
+              </h4>
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                  !isDailyCapReached
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                    : "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400"
+                }`}
+              >
+                {!isDailyCapReached ? "Quota Available" : "Daily Cap Reached"}
+              </span>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Advertiser daily limit:{" "}
+              <strong>{DAILY_PAYOUT_CAP_XLM.toLocaleString()} XLM / 24h</strong>. Remaining:{" "}
+              <span className="font-bold text-zinc-900 dark:text-white">
+                {remainingDailyQuota.toFixed(2)} XLM
+              </span>
+              {current24hVolume > 0 && ` (Claimed: ${current24hVolume.toFixed(2)} XLM)`}.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs text-zinc-400 font-medium">Window Reset:</span>
+          <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20">
+            {timeUntilReset}
+          </span>
+        </div>
+      </div>
 
       {/* Hero Dispatcher Card: Automated Batch Claim Dispatcher */}
       <motion.div
@@ -308,6 +493,18 @@ export const ClaimPayouts = () => {
                 {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
                 Selected
               </div>
+              {withholdingPct > 0 && (
+                <div
+                  className="text-[11px] text-amber-300 mt-2 space-y-0.5"
+                  data-testid="withholding-summary"
+                >
+                  <div data-testid="withholding-pct">Tax withholding: {withholdingPct}%</div>
+                  <div data-testid="withholding-net">
+                    Withheld {withholding.withheldXlm.toFixed(2)} XLM · Net{" "}
+                    {withholding.netXlm.toFixed(2)} XLM
+                  </div>
+                </div>
+              )}
             </div>
 
             <Button

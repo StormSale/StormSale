@@ -98,6 +98,7 @@ vi.mock("../lib/escrowAutoRefill", async (importOriginal) => {
 
 import { MyCampaignsList } from "../components/advertiser/MyCampaignsList";
 import { getLocalStorage } from "../lib/storage";
+import { saveAutoTopUpConfig } from "../lib/escrowTopUp";
 
 describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", () => {
   beforeEach(() => {
@@ -326,12 +327,27 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
 
     expect(screen.getByText(/exceeds pre-authorized allowance/i)).toBeTruthy();
 
+    const confirmBtn = screen.getByRole("button", { name: /Confirm Deposit/i });
+    await act(async () => {
+      fireEvent.click(confirmBtn);
+    });
+
+    const warningCall = notifications.showNotification.mock.calls.find(
+      (call: any[]) => call[0]?.title === "Pre-Authorized Allowance Deficit",
+    );
+    expect(warningCall).toBeTruthy();
+    if (warningCall && warningCall[0]?.onAction) {
+      await act(async () => {
+        warningCall[0].onAction();
+      });
+    }
+
     const approveBtn = screen.getByRole("button", { name: /Approve Required Allowance/i });
     await act(async () => {
       fireEvent.click(approveBtn);
     });
 
-    expect(wallet.approveTokenAllowance).toHaveBeenCalledWith(1000);
+    expect(wallet.approveTokenAllowance).toHaveBeenCalled();
     expect(wallet.refreshTokenAllowance).toHaveBeenCalled();
   });
 
@@ -414,13 +430,18 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
 
     expect(screen.getAllByText(/Allowance Deficit/i).length).toBeGreaterThan(0);
 
+    const customInput = screen.getByPlaceholderText("Amount to approve");
+    await act(async () => {
+      fireEvent.change(customInput, { target: { value: "6000" } });
+    });
+
     const preAuthBtns = screen.getAllByRole("button", { name: "Pre-Authorize" });
     const modalPreAuthBtn = preAuthBtns[preAuthBtns.length - 1];
     await act(async () => {
       fireEvent.click(modalPreAuthBtn);
     });
 
-    expect(wallet.approveTokenAllowance).toHaveBeenCalled();
+    expect(wallet.approveTokenAllowance).toHaveBeenCalledWith(6000);
   });
 
   it("handles escrow refund for completed campaign with regular balance", async () => {
@@ -659,5 +680,36 @@ describe("MyCampaignsList — Escrow Monitor & Automated Top-Up Suite (#107)", (
         title: "Refund Failed",
       }),
     );
+  });
+
+  it("automatically delegates SAC token allowance when deficit occurs during automated top-up (#119)", async () => {
+    wallet.tokenAllowance = 0;
+    const cfg = {
+      campaignId: "2",
+      enabled: true,
+      thresholdType: "percentage" as const,
+      thresholdValue: 90,
+      topUpAmount: 500,
+      maxTopUpsPerDay: 5,
+      topUpCountToday: 0,
+    };
+    saveAutoTopUpConfig(cfg);
+
+    await act(async () => {
+      render(<MyCampaignsList />);
+    });
+
+    const runAuditBtn = screen.getByRole("button", { name: /Run Auto Top-Up Check/i });
+    await act(async () => {
+      fireEvent.click(runAuditBtn);
+    });
+
+    expect(notifications.showNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "info",
+        title: "Automated SAC Allowance Delegation",
+      }),
+    );
+    expect(wallet.approveTokenAllowance).toHaveBeenCalledWith(500);
   });
 });

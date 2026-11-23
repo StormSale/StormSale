@@ -378,31 +378,20 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
         click: vi.fn(),
       };
 
-      interface GlobalWithDom {
-        document?: unknown;
-        window?: unknown;
-        URL?: unknown;
-      }
-      const g = globalThis as unknown as GlobalWithDom;
-      const originalDoc = g.document;
-      const originalWindow = g.window;
-      const originalUrl = g.URL;
-
-      g.window = globalThis;
-      g.document = {
-        createElement: vi.fn().mockImplementation((tag: string) => {
+      const createElementSpy = vi
+        .spyOn(document, "createElement")
+        .mockImplementation((tag: string) => {
           if (tag === "a") return mockAnchor as unknown as HTMLAnchorElement;
-          return {} as unknown as HTMLElement;
-        }),
-        body: {
-          appendChild: vi.fn(),
-          removeChild: vi.fn(),
-        },
-      };
-      g.URL = {
-        createObjectURL: vi.fn().mockReturnValue("blob:mock-url"),
-        revokeObjectURL: vi.fn(),
-      };
+          return document.createElement(tag);
+        });
+      const appendChildSpy = vi
+        .spyOn(document.body, "appendChild")
+        .mockImplementation(() => mockAnchor as any);
+      const removeChildSpy = vi
+        .spyOn(document.body, "removeChild")
+        .mockImplementation(() => mockAnchor as any);
+      const createObjectURLSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+      const revokeObjectURLSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
       try {
         const verifiedControls = getStandardNistControls("TESTNET", {
@@ -420,9 +409,11 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
         expect(result.pack.summary.complianceScorePercent).toBe(100);
         expect(mockAnchor.click).toHaveBeenCalled();
       } finally {
-        g.document = originalDoc;
-        g.window = originalWindow;
-        g.URL = originalUrl;
+        createElementSpy.mockRestore();
+        appendChildSpy.mockRestore();
+        removeChildSpy.mockRestore();
+        createObjectURLSpy.mockRestore();
+        revokeObjectURLSpy.mockRestore();
       }
     });
   });
@@ -435,37 +426,28 @@ describe("NIST SP 800-53 Automated Security Control Scorecard", () => {
         click: vi.fn(),
       };
 
-      interface GlobalWithDom {
-        document?: unknown;
-        window?: unknown;
-        URL?: unknown;
-      }
-      const g = globalThis as unknown as GlobalWithDom;
-      const originalDoc = g.document;
-      const originalWindow = g.window;
-      const originalUrl = g.URL;
-
-      g.window = globalThis;
-      g.document = {
-        createElement: vi.fn().mockReturnValue(mockAnchor as unknown as HTMLAnchorElement),
-        body: {
-          appendChild: vi.fn(),
-          removeChild: vi.fn(),
-        },
-      };
-      g.URL = {
-        createObjectURL: vi.fn().mockReturnValue("blob:test"),
-        revokeObjectURL: vi.fn(),
-      };
+      const createElementSpy = vi
+        .spyOn(document, "createElement")
+        .mockReturnValue(mockAnchor as unknown as HTMLAnchorElement);
+      const appendChildSpy = vi
+        .spyOn(document.body, "appendChild")
+        .mockImplementation(() => mockAnchor as any);
+      const removeChildSpy = vi
+        .spyOn(document.body, "removeChild")
+        .mockImplementation(() => mockAnchor as any);
+      const createObjectURLSpy = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
+      const revokeObjectURLSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
 
       try {
         downloadFile('{"test": true}', "test.json", "application/json");
         expect(mockAnchor.download).toBe("test.json");
         expect(mockAnchor.click).toHaveBeenCalled();
       } finally {
-        g.document = originalDoc;
-        g.window = originalWindow;
-        g.URL = originalUrl;
+        createElementSpy.mockRestore();
+        appendChildSpy.mockRestore();
+        removeChildSpy.mockRestore();
+        createObjectURLSpy.mockRestore();
+        revokeObjectURLSpy.mockRestore();
       }
     });
   });

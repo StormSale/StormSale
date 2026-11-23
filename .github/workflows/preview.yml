@@ -26,7 +26,7 @@ jobs:
   # Skipped on external forks where repository secrets are inaccessible.
   # ---------------------------------------------------------------------------
   preview:
-    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && secrets.VERCEL_PREVIEW_TOKEN != ''
     runs-on: ubuntu-latest
     environment:
       name: preview/pr-${{ github.event.pull_request.number }}
@@ -136,7 +136,7 @@ jobs:
   # Skipped on external forks where preview environments were not deployed.
   # ---------------------------------------------------------------------------
   teardown:
-    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository && secrets.VERCEL_PREVIEW_TOKEN != ''
     runs-on: ubuntu-latest
 
     steps:

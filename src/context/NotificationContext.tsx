@@ -18,8 +18,10 @@ import {
   X,
   ExternalLink,
   ArrowRight,
+  FileText,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { getStellarExpertUrl } from "../lib/stellar/explorer";
 
 export type NotificationType = "success" | "error" | "warning" | "info" | "pending";
 
@@ -41,6 +43,10 @@ export interface Notification {
   actionUrl?: string;
   onAction?: () => void;
   campaignId?: string;
+  confetti?: boolean;
+  receiptUrl?: string;
+  receiptTxHash?: string;
+  onViewReceipt?: () => void;
 }
 
 export interface NotificationContextType {
@@ -54,6 +60,14 @@ export interface NotificationContextType {
     campaignId?: string;
     topUpUrl?: string;
     onTopUp?: () => void;
+  }) => string;
+  notifyClaimSuccess: (params: {
+    amountXlm: number | string;
+    txHash?: string;
+    campaignName?: string;
+    itemCount?: number;
+    receiptUrl?: string;
+    onViewReceipt?: () => void;
   }) => string;
   checkEscrowBalances: (campaigns: EscrowMonitoredCampaign[]) => void;
   clearAllNotifications: () => void;
@@ -113,6 +127,39 @@ export function buildLowEscrowNotification(params: {
     actionLabel: "Top Up Escrow",
     actionUrl: params.topUpUrl || defaultTopUpUrl,
     onAction: params.onTopUp,
+  };
+}
+
+/**
+ * Builds a structured celebratory notification payload for successful commission claims.
+ */
+export function buildClaimSuccessNotification(params: {
+  amountXlm: number | string;
+  txHash?: string;
+  campaignName?: string;
+  itemCount?: number;
+  receiptUrl?: string;
+  onViewReceipt?: () => void;
+}): Omit<Notification, "id"> {
+  const explorerUrl = params.txHash ? getStellarExpertUrl("tx", params.txHash) : undefined;
+  const receiptTarget = params.receiptUrl || explorerUrl;
+  const countSuffix =
+    params.itemCount && params.itemCount > 1 ? ` across ${params.itemCount} campaigns` : "";
+  const campaignSuffix = params.campaignName ? ` for ${params.campaignName}` : "";
+  const hasReceiptAction = Boolean(receiptTarget || params.onViewReceipt);
+
+  return {
+    type: "success",
+    title: "Commission Claim Confirmed!",
+    message: `Successfully claimed ${params.amountXlm} XLM${campaignSuffix || countSuffix}. Payout settled on Stellar ledger.`,
+    confetti: true,
+    receiptUrl: receiptTarget,
+    receiptTxHash: params.txHash,
+    onViewReceipt: params.onViewReceipt,
+    actionLabel: hasReceiptAction ? "View Receipt" : undefined,
+    actionUrl: receiptTarget,
+    onAction: params.onViewReceipt,
+    duration: 7000,
   };
 }
 
@@ -192,12 +239,28 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
     [notifications, notifyLowEscrowBalance],
   );
 
+  // Dedicated helper to trigger celebratory toast alerts for claimed commissions (#53)
+  const notifyClaimSuccess = useCallback(
+    (params: {
+      amountXlm: number | string;
+      txHash?: string;
+      campaignName?: string;
+      itemCount?: number;
+      receiptUrl?: string;
+      onViewReceipt?: () => void;
+    }): string => {
+      return showNotification(buildClaimSuccessNotification(params));
+    },
+    [showNotification],
+  );
+
   const contextValue = useMemo(
     () => ({
       notifications,
       showNotification,
       dismissNotification,
       notifyLowEscrowBalance,
+      notifyClaimSuccess,
       checkEscrowBalances,
       clearAllNotifications,
     }),
@@ -206,6 +269,7 @@ export const NotificationProvider: React.FC<{ readonly children: ReactNode }> = 
       showNotification,
       dismissNotification,
       notifyLowEscrowBalance,
+      notifyClaimSuccess,
       checkEscrowBalances,
       clearAllNotifications,
     ],
@@ -223,6 +287,55 @@ interface ToastItemProps {
   readonly notification: Notification;
   readonly onDismiss: (id: string) => void;
 }
+
+const CONFETTI_COLORS = ["#10b981", "#6366f1", "#f59e0b", "#ec4899", "#3b82f6", "#8b5cf6"];
+
+const STATIC_CONFETTI_PARTICLES = Array.from({ length: 24 }, (_, i) => {
+  const angle = (i / 24) * Math.PI * 2;
+  const spread = ((i * 17) % 100) / 100;
+  return {
+    id: i,
+    x: Math.cos(angle) * (60 + spread * 140),
+    y: -(30 + ((i * 29) % 60)),
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    size: 4 + ((i * 7) % 6),
+    rotation: (i * 47) % 360,
+  };
+});
+
+export const ConfettiBurst: React.FC = () => {
+  return (
+    <div
+      aria-hidden="true"
+      data-testid="toast-confetti-animation"
+      className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl z-20"
+    >
+      {STATIC_CONFETTI_PARTICLES.map((p) => (
+        <motion.div
+          key={p.id}
+          initial={{ opacity: 1, scale: 0, x: 0, y: 0, rotate: 0 }}
+          animate={{
+            opacity: [1, 1, 0],
+            scale: [0, 1.2, 0.8],
+            x: p.x,
+            y: [p.y, p.y + 110],
+            rotate: p.rotation + 360,
+          }}
+          transition={{ duration: 1.8, ease: "easeOut" }}
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "40%",
+            width: p.size,
+            height: p.size * (p.id % 2 === 0 ? 1 : 1.8),
+            backgroundColor: p.color,
+            borderRadius: p.id % 3 === 0 ? "50%" : "2px",
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
   const isAutoDismiss = !notification.persistent && (notification.duration ?? 0) > 0;
@@ -359,7 +472,8 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
         notification.type,
       )} ${notification.persistent ? "ring-2 ring-amber-400/20" : ""}`}
     >
-      <div className="flex items-start space-x-3">
+      {notification.confetti && <ConfettiBurst />}
+      <div className="flex items-start space-x-3 relative z-10">
         {getIcon(notification.type)}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
@@ -375,46 +489,115 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
             </p>
           )}
 
-          {/* Interactive Action: Link or Button to flow */}
-          {actionLabel && (
-            <div className="mt-3 flex items-center gap-2 pt-1">
-              {actionUrl ? (
-                <a
-                  href={actionUrl}
-                  onClick={() => {
-                    if (notification.onAction) notification.onAction();
-                    if (notification.action?.onClick) notification.action.onClick();
-                    onDismiss(notification.id);
-                  }}
-                  className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                >
-                  <span>{actionLabel}</span>
-                  <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                </a>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (notification.onAction) notification.onAction();
-                    if (notification.action?.onClick) notification.action.onClick();
-                    onDismiss(notification.id);
-                  }}
-                  className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
-                >
-                  <span>{actionLabel}</span>
-                  <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
-                </button>
-              )}
+          {/* Dedicated "View Receipt" action for commission claim toasts (#53) */}
+          {(() => {
+            const receiptUrl =
+              notification.receiptUrl ||
+              (notification.receiptTxHash
+                ? getStellarExpertUrl("tx", notification.receiptTxHash)
+                : undefined) ||
+              actionUrl;
+            const isReceipt = Boolean(
+              receiptUrl || notification.onViewReceipt || actionLabel === "View Receipt",
+            );
 
-              <button
-                type="button"
-                onClick={() => onDismiss(notification.id)}
-                className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
+            if (isReceipt) {
+              return (
+                <div className="mt-3 flex items-center gap-2 pt-1">
+                  {receiptUrl ? (
+                    <a
+                      href={receiptUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="toast-view-receipt-btn"
+                      onClick={() => {
+                        if (notification.onViewReceipt) {
+                          notification.onViewReceipt();
+                        } else if (notification.onAction) {
+                          notification.onAction();
+                        }
+                        if (notification.action?.onClick) notification.action.onClick();
+                      }}
+                      className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all gap-1.5"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>View Receipt</span>
+                      <ExternalLink className="w-3 h-3 opacity-90" />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      data-testid="toast-view-receipt-btn"
+                      onClick={() => {
+                        if (notification.onViewReceipt) {
+                          notification.onViewReceipt();
+                        } else if (notification.onAction) {
+                          notification.onAction();
+                        }
+                        if (notification.action?.onClick) notification.action.onClick();
+                      }}
+                      className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all gap-1.5"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>View Receipt</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onDismiss(notification.id)}
+                    className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              );
+            }
+
+            if (actionLabel) {
+              return (
+                <div className="mt-3 flex items-center gap-2 pt-1">
+                  {actionUrl ? (
+                    <a
+                      href={actionUrl}
+                      onClick={() => {
+                        if (notification.onAction) notification.onAction();
+                        if (notification.action?.onClick) notification.action.onClick();
+                        onDismiss(notification.id);
+                      }}
+                      className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                    >
+                      <span>{actionLabel}</span>
+                      <ExternalLink className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (notification.onAction) notification.onAction();
+                        if (notification.action?.onClick) notification.action.onClick();
+                        onDismiss(notification.id);
+                      }}
+                      className="inline-flex items-center text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white shadow-sm transition-all"
+                    >
+                      <span>{actionLabel}</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5 opacity-90" />
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onDismiss(notification.id)}
+                    className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-semibold px-2 py-1 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              );
+            }
+
+            return null;
+          })()}
         </div>
 
         <button

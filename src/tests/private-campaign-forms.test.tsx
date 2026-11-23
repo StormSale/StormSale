@@ -95,13 +95,18 @@ vi.mock("../lib/stellar", () => ({
       numSponsored: 0,
     };
   },
-  fetchStellarAccountDetails: vi.fn(async () => ({
-    exists: false,
-    balanceXlm: 0,
+  fetchStellarAccountDetails: vi.fn(async (addr: string) => ({
+    address: addr,
+    exists: true,
+    status: "active",
+    balanceXlm: 500,
     subentries: 0,
     trustlineCount: 0,
     numSponsoring: 0,
     numSponsored: 0,
+    sellingLiabilitiesXlm: 0,
+    reserveXlm: 1,
+    spendableXlm: 499,
   })),
 }));
 vi.mock("../lib/crypto", () => crypto);
@@ -142,7 +147,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 /* ─────────────────────────────── Create Campaign ─────────────────────────────── */
@@ -214,19 +219,24 @@ describe("CreateCampaignForm", () => {
   it("warns, rather than reporting a failed creation, when only the access setting fails to save", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
-    // jsdom's localStorage resolves setItem through Storage.prototype.
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("QuotaExceededError");
     });
-    render(<CreateCampaignForm />);
-    fillCampaign();
-    fireEvent.click(screen.getByRole("switch"));
-    await submitCampaign();
+    try {
+      render(<CreateCampaignForm />);
+      fillCampaign();
+      fireEvent.click(screen.getByRole("switch"));
+      await submitCampaign();
 
-    await waitFor(() => expect(titles()).toContain("Campaign Created — Access Setting Not Saved"));
-    expect(titles()).toContain("Campaign Escrow Live on Stellar!");
-    expect(titles()).not.toContain("Failed to Create Campaign");
-    expect(web3.createCampaignOnChain).toHaveBeenCalledTimes(1);
+      await waitFor(() =>
+        expect(titles()).toContain("Campaign Created — Access Setting Not Saved"),
+      );
+      expect(titles()).toContain("Campaign Escrow Live on Stellar!");
+      expect(titles()).not.toContain("Failed to Create Campaign");
+      expect(web3.createCampaignOnChain).toHaveBeenCalledTimes(1);
+    } finally {
+      setItemSpy.mockRestore();
+    }
   });
 
   it("stops after a failed approval and never creates", async () => {

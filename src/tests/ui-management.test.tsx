@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { UI_STATE_VERSION } from "../lib/uiStateCache";
 import { UserMenu } from "../components/shared/UserMenu";
 import { Header } from "../components/shared/Header";
 import { EscrowReserveIndicator } from "../components/advertiser/EscrowReserveIndicator";
@@ -141,6 +142,91 @@ describe("UI management components", () => {
 
     renderTabs();
     expect(screen.getByText("Overview panel")).toBeTruthy();
+  });
+
+  it("stores dashboard tabs in a versioned, schema-safe envelope", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:versioned-view`;
+    const firstRender = renderTabs({ storageKey: "versioned-view" });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
+
+    const envelope = JSON.parse(window.localStorage.getItem(storageKey) ?? "null");
+    expect(envelope).toMatchObject({ v: UI_STATE_VERSION, value: "activity" });
+    expect(envelope.updatedAt).toEqual(expect.any(Number));
+
+    firstRender.unmount();
+    renderTabs({ storageKey: "versioned-view" });
+    expect(screen.getByText("Activity panel")).toBeTruthy();
+  });
+
+  it("evicts a stale-version tab entry and falls back to the default", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:stale-view`;
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ v: UI_STATE_VERSION + 1, value: "activity" }),
+    );
+
+    renderTabs({ storageKey: "stale-view" });
+
+    expect(screen.getByText("Overview panel")).toBeTruthy();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it("evicts a tab entry with an invalid timestamp instead of migrating it", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:bad-timestamp-view`;
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ v: UI_STATE_VERSION, updatedAt: -1, value: "activity" }),
+    );
+
+    renderTabs({ storageKey: "bad-timestamp-view" });
+
+    expect(screen.getByText("Overview panel")).toBeTruthy();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it("evicts an off-schema tab value instead of rendering it", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:invalid-view`;
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ v: UI_STATE_VERSION, value: "removed-view" }),
+    );
+
+    renderTabs({ storageKey: "invalid-view" });
+
+    expect(screen.getByText("Overview panel")).toBeTruthy();
+    expect(window.localStorage.getItem(storageKey)).toBeNull();
+  });
+
+  it("migrates legacy plain-string tab values into the versioned cache", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:legacy-view`;
+    window.localStorage.setItem(storageKey, "activity");
+
+    renderTabs({ storageKey: "legacy-view" });
+
+    expect(screen.getByText("Activity panel")).toBeTruthy();
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "null")).toMatchObject({
+      v: UI_STATE_VERSION,
+      value: "activity",
+    });
+  });
+
+  it("hydrates tab changes written by another tab through the versioned cache", () => {
+    const storageKey = `stormsale.tabs:${window.location.pathname}:sync-view`;
+    renderTabs({ storageKey: "sync-view" });
+    expect(screen.getByText("Overview panel")).toBeTruthy();
+
+    const newValue = JSON.stringify({
+      v: UI_STATE_VERSION,
+      updatedAt: Date.now(),
+      value: "activity",
+    });
+    window.localStorage.setItem(storageKey, newValue);
+    act(() => {
+      window.dispatchEvent(new StorageEvent("storage", { key: storageKey, newValue }));
+    });
+
+    expect(screen.getByText("Activity panel")).toBeTruthy();
   });
 
   it("replaces inactive panels immediately while retaining the enter animation", () => {

@@ -8,6 +8,9 @@ import {
   SkeletonMetric,
   SkeletonWidget,
   SkeletonTable,
+  SkeletonTableRow,
+  SkeletonCard,
+  SkeletonDashboardOverview,
 } from "../components/ui/skeleton";
 
 describe("SkeletonLoader System (#7, #4)", () => {
@@ -76,5 +79,30 @@ describe("SkeletonLoader System (#7, #4)", () => {
     // 3 rows * 5 cells = 15 cells + 5 header + pagination elements
     const elements = html.match(/role="status"/g);
     expect(elements && elements.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it("renders table row skeleton with specified columns", () => {
+    const html = renderToStaticMarkup(<SkeletonTableRow columns={4} />);
+    expect(html).toContain('role="row"');
+    const cells = html.match(/role="status"/g);
+    expect(cells).toHaveLength(4);
+  });
+
+  it("renders card skeleton with header and lines", () => {
+    const html = renderToStaticMarkup(
+      <SkeletonCard showHeader={true} lines={3} showFooter={true} />,
+    );
+    expect(html).toContain("rounded-xl");
+    expect(html).toContain("border-zinc-200");
+    const elements = html.match(/role="status"/g);
+    expect(elements && elements.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("renders full dashboard overview skeleton layout", () => {
+    const html = renderToStaticMarkup(<SkeletonDashboardOverview metricCount={4} tableRows={5} />);
+    expect(html).toContain("grid-cols-1");
+    expect(html).toContain("space-y-6");
+    const elements = html.match(/role="status"/g);
+    expect(elements && elements.length).toBeGreaterThanOrEqual(30);
   });
 });

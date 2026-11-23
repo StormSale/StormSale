@@ -7,10 +7,7 @@ import {
   topUpCampaignEscrowContractCall,
   type AutoTopUpConfig,
 } from "../lib/escrowTopUp";
-import {
-  approveTokenContractCall,
-  getTokenAllowanceQuery,
-} from "../lib/stellar";
+import { approveTokenContractCall, getTokenAllowanceQuery } from "../lib/stellar";
 import { initialMockCampaigns } from "../components/advertiser/MyCampaignsList";
 
 describe("[Advertiser] Automated Escrow Top-Up Logic (#107)", () => {
@@ -33,8 +30,16 @@ describe("[Advertiser] Automated Escrow Top-Up Logic (#107)", () => {
       length: 0,
       key: () => null,
     };
-    (globalThis as any).window = { localStorage: mockStorage };
-    (globalThis as any).localStorage = mockStorage;
+    Object.defineProperty(window, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockStorage,
+      configurable: true,
+      writable: true,
+    });
   });
 
   describe("User-Defined Trigger Thresholds", () => {
@@ -284,17 +289,17 @@ describe("[Advertiser] Automated Escrow Top-Up Logic (#107)", () => {
     });
 
     it("rejects top-up with non-positive amount or missing address", async () => {
-      await expect(
-        topUpCampaignEscrowContractCall(testAdvertiser, 1, 0, "mock"),
-      ).rejects.toThrow("Top-up amount must be greater than zero");
+      await expect(topUpCampaignEscrowContractCall(testAdvertiser, 1, 0, "mock")).rejects.toThrow(
+        "Top-up amount must be greater than zero",
+      );
 
       await expect(
         topUpCampaignEscrowContractCall(testAdvertiser, 1, -500, "mock"),
       ).rejects.toThrow("Top-up amount must be greater than zero");
 
-      await expect(
-        topUpCampaignEscrowContractCall("", 1, 1000, "mock"),
-      ).rejects.toThrow("Wallet not connected");
+      await expect(topUpCampaignEscrowContractCall("", 1, 1000, "mock")).rejects.toThrow(
+        "Wallet not connected",
+      );
     });
   });
 

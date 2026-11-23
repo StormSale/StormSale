@@ -1,6 +1,6 @@
 {
   "name": "storm-sale",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": true,
   "description": "\tThe future of affiliate bridging the gap between marketers and end users",
   "homepage": "https://github.com/StormSale/StormSale#readme",
@@ -43,8 +43,8 @@
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^17.1.0",
     "@tailwindcss/vite": "^4.3.3",
-    "buffer": "^6.0.3",
     "@upstash/redis": "^1.39.0",
+    "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
@@ -78,6 +78,7 @@
     "@vercel/node": "^24.0.3",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.5",
+    "axe-core": "^4.14.1",
     "eslint": "^10.10.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -88,13 +89,15 @@
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^17.5.1",
-    "semantic-release": "^25.0.9",
     "php-parser": "^3.7.0",
     "rollup-plugin-visualizer": "^5.14.0",
+    "semantic-release": "^25.0.9",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
-    "vitest": "^5.0.1"
+    "vite-plugin-pwa": "^2.0.0",
+    "vitest": "^5.0.1",
+    "workbox-window": "^7.4.1"
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx}": [
