@@ -1,8 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { z } from "zod";
-import { useIndexerQuery } from "../../hooks/useIndexerQuery";
+import { useRoleQuery } from "../../hooks/useRoleQuery";
 import { useFilterState } from "../../hooks/useFilterState";
-import { CAMPAIGN_HISTORY_QUERY, type IndexerCampaign } from "../../lib/indexer/goldskyIndexer";
+import {
+  CAMPAIGN_HISTORY_QUERY,
+  executeGraphQLQuery,
+  type IndexerCampaign,
+  type IndexerQueryResult,
+} from "../../lib/indexer/goldskyIndexer";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
@@ -299,15 +304,20 @@ export const MyCampaignsList = () => {
     connectorType,
   } = useWeb3();
 
-  // Subgraph / Goldsky Indexer Query Integration with RPC Fallback (#202)
-  const {
-    data: indexerData,
-    loading: isIndexerLoading,
-    isFallback: isIndexerFallback,
-    latencyMs: indexerLatencyMs,
-  } = useIndexerQuery<{ campaigns: IndexerCampaign[] }>(CAMPAIGN_HISTORY_QUERY, {
-    advertiser: userAddress || undefined,
+  // Shared role-aware cache with the existing indexer-to-RPC fallback (#67, #202)
+  const campaignHistoryQuery = useRoleQuery<IndexerQueryResult<{ campaigns: IndexerCampaign[] }>>({
+    role: "advertiser",
+    address: userAddress,
+    resource: "campaign-history",
+    queryFn: () =>
+      executeGraphQLQuery<{ campaigns: IndexerCampaign[] }>(CAMPAIGN_HISTORY_QUERY, {
+        advertiser: userAddress ?? undefined,
+      }),
   });
+  const indexerData = campaignHistoryQuery.data?.data ?? null;
+  const isIndexerLoading = campaignHistoryQuery.isLoading;
+  const isIndexerFallback = campaignHistoryQuery.data?.isFallback ?? false;
+  const indexerLatencyMs = campaignHistoryQuery.data?.latencyMs ?? 0;
 
   useEffect(() => {
     if (indexerData?.campaigns && indexerData.campaigns.length > 0) {

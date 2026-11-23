@@ -17,7 +17,12 @@ vi.mock("../config/stellar", () => ({
     nativeDecimals: 7,
   },
   SUPPORTED_ESCROW_ASSETS: {
-    XLM: { code: "XLM", name: "Stellar Lumens", decimals: 7, contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC" },
+    XLM: {
+      code: "XLM",
+      name: "Stellar Lumens",
+      decimals: 7,
+      contractAddress: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",
+    },
     USDC: { code: "USDC", name: "USD Coin", decimals: 7, contractAddress: "CUSDC" },
     EURC: { code: "EURC", name: "Euro Coin", decimals: 7, contractAddress: "CEURC" },
   },
@@ -52,6 +57,13 @@ vi.mock("../hooks/useWeb3", () => ({
     refundCampaignEscrow: wallet.refundCampaignEscrow,
     approveTokenAllowance: wallet.approveTokenAllowance,
     refreshTokenAllowance: wallet.refreshTokenAllowance,
+  }),
+}));
+
+vi.mock("../hooks/useRoleQuery", () => ({
+  useRoleQuery: () => ({
+    data: null,
+    isLoading: false,
   }),
 }));
 
