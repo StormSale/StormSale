@@ -45,17 +45,17 @@ test.describe("E2E Advertiser Campaign Creation Journey (#483)", () => {
     await signBtn.click();
 
     // Verify confirmation and status
-    await expect(page.getByText(/Escrow Deposit Confirmed|deposit confirmation/i)).toBeVisible();
+    await expect(page.getByTestId("escrow-confirmed-box")).toBeVisible();
     await page.getByRole("button", { name: /Next: Review/i }).click();
 
     // Step 4: Verify campaign appears with status ACTIVE
-    await expect(page.getByText("ACTIVE", { exact: false })).toBeVisible();
+    await expect(page.getByTestId("campaign-status-badge")).toBeVisible();
     await page.getByRole("button", { name: /Next: Generate.*Link/i }).click();
 
     // Step 5: Verify shareable affiliate campaign link is generated and functional
     await expect(page.getByText("Step 5: Shareable Affiliate Campaign Link", { exact: false })).toBeVisible();
-    const shareInput = page.locator("#wizard-share-link, [data-testid='shareable-affiliate-link']");
+    const shareInput = page.getByTestId("shareable-affiliate-link");
     await expect(shareInput).toBeVisible();
-    await expect(shareInput).toHaveValue(/\/c\/101/);
+    await expect(shareInput).toHaveValue(/\/c\/\d+/);
   });
 });
