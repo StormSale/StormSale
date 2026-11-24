@@ -100,7 +100,7 @@ test.describe("Affiliate Claim Lifecycle E2E (#93)", () => {
     );
 
     // Delta should match the total of the matured mock campaigns (155.75 XLM)
-    expect(updatedBalance - initialBalance).toBeGreaterThanOrEqual(155.0);
+    expect(updatedBalance - initialBalance).toBeCloseTo(155.75, 2);
   });
 
   // -------------------------------------------------------------------------
@@ -133,28 +133,33 @@ test.describe("Affiliate Claim Lifecycle E2E (#93)", () => {
   test("low-gas error shows error notification with tx_insufficient_fee", async ({ page }) => {
     await setupAffiliateClaims(page);
 
+    // Read initial balance before attempting claim
+    const accountMenuBtn = visible(page.getByRole("button", { name: /account menu/i }));
+    await accountMenuBtn.click();
+    const balanceBeforeTx = (await page.getByTestId("user-xlm-balance").textContent()) ?? "0 XLM";
+    const balanceBefore = parseFloat(balanceBeforeTx.replace(/[^0-9.]/g, ""));
+    await accountMenuBtn.click();
+
     // Inject the low-gas flag into the browser context BEFORE triggering a claim
     await page.evaluate(() => {
-      (window as unknown as Record<string, unknown>).__SIMULATE_LOW_GAS__ = true;
+      window.__SIMULATE_LOW_GAS__ = true;
     });
 
     // Trigger batch claim — it must fail with an insufficient-fee error
     await page.getByTestId("btn-batch-claim").click();
 
-    // An error notification must appear
+    // An error notification must appear specifically referencing tx_insufficient_fee
     const errorToast = page
       .getByTestId("notification-toast")
-      .filter({ hasText: /tx_insufficient_fee|insufficient.*fee|insufficient.*gas|failed/i })
+      .filter({ hasText: /tx_insufficient_fee/i })
       .first();
     await expect(errorToast).toBeVisible({ timeout: 15_000 });
 
     // The balance must NOT have changed (error path preserves state)
-    const accountMenuBtn = visible(page.getByRole("button", { name: /account menu/i }));
     await accountMenuBtn.click();
     const balanceText = (await page.getByTestId("user-xlm-balance").textContent()) ?? "0 XLM";
     const balanceAfterError = parseFloat(balanceText.replace(/[^0-9.]/g, ""));
-    // Initial mock balance is 10 000.00; it must not have increased
-    expect(balanceAfterError).toBeLessThanOrEqual(10_000.0);
+    expect(balanceAfterError).toBeCloseTo(balanceBefore, 2);
   });
 
   // -------------------------------------------------------------------------

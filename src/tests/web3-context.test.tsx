@@ -444,4 +444,66 @@ describe("Web3Context Suite — Automated Escrow Top-Up & Wallet Integration (#1
     });
     expect(mockRefundRes.success).toBe(true);
   });
+
+  it("handles affiliate single and batch claims in mock mode with balance updates and low gas simulation", async () => {
+    const { result } = renderHook(() => useWeb3(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectWallet("mock", "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777");
+    });
+
+    expect(result.current.xlmBalance).toBe("10000.00");
+
+    // Test low gas simulation on single claim
+    window.__SIMULATE_LOW_GAS__ = true;
+    await expect(result.current.claimPayoutOnChain(101)).rejects.toThrow(/tx_insufficient_fee/);
+    delete window.__SIMULATE_LOW_GAS__;
+
+    // Successful single claim in mock mode
+    await act(async () => {
+      const claimRes = await result.current.claimPayoutOnChain(101);
+      expect(claimRes.success).toBe(true);
+    });
+    // Campaign 101 has 45.5 XLM -> 10000.00 + 45.50 = 10045.50
+    expect(result.current.xlmBalance).toBe("10045.50");
+
+    // Test low gas simulation on batch claim
+    window.__SIMULATE_LOW_GAS__ = true;
+    const mockBatchItems = [
+      {
+        campaignId: 204,
+        campaignName: "Test 204",
+        advertiserAddress: "GB...",
+        maturedSalesCount: 1,
+        claimableXlm: 50.0,
+        clearingPeriodDays: 7,
+        lastSaleDate: "2026-10-01",
+        status: "matured" as const,
+      },
+    ];
+    await expect(result.current.batchClaimPayoutsOnChain(mockBatchItems)).rejects.toThrow(/tx_insufficient_fee/);
+    delete window.__SIMULATE_LOW_GAS__;
+
+    // Successful batch claim in mock mode
+    await act(async () => {
+      const batchRes = await result.current.batchClaimPayoutsOnChain(mockBatchItems);
+      expect(batchRes.success).toBe(true);
+    });
+    // 10045.50 + 50.00 = 10095.50
+    expect(result.current.xlmBalance).toBe("10095.50");
+
+    // Batch claim with non-mock connector schedules balance refresh
+    (window as any).__MOCK_BATCH__ = true;
+    try {
+      await act(async () => {
+        await result.current.connectWallet("freighter");
+      });
+      await act(async () => {
+        const nonMockBatch = await result.current.batchClaimPayoutsOnChain(mockBatchItems);
+        expect(nonMockBatch.success).toBe(true);
+      });
+    } finally {
+      delete (window as any).__MOCK_BATCH__;
+    }
+  });
 });

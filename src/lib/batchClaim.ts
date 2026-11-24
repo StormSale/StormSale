@@ -26,6 +26,13 @@ import {
   buildSwapOperations,
 } from "./sorobanDex";
 import { isAffiliatePaused } from "./fraudRiskEngine";
+declare global {
+  interface Window {
+    __SIMULATE_LOW_GAS__?: boolean;
+    __MOCK_BATCH__?: boolean;
+  }
+}
+
 const MOCK_AFFILIATE_ADDRESS = "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777";
 
 function isPlausibleStellarAddress(address: string): boolean {
@@ -196,7 +203,7 @@ export async function executeBatchCommissionClaim(
       `Payout claim rejected: Affiliate address ${affiliateAddress} is paused due to fraud risk review.`,
     );
   }
-  if (typeof window !== "undefined" && (window as any).__SIMULATE_LOW_GAS__) {
+  if (typeof window !== "undefined" && window.__SIMULATE_LOW_GAS__) {
     throw new Error(
       "Transaction failed: tx_insufficient_fee (Insufficient gas / resource fee for Soroban contract invocation)",
     );
@@ -238,7 +245,7 @@ export async function executeBatchCommissionClaim(
   if (walletType === "readonly") {
     throw new Error("Readonly wallet cannot sign a batch claim transaction.");
   }
-  if (walletType === "mock" || (typeof window !== "undefined" && (window as any).__MOCK_BATCH__)) {
+  if (walletType === "mock" || (typeof window !== "undefined" && window.__MOCK_BATCH__)) {
     const mockHash = "0x" + randomHex64();
 
     return {
