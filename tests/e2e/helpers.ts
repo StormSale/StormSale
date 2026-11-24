@@ -132,6 +132,24 @@ export async function mockBackend(page: Page) {
   await page.route("**/*pravatar.cc/**", (route) =>
     route.fulfill({ status: 200, contentType: "image/jpeg", headers: corsHeaders, body: "" }),
   );
+  await page.route("**/*coingecko.com/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: corsHeaders,
+      body: JSON.stringify({
+        stellar: { usd: 0.12, eur: 0.11, usdc: 0.12, last_updated_at: Math.floor(Date.now() / 1000) },
+      }),
+    }),
+  );
+  await page.route("**/*pyth.network/**", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      headers: corsHeaders,
+      body: JSON.stringify({ parsed: [{ price: { price: "12000000", expo: -8 } }] }),
+    }),
+  );
 }
 
 /** The sidebar renders a desktop and a mobile copy; return the one that is actually visible. */
