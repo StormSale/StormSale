@@ -289,7 +289,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
                 onClick={() => setCurrentStep(2)}
                 className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm flex items-center gap-2"
               >
-                <span>Next: Budget & Allocation</span>
+                <span>Next: Budget & Rules</span>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -354,12 +354,12 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="wizard-commission" className="text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
+                <Label htmlFor="wizard-commission-rate" className="text-xs font-bold uppercase tracking-wider text-zinc-600 dark:text-zinc-300">
                   Commission per Sale (%)
                 </Label>
                 <Input
-                  id="wizard-commission"
-                  data-testid="wizard-commission"
+                  id="wizard-commission-rate"
+                  data-testid="wizard-commission-rate"
                   type="number"
                   min="1"
                   max="50"
@@ -406,7 +406,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
                 onClick={() => setCurrentStep(3)}
                 className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm flex items-center gap-2"
               >
-                <span>Next: Escrow Funding</span>
+                <span>Next: Escrow Deposit</span>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -455,7 +455,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
               >
                 <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400 font-bold text-sm">
                   <CheckCircle2 className="w-5 h-5 shrink-0" />
-                  <span>Soroban escrow deposit confirmation received!</span>
+                  <span>Escrow Deposit Confirmed — Soroban escrow deposit confirmation received!</span>
                 </div>
                 {txHash && (
                   <p className="text-xs font-mono text-zinc-600 dark:text-zinc-400 truncate">
@@ -473,7 +473,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
                   className="h-12 px-8 rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-sm shadow-md"
                 >
                   <Zap className="w-4 h-4 mr-2" />
-                  {isSigning ? "Signing via Wallet..." : "Sign & Confirm Escrow Deposit"}
+                  {isSigning ? "Signing via Wallet..." : "Sign & Deposit Escrow"}
                 </Button>
               </div>
             )}
@@ -495,7 +495,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
                 onClick={() => setCurrentStep(4)}
                 className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm flex items-center gap-2"
               >
-                <span>Next: Review Campaign</span>
+                <span>Next: Review Active Campaign</span>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -582,7 +582,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
                 onClick={() => setCurrentStep(5)}
                 className="h-11 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-sm flex items-center gap-2"
               >
-                <span>Next: Generate Affiliate Link</span>
+                <span>Next: Generate Shareable Link</span>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
@@ -616,6 +616,7 @@ export const CreateCampaignWizard: React.FC<CreateCampaignWizardProps> = ({
               </Label>
               <div className="flex items-center gap-2">
                 <Input
+                  id="wizard-share-link"
                   data-testid="shareable-affiliate-link"
                   readOnly
                   value={shareableLink}
