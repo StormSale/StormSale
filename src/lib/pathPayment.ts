@@ -15,9 +15,8 @@ import {
   TransactionBuilder,
   Account,
   BASE_FEE,
-  Keypair,
 } from "@stellar/stellar-sdk";
-import { ISSUERS, STELLAR_CONFIG } from "../config/stellar";
+import { ISSUERS } from "../config/stellar";
 
 export interface PathPaymentQuote {
   sourceAsset: "XLM" | "USDC" | "EURC";
@@ -58,7 +57,7 @@ export const MOCK_PATH_RATES: Record<string, number> = {
  */
 export function resolveStellarAsset(
   code: "XLM" | "USDC" | "EURC" | Asset | any,
-  network: "TESTNET" | "PUBLIC" = "TESTNET"
+  network: "TESTNET" | "PUBLIC" = "TESTNET",
 ): Asset {
   if (code instanceof Asset) {
     return code;
@@ -69,7 +68,8 @@ export function resolveStellarAsset(
   if (code === "XLM") {
     return Asset.native();
   }
-  const issuer = ISSUERS[network]?.[code as "USDC" | "EURC"] || ISSUERS.TESTNET[code as "USDC" | "EURC"];
+  const issuer =
+    ISSUERS[network]?.[code as "USDC" | "EURC"] || ISSUERS.TESTNET[code as "USDC" | "EURC"];
   return new Asset(code as string, issuer);
 }
 
