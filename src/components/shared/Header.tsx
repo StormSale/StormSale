@@ -15,11 +15,13 @@ import {
   Network,
   LoaderCircle,
   CheckCircle2,
+  Building2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import logo from "../../assets/logo2.png";
 import { UserMenu } from "./UserMenu";
+import { useOrganization } from "../../context/OrganizationContext";
 import { verifyFreighterNetwork } from "../../lib/networkVerification";
 import {
   checkContractIntegrity,
@@ -72,6 +74,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     txQueueStatus,
     isTxQueueBusy,
   } = useWeb3();
+  const { organization, currentRole } = useOrganization();
   const { isTelegram, user, platform } = useTelegram();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSwitchingNetwork, setIsSwitchingNetwork] = useState(false);
@@ -343,6 +346,28 @@ export const Header = ({ onNavigate }: HeaderProps) => {
 
           {isConnected ? (
             <div className="flex items-center space-x-2.5">
+              {/* Organization Switcher (#489) */}
+              <div
+                data-testid="organization-switcher"
+                className="hidden md:flex items-center space-x-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/70 text-xs font-semibold cursor-pointer shadow-sm hover:border-indigo-500/40 transition-colors"
+                title={`Active Enterprise Organization: ${organization?.name || "StormSale Enterprise"}`}
+              >
+                <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="font-bold text-zinc-800 dark:text-zinc-200 truncate max-w-[140px]" data-testid="org-switcher-name">
+                  {organization?.name || "Enterprise"}
+                </span>
+                <span
+                  className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 uppercase"
+                  data-testid="org-switcher-role"
+                >
+                  {currentRole === "CAMPAIGN_MANAGER"
+                    ? "Campaign Manager"
+                    : currentRole === "ADMIN"
+                      ? "Admin"
+                      : currentRole || "Member"}
+                </span>
+              </div>
+
               <UserMenu onNavigate={onNavigate} />
 
               {isMultiSigAccount && (

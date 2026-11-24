@@ -1,8 +1,15 @@
 /**
- * StormSale Team Permission & Multi-User Organization Types (#154)
+ * StormSale Team Permission & Multi-User Organization Types (#154, #489)
  */
 
-export type OrganizationRole = "ADMIN" | "MARKETING_MANAGER" | "EDITOR" | "FINANCE" | "VIEWER" | "NONE";
+export type OrganizationRole =
+  | "ADMIN"
+  | "MARKETING_MANAGER"
+  | "CAMPAIGN_MANAGER"
+  | "EDITOR"
+  | "FINANCE"
+  | "VIEWER"
+  | "NONE";
 
 export type OrganizationCapability =
   | "campaign:create"
@@ -24,6 +31,9 @@ export interface TeamMember {
   authSignatureStatus: "verified" | "pending";
   signatureTimestamp?: string;
   authSignature?: string;
+  email?: string;
+  inviteToken?: string;
+  status?: "PENDING" | "ACTIVE" | "REVOKED";
 }
 
 export interface OrganizationState {

@@ -31,6 +31,7 @@ export const OrganizationManagement: React.FC = () => {
     currentRole,
     hasCapability,
     addTeamMember,
+    inviteTeamMember,
     updateMemberRole,
     removeTeamMember,
     switchActiveRole,
@@ -44,7 +45,26 @@ export const OrganizationManagement: React.FC = () => {
   const [addressError, setAddressError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<OrganizationRole>("CAMPAIGN_MANAGER");
+  const [generatedInviteLink, setGeneratedInviteLink] = useState("");
+  const [isInviting, setIsInviting] = useState(false);
+
   const isAdmin = hasCapability("team:manage");
+
+  const handleSendInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isAdmin || !inviteEmail.trim()) return;
+    setIsInviting(true);
+    try {
+      const res = await inviteTeamMember(inviteEmail.trim(), inviteRole);
+      if (res.success && res.inviteLink) {
+        setGeneratedInviteLink(res.inviteLink);
+      }
+    } finally {
+      setIsInviting(false);
+    }
+  };
 
   const handleAddressChange = (val: string) => {
     setNewWalletAddress(val);
@@ -353,6 +373,9 @@ export const OrganizationManagement: React.FC = () => {
                   <option value="ADMIN">
                     Admin (Full Control, Team Management, Refunds, Campaigns)
                   </option>
+                  <option value="CAMPAIGN_MANAGER">
+                    Campaign Manager (Campaigns, Branding, Sale Logging, Analytics)
+                  </option>
                   <option value="EDITOR">Editor (Campaign Editing, Sale Logging, Analytics)</option>
                   <option value="MARKETING_MANAGER">
                     Marketing Manager (Campaigns, Branding, Sale Logging)
@@ -396,6 +419,106 @@ export const OrganizationManagement: React.FC = () => {
                 {isSubmitting ? "Authorizing..." : "Add Team Member"}
               </Button>
             </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* B2B Enterprise Multi-Seat Member Invitation (#489) */}
+      <Card className="border border-indigo-500/20 shadow-md rounded-3xl bg-white/90 dark:bg-zinc-900/80 overflow-hidden" data-testid="b2b-invite-section">
+        <CardHeader className="p-6 md:p-8 border-b border-slate-100 dark:border-zinc-800/60">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <CardTitle className="text-lg font-bold text-zinc-900 dark:text-white">
+                  B2B Enterprise Team Member Invitation
+                </CardTitle>
+                <CardDescription className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                  Invite enterprise administrators or campaign managers via secure onboarding link
+                </CardDescription>
+              </div>
+            </div>
+            {!isAdmin && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-800">
+                <Lock className="w-3.5 h-3.5" />
+                Admin Action Only
+              </span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="p-6 md:p-8">
+          <form onSubmit={handleSendInvite} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                  Invited Member Email
+                </label>
+                <Input
+                  disabled={!isAdmin}
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="e.g. admin@enterprise.com"
+                  className="h-12 rounded-xl text-xs border-slate-200 dark:border-zinc-800"
+                  data-testid="input-invite-email"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                  Seat Role Assignment
+                </label>
+                <div className="relative">
+                  <select
+                    disabled={!isAdmin}
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as OrganizationRole)}
+                    className="w-full h-12 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 text-xs font-bold text-zinc-900 dark:text-white appearance-none cursor-pointer pr-10 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    data-testid="select-invite-role"
+                  >
+                    <option value="CAMPAIGN_MANAGER">Campaign Manager</option>
+                    <option value="ADMIN">Admin</option>
+                    <option value="MARKETING_MANAGER">Marketing Manager</option>
+                    <option value="EDITOR">Editor</option>
+                    <option value="FINANCE">Finance</option>
+                    <option value="VIEWER">Viewer</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-zinc-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                disabled={!isAdmin || isInviting || !inviteEmail.trim()}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl h-11 px-8 text-sm shadow-md transition-all"
+                data-testid="btn-send-invite"
+              >
+                {isInviting ? "Inviting..." : "Send Invite"}
+              </Button>
+            </div>
+
+            {generatedInviteLink && (
+              <div
+                className="p-4 rounded-2xl bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800/50 space-y-2"
+                data-testid="invite-link-preview"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                    Active Invitation Link
+                  </span>
+                  <CopyButton text={generatedInviteLink} label="Copy Invite Link" />
+                </div>
+                <Input
+                  readOnly
+                  value={generatedInviteLink}
+                  className="font-mono text-xs bg-white dark:bg-zinc-900 h-10 rounded-lg"
+                />
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>
@@ -456,6 +579,11 @@ export const OrganizationManagement: React.FC = () => {
                             </span>
                           )}
                         </div>
+                        {member.email && (
+                          <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-mono truncate max-w-[200px]" data-testid={`member-email-${member.id}`}>
+                            {member.email}
+                          </div>
+                        )}
                         <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
                           Added {new Date(member.addedAt).toLocaleDateString()}
                         </div>
@@ -463,12 +591,16 @@ export const OrganizationManagement: React.FC = () => {
 
                       {/* Stellar Address */}
                       <td className="py-4 px-6 font-mono text-zinc-600 dark:text-zinc-300">
-                        <div className="flex items-center gap-2">
-                          <span title={member.walletAddress}>
-                            {formatStellarAddress(member.walletAddress)}
-                          </span>
-                          <CopyButton text={member.walletAddress} label="Copy address" />
-                        </div>
+                        {member.walletAddress ? (
+                          <div className="flex items-center gap-2">
+                            <span title={member.walletAddress}>
+                              {formatStellarAddress(member.walletAddress)}
+                            </span>
+                            <CopyButton text={member.walletAddress} label="Copy address" />
+                          </div>
+                        ) : (
+                          <span className="italic text-zinc-400 text-xs">Pending wallet connection</span>
+                        )}
                       </td>
 
                       {/* Role Dropdown */}
@@ -484,8 +616,9 @@ export const OrganizationManagement: React.FC = () => {
                               data-testid={`role-select-${member.id}`}
                             >
                               <option value="ADMIN">Admin</option>
-                              <option value="EDITOR">Editor</option>
+                              <option value="CAMPAIGN_MANAGER">Campaign Manager</option>
                               <option value="MARKETING_MANAGER">Marketing Manager</option>
+                              <option value="EDITOR">Editor</option>
                               <option value="FINANCE">Finance</option>
                               <option value="VIEWER">Viewer</option>
                             </select>
@@ -500,17 +633,23 @@ export const OrganizationManagement: React.FC = () => {
                         )}
                       </td>
 
-                      {/* Signature Status */}
+                      {/* Signature / Seat Status */}
                       <td className="py-4 px-6">
-                        {isVerified ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                            Verified
+                        {member.status === "PENDING" ? (
+                          <span
+                            data-testid={`member-status-${member.id}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                          >
+                            <Clock className="w-3 h-3 text-amber-500" />
+                            PENDING
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
-                            <Clock className="w-3 h-3 text-amber-500" />
-                            Pending Sign
+                          <span
+                            data-testid={`member-status-${member.id}`}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
+                          >
+                            <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                            ACTIVE
                           </span>
                         )}
                       </td>

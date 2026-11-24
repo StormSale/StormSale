@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect } from "react";
 import QRCode from "qrcode";
 import {
   Card,
@@ -12,7 +12,6 @@ import {
   TrendingUp,
   Users,
   DollarSign,
-  Target,
   Zap,
   ArrowRight,
   CheckCircle2,
@@ -297,8 +296,39 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
   onNavigateToMilestones,
 }) => {
   const { userAddress } = useWeb3();
+  const [pendingCommission, setPendingCommission] = useState<string>(() => {
+    try {
+      return localStorage.getItem("stormsale.pendingCommission") || "45.50 XLM";
+    } catch {
+      return "45.50 XLM";
+    }
+  });
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      try {
+        const val = localStorage.getItem("stormsale.pendingCommission");
+        if (val) setPendingCommission(val);
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("storage", handleUpdate);
+    window.addEventListener("stormsale:conversion", handleUpdate);
+    return () => {
+      window.removeEventListener("storage", handleUpdate);
+      window.removeEventListener("stormsale:conversion", handleUpdate);
+    };
+  }, []);
+
   const profile = getAffiliateProfile(userAddress || "", userAddress);
   const stats = [
+    {
+      title: "Pending Commission",
+      value: pendingCommission,
+      change: "Ready to claim",
+      icon: DollarSign,
+    },
     {
       title: "Total Earnings",
       value: "$12,847",
@@ -312,7 +342,6 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
       change: "+0.4% vs last month",
       icon: TrendingUp,
     },
-    { title: "Monthly Goal", value: "85%", change: "On track", icon: Target },
   ];
 
   const recentPayouts = [

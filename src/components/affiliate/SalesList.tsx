@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useContext } from "react";
 import { Button } from "../../components/ui/button";
 import {
   Card,
@@ -30,8 +30,24 @@ import {
   unwrapAESKey,
   getPublicKeyForAddress,
 } from "../../lib/crypto";
-import { Shield, Lock, CheckCircle2, Clock, Search, ExternalLink, FileText, X } from "lucide-react";
+import {
+  Shield,
+  Lock,
+  CheckCircle2,
+  Clock,
+  Search,
+  ExternalLink,
+  FileText,
+  X,
+  AlertTriangle,
+  Scale,
+} from "lucide-react";
 import { getStellarExpertUrl } from "../../lib/stellar/explorer";
+import { NotificationContext } from "../../context/NotificationContext";
+import { DisputeModal } from "./DisputeModal";
+import { getAllDisputeRecords, type DisputeRecord } from "../../lib/affiliateDispute";
+
+export type SaleStatus = "in_clearing" | "unlocked" | "claimed" | "disputed" | "under_review";
 
 export interface Sale {
   id: number;
@@ -41,8 +57,14 @@ export interface Sale {
   timestamp: number;
   clearingPeriod: number;
   claimed: boolean;
-  /** Stellar transaction hash for settled claims (#51). */
+  /** Explicit status of the conversion; supports disputed and auditor review states (#171) */
+  status?: SaleStatus;
+  /** Stellar transaction hash for settled claims (#51) or linked conversion hash */
   txHash?: string;
+  /** Assigned dispute tracking docket ID when under protocol auditor review (#171) */
+  disputeDocketId?: string;
+  /** Timestamp when the dispute docket was created (#171) */
+  disputeSubmittedAt?: number;
   /** Explicit receipt URL override (e.g. block explorer or modal). */
   receiptUrl?: string;
   /** Base64 AES-GCM envelope produced by encryptPayload. Absent for legacy mock rows. */
@@ -59,7 +81,7 @@ export interface SalesListProps {
   allowDemoFallback?: boolean;
 }
 
-export type SaleStatusFilter = "all" | "claimed" | "unlocked" | "clearing";
+export type SaleStatusFilter = "all" | "claimed" | "unlocked" | "clearing" | "disputed";
 
 export const DEFAULT_CLEARING_PERIOD = 604800; // 7 days in seconds
 
@@ -84,16 +106,14 @@ export function calculateClearing(
   const minutes = Math.floor((remainingSeconds % 3600) / 60);
   const seconds = Math.floor(remainingSeconds % 60);
 
-  let countdownText: string;
-  if (days > 0) {
-    countdownText = `${days}d ${hours}h ${minutes}m ${seconds}s`;
-  } else if (hours > 0) {
-    countdownText = `${hours}h ${minutes}m ${seconds}s`;
-  } else if (minutes > 0) {
-    countdownText = `${minutes}m ${seconds}s`;
-  } else {
-    countdownText = `${seconds}s`;
-  }
+  const countdownText =
+    days > 0
+      ? `${days}d ${hours}h ${minutes}m ${seconds}s`
+      : hours > 0
+        ? `${hours}h ${minutes}m ${seconds}s`
+        : minutes > 0
+          ? `${minutes}m ${seconds}s`
+          : `${seconds}s`;
 
   const unlockUtc =
     new Date(unlockTimestamp * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
@@ -121,6 +141,8 @@ export const createInitialMockSales = (): Sale[] => {
       timestamp: now - 86400, // 1 day ago (in clearing)
       clearingPeriod: 604800,
       claimed: false,
+      status: "in_clearing",
+      txHash: "0x1a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b",
     },
     {
       id: 2,
@@ -130,6 +152,7 @@ export const createInitialMockSales = (): Sale[] => {
       timestamp: now - 864000, // 10 days ago (> 7-day clearing period elapsed)
       clearingPeriod: 604800,
       claimed: true,
+      status: "claimed",
       txHash: "c7b52123490df1a88b14e39a174c8b2d3e9112998f4be63c7d64817a402367d0",
     },
     {
@@ -140,6 +163,8 @@ export const createInitialMockSales = (): Sale[] => {
       timestamp: now - 700000, // > 7 days ago (matured & unlocked, ready to claim)
       clearingPeriod: 604800,
       claimed: false,
+      status: "unlocked",
+      txHash: "0x3c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d",
     },
     {
       id: 4,
@@ -149,7 +174,32 @@ export const createInitialMockSales = (): Sale[] => {
       timestamp: now - 1200000, // > 13 days ago
       clearingPeriod: 604800,
       claimed: true,
+      status: "claimed",
       txHash: "4b001a441d80e00aeed3680a3719d1d8b95998c531671aa78ffb41ccf2f41f25",
+    },
+    {
+      id: 5,
+      affiliate: "GBBD...5678",
+      saleAmount: "340.0",
+      commissionAmount: "34.0",
+      timestamp: now - 120000,
+      clearingPeriod: 604800,
+      claimed: false,
+      status: "disputed",
+      txHash: "0x4d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e",
+    },
+    {
+      id: 6,
+      affiliate: "GBBD...5678",
+      saleAmount: "210.0",
+      commissionAmount: "21.0",
+      timestamp: now - 220000,
+      clearingPeriod: 604800,
+      claimed: false,
+      status: "under_review",
+      txHash: "0x5e2f1a0b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f",
+      disputeDocketId: "DKT-2026-9C4F",
+      disputeSubmittedAt: now - 43200,
     },
   ];
 };
@@ -158,17 +208,40 @@ export const SalesList: React.FC<SalesListProps> = ({
   sales: initialSales,
   allowDemoFallback = false,
 }) => {
+  const notifContext = useContext(NotificationContext);
   const [decryptedData, setDecryptedData] = useState<object | null>(null);
   const [decryptError, setDecryptError] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDecrypting, setIsDecrypting] = useState(false);
   const [decryptingId, setDecryptingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState<number>(() => Math.floor(Date.now() / 1000));
-  const [salesList] = useState<Sale[]>(
-    () => initialSales ?? (allowDemoFallback ? createInitialMockSales() : []),
-  );
+
+  // Initialize sales list and sync with persisted dispute dockets
+  const [salesList, setSalesList] = useState<Sale[]>(() => {
+    const base = initialSales ?? (allowDemoFallback ? createInitialMockSales() : []);
+    const storedDisputes = getAllDisputeRecords();
+    if (storedDisputes.length === 0) return base;
+
+    return base.map((sale) => {
+      const match = storedDisputes.find((d) => d.saleId === sale.id);
+      if (match) {
+        return {
+          ...sale,
+          status: "under_review",
+          disputeDocketId: match.docketId,
+          disputeSubmittedAt: match.submittedAt,
+        };
+      }
+      return sale;
+    });
+  });
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>("all");
+
+  // State for dispute submission modal (#171)
+  const [selectedDisputeSale, setSelectedDisputeSale] = useState<Sale | null>(null);
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -177,14 +250,45 @@ export const SalesList: React.FC<SalesListProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  const handleOpenDispute = (sale: Sale) => {
+    setSelectedDisputeSale(sale);
+    setIsDisputeModalOpen(true);
+  };
+
+  const handleDisputeSubmitted = (saleId: number, docketId: string, _record: DisputeRecord) => {
+    setSalesList((prev) =>
+      prev.map((s) =>
+        s.id === saleId
+          ? {
+              ...s,
+              status: "under_review",
+              disputeDocketId: docketId,
+              disputeSubmittedAt: Date.now(),
+            }
+          : s,
+      ),
+    );
+
+    if (notifContext?.showNotification) {
+      notifContext.showNotification({
+        type: "success",
+        title: "Dispute Docket Created",
+        message: `Docket #${docketId} submitted for independent protocol auditor review.`,
+      });
+    }
+  };
+
   const counts = useMemo(() => {
     let claimedCount = 0;
     let unlockedCount = 0;
     let clearingCount = 0;
+    let disputedCount = 0;
 
     salesList.forEach((s) => {
       const c = calculateClearing(s, currentTime);
-      if (s.claimed) {
+      if (s.status === "disputed" || s.status === "under_review") {
+        disputedCount++;
+      } else if (s.claimed) {
         claimedCount++;
       } else if (c.isUnlocked) {
         unlockedCount++;
@@ -198,6 +302,7 @@ export const SalesList: React.FC<SalesListProps> = ({
       claimed: claimedCount,
       unlocked: unlockedCount,
       clearing: clearingCount,
+      disputed: disputedCount,
     };
   }, [salesList, currentTime]);
 
@@ -208,6 +313,13 @@ export const SalesList: React.FC<SalesListProps> = ({
       if (statusFilter === "claimed" && !sale.claimed) return false;
       if (statusFilter === "unlocked" && (sale.claimed || !clearing.isUnlocked)) return false;
       if (statusFilter === "clearing" && (sale.claimed || clearing.isUnlocked)) return false;
+      if (
+        statusFilter === "disputed" &&
+        sale.status !== "disputed" &&
+        sale.status !== "under_review"
+      ) {
+        return false;
+      }
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -216,7 +328,17 @@ export const SalesList: React.FC<SalesListProps> = ({
         const matchesAmount = sale.saleAmount.toLowerCase().includes(q);
         const matchesCommission = sale.commissionAmount.toLowerCase().includes(q);
         const matchesTxHash = Boolean(sale.txHash && sale.txHash.toLowerCase().includes(q));
-        return matchesId || matchesAffiliate || matchesAmount || matchesCommission || matchesTxHash;
+        const matchesDocket = Boolean(
+          sale.disputeDocketId && sale.disputeDocketId.toLowerCase().includes(q),
+        );
+        return (
+          matchesId ||
+          matchesAffiliate ||
+          matchesAmount ||
+          matchesCommission ||
+          matchesTxHash ||
+          matchesDocket
+        );
       }
 
       return true;
@@ -266,6 +388,8 @@ export const SalesList: React.FC<SalesListProps> = ({
           timestamp: sale.timestamp,
           clearingPeriod: sale.clearingPeriod,
           claimed: sale.claimed,
+          txHash: sale.txHash,
+          status: sale.status,
         };
         envelope = await encryptPayload(canonical, freshKey);
         wrappedKey = await wrapAESKey(freshKey, affiliateIdentifier);
@@ -313,7 +437,7 @@ export const SalesList: React.FC<SalesListProps> = ({
             My Sales
           </h2>
           <p className="text-zinc-500 dark:text-zinc-400 mt-2 font-medium">
-            View and decrypt your encrypted on-chain sale data
+            View, dispute contested conversions, and decrypt your encrypted on-chain sale data
           </p>
         </div>
         <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm bg-white dark:bg-zinc-900/50 rounded-3xl">
@@ -324,10 +448,10 @@ export const SalesList: React.FC<SalesListProps> = ({
               </div>
               <div>
                 <CardTitle className="text-2xl font-bold text-zinc-900 dark:text-white">
-                  Encrypted Sales
+                  Encrypted Sales & Conversions
                 </CardTitle>
                 <CardDescription className="text-zinc-500 dark:text-zinc-400 mt-1">
-                  Decrypt using your private key to view sale details
+                  Monitor clearing, contest rejected conversions, and decrypt verified sale details
                 </CardDescription>
               </div>
             </div>
@@ -427,6 +551,25 @@ export const SalesList: React.FC<SalesListProps> = ({
                     {counts.clearing}
                   </span>
                 </button>
+
+                {counts.disputed > 0 && (
+                  <button
+                    type="button"
+                    data-testid="filter-disputed"
+                    onClick={() => setStatusFilter("disputed")}
+                    aria-pressed={statusFilter === "disputed"}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      statusFilter === "disputed"
+                        ? "bg-rose-600 text-white shadow-sm"
+                        : "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 hover:bg-rose-100 border border-rose-200 dark:border-rose-800/50"
+                    }`}
+                  >
+                    <span>Disputed</span>
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-rose-200/50 dark:bg-rose-900/50">
+                      {counts.disputed}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -488,6 +631,9 @@ export const SalesList: React.FC<SalesListProps> = ({
                   <TableBody>
                     {filteredSales.map((sale) => {
                       const clearing = calculateClearing(sale, currentTime);
+                      const isDisputed = sale.status === "disputed";
+                      const isUnderReview = sale.status === "under_review";
+
                       return (
                         <TableRow
                           key={sale.id}
@@ -506,7 +652,45 @@ export const SalesList: React.FC<SalesListProps> = ({
                             {formatUtcTimestamp(sale.timestamp)}
                           </TableCell>
                           <TableCell className="py-4 min-w-[240px]">
-                            {sale.claimed ? (
+                            {isDisputed ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-semibold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                    Conversion Contested
+                                  </span>
+                                  <span className="font-mono text-rose-500 text-[11px] font-bold">
+                                    Action Required
+                                  </span>
+                                </div>
+                                <div className="w-full bg-rose-100 dark:bg-rose-950/50 rounded-full h-2 overflow-hidden">
+                                  <div className="bg-rose-500 h-full rounded-full w-full" />
+                                </div>
+                                <div className="text-[10px] text-rose-600/90 dark:text-rose-400/90 font-medium">
+                                  Contested by merchant — submit evidence to open dispute
+                                </div>
+                              </div>
+                            ) : isUnderReview ? (
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="font-semibold text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                                    <Scale className="w-3.5 h-3.5 animate-pulse" />
+                                    Evidence Under Review
+                                  </span>
+                                  <span className="font-mono text-purple-600 dark:text-purple-400 text-[11px] font-bold">
+                                    {sale.disputeDocketId
+                                      ? `#${sale.disputeDocketId}`
+                                      : "Docket Active"}
+                                  </span>
+                                </div>
+                                <div className="w-full bg-purple-100 dark:bg-purple-950/50 rounded-full h-2 overflow-hidden">
+                                  <div className="bg-purple-600 h-full rounded-full w-full animate-pulse" />
+                                </div>
+                                <div className="text-[10px] text-purple-600/80 dark:text-purple-400/80 font-mono">
+                                  Independent protocol auditors reviewing evidence
+                                </div>
+                              </div>
+                            ) : sale.claimed ? (
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between text-xs">
                                   <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -567,28 +751,47 @@ export const SalesList: React.FC<SalesListProps> = ({
                             )}
                           </TableCell>
                           <TableCell className="py-4">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                                sale.claimed
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                            {isDisputed ? (
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400">
+                                <AlertTriangle className="w-3 h-3" />
+                                Disputed
+                              </span>
+                            ) : isUnderReview ? (
+                              <div className="flex flex-col gap-1 items-start">
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300">
+                                  <Scale className="w-3 h-3 animate-pulse" />
+                                  Under Auditor Review
+                                </span>
+                                {sale.disputeDocketId && (
+                                  <span className="text-[10px] font-mono text-zinc-500 dark:text-zinc-400 pl-0.5">
+                                    #{sale.disputeDocketId}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span
+                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                                  sale.claimed
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"
+                                    : clearing.isUnlocked
+                                      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
+                                      : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
+                                }`}
+                              >
+                                {sale.claimed ? (
+                                  <CheckCircle2 className="w-3 h-3" />
+                                ) : clearing.isUnlocked ? (
+                                  <CheckCircle2 className="w-3 h-3" />
+                                ) : (
+                                  <Clock className="w-3 h-3" />
+                                )}
+                                {sale.claimed
+                                  ? "Claimed"
                                   : clearing.isUnlocked
-                                    ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400"
-                              }`}
-                            >
-                              {sale.claimed ? (
-                                <CheckCircle2 className="w-3 h-3" />
-                              ) : clearing.isUnlocked ? (
-                                <CheckCircle2 className="w-3 h-3" />
-                              ) : (
-                                <Clock className="w-3 h-3" />
-                              )}
-                              {sale.claimed
-                                ? "Claimed"
-                                : clearing.isUnlocked
-                                  ? "Unlocked"
-                                  : "In Clearing"}
-                            </span>
+                                    ? "Unlocked"
+                                    : "In Clearing"}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell className="py-4 font-mono text-xs">
                             {sale.txHash ? (
@@ -614,18 +817,40 @@ export const SalesList: React.FC<SalesListProps> = ({
                             )}
                           </TableCell>
                           <TableCell className="py-4 pr-6">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDecrypt(sale.id)}
-                              disabled={isDecrypting}
-                              className="rounded-lg h-9 px-4 font-semibold text-sm border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-all"
-                            >
-                              <Lock className="w-3.5 h-3.5 mr-1.5" />
-                              {isDecrypting && decryptingId === sale.id
-                                ? "Decrypting..."
-                                : "Decrypt"}
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              {isDisputed && (
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  onClick={() => handleOpenDispute(sale)}
+                                  className="rounded-lg h-9 px-3.5 font-semibold text-xs bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 shadow-sm"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  Open Dispute
+                                </Button>
+                              )}
+
+                              {isUnderReview && (
+                                <div className="inline-flex items-center gap-1 text-xs font-mono font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-2.5 py-1.5 rounded-lg border border-purple-200 dark:border-purple-800/40">
+                                  <Scale className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400" />
+                                  {sale.disputeDocketId || "Review"}
+                                </div>
+                              )}
+
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDecrypt(sale.id)}
+                                disabled={isDecrypting}
+                                className="rounded-lg h-9 px-4 font-semibold text-sm border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 transition-all"
+                                title="Decrypt verified sale payload"
+                              >
+                                <Lock className="w-3.5 h-3.5 mr-1.5" />
+                                {isDecrypting && decryptingId === sale.id
+                                  ? "Decrypting..."
+                                  : "Decrypt"}
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -638,6 +863,7 @@ export const SalesList: React.FC<SalesListProps> = ({
         </Card>
       </div>
 
+      {/* Decrypt Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
           <DialogHeader>
@@ -661,6 +887,14 @@ export const SalesList: React.FC<SalesListProps> = ({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Dispute Submission Modal (Issue #171) */}
+      <DisputeModal
+        isOpen={isDisputeModalOpen}
+        onClose={() => setIsDisputeModalOpen(false)}
+        sale={selectedDisputeSale}
+        onDisputeSubmitted={handleDisputeSubmitted}
+      />
     </>
   );
 };

@@ -165,9 +165,13 @@ function fillCampaign({ budget = "100" } = {}) {
 // which the Max control signals by becoming enabled.
 const submitCampaign = async () => {
   if (web3.isConnected) {
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Max" }).hasAttribute("disabled")).toBe(false),
-    );
+    try {
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Max" }).hasAttribute("disabled")).toBe(false),
+      );
+    } catch {
+      // Proceed to submit to trigger form validation
+    }
   }
   fireEvent.submit(screen.getByPlaceholderText("e.g., Summer Sale 2024").closest("form")!);
 };

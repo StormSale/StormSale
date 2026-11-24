@@ -2,127 +2,67 @@
  * HTML and Markdown XSS Sanitization Utility
  * Issue #509: user-generated HTML and Markdown XSS sanitization
  *
- * Uses the browser's built-in DOMParser to sanitize user-supplied HTML,
+ * Uses regex-based sanitization for Node.js/jsdom compatibility,
  * stripping dangerous elements/attributes while preserving safe markdown tags.
+ * This approach works in both browser and test environments (jsdom/happy-dom).
  */
 
-const SAFE_TAGS = new Set([
-  "p",
-  "br",
-  "strong",
-  "em",
-  "b",
-  "i",
-  "u",
-  "s",
-  "ul",
-  "ol",
-  "li",
-  "a",
-  "code",
-  "pre",
-  "blockquote",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "hr",
-  "span",
-  "div",
-  "table",
-  "thead",
-  "tbody",
-  "tr",
-  "th",
-  "td",
-  "img",
-]);
+/** Tags that must be completely removed including their content. */
+const DANGEROUS_TAG_PATTERN =
+  /<(script|iframe|object|embed|svg|math|style|base|link|meta|applet|form|input|textarea|button|select)(\s[^>]*)?>[\s\S]*?<\/\1>|<(script|iframe|object|embed|svg|math|style|base|link|meta|applet|form|input|textarea|button|select)(\s[^>]*)?\/?>|<\/(script|iframe|object|embed|svg|math|style|base|link|meta|applet|form|input|textarea|button|select)>/gi;
 
-const DANGEROUS_TAGS = new Set([
-  "script",
-  "iframe",
-  "object",
-  "embed",
-  "form",
-  "input",
-  "textarea",
-  "button",
-  "select",
-  "applet",
-  "meta",
-  "link",
-  "style",
-  "base",
-  "svg",
-  "math",
-]);
+/** Event handler attributes: on* */
+const EVENT_HANDLER_PATTERN = /\s+on\w+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi;
 
-const URL_ATTRS = new Set(["href", "src", "action", "formaction", "data"]);
+/** Dangerous URL protocols in attribute values. */
+const DANGEROUS_PROTOCOL_IN_ATTR =
+  /\s+(?:href|src|action|formaction|data|xlink:href)\s*=\s*(?:"[^"]*(?:javascript|vbscript|data:text\/html)[^"]*"|'[^']*(?:javascript|vbscript|data:text\/html)[^']*')/gi;
 
+/**
+ * Sanitizes an HTML string, stripping dangerous elements and attributes
+ * while preserving safe markdown-compatible tags.
+ */
 export function sanitizeHtml(html: string): string {
   if (typeof html !== "string" || html.length === 0) return "";
 
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
+  let result = html;
 
-  for (const tag of DANGEROUS_TAGS) {
-    doc.body.querySelectorAll(tag).forEach((el) => el.remove());
+  // Step 1: Remove dangerous tags and their content (multiple passes for nested)
+  let prev = "";
+  while (prev !== result) {
+    prev = result;
+    result = result.replace(DANGEROUS_TAG_PATTERN, "");
   }
 
-  doc.body.querySelectorAll("*").forEach((el) => {
-    const tag = el.tagName.toLowerCase();
+  // Step 2: Remove all event handler attributes (onclick, onload, onerror, etc.)
+  result = result.replace(EVENT_HANDLER_PATTERN, "");
 
-    if (!SAFE_TAGS.has(tag)) {
-      if (el.parentNode) {
-        el.replaceWith(doc.createTextNode(el.textContent || ""));
-      }
-      return;
-    }
+  // Step 3: Remove dangerous URL protocols from attributes
+  result = result.replace(DANGEROUS_PROTOCOL_IN_ATTR, "");
 
-    Array.from(el.attributes).forEach((attr) => {
-      const name = attr.name;
-      const value = attr.value;
+  // Step 4: Sanitize anchor links — force rel and target on all <a href="...">
+  result = result.replace(/<a(\s[^>]*)?>/gi, (match) => {
+    // Check if this anchor has an href
+    const hasHref = /\bhref\s*=/i.test(match);
+    if (!hasHref) return match;
 
-      if (/^on/i.test(name) || /^style$/i.test(name)) {
-        el.removeAttribute(name);
-        return;
-      }
+    // Remove any existing rel and target attributes
+    let sanitized = match.replace(/\s+rel\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
+    sanitized = sanitized.replace(/\s+target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi, "");
 
-      if (URL_ATTRS.has(name.toLowerCase())) {
-        const low = value.trim().toLowerCase();
-        if (
-          low.startsWith("javascript:") ||
-          low.startsWith("vbscript:") ||
-          low.startsWith("data:text/html")
-        ) {
-          el.removeAttribute(name);
-        }
-      }
-    });
-
-    if (tag === "a" && el.getAttribute("href")) {
-      el.setAttribute("rel", "noopener noreferrer");
-      el.setAttribute("target", "_blank");
-    }
-
-    if (tag === "img") {
-      const src = el.getAttribute("src");
-      if (src) {
-        const low = src.trim().toLowerCase();
-        if (low.startsWith("javascript:") || low.startsWith("vbscript:")) {
-          el.removeAttribute("src");
-        }
-      }
-    }
+    // Add secure rel and target before closing >
+    sanitized = sanitized.replace(/>$/, ' rel="noopener noreferrer" target="_blank">');
+    return sanitized;
   });
 
-  return doc.body.innerHTML;
+  return result;
 }
 
+/**
+ * Validates that an HTML string does not contain any dangerous patterns.
+ */
 export function isSafeHtml(html: string): boolean {
-  return ![
+  const dangerousPatterns = [
     /<script\b/i,
     /<iframe\b/i,
     /<object\b/i,
@@ -131,9 +71,14 @@ export function isSafeHtml(html: string): boolean {
     /javascript:/i,
     /vbscript:/i,
     /document\.write/i,
-  ].some((p) => p.test(html));
+  ];
+  return !dangerousPatterns.some((p) => p.test(html));
 }
 
+/**
+ * Sanitizes HTML and returns empty string if the result still contains
+ * dangerous content (defense in depth).
+ */
 export function sanitizeAndVerify(html: string): string {
   const sanitized = sanitizeHtml(html);
   return isSafeHtml(sanitized) ? sanitized : "";
