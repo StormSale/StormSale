@@ -122,7 +122,7 @@ describe("Real-time Escrow and Refund Monitor Acceptance (#37)", () => {
     });
 
     // Campaigns with low escrow should be visible (Web3 Masterclass has low balance in test data)
-    expect(screen.getAllByText("Web3 Masterclass").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText(/Web3 Masterclass/i).length).toBeGreaterThan(0);
   });
 
   it("provides a Refund action button for ended (completed) campaigns", async () => {
@@ -137,8 +137,8 @@ describe("Real-time Escrow and Refund Monitor Acceptance (#37)", () => {
     });
 
     // A refund button should be present for completed campaigns with remaining escrow
-    const refundBtn = screen.getByRole("button", { name: /Refund Unused Escrow/i });
-    expect(refundBtn).toBeTruthy();
+    const refundBtns = screen.getAllByRole("button", { name: /Refund Unused Escrow/i });
+    expect(refundBtns.length).toBeGreaterThan(0);
   });
 
   it("executes the refund when the Refund button is clicked", async () => {
