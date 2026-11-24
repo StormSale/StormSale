@@ -15,6 +15,7 @@ import {
   verifyMemberWalletSignature,
   loadOrganizationState,
   saveOrganizationState,
+  generateMemberInviteToken,
 } from "../lib/teamPermissions";
 import { useSafeWeb3 } from "../hooks/useWeb3";
 import { useNotification } from "./NotificationContext";
@@ -31,6 +32,16 @@ export interface OrganizationContextType {
     name: string,
     role: OrganizationRole,
   ) => Promise<{ success: boolean; member?: TeamMember; error?: string }>;
+  inviteTeamMember: (
+    email: string,
+    role: OrganizationRole,
+    name?: string,
+  ) => Promise<{ success: boolean; member?: TeamMember; inviteLink?: string; error?: string }>;
+  bindInvitedMemberWallet: (
+    inviteToken: string,
+    walletAddress: string,
+  ) => Promise<{ success: boolean; member?: TeamMember; error?: string }>;
+  findMemberByToken: (token: string) => TeamMember | null;
   updateMemberRole: (
     memberId: string,
     newRole: OrganizationRole,
@@ -71,7 +82,10 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
   const currentMember = useMemo(() => {
     if (!userAddress) return null;
     const found = organization.members.find(
-      (m) => m.walletAddress.toUpperCase() === userAddress.toUpperCase(),
+      (m) =>
+        m.walletAddress &&
+        m.walletAddress.toUpperCase() === userAddress.toUpperCase() &&
+        m.status !== "REVOKED",
     );
     return found || null;
   }, [userAddress, organization.members]);
@@ -356,6 +370,117 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
     }
   }, [userAddress, currentMember, organization.id, showNotification]);
 
+  // Invite team member by email (B2B multi-seat onboarding #489)
+  const inviteTeamMember = useCallback(
+    async (
+      email: string,
+      role: OrganizationRole,
+      name?: string,
+    ): Promise<{ success: boolean; member?: TeamMember; inviteLink?: string; error?: string }> => {
+      if (!checkCapability(currentRole, "team:manage")) {
+        const error = "Unauthorized: Only Admins can invite team members.";
+        showNotification({ type: "error", title: "Permission Denied", message: error });
+        return { success: false, error };
+      }
+
+      const trimmedEmail = email.trim();
+      if (!trimmedEmail || !trimmedEmail.includes("@")) {
+        const error = "Invalid email address format.";
+        showNotification({ type: "error", title: "Validation Error", message: error });
+        return { success: false, error };
+      }
+
+      const inviteToken = generateMemberInviteToken(organization.id, trimmedEmail);
+      const newMember: TeamMember = {
+        id: `mem-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        walletAddress: "",
+        email: trimmedEmail,
+        name: name?.trim() || trimmedEmail.split("@")[0],
+        role,
+        addedAt: new Date().toISOString(),
+        addedBy: userAddress || organization.ownerAddress,
+        authSignatureStatus: "pending",
+        status: "PENDING",
+        inviteToken,
+      };
+
+      const updated: OrganizationState = {
+        ...organization,
+        members: [...organization.members, newMember],
+        updatedAt: new Date().toISOString(),
+      };
+      saveOrganizationState(updated);
+      setOrganization(updated);
+
+      const origin =
+        typeof window !== "undefined" && window.location.origin
+          ? window.location.origin
+          : "http://localhost:4173";
+      const inviteLink = `${origin}/?invite=${encodeURIComponent(inviteToken)}`;
+
+      showNotification({
+        type: "success",
+        title: "Invitation Generated",
+        message: `Invite generated for ${trimmedEmail} with role ${role}.`,
+      });
+
+      return { success: true, member: newMember, inviteLink };
+    },
+    [currentRole, organization, userAddress, showNotification],
+  );
+
+  // Bind a connecting wallet address to an invited seat
+  const bindInvitedMemberWallet = useCallback(
+    async (
+      inviteToken: string,
+      walletAddress: string,
+    ): Promise<{ success: boolean; member?: TeamMember; error?: string }> => {
+      let boundMember: TeamMember | null = null;
+
+      const updatedMembers = organization.members.map((m) => {
+        if (m.inviteToken === inviteToken || (m.status === "PENDING" && !m.walletAddress)) {
+          boundMember = {
+            ...m,
+            walletAddress,
+            status: "ACTIVE" as const,
+            authSignatureStatus: "verified" as const,
+            signatureTimestamp: new Date().toISOString(),
+            authSignature: `SIG_${walletAddress}_VERIFIED`,
+          };
+          return boundMember;
+        }
+        return m;
+      });
+
+      if (boundMember) {
+        const updated: OrganizationState = {
+          ...organization,
+          members: updatedMembers,
+          updatedAt: new Date().toISOString(),
+        };
+        saveOrganizationState(updated);
+        setOrganization(updated);
+
+        showNotification({
+          type: "success",
+          title: "Seat Activated",
+          message: `Wallet bound to organization seat with role ${(boundMember as TeamMember).role}.`,
+        });
+        return { success: true, member: boundMember };
+      }
+
+      return { success: false, error: "Invitation not found or already bound." };
+    },
+    [organization, showNotification],
+  );
+
+  const findMemberByToken = useCallback(
+    (token: string): TeamMember | null => {
+      return organization.members.find((m) => m.inviteToken === token) || null;
+    },
+    [organization.members],
+  );
+
   const contextValue = useMemo<OrganizationContextType>(
     () => ({
       organization,
@@ -365,6 +490,9 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
       capabilities,
       hasCapability,
       addTeamMember,
+      inviteTeamMember,
+      bindInvitedMemberWallet,
+      findMemberByToken,
       updateMemberRole,
       removeTeamMember,
       switchActiveRole,
@@ -378,6 +506,9 @@ export const OrganizationProvider: React.FC<OrganizationProviderProps> = ({
       capabilities,
       hasCapability,
       addTeamMember,
+      inviteTeamMember,
+      bindInvitedMemberWallet,
+      findMemberByToken,
       updateMemberRole,
       removeTeamMember,
       switchActiveRole,
@@ -407,6 +538,9 @@ const fallbackOrganizationContext: OrganizationContextType = {
   capabilities: ROLE_DEFINITIONS.ADMIN.capabilities,
   hasCapability: (cap: OrganizationCapability) => checkCapability("ADMIN", cap),
   addTeamMember: async () => ({ success: false, error: "No organization provider" }),
+  inviteTeamMember: async () => ({ success: false, error: "No organization provider" }),
+  bindInvitedMemberWallet: async () => ({ success: false, error: "No organization provider" }),
+  findMemberByToken: () => null,
   updateMemberRole: async () => ({ success: false, error: "No organization provider" }),
   removeTeamMember: async () => ({ success: false, error: "No organization provider" }),
   switchActiveRole: () => {},

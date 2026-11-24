@@ -77,6 +77,10 @@ const actionConfig: Record<AuditAction, { label: string; badge: string }> = {
     label: "Key Revoked",
     badge: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400",
   },
+  dispute_opened: {
+    label: "Dispute Opened",
+    badge: "bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400",
+  },
 };
 
 export const AuditAccessPortal = () => {

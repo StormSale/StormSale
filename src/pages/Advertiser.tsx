@@ -1,5 +1,7 @@
+import { useState, useEffect } from "react";
 import { Button } from "../components/ui/button";
 import { Sidebar } from "../components/shared/Sidebar";
+import { CreateCampaignWizard } from "../components/advertiser/CreateCampaignWizard";
 import { CreateCampaignForm } from "../components/advertiser/CreateCampaignForm";
 import { LogSaleForm } from "../components/advertiser/LogSaleForm";
 import { GrantAccessForm } from "../components/advertiser/GrantAccessForm";
@@ -21,6 +23,7 @@ import { EscrowBalanceMonitor } from "../components/advertiser/EscrowBalanceMoni
 import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { usePreference } from "../hooks/usePreference";
+import { getDisputes, acceptDisputeTicket, type DisputeTicket } from "../lib/disputesManager";
 import {
   ArrowRight,
   Plus,
@@ -39,6 +42,8 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   ShieldAlert,
+  CheckCircle2,
+  Clock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -91,7 +96,14 @@ const AdvertiserContent: React.FC<AdvertiserProps> = ({ onBack }) => {
   const renderContent = () => {
     switch (activeTab) {
       case "create-campaign":
-        return <CreateCampaignForm />;
+        return (
+          <div className="space-y-8">
+            <CreateCampaignForm />
+            <div className="pt-8 border-t border-slate-200 dark:border-zinc-800">
+              <CreateCampaignWizard onNavigateToMyCampaigns={() => setActiveTab("my-campaigns")} />
+            </div>
+          </div>
+        );
       case "brand-customizer":
         return <BrandCustomizer />;
       case "team-management":
@@ -169,8 +181,122 @@ interface AdvertiserOverviewProps {
 }
 
 const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) => {
+  const [disputes, setDisputes] = useState<DisputeTicket[]>(() => getDisputes());
+
+  const loadDisputes = () => {
+    setDisputes(getDisputes());
+  };
+
+  useEffect(() => {
+    const handleUpdate = () => loadDisputes();
+    window.addEventListener("stormsale:disputes:updated", handleUpdate);
+    window.addEventListener("storage", handleUpdate);
+    return () => {
+      window.removeEventListener("stormsale:disputes:updated", handleUpdate);
+      window.removeEventListener("storage", handleUpdate);
+    };
+  }, []);
+
+  const openDisputes = disputes.filter((d) => d.status === "OPEN");
+
   return (
     <div className="space-y-8 pb-12">
+      {/* Dispute Resolution & SLA Section */}
+      {disputes.length > 0 && (
+        <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/10 flex items-center justify-center text-amber-500 border border-amber-500/20">
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base text-zinc-900 dark:text-white">
+                    Affiliate Dispute Mediation
+                  </h3>
+                  <span
+                    data-testid="dispute-badge"
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${
+                      openDisputes.length > 0
+                        ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                        : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                    }`}
+                  >
+                    {openDisputes.length > 0
+                      ? `${openDisputes.length} Active Dispute`
+                      : "All Disputes Resolved"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Affiliate commission disputes requiring advertiser mediation and escrow release.
+                </p>
+              </div>
+            </div>
+
+            <div
+              data-testid="dispute-sla-counter"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300"
+            >
+              <Clock className="w-4 h-4 text-amber-500" />
+              <span>Resolution SLA: 48h active</span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {disputes.map((ticket) => (
+              <div
+                key={ticket.id}
+                data-testid={`advertiser-dispute-${ticket.id}`}
+                className="p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 flex flex-col md:flex-row md:items-center justify-between gap-4"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      data-testid={`advertiser-dispute-status-${ticket.id}`}
+                      data-testid-status="dispute-status"
+                      className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase border ${
+                        ticket.status === "RESOLVED"
+                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+                          : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+                      }`}
+                    >
+                      {ticket.status}
+                    </span>
+                    <span className="text-xs font-semibold text-zinc-900 dark:text-white">
+                      {ticket.reason.replace(/_/g, " ")}
+                    </span>
+                    <span className="text-xs text-muted-foreground font-mono">{ticket.amount}</span>
+                  </div>
+                  <div className="text-xs font-mono text-zinc-600 dark:text-zinc-400 break-all">
+                    Tx: {ticket.txHash}
+                  </div>
+                  <p className="text-xs text-zinc-700 dark:text-zinc-300">{ticket.description}</p>
+                </div>
+
+                <div className="shrink-0 flex items-center gap-3">
+                  {ticket.status === "OPEN" ? (
+                    <Button
+                      data-testid="btn-accept-dispute"
+                      onClick={() => {
+                        acceptDisputeTicket(ticket.id);
+                        loadDisputes();
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-sm transition-all"
+                    >
+                      Accept Dispute & Release Escrow
+                    </Button>
+                  ) : (
+                    <span className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Escrow Released
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Header - Command Center Style */}
       <div className="relative overflow-hidden bg-zinc-900 dark:bg-zinc-900 rounded-[2.5rem] p-8 md:p-12 border border-zinc-800 shadow-2xl mb-8">
         <div className="absolute top-0 left-0 w-full h-full opacity-30 pointer-events-none">

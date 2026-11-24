@@ -102,6 +102,7 @@ export const TelegramCampaignBrowser = () => {
   const [campaigns, setCampaigns] = useState<AffiliateCampaignItem[]>(DEFAULT_TELEGRAM_CAMPAIGNS);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<string>("ALL");
+  const [minCommission, setMinCommission] = useState<number>(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -130,7 +131,9 @@ export const TelegramCampaignBrowser = () => {
       campaign.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       campaign.advertiser.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesAsset = selectedAsset === "ALL" || campaign.asset === selectedAsset;
-    return matchesSearch && matchesAsset;
+    const rateNumber = parseFloat(campaign.commissionRate.replace(/[^0-9.]/g, "") || "0");
+    const matchesCommission = minCommission === 0 || rateNumber > minCommission;
+    return matchesSearch && matchesAsset && matchesCommission;
   });
 
   const getReferralUrl = (campaignId: string) => {
@@ -273,6 +276,21 @@ export const TelegramCampaignBrowser = () => {
               {asset === "ALL" ? "All Assets" : asset}
             </button>
           ))}
+          <button
+            onClick={() => {
+              triggerHaptic("selection");
+              setMinCommission(minCommission === 10 ? 0 : 10);
+            }}
+            data-testid="filter-commission-rate"
+            aria-pressed={minCommission > 0}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl transition-all border ${
+              minCommission > 0
+                ? "bg-indigo-600 text-white border-indigo-600 shadow-sm"
+                : "bg-slate-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-transparent hover:bg-slate-200 dark:hover:bg-zinc-700"
+            }`}
+          >
+            {minCommission > 0 ? ">10% Commission" : "Min >10% Rate"}
+          </button>
         </div>
       </div>
 
@@ -285,6 +303,7 @@ export const TelegramCampaignBrowser = () => {
           return (
             <Card
               key={campaign.id}
+              data-testid={`campaign-card-${campaign.id}`}
               className="border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 rounded-2xl shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between"
             >
               <CardHeader className="p-5 pb-3">
@@ -366,6 +385,7 @@ export const TelegramCampaignBrowser = () => {
                     <Button
                       size="sm"
                       variant="outline"
+                      data-testid={`btn-copy-campaign-${campaign.id}`}
                       disabled={!canPerformAffiliateAction}
                       onClick={() => handleCopy(campaign.id)}
                       className="h-9 px-3 rounded-lg border-slate-200 dark:border-zinc-800 shrink-0 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed"
