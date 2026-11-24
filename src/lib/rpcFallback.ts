@@ -7,6 +7,7 @@ import { STELLAR_CONFIG } from "../config/stellar";
 
 export type RpcNodeType = "primary" | "local" | "blockdag" | "backup";
 export type RpcHealthStatus = "healthy" | "degraded" | "unreachable" | "untested";
+export type CircuitBreakerState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
 export interface RpcEndpoint {
   id: string;
@@ -26,6 +27,8 @@ export interface RpcEndpointStatus extends RpcEndpoint {
   consecutiveFailures: number;
   totalRequests: number;
   failedRequests: number;
+  circuitBreakerState?: CircuitBreakerState;
+  circuitBreakerResetAt?: number | null;
 }
 
 export interface RpcFailoverEvent {
@@ -43,11 +46,16 @@ export interface RpcManagerOptions {
   timeoutMs: number;
   maxConsecutiveFailuresBeforeUnreachable: number;
   cooldownPeriodMs: number;
+  enableExponentialBackoff?: boolean;
+  initialBackoffMs?: number;
+  maxBackoffMs?: number;
+  jitterFactor?: number;
 }
 
 export interface FallbackExecutionOptions {
   timeoutMs?: number;
   silent?: boolean;
+  retryWithBackoff?: boolean;
 }
 
 /* =========================================================================
@@ -197,13 +205,16 @@ export class RpcFallbackManager {
   private failoverHistory: RpcFailoverEvent[] = [];
   private listeners: Set<
     (event: {
-      type: "failover" | "health_check" | "active_changed";
+      type: "failover" | "health_check" | "active_changed" | "alert_banner" | "primary_restored";
       active: RpcEndpointStatus;
       endpoints: RpcEndpointStatus[];
       eventDetails?: RpcFailoverEvent;
+      message?: string;
     }) => void
   > = new Set();
   private options: RpcManagerOptions;
+  private alertBannerTriggered: boolean = false;
+  private pollingTimer: any = null;
 
   constructor(
     initialEndpoints: RpcEndpoint[] = DEFAULT_RPC_NODES,
@@ -213,6 +224,10 @@ export class RpcFallbackManager {
       timeoutMs: options.timeoutMs ?? 4000,
       maxConsecutiveFailuresBeforeUnreachable: options.maxConsecutiveFailuresBeforeUnreachable ?? 3,
       cooldownPeriodMs: options.cooldownPeriodMs ?? 30000,
+      enableExponentialBackoff: options.enableExponentialBackoff ?? true,
+      initialBackoffMs: options.initialBackoffMs ?? 100,
+      maxBackoffMs: options.maxBackoffMs ?? 2000,
+      jitterFactor: options.jitterFactor ?? 0.25,
     };
 
     // Initialize endpoints
@@ -225,6 +240,8 @@ export class RpcFallbackManager {
         consecutiveFailures: 0,
         totalRequests: 0,
         failedRequests: 0,
+        circuitBreakerState: "CLOSED",
+        circuitBreakerResetAt: null,
       });
     });
 
@@ -458,12 +475,18 @@ export class RpcFallbackManager {
         ep.status = "healthy";
         ep.latencyMs = latencyMs;
         ep.consecutiveFailures = 0;
+        ep.circuitBreakerState = "CLOSED";
+        ep.circuitBreakerResetAt = null;
       } else {
         ep.consecutiveFailures += 1;
         ep.status =
           ep.consecutiveFailures >= this.options.maxConsecutiveFailuresBeforeUnreachable
             ? "unreachable"
             : "degraded";
+        if (ep.status === "unreachable") {
+          ep.circuitBreakerState = "OPEN";
+          ep.circuitBreakerResetAt = Date.now() + this.options.cooldownPeriodMs;
+        }
         ep.latencyMs = latencyMs;
       }
     } catch {
@@ -472,6 +495,10 @@ export class RpcFallbackManager {
         ep.consecutiveFailures >= this.options.maxConsecutiveFailuresBeforeUnreachable
           ? "unreachable"
           : "degraded";
+      if (ep.status === "unreachable") {
+        ep.circuitBreakerState = "OPEN";
+        ep.circuitBreakerResetAt = Date.now() + this.options.cooldownPeriodMs;
+      }
       ep.latencyMs = null;
     }
 
@@ -497,6 +524,113 @@ export class RpcFallbackManager {
   }
 
   /**
+   * Calculates exponential backoff with randomized jitter to mitigate thundering herds
+   * during network congestion (e.g. HTTP 429, 502, 503).
+   */
+  public calculateBackoffWithJitter(
+    attempt: number,
+    baseMs: number = this.options.initialBackoffMs ?? 100,
+    maxMs: number = this.options.maxBackoffMs ?? 2000,
+    jitterFactor: number = this.options.jitterFactor ?? 0.25,
+  ): number {
+    const exponential = Math.min(maxMs, baseMs * Math.pow(2, Math.max(0, attempt)));
+    const jitter = exponential * jitterFactor * (Math.random() * 2 - 1);
+    return Math.max(0, Math.floor(exponential + jitter));
+  }
+
+  /**
+   * Checks whether the circuit breaker for a given endpoint is currently OPEN.
+   */
+  public isCircuitOpen(idOrUrl: string): boolean {
+    const ep =
+      this.endpoints.get(idOrUrl) || [...this.endpoints.values()].find((e) => e.url === idOrUrl);
+    if (!ep) return false;
+
+    if (ep.circuitBreakerState === "OPEN") {
+      if (ep.circuitBreakerResetAt && Date.now() >= ep.circuitBreakerResetAt) {
+        ep.circuitBreakerState = "HALF_OPEN";
+        return false;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns whether the user alert banner has been triggered (all RPC endpoints failed).
+   */
+  public isAlertBannerTriggered(): boolean {
+    return this.alertBannerTriggered;
+  }
+
+  /**
+   * Dismisses the all-endpoints-failed alert banner.
+   */
+  public dismissAlertBanner(): void {
+    this.alertBannerTriggered = false;
+  }
+
+  /**
+   * Starts periodic background health check polling across RPC endpoints.
+   */
+  public startHealthCheckPolling(intervalMs: number = 10000): void {
+    this.stopHealthCheckPolling();
+    this.pollingTimer = setInterval(async () => {
+      await this.pollAndRestorePrimary();
+    }, intervalMs);
+  }
+
+  /**
+   * Stops active health check polling timer.
+   */
+  public stopHealthCheckPolling(): void {
+    if (this.pollingTimer) {
+      clearInterval(this.pollingTimer);
+      this.pollingTimer = null;
+    }
+  }
+
+  /**
+   * Health checks the primary RPC endpoint and restores it as the active node once recovered.
+   */
+  public async pollAndRestorePrimary(): Promise<boolean> {
+    const primary =
+      [...this.endpoints.values()].find((ep) => ep.type === "primary") ||
+      [...this.endpoints.values()].sort((a, b) => a.priority - b.priority)[0];
+
+    if (!primary) return false;
+
+    const health = await this.checkEndpointHealth(primary.id);
+    if (health.status === "healthy") {
+      primary.circuitBreakerState = "CLOSED";
+      primary.circuitBreakerResetAt = null;
+
+      if (this.activeEndpointId !== primary.id) {
+        const previous = this.getActiveEndpoint();
+        this.activeEndpointId = primary.id;
+        const event: RpcFailoverEvent = {
+          id: "restore_" + Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toISOString(),
+          fromEndpointId: previous.id,
+          fromUrl: previous.url,
+          toEndpointId: primary.id,
+          toUrl: primary.url,
+          reason: "Health check confirmed primary RPC node recovery",
+        };
+        this.failoverHistory.unshift(event);
+        this.notifyListeners({
+          type: "primary_restored",
+          active: primary,
+          endpoints: this.getAllEndpoints(),
+          eventDetails: event,
+        });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Executes a Soroban RPC operation with automated, silent failover on timeout or error.
    */
   public async executeWithFallback<T>(
@@ -511,6 +645,19 @@ export class RpcFallbackManager {
 
     while (attempts < maxAttempts) {
       const activeEndpoint = this.getActiveEndpoint();
+
+      // Circuit breaker check: skip active endpoint without network call if circuit is OPEN
+      if (this.isCircuitOpen(activeEndpoint.id)) {
+        attempts += 1;
+        if (attempts < maxAttempts) {
+          this.failoverToNext(
+            `Circuit breaker is OPEN for '${activeEndpoint.name}'. Skipping dead node.`,
+          );
+          continue;
+        }
+        break;
+      }
+
       activeEndpoint.totalRequests += 1;
       const server = new rpc.Server(activeEndpoint.url, {
         allowHttp: activeEndpoint.url.startsWith("http://"),
@@ -539,9 +686,12 @@ export class RpcFallbackManager {
           }
         }
 
-        // Success: record healthy state
+        // Success: record healthy state and reset circuit breaker
         activeEndpoint.status = "healthy";
         activeEndpoint.consecutiveFailures = 0;
+        activeEndpoint.circuitBreakerState = "CLOSED";
+        activeEndpoint.circuitBreakerResetAt = null;
+        this.alertBannerTriggered = false;
         return result;
       } catch (err: unknown) {
         const error = err instanceof Error ? err : new Error(String(err));
@@ -554,6 +704,27 @@ export class RpcFallbackManager {
             ? "unreachable"
             : "degraded";
 
+        if (activeEndpoint.status === "unreachable") {
+          activeEndpoint.circuitBreakerState = "OPEN";
+          activeEndpoint.circuitBreakerResetAt = Date.now() + this.options.cooldownPeriodMs;
+        }
+
+        // Handle backoff delay if requested during congestion (429, 502, 503)
+        const errMsg = error.message.toLowerCase();
+        const isCongested =
+          errMsg.includes("429") ||
+          errMsg.includes("502") ||
+          errMsg.includes("503") ||
+          errMsg.includes("rate limit") ||
+          errMsg.includes("congest");
+
+        if (options.retryWithBackoff && isCongested) {
+          const delay = this.calculateBackoffWithJitter(attempts);
+          if (delay > 0) {
+            await new Promise((r) => setTimeout(r, delay));
+          }
+        }
+
         // Silent failover to next node if more attempts remain
         if (attempts < maxAttempts) {
           const reason = error.message || "Connection timeout or failure";
@@ -561,6 +732,15 @@ export class RpcFallbackManager {
         }
       }
     }
+
+    // Trigger alert banner only after ALL backup endpoints fail
+    this.alertBannerTriggered = true;
+    this.notifyListeners({
+      type: "alert_banner",
+      active: this.getActiveEndpoint(),
+      endpoints: this.getAllEndpoints(),
+      message: `All ${maxAttempts} Soroban RPC endpoints are unreachable. Please check network connectivity.`,
+    });
 
     throw new Error(
       `All ${maxAttempts} RPC endpoints failed. Last error: ${lastError?.message || lastError}`,
