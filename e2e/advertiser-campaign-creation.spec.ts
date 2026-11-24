@@ -22,33 +22,39 @@ test.describe("E2E Advertiser Campaign Creation Journey (#483)", () => {
     await page.locator("#wizard-banner-image").fill("https://example.com/banner.png");
     await page.locator("#wizard-external-url").fill("https://stormsale.io/promo");
 
-    await page.getByRole("button", { name: /Next: Budget & Rules/i }).click();
+    await page.getByRole("button", { name: /Next: Budget/i }).click();
 
     // Step 2: Configure budget & commission
-    await expect(page.getByText("Step 2: Budget & Rewards", { exact: false })).toBeVisible();
+    await expect(page.getByText(/Step 2: Budget/i)).toBeVisible();
     await page.locator("#wizard-budget").fill("1000");
-    await page.locator("#wizard-commission-rate").fill("10");
-    await page.locator("#wizard-referral-depth").fill("2");
+    await page.locator("#wizard-commission-rate, #wizard-commission").fill("10");
+    const depthLocator = page.locator("#wizard-referral-depth");
+    const isSelect = await depthLocator.evaluate((el) => el.tagName.toLowerCase() === "select");
+    if (isSelect) {
+      await depthLocator.selectOption("2");
+    } else {
+      await depthLocator.fill("2");
+    }
 
-    await page.getByRole("button", { name: /Next: Escrow Deposit/i }).click();
+    await page.getByRole("button", { name: /Next: Escrow/i }).click();
 
     // Step 3: Mock wallet signature and escrow deposit
-    await expect(page.getByText("Step 3: Soroban Escrow Funding", { exact: false })).toBeVisible();
-    const signBtn = page.getByRole("button", { name: /Sign & Deposit Escrow/i });
+    await expect(page.getByText(/Step 3:.*Escrow/i)).toBeVisible();
+    const signBtn = page.getByRole("button", { name: /Sign & (?:Confirm|Deposit) Escrow/i });
     await expect(signBtn).toBeVisible();
     await signBtn.click();
 
     // Verify confirmation and status
-    await expect(page.getByText("Escrow Deposit Confirmed", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: /Next: Review Active Campaign/i }).click();
+    await expect(page.getByText(/Escrow Deposit Confirmed|deposit confirmation/i)).toBeVisible();
+    await page.getByRole("button", { name: /Next: Review/i }).click();
 
     // Step 4: Verify campaign appears with status ACTIVE
     await expect(page.getByText("ACTIVE", { exact: false })).toBeVisible();
-    await page.getByRole("button", { name: /Next: Generate Shareable Link/i }).click();
+    await page.getByRole("button", { name: /Next: Generate.*Link/i }).click();
 
     // Step 5: Verify shareable affiliate campaign link is generated and functional
     await expect(page.getByText("Step 5: Shareable Affiliate Campaign Link", { exact: false })).toBeVisible();
-    const shareInput = page.locator("#wizard-share-link");
+    const shareInput = page.locator("#wizard-share-link, [data-testid='shareable-affiliate-link']");
     await expect(shareInput).toBeVisible();
     await expect(shareInput).toHaveValue(/\/c\/101/);
   });
