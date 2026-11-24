@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App.tsx";
+import * as Sentry from "@sentry/react";
+import App, { ErrorFallback, logErrorInDevelopment } from "./App.tsx";
 import { initErrorTracking } from "./lib/errorTracking";
 import { initPwaServiceWorker } from "./lib/pwa";
 import { initUIStateCache } from "./lib/uiStateCache";
@@ -18,6 +19,8 @@ initUIStateCache();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <Sentry.ErrorBoundary fallback={<ErrorFallback />} onError={logErrorInDevelopment}>
+      <App />
+    </Sentry.ErrorBoundary>
   </React.StrictMode>,
 );
