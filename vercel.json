@@ -7,6 +7,7 @@
     { "source": "/api/custom-links/delete", "destination": "/api/custom-links/delete" },
     { "source": "/api/affiliate/click-stream", "destination": "/api/affiliate/click-stream" },
     { "source": "/api/affiliate/issues", "destination": "/api/affiliate/issues" },
+    { "source": "/api/telemetry/web-vitals", "destination": "/api/telemetry/web-vitals" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
@@ -39,7 +40,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://telegram.org; connect-src 'self' https://*.stellar.org https://albedo.link https://stellar.expert https://*.blockdaemon.com https://*.publicnode.com https://rpc.blockdag.network http://localhost:8000 http://127.0.0.1:8000 http://localhost:3001 http://127.0.0.1:3001 ws://localhost:3001 ws://127.0.0.1:3001; img-src 'self' data: blob: https://images.unsplash.com https://i.pravatar.cc https://stellar.expert https://albedo.link https://xbull.app; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'self' https://albedo.link;"
+          "value": "default-src 'self'; script-src 'self' https://telegram.org; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org https://horizon-testnet.stellar.org https://horizon.stellar.org https://friendbot.stellar.org https://albedo.link https://stellar.expert https://mainnet.stellar.blockdaemon.com https://testnet.stellar.blockdaemon.com https://horizon.blockdaemon.com https://horizon.testnet.stellar.blockdaemon.com https://stellar.publicnode.com https://stellar-testnet.publicnode.com https://rpc.blockdag.network https://public.chainalysis.com https://api.coingecko.com https://hermes.pyth.network; img-src 'self' data: blob: https://images.unsplash.com https://i.pravatar.cc https://stellar.expert https://albedo.link https://xbull.app; style-src 'self'; style-src-attr 'unsafe-inline'; font-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; frame-src 'self' https://albedo.link;"
         }
       ]
     }
