@@ -26,6 +26,10 @@ const OFFLINE_TIMEOUT_SECONDS = 24 * 60 * 60;
 
 const server = new Horizon.Server(HORIZON_URL);
 
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 /** 1. ONLINE machine: build the unsigned campaign escrow deposit. */
 export async function buildUnsignedDeposit(params: {
   sourceAccount: string;
@@ -57,7 +61,7 @@ export async function buildUnsignedDeposit(params: {
   return {
     version: 1,
     xdr: tx.toXDR(),
-    hash: tx.hash().toString("hex"),
+    hash: bytesToHex(tx.hash()),
     networkPassphrase: NETWORK_PASSPHRASE,
     sourceAccount: params.sourceAccount,
     expiresAt: maxTime || null,
@@ -92,7 +96,7 @@ export function validateSignedXdr(signedXdr: string, original: UnsignedBundle): 
   const tx = parsed;
 
   // Must be the exact same transaction we exported (signatures don't change the hash).
-  if (tx.hash().toString("hex") !== original.hash) {
+  if (bytesToHex(tx.hash()) !== original.hash) {
     throw new SignedXdrError("Signed transaction does not match the exported unsigned transaction.");
   }
 
@@ -104,7 +108,7 @@ export function validateSignedXdr(signedXdr: string, original: UnsignedBundle): 
   const sourceKey = Keypair.fromPublicKey(original.sourceAccount);
   const hasValidSource = tx.signatures.some((s) => {
     try {
-      return sourceKey.verify(tx.hash(), s.signature());
+      return sourceKey.verify(tx.hash(), s.signature);
     } catch {
       return false;
     }

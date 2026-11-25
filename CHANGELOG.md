@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/StormSale/StormSale/compare/v1.4.0...v1.4.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* use current Stellar SDK signature APIs ([5b99e96](https://github.com/StormSale/StormSale/commit/5b99e9687d9b5f924a1c0a6aaba541e1aba1cace))
+
 # [1.4.0](https://github.com/StormSale/StormSale/compare/v1.3.0...v1.4.0) (2026-11-22)
 
 
