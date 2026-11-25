@@ -233,7 +233,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
           >
             <Network className="h-3.5 w-3.5" aria-hidden="true" />
             <span>BlockDAG</span>
-            <span role="status" className={isBlockdagNetwork ? "text-emerald-600" : "text-amber-600"}>
+            <span className={isBlockdagNetwork ? "text-emerald-600" : "text-amber-600"}>
               {isBlockdagNetwork ? "Connected" : "Wrong Network"}
             </span>
           </button>

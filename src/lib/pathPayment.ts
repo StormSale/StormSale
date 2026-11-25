@@ -15,9 +15,8 @@ import {
   TransactionBuilder,
   Account,
   BASE_FEE,
-  Keypair,
 } from "@stellar/stellar-sdk";
-import { ISSUERS, STELLAR_CONFIG } from "../config/stellar";
+import { ISSUERS } from "../config/stellar";
 
 export interface PathPaymentQuote {
   sourceAsset: "XLM" | "USDC" | "EURC";

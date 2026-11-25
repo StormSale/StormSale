@@ -496,7 +496,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
               (notification.receiptTxHash
                 ? getStellarExpertUrl("tx", notification.receiptTxHash)
                 : undefined) ||
-              actionUrl;
+              (actionLabel === "View Receipt" ? actionUrl : undefined);
             const isReceipt = Boolean(
               receiptUrl || notification.onViewReceipt || actionLabel === "View Receipt",
             );
