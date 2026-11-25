@@ -70,8 +70,9 @@ test.describe("Journey: wallet connection", () => {
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeVisible();
     // Same strict-mode reason as the demo-account test above — the watch key
     // is echoed in the account menu button and inside `<main>`.
+    const formattedWatchKey = `${VALID_WATCH_KEY.slice(0, 6)}...${VALID_WATCH_KEY.slice(-4)}`;
     await expect(
-      page.getByRole("button", { name: `Account menu for ${VALID_WATCH_KEY_SHORT}` }),
+      page.getByRole("button", { name: `Account menu for ${formattedWatchKey}` }),
     ).toBeVisible();
   });
 });
