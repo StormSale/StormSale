@@ -24,6 +24,7 @@ import { STELLAR_CONFIG } from "../config/stellar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { usePreference } from "../hooks/usePreference";
 import { getDisputes, acceptDisputeTicket, type DisputeTicket } from "../lib/disputesManager";
+import { EmptyState } from "../components/shared/EmptyState";
 import {
   ArrowRight,
   Plus,
@@ -201,6 +202,7 @@ const AdvertiserOverview: React.FC<AdvertiserOverviewProps> = ({ onTabChange }) 
 
   return (
     <div className="space-y-8 pb-12">
+      <EmptyState role="advertiser" onAction={onTabChange} />
       {/* Dispute Resolution & SLA Section */}
       {disputes.length > 0 && (
         <div className="relative overflow-hidden bg-white/80 dark:bg-zinc-900/80 backdrop-blur-xl border border-slate-200 dark:border-zinc-800 rounded-3xl p-6 shadow-sm mb-8">
