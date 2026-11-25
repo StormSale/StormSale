@@ -1,0 +1,571 @@
+diff --git a/api/performance/vitals.ts b/api/performance/vitals.ts
+new file mode 100644
+index 0000000..b6c8ce5
+--- /dev/null
++++ b/api/performance/vitals.ts
+@@ -0,0 +1,68 @@
++/**
++ * POST /api/performance/vitals
++ *
++ * Receives Core Web Vitals reports sent with `navigator.sendBeacon` by the
++ * client collector (issue #502). Beacons arrive as `application/json` blobs, or
++ * as `text/plain` on browsers that downgrade the content type.
++ *
++ * Body: { name: "LCP" | "FID" | "CLS", value: number, rating, delta, id,
++ *         navigationType, path, timestamp }
++ *
++ * Responses:
++ *   204 No Content — report accepted
++ *   400            — { error: string } (invalid payload)
++ *   405            — Method Not Allowed
++ */
++import type { VercelRequest, VercelResponse } from "@vercel/node";
++
++const NAMES = new Set(["LCP", "FID", "CLS"]);
++const RATINGS = new Set(["good", "needs-improvement", "poor"]);
++/** Upper bounds that reject nonsense values (LCP/FID in ms, CLS unitless). */
++const MAX_VALUE: Record<string, number> = { LCP: 600_000, FID: 600_000, CLS: 100 };
++
++export interface ValidVitalPayload {
++  name: string;
++  value: number;
++  rating: string;
++  id: string;
++  path: string;
++}
++
++export function validateVitalPayload(input: unknown): ValidVitalPayload | null {
++  if (!input || typeof input !== "object") return null;
++  const b = input as Record<string, unknown>;
++  if (typeof b.name !== "string" || !NAMES.has(b.name)) return null;
++  if (typeof b.value !== "number" || !Number.isFinite(b.value)) return null;
++  if (b.value < 0 || b.value > MAX_VALUE[b.name]) return null;
++  if (typeof b.rating !== "string" || !RATINGS.has(b.rating)) return null;
++  if (typeof b.id !== "string" || b.id.length === 0 || b.id.length > 100) return null;
++  const path = typeof b.path === "string" ? b.path.slice(0, 200) : "/";
++  return { name: b.name, value: b.value, rating: b.rating, id: b.id, path };
++}
++
++function parseBody(body: unknown): unknown {
++  if (typeof body === "string") {
++    try {
++      return JSON.parse(body);
++    } catch {
++      return null;
++    }
++  }
++  return body;
++}
++
++export default async function handler(req: VercelRequest, res: VercelResponse) {
++  if (req.method !== "POST") {
++    res.setHeader("Allow", "POST");
++    return res.status(405).json({ error: "Method Not Allowed" });
++  }
++
++  const payload = validateVitalPayload(parseBody(req.body));
++  if (!payload) {
++    return res.status(400).json({ error: "Invalid web vitals payload." });
++  }
++
++  // Structured log line; Vercel log drains can aggregate these per metric.
++  console.info("[web-vitals]", JSON.stringify(payload));
++  return res.status(204).end();
++}
+diff --git a/package.json b/package.json
+index 5bd6dec..6927630 100644
+--- a/package.json
++++ b/package.json
+@@ -57,6 +57,7 @@
+     "react-dom": "^19.3.0",
+     "tailwind-merge": "^3.7.0",
+     "tailwindcss": "^4.1.16",
++    "web-vitals": "^4.2.4",
+     "zod": "3.23.8"
+   },
+   "devDependencies": {
+diff --git a/src/lib/webVitals.ts b/src/lib/webVitals.ts
+new file mode 100644
+index 0000000..670d0ae
+--- /dev/null
++++ b/src/lib/webVitals.ts
+@@ -0,0 +1,186 @@
++/**
++ * Core Web Vitals telemetry collector (Issue #502).
++ *
++ * - Captures LCP, FID and CLS through the `web-vitals` library.
++ * - Reports every metric to the performance endpoint with `navigator.sendBeacon`
++ *   (falling back to a keepalive `fetch` when the beacon is unavailable or refused).
++ * - In development, logs a console warning when a metric breaches its threshold.
++ *
++ * Only the metric name, value, rating, id and navigation type leave the browser,
++ * plus the page path (no query string or hash). No wallet address, IP address or
++ * other user data is attached.
++ *
++ * Note: Chrome stopped supporting FID in favour of INP, and `web-vitals` v5 no
++ * longer exports `onFID`. This module pins the v4 API, where `onFID` still
++ * exists, and skips FID gracefully if a later version removes it.
++ */
++
++import * as webVitals from "web-vitals";
++
++export type VitalName = "LCP" | "FID" | "CLS";
++export type VitalRating = "good" | "needs-improvement" | "poor";
++
++/** Metric shape consumed from `web-vitals` (a subset of its `Metric` type). */
++export interface VitalMetric {
++  name: string;
++  value: number;
++  rating?: VitalRating;
++  delta?: number;
++  id: string;
++  navigationType?: string;
++}
++
++/** A callback registration function such as `onLCP`. */
++export type VitalSubscriber = (callback: (metric: VitalMetric) => void) => void;
++
++export interface VitalThreshold {
++  /** Largest value still rated "good". Breaching this triggers the console alert. */
++  good: number;
++  /** Largest value rated "needs-improvement"; anything above is "poor". */
++  needsImprovement: number;
++  unit: "ms" | "";
++}
++
++/** Official Core Web Vitals "good" / "poor" boundaries. */
++export const VITAL_THRESHOLDS: Record<VitalName, VitalThreshold> = {
++  LCP: { good: 2500, needsImprovement: 4000, unit: "ms" },
++  FID: { good: 100, needsImprovement: 300, unit: "ms" },
++  CLS: { good: 0.1, needsImprovement: 0.25, unit: "" },
++};
++
++/** Default endpoint the metrics are posted to. */
++export const DEFAULT_PERFORMANCE_ENDPOINT = "/api/performance/vitals";
++
++export interface VitalReport {
++  name: VitalName;
++  value: number;
++  rating: VitalRating;
++  delta: number;
++  id: string;
++  navigationType: string;
++  path: string;
++  timestamp: number;
++}
++
++export interface WebVitalsOptions {
++  endpoint?: string;
++  /** Log a console warning on threshold breach. Defaults to `import.meta.env.DEV`. */
++  alertOnBreach?: boolean;
++  /** Override the `web-vitals` subscribers (used by tests). */
++  subscribers?: Partial<Record<VitalName, VitalSubscriber | undefined>>;
++}
++
++/** Rates a value against the thresholds, independent of the library's own rating. */
++export function rateVital(name: VitalName, value: number): VitalRating {
++  const t = VITAL_THRESHOLDS[name];
++  if (value <= t.good) return "good";
++  if (value <= t.needsImprovement) return "needs-improvement";
++  return "poor";
++}
++
++/** True when the value exceeds the "good" threshold for the metric. */
++export function breachesThreshold(name: VitalName, value: number): boolean {
++  return value > VITAL_THRESHOLDS[name].good;
++}
++
++function isVitalName(name: string): name is VitalName {
++  return name === "LCP" || name === "FID" || name === "CLS";
++}
++
++function formatValue(name: VitalName, value: number): string {
++  const { unit } = VITAL_THRESHOLDS[name];
++  return unit === "ms" ? `${Math.round(value)}ms` : value.toFixed(3);
++}
++
++/** Builds the JSON payload for one metric. Returns `null` for unsupported metrics. */
++export function buildVitalReport(metric: VitalMetric): VitalReport | null {
++  if (!isVitalName(metric.name) || !Number.isFinite(metric.value)) return null;
++  const path = typeof window !== "undefined" ? window.location.pathname : "/";
++  return {
++    name: metric.name,
++    value: metric.value,
++    rating: rateVital(metric.name, metric.value),
++    delta: metric.delta ?? metric.value,
++    id: metric.id,
++    navigationType: metric.navigationType ?? "navigate",
++    path,
++    timestamp: Date.now(),
++  };
++}
++
++/**
++ * Sends a report with the Beacon API. Falls back to a keepalive `fetch` when the
++ * beacon API is missing or the browser refuses to queue the payload.
++ * Returns true when the report was handed to either transport.
++ */
++export function sendVitalReport(report: VitalReport, endpoint: string): boolean {
++  const body = JSON.stringify(report);
++
++  if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
++    try {
++      const blob = new Blob([body], { type: "application/json" });
++      if (navigator.sendBeacon(endpoint, blob)) return true;
++    } catch {
++      // fall through to fetch
++    }
++  }
++
++  if (typeof fetch === "function") {
++    try {
++      void fetch(endpoint, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body,
++        keepalive: true,
++      }).catch(() => undefined);
++      return true;
++    } catch {
++      return false;
++    }
++  }
++  return false;
++}
++
++/** Logs a console warning when the report breaches its "good" threshold. */
++export function alertOnThresholdBreach(report: VitalReport): boolean {
++  if (!breachesThreshold(report.name, report.value)) return false;
++  const t = VITAL_THRESHOLDS[report.name];
++  console.warn(
++    `[web-vitals] ${report.name} threshold breached: ${formatValue(report.name, report.value)} ` +
++      `(good <= ${formatValue(report.name, t.good)}, rating: ${report.rating})`,
++  );
++  return true;
++}
++
++function defaultSubscribers(): Record<VitalName, VitalSubscriber | undefined> {
++  const lib = webVitals as unknown as Record<string, VitalSubscriber | undefined>;
++  return { LCP: lib.onLCP, FID: lib.onFID, CLS: lib.onCLS };
++}
++
++/**
++ * Starts collecting LCP, FID and CLS. Returns the list of metrics that were
++ * subscribed, so callers can tell when one is unavailable (e.g. FID in v5).
++ */
++export function initWebVitals(options: WebVitalsOptions = {}): VitalName[] {
++  if (typeof window === "undefined") return [];
++
++  const endpoint = options.endpoint ?? DEFAULT_PERFORMANCE_ENDPOINT;
++  const alertOnBreach = options.alertOnBreach ?? Boolean(import.meta.env?.DEV);
++  const subscribers = { ...defaultSubscribers(), ...options.subscribers };
++
++  const handle = (metric: VitalMetric) => {
++    const report = buildVitalReport(metric);
++    if (!report) return;
++    if (alertOnBreach) alertOnThresholdBreach(report);
++    sendVitalReport(report, endpoint);
++  };
++
++  const subscribed: VitalName[] = [];
++  for (const name of ["LCP", "FID", "CLS"] as const) {
++    const subscribe = subscribers[name];
++    if (typeof subscribe !== "function") continue;
++    subscribe(handle);
++    subscribed.push(name);
++  }
++  return subscribed;
++}
+diff --git a/src/main.tsx b/src/main.tsx
+index 3dc7fa3..2b48971 100644
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -4,6 +4,7 @@ import App from "./App.tsx";
+ import { initErrorTracking } from "./lib/errorTracking";
+ import { initPwaServiceWorker } from "./lib/pwa";
+ import { initUIStateCache } from "./lib/uiStateCache";
++import { initWebVitals } from "./lib/webVitals";
+ import "./index.css";
+ 
+ // Error tracking has to be initialised before the tree is rendered so the
+@@ -12,6 +13,10 @@ import "./index.css";
+ initErrorTracking();
+ initPwaServiceWorker();
+ 
++// Core Web Vitals (LCP, FID, CLS) are reported by beacon; threshold breaches
++// are logged to the console in development only.
++initWebVitals();
++
+ // Drop malformed, outdated, or expired persisted filter state before the
+ // first render so the cache can never feed an off-schema value into the UI.
+ initUIStateCache();
+diff --git a/src/tests/web-vitals.test.ts b/src/tests/web-vitals.test.ts
+new file mode 100644
+index 0000000..11f296b
+--- /dev/null
++++ b/src/tests/web-vitals.test.ts
+@@ -0,0 +1,264 @@
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import {
++  DEFAULT_PERFORMANCE_ENDPOINT,
++  VITAL_THRESHOLDS,
++  alertOnThresholdBreach,
++  breachesThreshold,
++  buildVitalReport,
++  initWebVitals,
++  rateVital,
++  sendVitalReport,
++  type VitalMetric,
++  type VitalSubscriber,
++} from "../lib/webVitals";
++import handler, { validateVitalPayload } from "../../api/performance/vitals";
++
++// Mocked `web-vitals` module: each `onXxx` stores its callback so a test can
++// emit a metric as the browser would.
++const emitters = vi.hoisted(() => ({ LCP: null, FID: null, CLS: null }) as Record<string, any>);
++vi.mock("web-vitals", () => ({
++  onLCP: (cb: unknown) => (emitters.LCP = cb),
++  onFID: (cb: unknown) => (emitters.FID = cb),
++  onCLS: (cb: unknown) => (emitters.CLS = cb),
++}));
++
++function metric(name: string, value: number, extra: Partial<VitalMetric> = {}): VitalMetric {
++  return { name, value, id: `v1-${name}-1`, navigationType: "navigate", ...extra };
++}
++
++async function lastBeaconBody(beacon: ReturnType<typeof vi.fn>, call = -1) {
++  const calls = beacon.mock.calls;
++  const [url, blob] = calls.at(call)!;
++  return { url, body: JSON.parse(await (blob as Blob).text()) };
++}
++
++describe("Core Web Vitals collector (Issue #502)", () => {
++  let beacon: ReturnType<typeof vi.fn>;
++
++  beforeEach(() => {
++    emitters.LCP = emitters.FID = emitters.CLS = null;
++    beacon = vi.fn(() => true);
++    Object.defineProperty(navigator, "sendBeacon", { value: beacon, configurable: true });
++  });
++
++  afterEach(() => {
++    vi.restoreAllMocks();
++    vi.unstubAllGlobals();
++  });
++
++  describe("1. web-vitals library integration", () => {
++    it("subscribes to LCP, FID and CLS", () => {
++      const subscribed = initWebVitals({ alertOnBreach: false });
++      expect(subscribed).toEqual(["LCP", "FID", "CLS"]);
++      expect(emitters.LCP).toBeTypeOf("function");
++      expect(emitters.FID).toBeTypeOf("function");
++      expect(emitters.CLS).toBeTypeOf("function");
++    });
++
++    it("captures an LCP value from the library callback", async () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.LCP(metric("LCP", 1800));
++      const { body } = await lastBeaconBody(beacon);
++      expect(body).toMatchObject({ name: "LCP", value: 1800, rating: "good" });
++    });
++
++    it("captures an FID value from the library callback", async () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.FID(metric("FID", 40));
++      const { body } = await lastBeaconBody(beacon);
++      expect(body).toMatchObject({ name: "FID", value: 40, rating: "good" });
++    });
++
++    it("captures a CLS value from the library callback", async () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.CLS(metric("CLS", 0.05));
++      const { body } = await lastBeaconBody(beacon);
++      expect(body).toMatchObject({ name: "CLS", value: 0.05, rating: "good" });
++    });
++
++    it("skips a metric the installed library version does not export (FID in v5)", () => {
++      const lcp: VitalSubscriber = vi.fn();
++      const cls: VitalSubscriber = vi.fn();
++      const subscribed = initWebVitals({
++        alertOnBreach: false,
++        subscribers: { LCP: lcp, FID: undefined, CLS: cls },
++      });
++      expect(subscribed).toEqual(["LCP", "CLS"]);
++    });
++
++    it("ignores unsupported metrics and non-finite values", () => {
++      expect(buildVitalReport(metric("TTFB", 200))).toBeNull();
++      expect(buildVitalReport(metric("LCP", Number.NaN))).toBeNull();
++    });
++  });
++
++  describe("2. beacon API reporting", () => {
++    it("posts metrics to the performance endpoint with sendBeacon", async () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.LCP(metric("LCP", 2000));
++      expect(beacon).toHaveBeenCalledTimes(1);
++      const { url, body } = await lastBeaconBody(beacon);
++      expect(url).toBe(DEFAULT_PERFORMANCE_ENDPOINT);
++      expect(body).toMatchObject({ name: "LCP", value: 2000, id: "v1-LCP-1" });
++    });
++
++    it("honours a custom endpoint", () => {
++      initWebVitals({ alertOnBreach: false, endpoint: "/custom/perf" });
++      emitters.CLS(metric("CLS", 0.01));
++      expect(beacon.mock.calls[0][0]).toBe("/custom/perf");
++    });
++
++    it("sends a JSON blob with only metric fields and the page path", async () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.FID(metric("FID", 20));
++      const { body } = await lastBeaconBody(beacon);
++      expect(Object.keys(body).sort()).toEqual(
++        ["delta", "id", "name", "navigationType", "path", "rating", "timestamp", "value"].sort(),
++      );
++      expect(body.path).toBe(window.location.pathname);
++    });
++
++    it("sends one beacon per reported metric", () => {
++      initWebVitals({ alertOnBreach: false });
++      emitters.LCP(metric("LCP", 1000));
++      emitters.FID(metric("FID", 10));
++      emitters.CLS(metric("CLS", 0.02));
++      expect(beacon).toHaveBeenCalledTimes(3);
++    });
++
++    it("falls back to keepalive fetch when sendBeacon refuses the payload", () => {
++      beacon.mockReturnValue(false);
++      const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
++      vi.stubGlobal("fetch", fetchMock);
++      const report = buildVitalReport(metric("LCP", 1500))!;
++      expect(sendVitalReport(report, "/api/performance/vitals")).toBe(true);
++      expect(fetchMock).toHaveBeenCalledWith(
++        "/api/performance/vitals",
++        expect.objectContaining({ method: "POST", keepalive: true }),
++      );
++    });
++
++    it("falls back to fetch when the Beacon API is unavailable", () => {
++      Object.defineProperty(navigator, "sendBeacon", { value: undefined, configurable: true });
++      const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
++      vi.stubGlobal("fetch", fetchMock);
++      const report = buildVitalReport(metric("CLS", 0.02))!;
++      expect(sendVitalReport(report, "/x")).toBe(true);
++      expect(fetchMock).toHaveBeenCalledTimes(1);
++    });
++  });
++
++  describe("3. threshold values and breach alerting", () => {
++    it("uses the official Core Web Vitals thresholds", () => {
++      expect(VITAL_THRESHOLDS.LCP.good).toBe(2500);
++      expect(VITAL_THRESHOLDS.FID.good).toBe(100);
++      expect(VITAL_THRESHOLDS.CLS.good).toBe(0.1);
++    });
++
++    it("treats values at the threshold as good and above it as a breach", () => {
++      expect(breachesThreshold("LCP", 2500)).toBe(false);
++      expect(breachesThreshold("LCP", 2501)).toBe(true);
++      expect(breachesThreshold("FID", 100)).toBe(false);
++      expect(breachesThreshold("FID", 101)).toBe(true);
++      expect(breachesThreshold("CLS", 0.1)).toBe(false);
++      expect(breachesThreshold("CLS", 0.11)).toBe(true);
++    });
++
++    it("rates values as good, needs-improvement or poor", () => {
++      expect(rateVital("LCP", 2000)).toBe("good");
++      expect(rateVital("LCP", 3000)).toBe("needs-improvement");
++      expect(rateVital("LCP", 4500)).toBe("poor");
++      expect(rateVital("CLS", 0.3)).toBe("poor");
++    });
++
++    it("warns in the console for each breached metric", () => {
++      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
++      initWebVitals({ alertOnBreach: true });
++      emitters.LCP(metric("LCP", 3200));
++      emitters.FID(metric("FID", 250));
++      emitters.CLS(metric("CLS", 0.4));
++      expect(warn).toHaveBeenCalledTimes(3);
++      expect(warn.mock.calls[0][0]).toContain("LCP threshold breached: 3200ms");
++      expect(warn.mock.calls[1][0]).toContain("FID threshold breached: 250ms");
++      expect(warn.mock.calls[2][0]).toContain("CLS threshold breached: 0.400");
++    });
++
++    it("stays silent for metrics within thresholds", () => {
++      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
++      initWebVitals({ alertOnBreach: true });
++      emitters.LCP(metric("LCP", 2400));
++      emitters.FID(metric("FID", 99));
++      emitters.CLS(metric("CLS", 0.1));
++      expect(warn).not.toHaveBeenCalled();
++    });
++
++    it("still reports a breaching metric by beacon", () => {
++      vi.spyOn(console, "warn").mockImplementation(() => undefined);
++      initWebVitals({ alertOnBreach: true });
++      emitters.LCP(metric("LCP", 5000));
++      expect(beacon).toHaveBeenCalledTimes(1);
++    });
++
++    it("does not warn when alerting is disabled (production)", () => {
++      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
++      initWebVitals({ alertOnBreach: false });
++      emitters.LCP(metric("LCP", 5000));
++      expect(warn).not.toHaveBeenCalled();
++    });
++
++    it("alertOnThresholdBreach returns whether it alerted", () => {
++      vi.spyOn(console, "warn").mockImplementation(() => undefined);
++      expect(alertOnThresholdBreach(buildVitalReport(metric("LCP", 3000))!)).toBe(true);
++      expect(alertOnThresholdBreach(buildVitalReport(metric("LCP", 1000))!)).toBe(false);
++    });
++  });
++
++  describe("4. performance endpoint", () => {
++    function mockRes() {
++      const res: any = {};
++      res.setHeader = vi.fn(() => res);
++      res.status = vi.fn(() => res);
++      res.json = vi.fn(() => res);
++      res.end = vi.fn(() => res);
++      return res;
++    }
++    const valid = { name: "LCP", value: 1800, rating: "good", id: "v1-1", path: "/" };
++
++    it("accepts a valid report with 204", async () => {
++      vi.spyOn(console, "info").mockImplementation(() => undefined);
++      const res = mockRes();
++      await handler({ method: "POST", body: valid } as any, res);
++      expect(res.status).toHaveBeenCalledWith(204);
++    });
++
++    it("accepts the text/plain string body a beacon can produce", async () => {
++      vi.spyOn(console, "info").mockImplementation(() => undefined);
++      const res = mockRes();
++      await handler({ method: "POST", body: JSON.stringify(valid) } as any, res);
++      expect(res.status).toHaveBeenCalledWith(204);
++    });
++
++    it("rejects non-POST methods with 405", async () => {
++      const res = mockRes();
++      await handler({ method: "GET" } as any, res);
++      expect(res.setHeader).toHaveBeenCalledWith("Allow", "POST");
++      expect(res.status).toHaveBeenCalledWith(405);
++    });
++
++    it("rejects invalid payloads with 400", async () => {
++      const res = mockRes();
++      await handler({ method: "POST", body: "not json" } as any, res);
++      expect(res.status).toHaveBeenCalledWith(400);
++    });
++
++    it("validates name, value range, rating and id", () => {
++      expect(validateVitalPayload(valid)).not.toBeNull();
++      expect(validateVitalPayload({ ...valid, name: "TTFB" })).toBeNull();
++      expect(validateVitalPayload({ ...valid, value: -1 })).toBeNull();
++      expect(validateVitalPayload({ ...valid, name: "CLS", value: 500 })).toBeNull();
++      expect(validateVitalPayload({ ...valid, rating: "great" })).toBeNull();
++      expect(validateVitalPayload({ ...valid, id: "" })).toBeNull();
++      expect(validateVitalPayload(null)).toBeNull();
++    });
++  });
++});
