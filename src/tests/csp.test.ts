@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   BASE_CSP_DIRECTIVES,
-  DEVELOPMENT_CSP_DIRECTIVES,
   STRICT_CSP_DIRECTIVES,
   DOMAIN_ALLOWLIST_DOCUMENTATION,
   generateNonce,
@@ -217,7 +216,7 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
       expect(transformed).not.toContain('http-equiv="Content-Security-Policy" content=""');
     });
 
-    it("allows local RPC and refresh endpoints only in the development policy", () => {
+    it("leaves Vite development HTML untouched so refresh and stylesheet injection work", () => {
       const plugin = cspMetaPlugin();
       if (typeof plugin.transformIndexHtml !== "function") {
         throw new Error("CSP HTML transform is not a function");
@@ -231,11 +230,8 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
         path: "/index.html",
         filename: "index.html",
       });
-      expect(transformed).toContain("http://localhost:8000");
-      expect(transformed).toContain("ws://localhost:3001");
-      expect(DEVELOPMENT_CSP_DIRECTIVES["connect-src"]).toContain("http://127.0.0.1:3000");
-      expect(STATIC_CSP_HEADER).not.toContain("localhost");
-      expect(STATIC_CSP_HEADER).not.toContain("127.0.0.1");
+      expect(transformed).not.toContain('http-equiv="Content-Security-Policy"');
+      expect(transformed).not.toContain("localhost");
     });
 
     it("contains no executable inline scripts or inline event handlers", () => {

@@ -225,7 +225,7 @@ export function generateNonce(): string {
  * Builds a Content-Security-Policy header string from directives.
  * If a nonce is supplied, it is appended to the script-src directive.
  * Strict guarantees:
- * - 'unsafe-inline' is never added
+ * - 'unsafe-inline' is limited to style-src-attr
  * - 'unsafe-eval' is never added
  */
 export function buildCspHeader(options?: CspOptions): string {
