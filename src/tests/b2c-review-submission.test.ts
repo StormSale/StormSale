@@ -1,12 +1,21 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Keypair } from "@stellar/stellar-sdk";
-import { isValidStellarAddress } from "../lib/stellar";
 import { getStellarExplorerLink } from "../utils/network";
-
-const REVIEW_MAX_CHARS = 500;
-const REVIEW_MIN_CHARS = 10;
-const VERIFIED_PURCHASE_LABEL = "Verified Purchase";
-const UNVERIFIED_LABEL = "Unverified";
+import {
+  REVIEW_MAX_CHARS,
+  REVIEW_MIN_CHARS,
+  REVIEW_MAX_STARS,
+  VERIFIED_PURCHASE_LABEL,
+  UNVERIFIED_LABEL,
+  createStarRatingController,
+  countReviewChars,
+  validateReviewText,
+  createReviewRateLimiter,
+  isVerifiedPurchase,
+  submitVerifiedReview,
+  buildReceiptVerificationBadge,
+  type VerifiedTransaction,
+} from "../lib/reviewSubmission";
 
 const BUYER_WALLET = Keypair.random().publicKey();
 const OTHER_WALLET = Keypair.random().publicKey();
@@ -14,181 +23,16 @@ const PRODUCT_ID = "storm-sale-consumer-gadget-42";
 const VALID_TX_HASH = `0x${"a".repeat(64)}`;
 const FAILED_TX_HASH = `0x${"b".repeat(64)}`;
 
-type TransactionStatus = "SUCCESS" | "FAILED" | "NOT_FOUND";
+const successfulTx: VerifiedTransaction = {
+  txHash: VALID_TX_HASH,
+  buyerAddress: BUYER_WALLET,
+  productId: PRODUCT_ID,
+  status: "SUCCESS",
+};
 
-interface VerifiedTransaction {
-  txHash: string;
-  buyerAddress: string;
-  productId: string;
-  status: TransactionStatus;
-}
-
-interface StarRatingState {
-  focusedStar: number;
-  rating: number;
-}
-
-const clamp = (value: number, min: number, max: number): number =>
-  Math.min(max, Math.max(min, value));
-
-function createStarRatingController(maxStars = 5) {
-  let state: StarRatingState = { focusedStar: 1, rating: 0 };
-
-  const commitFocused = (): StarRatingState => {
-    state = { ...state, rating: state.focusedStar };
-    return state;
-  };
-
-  return {
-    getState: (): StarRatingState => state,
-    handleKeyDown(key: string): StarRatingState {
-      switch (key) {
-        case "ArrowRight":
-        case "ArrowUp":
-          state = { ...state, focusedStar: clamp(state.focusedStar + 1, 1, maxStars) };
-          break;
-        case "ArrowLeft":
-        case "ArrowDown":
-          state = { ...state, focusedStar: clamp(state.focusedStar - 1, 1, maxStars) };
-          break;
-        case "Home":
-          state = { ...state, focusedStar: 1 };
-          break;
-        case "End":
-          state = { ...state, focusedStar: maxStars };
-          break;
-        case "Enter":
-        case " ":
-          return commitFocused();
-        default:
-          break;
-      }
-      return state;
-    },
-    handleStarClick(star: number): StarRatingState {
-      state = { rating: clamp(star, 1, maxStars), focusedStar: clamp(star, 1, maxStars) };
-      return state;
-    },
-  };
-}
-
-function countReviewChars(text: string, max: number = REVIEW_MAX_CHARS) {
-  return {
-    length: text.length,
-    remaining: Math.max(0, max - text.length),
-    withinLimit: text.length <= max,
-    truncated: text.slice(0, max),
-  };
-}
-
-type ReviewTextError = "EMPTY_REVIEW" | "TOO_SHORT" | "TOO_LONG" | null;
-
-function validateReviewText(text: string): { valid: boolean; reason: ReviewTextError } {
-  const trimmed = text.trim();
-  if (!trimmed) return { valid: false, reason: "EMPTY_REVIEW" };
-  if (trimmed.length < REVIEW_MIN_CHARS) return { valid: false, reason: "TOO_SHORT" };
-  if (text.length > REVIEW_MAX_CHARS) return { valid: false, reason: "TOO_LONG" };
-  return { valid: true, reason: null };
-}
-
-function createReviewRateLimiter(maxSubmissions: number, windowMs: number) {
-  const submissionsByWallet = new Map<string, number[]>();
-
-  const recentFor = (wallet: string, now: number): number[] =>
-    (submissionsByWallet.get(wallet) ?? []).filter((time) => now - time < windowMs);
-
-  return {
-    check(wallet: string, now: number) {
-      const recent = recentFor(wallet, now);
-      const allowed = recent.length < maxSubmissions;
-      const oldest = recent[0];
-      return {
-        allowed,
-        remaining: Math.max(0, maxSubmissions - recent.length),
-        retryAfterMs: allowed || oldest === undefined ? 0 : windowMs - (now - oldest),
-      };
-    },
-    record(wallet: string, now: number) {
-      const recent = recentFor(wallet, now);
-      recent.push(now);
-      submissionsByWallet.set(wallet, recent);
-    },
-    reset() {
-      submissionsByWallet.clear();
-    },
-  };
-}
-
-function isVerifiedPurchase(
-  tx: VerifiedTransaction | undefined,
-  wallet: string,
-  productId: string,
-): boolean {
-  if (!tx) return false;
-  if (tx.status !== "SUCCESS") return false;
-  if (!isValidStellarAddress(tx.buyerAddress)) return false;
-  if (tx.buyerAddress !== wallet) return false;
-  if (tx.productId !== productId) return false;
-  return /^0x[0-9a-fA-F]{64}$/.test(tx.txHash);
-}
-
-interface ReviewSubmission {
-  success: boolean;
-  txHash: string;
-  rating: number;
-  text: string;
-}
-
-function submitVerifiedReview(params: {
-  wallet: string;
-  productId: string;
-  rating: number;
-  text: string;
-  verifiedTx: VerifiedTransaction | undefined;
-}): ReviewSubmission {
-  const { wallet, productId, rating, text, verifiedTx } = params;
-
-  if (!isValidStellarAddress(wallet)) {
-    throw new Error("Review blocked: invalid wallet address.");
-  }
-  if (!isVerifiedPurchase(verifiedTx, wallet, productId)) {
-    throw new Error("Review blocked: wallet has no verified transaction for this product.");
-  }
-  const textCheck = validateReviewText(text);
-  if (!textCheck.valid) {
-    throw new Error(`Review blocked: invalid review text (${textCheck.reason}).`);
-  }
-  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-    throw new Error("Review blocked: rating must be between 1 and 5.");
-  }
-
-  return { success: true, txHash: verifiedTx!.txHash, rating, text: text.trim() };
-}
-
-function buildReceiptVerificationBadge(
-  tx: VerifiedTransaction | undefined,
-  wallet: string,
-  productId: string,
-) {
-  const verified = isVerifiedPurchase(tx, wallet, productId);
-  return {
-    verified,
-    label: verified ? VERIFIED_PURCHASE_LABEL : UNVERIFIED_LABEL,
-    explorerUrl: tx ? getStellarExplorerLink("tx", tx.txHash) : null,
-    shortHash: tx ? `${tx.txHash.slice(0, 10)}...${tx.txHash.slice(-8)}` : null,
-  };
-}
+const validReviewText = "Absolutely stellar quality and fast delivery, highly recommended!";
 
 describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", () => {
-  const successfulTx: VerifiedTransaction = {
-    txHash: VALID_TX_HASH,
-    buyerAddress: BUYER_WALLET,
-    productId: PRODUCT_ID,
-    status: "SUCCESS",
-  };
-
-  const validReviewText = "Absolutely stellar quality and fast delivery, highly recommended!";
-
   describe("Star Rating Keyboard Navigation", () => {
     it("focuses the first star initially with no rating committed", () => {
       const rating = createStarRatingController();
@@ -214,7 +58,7 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
     it("clamps focus at both ends of the scale", () => {
       const rating = createStarRatingController();
       [1, 2, 3, 4, 5, 6, 7].forEach(() => rating.handleKeyDown("ArrowRight"));
-      expect(rating.getState().focusedStar).toBe(5);
+      expect(rating.getState().focusedStar).toBe(REVIEW_MAX_STARS);
       [1, 2, 3, 4, 5, 6, 7].forEach(() => rating.handleKeyDown("ArrowLeft"));
       expect(rating.getState().focusedStar).toBe(1);
     });
@@ -255,6 +99,27 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
       const rating = createStarRatingController();
       expect(rating.handleStarClick(4)).toEqual({ focusedStar: 4, rating: 4 });
     });
+
+    it("clamps pointer selection to the configured scale", () => {
+      const rating = createStarRatingController();
+      expect(rating.handleStarClick(99)).toEqual({
+        focusedStar: REVIEW_MAX_STARS,
+        rating: REVIEW_MAX_STARS,
+      });
+      expect(rating.handleStarClick(0)).toEqual({ focusedStar: 1, rating: 1 });
+    });
+
+    it("supports custom star counts", () => {
+      const rating = createStarRatingController(10);
+      rating.handleKeyDown("End");
+      rating.handleKeyDown("Enter");
+      expect(rating.getState().rating).toBe(10);
+    });
+
+    it("rejects an invalid star count", () => {
+      expect(() => createStarRatingController(0)).toThrow(/positive integer/);
+      expect(() => createStarRatingController(2.5)).toThrow(/positive integer/);
+    });
   });
 
   describe("Review Text Character Counter & Empty Guard", () => {
@@ -281,6 +146,12 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
       expect(countReviewChars(overLimit).truncated).toBe(atLimit);
     });
 
+    it("never reports negative remaining characters", () => {
+      const empty = countReviewChars("");
+      expect(empty).toMatchObject({ length: 0, remaining: REVIEW_MAX_CHARS, withinLimit: true });
+      expect(countReviewChars("x".repeat(REVIEW_MAX_CHARS + 10)).remaining).toBe(0);
+    });
+
     it("rejects empty and whitespace-only submissions", () => {
       expect(validateReviewText("")).toEqual({ valid: false, reason: "EMPTY_REVIEW" });
       expect(validateReviewText("   \n\t ")).toEqual({ valid: false, reason: "EMPTY_REVIEW" });
@@ -288,6 +159,10 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
 
     it("rejects reviews shorter than the minimum length", () => {
       expect(validateReviewText("great")).toEqual({ valid: false, reason: "TOO_SHORT" });
+      expect(validateReviewText("x".repeat(REVIEW_MIN_CHARS - 1))).toEqual({
+        valid: false,
+        reason: "TOO_SHORT",
+      });
     });
 
     it("rejects reviews longer than the character limit", () => {
@@ -299,6 +174,17 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
 
     it("accepts a valid review body", () => {
       expect(validateReviewText(validReviewText)).toEqual({ valid: true, reason: null });
+    });
+
+    it("accepts a review exactly at the minimum and maximum lengths", () => {
+      expect(validateReviewText("x".repeat(REVIEW_MIN_CHARS))).toEqual({
+        valid: true,
+        reason: null,
+      });
+      expect(validateReviewText("x".repeat(REVIEW_MAX_CHARS))).toEqual({
+        valid: true,
+        reason: null,
+      });
     });
 
     it("blocks submission through the submit path when the review text is empty", () => {
@@ -340,6 +226,14 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
       expect(result.retryAfterMs).toBe(40_000);
     });
 
+    it("reports no retry delay while submissions remain", () => {
+      expect(limiter.check(BUYER_WALLET, 0)).toMatchObject({
+        allowed: true,
+        remaining: 2,
+        retryAfterMs: 0,
+      });
+    });
+
     it("allows a new submission once the window has elapsed", () => {
       limiter.record(BUYER_WALLET, 0);
       limiter.record(BUYER_WALLET, 1_000);
@@ -360,6 +254,11 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
       limiter.reset();
       expect(limiter.check(BUYER_WALLET, 2_000).remaining).toBe(2);
     });
+
+    it("rejects invalid limiter configuration", () => {
+      expect(() => createReviewRateLimiter(0, 60_000)).toThrow();
+      expect(() => createReviewRateLimiter(2, 0)).toThrow();
+    });
   });
 
   describe("Verified Transaction Submission Guard", () => {
@@ -377,6 +276,17 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
         rating: 5,
         text: validReviewText,
       });
+    });
+
+    it("trims surrounding whitespace from the submitted review", () => {
+      const receipt = submitVerifiedReview({
+        wallet: BUYER_WALLET,
+        productId: PRODUCT_ID,
+        rating: 4,
+        text: `   ${validReviewText}   `,
+        verifiedTx: successfulTx,
+      });
+      expect(receipt.text).toBe(validReviewText);
     });
 
     it("blocks submission when the wallet has no transaction at all", () => {
@@ -435,6 +345,13 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
       expect(
         isVerifiedPurchase({ ...successfulTx, txHash: "not-a-hash" }, BUYER_WALLET, PRODUCT_ID),
       ).toBe(false);
+      expect(
+        isVerifiedPurchase(
+          { ...successfulTx, txHash: `0x${"g".repeat(64)}` },
+          BUYER_WALLET,
+          PRODUCT_ID,
+        ),
+      ).toBe(false);
     });
 
     it("rejects an unverified buyer address on the transaction", () => {
@@ -461,6 +378,28 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
           wallet: BUYER_WALLET,
           productId: PRODUCT_ID,
           rating: 6,
+          text: validReviewText,
+          verifiedTx: successfulTx,
+        }),
+      ).toThrow("Review blocked: rating must be between 1 and 5.");
+
+      expect(() =>
+        submitVerifiedReview({
+          wallet: BUYER_WALLET,
+          productId: PRODUCT_ID,
+          rating: 0,
+          text: validReviewText,
+          verifiedTx: successfulTx,
+        }),
+      ).toThrow("Review blocked: rating must be between 1 and 5.");
+    });
+
+    it("rejects a fractional rating", () => {
+      expect(() =>
+        submitVerifiedReview({
+          wallet: BUYER_WALLET,
+          productId: PRODUCT_ID,
+          rating: 3.5,
           text: validReviewText,
           verifiedTx: successfulTx,
         }),
@@ -501,6 +440,12 @@ describe("B2C Consumer Feedback & Verified Purchase Review Submission (#458)", (
 
     it("does not trust a receipt belonging to another wallet", () => {
       const badge = buildReceiptVerificationBadge(successfulTx, OTHER_WALLET, PRODUCT_ID);
+      expect(badge.verified).toBe(false);
+      expect(badge.label).toBe(UNVERIFIED_LABEL);
+    });
+
+    it("does not trust a receipt for a different product", () => {
+      const badge = buildReceiptVerificationBadge(successfulTx, BUYER_WALLET, "other-product");
       expect(badge.verified).toBe(false);
       expect(badge.label).toBe(UNVERIFIED_LABEL);
     });
