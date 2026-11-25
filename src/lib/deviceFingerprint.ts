@@ -42,7 +42,7 @@ export async function sha256Hex(data: string | Uint8Array): Promise<string> {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
 
   if (typeof globalThis !== "undefined" && globalThis.crypto?.subtle) {
-    const hashBuf = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+    const hashBuf = await globalThis.crypto.subtle.digest("SHA-256", bytes as unknown as BufferSource);
     return Array.from(new Uint8Array(hashBuf), (b) => b.toString(16).padStart(2, "0")).join("");
   }
 
@@ -168,7 +168,6 @@ export async function generateAudioFingerprint(
     compressor.threshold.value = -50;
     compressor.knee.value = 40;
     compressor.ratio.value = 12;
-    compressor.reduction.value = -20;
     compressor.attack.value = 0;
     compressor.release.value = 0.25;
 
