@@ -41,6 +41,7 @@ import { AffiliateIssueReports } from "../components/affiliate/AffiliateIssueRep
 import { ZKProofGenerator } from "../components/affiliate/ZKProofGenerator";
 import { DisputesManager } from "../components/affiliate/DisputesManager";
 import { Button } from "../components/ui/button";
+import { EmptyState } from "../components/shared/EmptyState";
 
 interface AffiliateProps {
   onBack: () => void;
@@ -143,11 +144,17 @@ const AffiliateContent: React.FC<AffiliateProps> = ({ onBack, initialTab = "over
       case "overview":
       default:
         return (
-          <AffiliateOverview
-            onNavigate={setActiveTab}
-            onNavigateToLeaderboard={() => setActiveTab("leaderboard")}
-            onNavigateToMilestones={() => setActiveTab("milestones")}
-          />
+          <div className="space-y-6">
+            <EmptyState
+              role="affiliate"
+              onAction={(destination) => setActiveTab(destination as AffiliateTab)}
+            />
+            <AffiliateOverview
+              onNavigate={setActiveTab}
+              onNavigateToLeaderboard={() => setActiveTab("leaderboard")}
+              onNavigateToMilestones={() => setActiveTab("milestones")}
+            />
+          </div>
         );
     }
   };
