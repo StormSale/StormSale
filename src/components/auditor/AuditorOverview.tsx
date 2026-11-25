@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   Card,
   CardContent,
@@ -9,6 +9,14 @@ import {
 import { Button } from "../../components/ui/button";
 import { useAuditorTenancy } from "../../context/AuditorTenancyContext";
 import { ORG_DASHBOARD_METRICS, recordsScopedToOrg } from "../../lib/auditorTenancy";
+import {
+  BlockRangeError,
+  normalizeLedgerRange,
+  queryContractEventsInRange,
+  recordInLedgerRange,
+  resolveDateToLedger,
+  type LedgerRange,
+} from "../../lib/auditor/blockRange";
 import { MasterDecryptionPortal } from "./MasterDecryptionPortal";
 import { SolvencyHUD } from "./SolvencyHUD";
 import {
@@ -23,6 +31,11 @@ import {
   Send,
   KeyRound,
   Lock,
+  CalendarDays,
+  Hash,
+  Loader2,
+  RotateCcw,
+  Search,
 } from "lucide-react";
 
 interface AuditorOverviewProps {
@@ -30,16 +43,58 @@ interface AuditorOverviewProps {
 }
 
 const ALL_RECENT_AUDITS = [
-  { saleId: "1042", campaign: "Tech Gadgets Pro", status: "Verified", timestamp: "2 hours ago" },
-  { saleId: "988", campaign: "Web3 Masterclass", status: "Verified", timestamp: "1 day ago" },
-  { saleId: "776", campaign: "Crypto Tools Suite", status: "Denied", timestamp: "3 days ago" },
-  { saleId: "654", campaign: "DeFi Starter Pack", status: "Verified", timestamp: "1 week ago" },
+  {
+    saleId: "1042",
+    campaign: "Tech Gadgets Pro",
+    status: "Verified",
+    timestamp: "2 hours ago",
+    blockNumber: 6_204_200,
+  },
+  {
+    saleId: "988",
+    campaign: "Web3 Masterclass",
+    status: "Verified",
+    timestamp: "1 day ago",
+    blockNumber: 6_204_100,
+  },
+  {
+    saleId: "776",
+    campaign: "Crypto Tools Suite",
+    status: "Denied",
+    timestamp: "3 days ago",
+    blockNumber: 6_203_800,
+  },
+  {
+    saleId: "654",
+    campaign: "DeFi Starter Pack",
+    status: "Verified",
+    timestamp: "1 week ago",
+    blockNumber: 6_203_500,
+  },
 ];
 
 const ALL_PENDING_REQUESTS = [
-  { saleId: "1100", campaign: "Summer Sale 2024", requestedBy: "GB12...34CD", urgency: "High" },
-  { saleId: "1089", campaign: "NFT Drop Alpha", requestedBy: "GC78...90GH", urgency: "Medium" },
-  { saleId: "1075", campaign: "DeFi Starter Pack", requestedBy: "GD34...56IJ", urgency: "Low" },
+  {
+    saleId: "1100",
+    campaign: "Summer Sale 2024",
+    requestedBy: "GB12...34CD",
+    urgency: "High",
+    blockNumber: 6_204_400,
+  },
+  {
+    saleId: "1089",
+    campaign: "NFT Drop Alpha",
+    requestedBy: "GC78...90GH",
+    urgency: "Medium",
+    blockNumber: 6_204_300,
+  },
+  {
+    saleId: "1075",
+    campaign: "DeFi Starter Pack",
+    requestedBy: "GD34...56IJ",
+    urgency: "Low",
+    blockNumber: 6_203_900,
+  },
 ];
 
 export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange }) => {
@@ -50,11 +105,89 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
   };
 
   const { org, cachedKeyIds, provisionDemoKey, lockSessionKeys } = useAuditorTenancy();
+  const [ledgerRange, setLedgerRange] = useState<LedgerRange | null>(null);
+  const [fromBlockInput, setFromBlockInput] = useState("");
+  const [toBlockInput, setToBlockInput] = useState("");
+  const [jumpDate, setJumpDate] = useState("");
+  const [rangeError, setRangeError] = useState<string | null>(null);
+  const [queryPending, setQueryPending] = useState(false);
+  const [queryResult, setQueryResult] = useState<string | null>(null);
+  const requestSequence = useRef(0);
+
+  const applyLedgerRange = async (fromBlock: number, toBlock: number) => {
+    let normalized: LedgerRange;
+    try {
+      normalized = normalizeLedgerRange(fromBlock, toBlock);
+    } catch (error) {
+      setRangeError(error instanceof BlockRangeError ? error.message : "Invalid block range.");
+      return;
+    }
+
+    const requestId = ++requestSequence.current;
+    setRangeError(null);
+    setLedgerRange(normalized);
+    setFromBlockInput(String(normalized.fromBlock));
+    setToBlockInput(String(normalized.toBlock));
+    setQueryPending(true);
+    setQueryResult(null);
+    try {
+      const events = await queryContractEventsInRange(normalized);
+      if (requestId !== requestSequence.current) return;
+      const latestBlock = events.at(-1)?.ledger;
+      setQueryResult(
+        `${events.length} contract event${events.length === 1 ? "" : "s"} found${
+          latestBlock ? ` through block #${latestBlock.toLocaleString()}` : ""
+        }.`,
+      );
+    } catch {
+      if (requestId !== requestSequence.current) return;
+      setQueryResult(
+        "Live chain lookup is unavailable; the block filter still applies to dashboard records.",
+      );
+    } finally {
+      if (requestId === requestSequence.current) setQueryPending(false);
+    }
+  };
+
+  const handleJumpToDate = async () => {
+    if (!jumpDate) {
+      setRangeError("Choose a date to jump to its first available ledger.");
+      return;
+    }
+    const requestId = ++requestSequence.current;
+    setRangeError(null);
+    setQueryPending(true);
+    setQueryResult(null);
+    try {
+      const block = await resolveDateToLedger(jumpDate);
+      if (requestId !== requestSequence.current) return;
+      await applyLedgerRange(block, block);
+    } catch {
+      if (requestId !== requestSequence.current) return;
+      setQueryPending(false);
+      setRangeError("Unable to resolve that date from the ledger. Try a block range instead.");
+    }
+  };
+
+  const resetRange = () => {
+    requestSequence.current += 1;
+    setLedgerRange(null);
+    setFromBlockInput("");
+    setToBlockInput("");
+    setJumpDate("");
+    setRangeError(null);
+    setQueryPending(false);
+    setQueryResult(null);
+  };
 
   // Every surface below is scoped to the selected organization (Issue #189).
   const metrics = ORG_DASHBOARD_METRICS[org.id] ?? ORG_DASHBOARD_METRICS["northwind-assurance"];
-  const recentAudits = recordsScopedToOrg(org.id, ALL_RECENT_AUDITS);
-  const pendingRequests = recordsScopedToOrg(org.id, ALL_PENDING_REQUESTS);
+  const recentAudits = recordsScopedToOrg(org.id, ALL_RECENT_AUDITS).filter((record) =>
+    recordInLedgerRange(record.blockNumber, ledgerRange),
+  );
+  const pendingRequests = recordsScopedToOrg(org.id, ALL_PENDING_REQUESTS).filter((record) =>
+    recordInLedgerRange(record.blockNumber, ledgerRange),
+  );
 
   const stats = [
     {
@@ -83,9 +216,10 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     },
   ];
 
-  const anomalies = [
+  const anomalies = recordsScopedToOrg(org.id, [
     {
       saleId: "1100",
+      blockNumber: 6_204_400,
       campaign: "Summer Sale 2024",
       type: "Wash Trading",
       severity: "High",
@@ -93,6 +227,7 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     },
     {
       saleId: "1089",
+      blockNumber: 6_204_300,
       campaign: "NFT Drop Alpha",
       type: "Rapid Claims",
       severity: "Medium",
@@ -100,12 +235,13 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
     },
     {
       saleId: "776",
+      blockNumber: 6_203_800,
       campaign: "Crypto Tools Suite",
       type: "Wash Trading",
       severity: "High",
       detail: "Repeated buy/sell cycles between two linked wallets.",
     },
-  ];
+  ]).filter((anomaly) => recordInLedgerRange(anomaly.blockNumber, ledgerRange));
 
   return (
     <div className="space-y-8">
@@ -129,6 +265,104 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
         </div>
       </div>
 
+      <Card className="border border-slate-200 dark:border-zinc-800 shadow-sm rounded-2xl bg-white dark:bg-zinc-900/50">
+        <CardHeader className="pb-4">
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
+            <Hash className="w-5 h-5 text-indigo-500" />
+            Block-range Navigation
+          </CardTitle>
+          <CardDescription>
+            Filter dashboard records and query contract events in ranges of up to 10,000 blocks.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <form
+            className="grid gap-4 lg:grid-cols-[1fr_1fr_1.4fr_auto_auto] lg:items-end"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void applyLedgerRange(Number(fromBlockInput), Number(toBlockInput));
+            }}
+          >
+            <label className="space-y-1.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">
+              From block
+              <input
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={fromBlockInput}
+                onChange={(event) => setFromBlockInput(event.target.value)}
+                className="h-10 w-full rounded-xl border border-slate-200 dark:border-zinc-700 bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">
+              To block
+              <input
+                type="number"
+                min="1"
+                step="1"
+                required
+                value={toBlockInput}
+                onChange={(event) => setToBlockInput(event.target.value)}
+                className="h-10 w-full rounded-xl border border-slate-200 dark:border-zinc-700 bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <label className="space-y-1.5 text-xs font-bold text-zinc-600 dark:text-zinc-300">
+              Jump to date (UTC)
+              <input
+                type="date"
+                value={jumpDate}
+                onChange={(event) => setJumpDate(event.target.value)}
+                className="h-10 w-full rounded-xl border border-slate-200 dark:border-zinc-700 bg-transparent px-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </label>
+            <Button type="submit" disabled={queryPending} className="h-10 rounded-xl">
+              {queryPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Search className="w-4 h-4 mr-2" />
+              )}
+              Apply range
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleJumpToDate()}
+              disabled={queryPending || !jumpDate}
+              className="h-10 rounded-xl"
+            >
+              <CalendarDays className="w-4 h-4 mr-2" />
+              Jump
+            </Button>
+          </form>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400" aria-live="polite">
+              {ledgerRange
+                ? `Showing block #${ledgerRange.fromBlock.toLocaleString()} through #${ledgerRange.toBlock.toLocaleString()}.`
+                : "All block ranges are currently visible."}
+              {queryResult ? ` ${queryResult}` : ""}
+            </p>
+            {ledgerRange && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={resetRange}
+                className="h-8 rounded-lg text-xs"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                Reset range
+              </Button>
+            )}
+          </div>
+          {rangeError && (
+            <p role="alert" className="text-sm font-medium text-red-600 dark:text-red-400">
+              {rangeError}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Real-Time Protocol Solvency Proof & TVL Oracle (#81) */}
       <SolvencyHUD />
 
@@ -147,6 +381,11 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
         </CardHeader>
         <CardContent className="pt-6">
           <div className="space-y-4">
+            {anomalies.length === 0 && (
+              <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                No anomalies fall within this block range.
+              </p>
+            )}
             {anomalies.map((anomaly) => {
               const isReported = reportedAnomalies.includes(anomaly.saleId);
               return (
@@ -177,7 +416,7 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
                         </span>
                       </div>
                       <div className="text-xs font-mono font-medium text-zinc-400 dark:text-zinc-500 mt-1">
-                        Sale #{anomaly.saleId}
+                        Sale #{anomaly.saleId} · Block #{anomaly.blockNumber.toLocaleString()}
                       </div>
                       <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-md">
                         {anomaly.detail}
@@ -286,6 +525,11 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-4">
+              {recentAudits.length === 0 && (
+                <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  No recent audits fall within this block range.
+                </p>
+              )}
               {recentAudits.map((audit, i) => (
                 <div
                   key={i}
@@ -310,7 +554,7 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
                         {audit.campaign}
                       </div>
                       <div className="text-xs font-mono font-medium text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        Sale #{audit.saleId}
+                        Sale #{audit.saleId} · Block #{audit.blockNumber.toLocaleString()}
                       </div>
                     </div>
                   </div>
@@ -346,6 +590,11 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
           </CardHeader>
           <CardContent className="pt-6">
             <div className="space-y-4">
+              {pendingRequests.length === 0 && (
+                <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  No pending requests fall within this block range.
+                </p>
+              )}
               {pendingRequests.map((req, i) => (
                 <div
                   key={i}
@@ -360,7 +609,8 @@ export const AuditorOverview: React.FC<AuditorOverviewProps> = ({ onTabChange })
                         {req.campaign}
                       </div>
                       <div className="text-xs font-mono text-zinc-400 dark:text-zinc-500 mt-0.5">
-                        {req.requestedBy} · Sale #{req.saleId}
+                        {req.requestedBy} · Sale #{req.saleId} · Block #
+                        {req.blockNumber.toLocaleString()}
                       </div>
                     </div>
                   </div>

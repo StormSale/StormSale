@@ -84,7 +84,7 @@ describe("ComplianceReport batch export panel", () => {
 });
 
 describe("AuditorOverview red flags", () => {
-  it("lists anomalies and marks them reported once", async () => {
+  it("lists only tenant-scoped anomalies and marks them reported once", async () => {
     const { AuditorOverview } = await import("../components/auditor/AuditorOverview");
     const { AuditorTenancyProvider } = await import("../context/AuditorTenancyContext");
     render(
@@ -96,9 +96,9 @@ describe("AuditorOverview red flags", () => {
     );
     expect(screen.getByText("Suspicious Activity & Anomaly Detection")).toBeTruthy();
     const buttons = screen.getAllByRole("button", { name: /Report Anomaly/ });
-    expect(buttons.length).toBe(3);
+    expect(buttons.length).toBe(1);
     fireEvent.click(buttons[0]);
-    expect(screen.getAllByRole("button", { name: /Report Anomaly/ }).length).toBe(2);
+    expect(screen.queryAllByRole("button", { name: /Report Anomaly/ }).length).toBe(0);
     expect(screen.getByRole("button", { name: /Reported/ })).toBeTruthy();
   });
 });
