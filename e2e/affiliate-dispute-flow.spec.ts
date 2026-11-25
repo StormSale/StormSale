@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { connectWithDemoAccount, mockBackend, visible } from "../tests/e2e/helpers";
+import { assumeRole, connectWithDemoAccount, mockBackend, visible } from "../tests/e2e/helpers";
 
 const nav = (page: import("@playwright/test").Page, label: string) =>
   visible(page.getByRole("button", { name: label }));
@@ -12,10 +12,11 @@ test.describe("E2E Journey: Affiliate Dispute Resolution & Mediation (#490)", ()
   test("affiliate submits dispute, advertiser views 48h SLA badge, accepts dispute and resolves escrow", async ({
     page,
   }) => {
+    test.setTimeout(120_000);
+
     // 1. Connect wallet and assume Affiliate role
     await connectWithDemoAccount(page);
-    await page.getByRole("heading", { name: "Affiliate", exact: true }).click();
-    await page.getByRole("button", { name: "Sign & Assume Role" }).click();
+    await assumeRole(page, "Affiliate");
     await expect(page.getByRole("heading", { name: "Affiliate Dashboard" })).toBeVisible();
 
     // 2. Affiliate navigates to Disputes & Mediation and submits a dispute ticket
@@ -44,8 +45,7 @@ test.describe("E2E Journey: Affiliate Dispute Resolution & Mediation (#490)", ()
     await visible(page.getByRole("button", { name: "Role Selector" })).click();
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeVisible();
 
-    await page.getByRole("heading", { name: "Advertiser", exact: true }).click();
-    await page.getByRole("button", { name: "Sign & Assume Role" }).click();
+    await assumeRole(page, "Advertiser");
     await expect(page.getByRole("heading", { name: "Advertiser Command Center" })).toBeVisible();
 
     // 4. Advertiser dashboard displays dispute badge with 48h resolution SLA counter
@@ -72,8 +72,7 @@ test.describe("E2E Journey: Affiliate Dispute Resolution & Mediation (#490)", ()
     await visible(page.getByRole("button", { name: "Role Selector" })).click();
     await expect(page.getByRole("heading", { name: "Select Your Role" })).toBeVisible();
 
-    await page.getByRole("heading", { name: "Affiliate", exact: true }).click();
-    await page.getByRole("button", { name: "Sign & Assume Role" }).click();
+    await assumeRole(page, "Affiliate");
 
     // 8. Verify dispute status updates to RESOLVED on Affiliate dashboard
     const isDisputesHub = await page

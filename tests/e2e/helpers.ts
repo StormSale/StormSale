@@ -148,6 +148,8 @@ export async function connectWithDemoAccount(page: Page) {
 }
 
 export async function assumeRole(page: Page, title: "Advertiser" | "Affiliate" | "Auditor") {
-  await page.getByRole("heading", { name: title, exact: true }).click();
+  const roleHeading = page.getByRole("heading", { name: title, exact: true });
+  await roleHeading.scrollIntoViewIfNeeded();
+  await roleHeading.click();
   await page.getByRole("button", { name: "Sign & Assume Role" }).click();
 }
