@@ -210,7 +210,7 @@ export async function verifyMerkleProofInWorker(
 ): Promise<MerkleProofWorkerResponse> {
   const id = `merkle_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
-  if (options.forceFallback || typeof Worker === "undefined") {
+  if (options.forceFallback || (!options.workerFactory && typeof Worker === "undefined")) {
     return verifyLocally(request, id);
   }
 

@@ -491,15 +491,19 @@ const ToastItem: React.FC<ToastItemProps> = ({ notification, onDismiss }) => {
 
           {/* Dedicated "View Receipt" action for commission claim toasts (#53) */}
           {(() => {
+            const isReceipt =
+              actionLabel === "View Receipt" ||
+              Boolean(
+                notification.receiptUrl ||
+                  notification.receiptTxHash ||
+                  notification.onViewReceipt,
+              );
             const receiptUrl =
               notification.receiptUrl ||
               (notification.receiptTxHash
                 ? getStellarExpertUrl("tx", notification.receiptTxHash)
                 : undefined) ||
-              actionUrl;
-            const isReceipt = Boolean(
-              receiptUrl || notification.onViewReceipt || actionLabel === "View Receipt",
-            );
+              (isReceipt ? actionUrl : undefined);
 
             if (isReceipt) {
               return (
