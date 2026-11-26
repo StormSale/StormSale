@@ -23,10 +23,9 @@ jobs:
             const body = pr.body || '';
             const errors = [];
 
-            // 1. Check Conventional Commit title format (allow prefixing with Fix #431, etc.)
-            const conventionalRegex = /^(?:Fix\s+#\d+(?:,\s*#\d+)*(?:\s+and\s+#\d+)?:\s+)?(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_\-\.\/]+\))?:\s.+/i;
-            const altRegex = /^(Fix|Closes|Resolves)\s+#\d+/i;
-            if (!conventionalRegex.test(title) && !altRegex.test(title)) {
+            // 1. Check Conventional Commit title format
+            const conventionalRegex = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-zA-Z0-9_\-\.\/]+\))?:\s.+/i;
+            if (!conventionalRegex.test(title)) {
               errors.push(`- **Invalid PR Title**: "${title}". Title must follow Conventional Commits format, e.g. \`feat(affiliate): add timer\` or \`fix(web3): handle wallet error\`.`);
             }
 
