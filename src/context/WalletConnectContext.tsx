@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useRef } from "r
 import type { ReactNode } from "react";
 import { useWeb3 } from "./Web3Context";
 
-const WALLETCONNECT_SESSION_KEY = "stormsale_walletconnect_session";
+export const WALLETCONNECT_SESSION_KEY = "stormsale_walletconnect_session";
+export const SESSION_WINDOW_MS = 24 * 60 * 60 * 1000; // 24-hour session window
 
 export interface WalletConnectSession {
   topic?: string;
@@ -12,6 +13,92 @@ export interface WalletConnectSession {
     icons?: string[];
   };
   connectedAt: number;
+  expiresAt: number;
+  lastActiveAt?: number;
+}
+
+export type MobileWalletName = "metamask" | "rainbow" | "trust";
+
+export interface MobileWalletConfig {
+  id: MobileWalletName;
+  name: string;
+  universalLink: string;
+  nativeScheme: string;
+  description: string;
+}
+
+export const SUPPORTED_MOBILE_WALLETS: Record<MobileWalletName, MobileWalletConfig> = {
+  metamask: {
+    id: "metamask",
+    name: "MetaMask",
+    universalLink: "https://metamask.app.link/wc",
+    nativeScheme: "metamask://wc",
+    description: "Connect to MetaMask Mobile via deep link",
+  },
+  rainbow: {
+    id: "rainbow",
+    name: "Rainbow",
+    universalLink: "https://rainbow.me/wc",
+    nativeScheme: "rainbow://wc",
+    description: "Connect to Rainbow Wallet via deep link",
+  },
+  trust: {
+    id: "trust",
+    name: "Trust Wallet",
+    universalLink: "https://link.trustwallet.com/wc",
+    nativeScheme: "trust://wc",
+    description: "Connect to Trust Wallet via deep link",
+  },
+};
+
+/**
+ * Generates verified deep-linking URLs for MetaMask, Rainbow, or Trust Wallet.
+ * Supports universal links (web redirect) or native OS URI schemes.
+ */
+export function formatMobileDeepLink(
+  wallet: MobileWalletName,
+  wcUri: string,
+  options?: { nativeScheme?: boolean }
+): string {
+  const config = SUPPORTED_MOBILE_WALLETS[wallet];
+  if (!config || !wcUri) return wcUri || "";
+  const encodedUri = encodeURIComponent(wcUri);
+  const base = options?.nativeScheme ? config.nativeScheme : config.universalLink;
+  return `${base}?uri=${encodedUri}`;
+}
+
+/**
+ * Triggers mobile deep link navigation or window open.
+ */
+export function triggerMobileDeepLink(
+  wallet: MobileWalletName,
+  wcUri: string,
+  options?: { nativeScheme?: boolean }
+): boolean {
+  if (typeof window === "undefined" || !wcUri) return false;
+  const link = formatMobileDeepLink(wallet, wcUri, options);
+  try {
+    if (window.location && typeof window.location.assign === "function") {
+      window.location.assign(link);
+    } else if (window.location) {
+      window.location.href = link;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Could not trigger mobile deep link:", err);
+    return false;
+  }
+}
+
+/**
+ * Detects if the current user agent is a mobile or tablet device.
+ */
+export function isMobileDevice(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+  const ua = navigator.userAgent || "";
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
 }
 
 export interface WalletConnectCoreProvider {
@@ -56,17 +143,47 @@ class WalletConnectSingleton {
     }
   }
 
-  private restoreSession(): void {
+  public restoreSession(): void {
     try {
       if (typeof window !== "undefined" && window.localStorage) {
         const stored = localStorage.getItem(WALLETCONNECT_SESSION_KEY);
         if (stored) {
-          this.session = JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          const now = Date.now();
+          const expiresAt =
+            typeof parsed.expiresAt === "number"
+              ? parsed.expiresAt
+              : (parsed.connectedAt || now) + SESSION_WINDOW_MS;
+
+          // Enforce 24-hour session window resilience
+          if (now < expiresAt) {
+            this.session = {
+              ...parsed,
+              expiresAt,
+              lastActiveAt: now,
+            };
+          } else {
+            // Prune expired session from storage
+            localStorage.removeItem(WALLETCONNECT_SESSION_KEY);
+            this.session = null;
+          }
         }
       }
     } catch (err) {
       console.warn("Could not restore WalletConnect session from storage:", err);
     }
+  }
+
+  public isSessionValid(): boolean {
+    if (!this.session) return false;
+    const now = Date.now();
+    return now < (this.session.expiresAt || this.session.connectedAt + SESSION_WINDOW_MS);
+  }
+
+  public getSessionRemainingTime(): number {
+    if (!this.session) return 0;
+    const expiresAt = this.session.expiresAt || this.session.connectedAt + SESSION_WINDOW_MS;
+    return Math.max(0, expiresAt - Date.now());
   }
 
   public initialize(): Promise<WalletConnectCoreProvider> {
@@ -81,13 +198,16 @@ class WalletConnectSingleton {
           isInitialized: true,
           init: async () => {},
           connect: async () => {
+            const now = Date.now();
             const newSession: WalletConnectSession = {
               topic: "wc_" + Math.random().toString(36).substring(2, 12),
               peerMeta: {
                 name: "StormSale Mobile",
                 description: "Stellar Affiliate Escrow Platform",
               },
-              connectedAt: Date.now(),
+              connectedAt: now,
+              expiresAt: now + SESSION_WINDOW_MS,
+              lastActiveAt: now,
             };
             this.session = newSession;
             try {
@@ -138,6 +258,8 @@ interface WalletConnectState {
   error: string | null;
   showNetworkModal: boolean;
   isProviderReady: boolean;
+  isSessionActive: boolean;
+  sessionRemainingTime: number;
 }
 
 interface WalletConnectContextType extends WalletConnectState {
@@ -147,6 +269,10 @@ interface WalletConnectContextType extends WalletConnectState {
   clearError: () => void;
   setShowNetworkModal: (show: boolean) => void;
   provider: WalletConnectCoreProvider | null;
+  session: WalletConnectSession | null;
+  formatDeepLink: (wallet: MobileWalletName, uri?: string, options?: { nativeScheme?: boolean }) => string;
+  triggerDeepLink: (wallet: MobileWalletName, uri?: string, options?: { nativeScheme?: boolean }) => boolean;
+  isMobileDevice: () => boolean;
 }
 
 const WalletConnectContext = createContext<WalletConnectContextType | undefined>(undefined);
@@ -162,6 +288,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     error: null,
     showNetworkModal: false,
     isProviderReady: false,
+    isSessionActive: false,
+    sessionRemainingTime: 0,
   });
 
   const [providerInstance, setProviderInstance] = useState<WalletConnectCoreProvider | null>(null);
@@ -189,7 +317,20 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
 
         if (isMountedRef.current) {
           setProviderInstance(provider);
-          setState((prev) => ({ ...prev, isProviderReady: true }));
+          const valid = singleton.isSessionValid();
+          setState((prev) => ({
+            ...prev,
+            isProviderReady: true,
+            isSessionActive: valid,
+            sessionRemainingTime: singleton.getSessionRemainingTime(),
+          }));
+
+          // 24-hour session window auto-reconnect
+          if (valid && !isConnected) {
+            connectWallet("mock").catch((err) => {
+              console.warn("WalletConnect auto-reconnect notice:", err);
+            });
+          }
         }
       } catch (err: unknown) {
         if (isMountedRef.current) {
@@ -210,9 +351,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
 
     return () => {
       isMountedRef.current = false;
-      // Do NOT destroy the global singleton here so React StrictMode does not re-init on remount
     };
-  }, []);
+  }, [connectWallet, isConnected]);
 
   const connect = async (): Promise<void> => {
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
@@ -223,6 +363,12 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       await provider.connect();
 
       await connectWallet();
+
+      setState((prev) => ({
+        ...prev,
+        isSessionActive: true,
+        sessionRemainingTime: singleton.getSessionRemainingTime(),
+      }));
 
       // Check if we're on Stellar network after connection
       if (isConnected && !isStellarNetwork) {
@@ -255,6 +401,8 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
       error: null,
       showNetworkModal: false,
       isProviderReady: singleton.getIsInitialized(),
+      isSessionActive: false,
+      sessionRemainingTime: 0,
     });
   };
 
@@ -296,6 +444,26 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, showNetworkModal: show }));
   };
 
+  const formatDeepLink = (
+    wallet: MobileWalletName,
+    uri?: string,
+    options?: { nativeScheme?: boolean }
+  ): string => {
+    const singleton = WalletConnectSingleton.getInstance();
+    const effectiveUri = uri || singleton.getSession()?.topic || "";
+    return formatMobileDeepLink(wallet, effectiveUri, options);
+  };
+
+  const triggerDeepLink = (
+    wallet: MobileWalletName,
+    uri?: string,
+    options?: { nativeScheme?: boolean }
+  ): boolean => {
+    const singleton = WalletConnectSingleton.getInstance();
+    const effectiveUri = uri || singleton.getSession()?.topic || "";
+    return triggerMobileDeepLink(wallet, effectiveUri, options);
+  };
+
   const contextValue: WalletConnectContextType = {
     ...state,
     connect,
@@ -304,6 +472,10 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     clearError,
     setShowNetworkModal,
     provider: providerInstance,
+    session: WalletConnectSingleton.getInstance().getSession(),
+    formatDeepLink,
+    triggerDeepLink,
+    isMobileDevice,
   };
 
   return (
