@@ -62,7 +62,7 @@ jobs:
 
       - name: Deploy ephemeral Vercel preview
         id: deploy
-        uses: amondnet/vercel-action@v25
+        uses: amondnet/vercel-action@v42
         with:
           vercel-token: ${{ secrets.VERCEL_PREVIEW_TOKEN }}
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
