@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Keypair, Transaction, Networks, TransactionBuilder, Asset } from "@stellar/stellar-sdk";
+import { Account, Keypair, Networks, Operation, Transaction, TransactionBuilder } from "@stellar/stellar-sdk";
 
 interface ChallengeData {
   clientDomain: string;
@@ -16,17 +16,23 @@ function parseSep10Challenge(txXdr: string, expectedServerDomain: string, expect
   }
   
   let clientDomain = "";
-  let serverDomain = expectedServerDomain;
+  let serverDomain = "";
 
   for (const op of tx.operations) {
     if (op.type === "manageData") {
-      if (op.name.endsWith("client_domain")) {
+      if (op.name === "client_domain") {
         clientDomain = op.value?.toString() || "";
-      }
-      if (op.name.endsWith("auth")) {
-        serverDomain = expectedHomeDomain || expectedServerDomain;
+      } else if (op.name.endsWith(" auth")) {
+        serverDomain = op.name.slice(0, -" auth".length);
       }
     }
+  }
+
+  const expectedDomain = expectedHomeDomain || expectedServerDomain;
+  if (serverDomain !== expectedDomain) {
+    throw new Error(
+      `Challenge home domain "${serverDomain}" does not match expected "${expectedDomain}"`,
+    );
   }
 
   const timebounds = tx.timeBounds;
@@ -123,53 +129,55 @@ describe("SEP-0010 Stellar Web Authentication & JWT Lifecycle Suite", () => {
     vi.restoreAllMocks();
   });
 
-  it("decodes SEP-0010 challenge transaction and verifies valid timebounds", () => {
-    const serverKeyPair = Keypair.random();
-    const now = Math.floor(Date.now() / 1000);
-
-    const sourceAccount = {
-      accountId: () => serverKeyPair.publicKey(),
-      sequenceNumber: () => "1",
-      incrementSequenceNumber: () => {},
-    };
-
-    const builder = new TransactionBuilder(sourceAccount as any, {
+  function buildChallenge(homeDomain: string, timebounds: { minTime: number; maxTime: number }) {
+    const serverKp = Keypair.random();
+    const clientKp = Keypair.random();
+    const tx = new TransactionBuilder(new Account(serverKp.publicKey(), "-1"), {
       fee: "100",
       networkPassphrase: Networks.TESTNET,
-      timebounds: { minTime: now - 60, maxTime: now + 300 },
-    });
+      timebounds,
+    })
+      .addOperation(
+        Operation.manageData({
+          name: `${homeDomain} auth`,
+          value: "a".repeat(64),
+          source: clientKp.publicKey(),
+        }),
+      )
+      .addOperation(
+        Operation.manageData({
+          name: "client_domain",
+          value: "wallet.example.com",
+          source: clientKp.publicKey(),
+        }),
+      )
+      .build();
+    tx.sign(serverKp);
+    return tx.toEnvelope().toXDR("base64");
+  }
 
-    const tx = builder.build();
-    const xdr = tx.toEnvelope().toXDR("base64");
+  it("decodes SEP-0010 challenge transaction and verifies valid timebounds", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const xdr = buildChallenge("auth.stormsale.io", { minTime: now - 60, maxTime: now + 300 });
 
-    const parsed = parseSep10Challenge(xdr, serverKeyPair.publicKey());
+    const parsed = parseSep10Challenge(xdr, "auth.stormsale.io");
     expect(parsed.timebounds.minTime).toBe(now - 60);
     expect(parsed.timebounds.maxTime).toBe(now + 300);
+    expect(parsed.clientDomain).toBe("wallet.example.com");
+
+    const expiredXdr = buildChallenge("auth.stormsale.io", { minTime: now - 900, maxTime: now - 600 });
+    expect(() => parseSep10Challenge(expiredXdr, "auth.stormsale.io")).toThrow(/timebounds/);
   });
 
   it("verifies client validation that challenge domain matches expected backend domain", () => {
-    const serverKp = Keypair.random();
-    const sourceAccount = {
-      accountId: () => serverKp.publicKey(),
-      sequenceNumber: () => "1",
-      incrementSequenceNumber: () => {},
-    };
-
-    const builder = new TransactionBuilder(sourceAccount as any, {
-      fee: "100",
-      networkPassphrase: Networks.TESTNET,
-      timebounds: { minTime: 0, maxTime: 9999999999 },
-    });
-
-    const tx = builder.build();
-    const xdr = tx.toEnvelope().toXDR("base64");
+    const xdr = buildChallenge("auth.stormsale.io", { minTime: 0, maxTime: 9999999999 });
 
     const parsed = parseSep10Challenge(xdr, "auth.stormsale.io");
     expect(parsed.serverDomain).toBe("auth.stormsale.io");
 
     expect(() => {
       parseSep10Challenge(xdr, "malicious-domain.com");
-    }).not.toThrow();
+    }).toThrow(/does not match expected/);
   });
 
   it("tests automatic JWT refresh 5 minutes before expiration", async () => {
