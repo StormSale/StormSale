@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.2](https://github.com/StormSale/StormSale/compare/v1.4.1...v1.4.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **e2e:** repair wallet journey tests ([d12cda5](https://github.com/StormSale/StormSale/commit/d12cda5edce1e81c8b418a09f58c2220eb75415c))
+* resolve build errors and test failures ([57c4c61](https://github.com/StormSale/StormSale/commit/57c4c61a39d9c50067cd7cfe5175d2b82b633962))
+
 ## [1.4.1](https://github.com/StormSale/StormSale/compare/v1.4.0...v1.4.1) (2026-11-25)
 
 
