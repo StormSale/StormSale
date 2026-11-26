@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AffiliateOverview } from "../components/affiliate/AffiliateOverview";
+import * as conversionAnalytics from "../lib/conversionAnalytics";
 
 const mocks = vi.hoisted(() => ({
   useWeb3: vi.fn(),
@@ -162,5 +163,16 @@ describe("AffiliateOverview", () => {
         screen.getByText("Clipboard access is unavailable. Select and copy the link below."),
       ).toBeTruthy(),
     );
+  });
+
+  it("re-syncs backend conversions when a stormsale:conversion event fires", async () => {
+    const syncSpy = vi.spyOn(conversionAnalytics, "syncBackendConversions");
+    render(<AffiliateOverview />);
+    await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1));
+
+    window.dispatchEvent(new CustomEvent("stormsale:conversion"));
+    await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(2));
+
+    syncSpy.mockRestore();
   });
 });

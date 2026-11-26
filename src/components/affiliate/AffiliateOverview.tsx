@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo } from "react";
 import QRCode from "qrcode";
 import {
   Card,
@@ -332,11 +332,18 @@ export const AffiliateOverview: React.FC<AffiliateOverviewProps> = ({
 
   useEffect(() => {
     let active = true;
-    void syncBackendConversions().then((res) => {
-      if (active) setConversions(res.conversions);
-    });
+    const fetchConversions = () => {
+      void syncBackendConversions().then((res) => {
+        if (active) setConversions(res.conversions);
+      });
+    };
+
+    fetchConversions();
+    window.addEventListener("stormsale:conversion", fetchConversions);
+
     return () => {
       active = false;
+      window.removeEventListener("stormsale:conversion", fetchConversions);
     };
   }, []);
 
