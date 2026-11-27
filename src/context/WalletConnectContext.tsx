@@ -4,6 +4,19 @@ import { useWeb3 } from "./Web3Context";
 
 const WALLETCONNECT_SESSION_KEY = "stormsale_walletconnect_session";
 
+const DEFAULT_ALLOWED_ORIGINS = ["https://stormsale.app", "https://www.stormsale.app"];
+
+export function assertAllowedWalletConnectOrigin(origin: string): void {
+  const configured = import.meta.env.VITE_WALLETCONNECT_ALLOWED_ORIGINS?.split(",")
+    .map((value: string) => value.trim())
+    .filter(Boolean);
+  const allowed = configured?.length ? configured : DEFAULT_ALLOWED_ORIGINS;
+  const localDevelopment = import.meta.env.DEV && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+  if (!localDevelopment && !allowed.includes(origin)) {
+    throw new Error("WalletConnect is unavailable on this domain. Open the official StormSale application.");
+  }
+}
+
 export interface WalletConnectSession {
   topic?: string;
   peerMeta?: {
@@ -218,6 +231,7 @@ export const WalletConnectProvider: React.FC<WalletConnectProviderProps> = ({ ch
     setState((prev) => ({ ...prev, isConnecting: true, error: null }));
 
     try {
+      if (typeof window !== "undefined") assertAllowedWalletConnectOrigin(window.location.origin);
       const singleton = WalletConnectSingleton.getInstance();
       const provider = await singleton.initialize();
       await provider.connect();
