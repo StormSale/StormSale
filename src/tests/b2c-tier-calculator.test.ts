@@ -188,4 +188,46 @@ describe("b2c TierCommissionCalculator component", () => {
     expect(textOf("commission-usdc")).toBe("50.00 USDC");
     expect(textOf("commission-eur")).toBe("€40.00");
   });
+
+  it("renders a completed progress bar at the maximum tier", () => {
+    render(createElement(TierCommissionCalculator, { lifetimeVolumeUsd: 250_000, rates: RATES }));
+
+    expect(textOf("tier-name")).toBe("Platinum");
+    expect(textOf("tier-rate")).toContain("15%");
+    const progressBar = screen.getByRole("progressbar", { name: "Maximum tier reached" });
+    expect(progressBar.getAttribute("aria-valuenow")).toBe("100");
+    expect((testId("tier-progress-fill") as HTMLElement).style.width).toBe("100%");
+    expect(textOf("remaining-volume")).toBe("Maximum tier reached");
+  });
+
+  it("projects zero and maximum commission from slider boundaries", () => {
+    render(createElement(TierCommissionCalculator, { rates: RATES }));
+    const slider = screen.getByRole("slider", {
+      name: "Monthly referred volume simulator",
+    }) as HTMLInputElement;
+
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(field("custom-volume").value).toBe("0");
+    expect(textOf("commission-usd")).toBe("$0.00");
+    expect(textOf("commission-xlm")).toBe("0.00 XLM");
+
+    fireEvent.change(slider, { target: { value: "500000" } });
+    expect(field("custom-volume").value).toBe("500000");
+    expect(textOf("commission-usd")).toBe("$25,000.00");
+    expect(textOf("commission-xlm")).toBe("200,000.00 XLM");
+    expect(textOf("commission-usdc")).toBe("25,000.00 USDC");
+  });
+
+  it("normalizes invalid lifetime volume through the UI", () => {
+    render(createElement(TierCommissionCalculator, { rates: RATES }));
+    const progressBar = () => screen.getByRole("progressbar", { name: "Progress to Silver" });
+
+    fireEvent.change(field("lifetime-volume-input"), { target: { value: "5000" } });
+    expect(progressBar().getAttribute("aria-valuenow")).toBe("50");
+
+    fireEvent.change(field("lifetime-volume-input"), { target: { value: "-100" } });
+    expect(textOf("tier-name")).toBe("Bronze");
+    expect(progressBar().getAttribute("aria-valuenow")).toBe("0");
+    expect(textOf("remaining-volume")).toContain("10,000 USD to Silver");
+  });
 });
