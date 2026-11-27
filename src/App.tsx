@@ -16,6 +16,7 @@ import { parseProofFromUrl } from "./lib/zkProofEngine";
 import { parseRecruiterInviteFromUrl } from "./lib/referralTree";
 import type { ZKRevenueProof } from "./types/zkProof";
 import { loadBrandConfig } from "./lib/branding";
+import { OrganizationProvider, useOrganization } from "./context/OrganizationContext";
 import { ProtectedRoute } from "./components/auth/ProtectedRoute";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Header } from "./components/shared/Header";
@@ -27,6 +28,8 @@ import { ClickjackingWarning } from "./components/security/ClickjackingWarning";
 import { MultiCurrencyCheckout } from "./components/checkout/MultiCurrencyCheckout";
 import { Button } from "./components/ui/button";
 import { ArrowLeft, Zap } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import i18n from "./lib/i18n";
 import logo from "./assets/logo2.png";
 
 // Lazy-loaded routes and role-specific dashboards
@@ -117,10 +120,12 @@ export function IndigoBootLoader({
 }
 
 export function PageLoader() {
+  // Uses the i18n singleton rather than a hook so this fallback can also be
+  // rendered directly (see route-splitting tests) outside a React context.
   return (
     <div
       role="status"
-      aria-label="Loading page"
+      aria-label={i18n.t("app.loadingPage")}
       className="min-h-screen flex flex-col items-center justify-center p-6 bg-background text-foreground"
     >
       <div className="relative flex items-center justify-center">
@@ -128,28 +133,29 @@ export function PageLoader() {
         <div className="absolute w-6 h-6 rounded-full bg-indigo-500/10 animate-pulse" />
       </div>
       <p className="mt-4 text-sm font-medium text-muted-foreground animate-pulse">
-        Loading view...
+        {i18n.t("app.loadingView")}
       </p>
     </div>
   );
 }
 
-const ErrorFallback = () => (
-  <div className="min-h-screen flex items-center justify-center p-4">
-    <div className="max-w-lg text-center">
-      <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
-      <p className="text-sm text-muted-foreground mb-4">
-        An unexpected error occurred. Please refresh the page or try again later.
-      </p>
-      <button
-        onClick={() => window.location.reload()}
-        className="px-4 py-2 bg-indigo-600 text-white rounded"
-      >
-        Reload
-      </button>
+const ErrorFallback = () => {
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="max-w-lg text-center">
+        <h2 className="text-2xl font-bold mb-2">{t("app.errorTitle")}</h2>
+        <p className="text-sm text-muted-foreground mb-4">{t("app.errorMessage")}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-4 py-2 bg-indigo-600 text-white rounded"
+        >
+          {t("app.reload")}
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const VALID_PAGES = [
   "dashboard",
@@ -165,6 +171,7 @@ const VALID_PAGES = [
 type Page = (typeof VALID_PAGES)[number];
 
 function Router() {
+  const { t } = useTranslation();
   const { isConnected, openWalletModal } = useWeb3();
   const [tmaMode, setTmaMode] = useState(() => isTelegramMiniApp());
 
@@ -259,7 +266,7 @@ function Router() {
                   className="rounded-xl font-bold text-xs"
                 >
                   <ArrowLeft className="w-4 h-4 mr-1.5" />
-                  Back to StormSale
+                  {t("header.backToStormSale")}
                 </Button>
                 <div className="hidden sm:flex items-center space-x-2 border-l border-slate-200 dark:border-zinc-800 pl-3">
                   <img src={logo} alt="StormSale Icon" className="h-7 w-auto object-contain" />
@@ -276,7 +283,7 @@ function Router() {
                     className="rounded-xl bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
                   >
                     <Zap className="w-3.5 h-3.5 mr-1.5" />
-                    Connect Wallet
+                    {t("header.connectWallet")}
                   </Button>
                 ) : (
                   <Button
@@ -286,7 +293,7 @@ function Router() {
                     }}
                     className="rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-9 px-4 shadow-sm"
                   >
-                    Affiliate Dashboard
+                    {t("header.affiliateDashboard")}
                   </Button>
                 )}
               </div>
@@ -339,14 +346,18 @@ function Router() {
               {currentPage === "dashboard" && <Dashboard onNavigate={handleNavigate} />}
               {currentPage === "advertiser" && (
                 <ProtectedRoute requiredRole="ADVERTISER" onNavigate={handleNavigate}>
-                  <Suspense fallback={<div className="p-8 text-center">Loading Advertiser...</div>}>
+                  <Suspense
+                    fallback={<div className="p-8 text-center">{t("app.loadingAdvertiser")}</div>}
+                  >
                     <Advertiser onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>
               )}
               {currentPage === "affiliate" && (
                 <ProtectedRoute requiredRole="AFFILIATE" onNavigate={handleNavigate}>
-                  <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                  <Suspense
+                    fallback={<div className="p-8 text-center">{t("app.loadingAffiliate")}</div>}
+                  >
                     <Affiliate
                       onBack={() => (isConnected ? handleNavigate("dashboard") : setTmaMode(false))}
                     />
@@ -354,7 +365,9 @@ function Router() {
                 </ProtectedRoute>
               )}
               {(currentPage === "leaderboard" || currentPage === "milestones") && (
-                <Suspense fallback={<div className="p-8 text-center">Loading Affiliate...</div>}>
+                <Suspense
+                  fallback={<div className="p-8 text-center">{t("app.loadingAffiliate")}</div>}
+                >
                   <Affiliate
                     onBack={() => handleNavigate("dashboard")}
                     initialTab={currentPage === "milestones" ? "milestones" : "leaderboard"}
@@ -363,7 +376,9 @@ function Router() {
               )}
               {currentPage === "auditor" && (
                 <ProtectedRoute requiredRole="AUDITOR" onNavigate={handleNavigate}>
-                  <Suspense fallback={<div className="p-8 text-center">Loading Auditor...</div>}>
+                  <Suspense
+                    fallback={<div className="p-8 text-center">{t("app.loadingAuditor")}</div>}
+                  >
                     <Auditor onBack={() => handleNavigate("dashboard")} />
                   </Suspense>
                 </ProtectedRoute>

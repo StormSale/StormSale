@@ -60,6 +60,9 @@ vi.mock("../components/advertiser/MyCampaignsList", () => ({
   MyCampaignsList: stub("My campaigns"),
 }));
 vi.mock("../components/advertiser/WebhookManager", () => ({ WebhookManager: stub("Webhooks") }));
+vi.mock("../components/advertiser/SlackSettingsCard", () => ({
+  SlackSettingsCard: stub("Slack alerts"),
+}));
 vi.mock("../components/advertiser/BrandCustomizer", () => ({ BrandCustomizer: stub("Branding") }));
 vi.mock("../components/advertiser/AuditAccessPortal", () => ({
   AuditAccessPortal: stub("Audit logs"),
@@ -97,6 +100,7 @@ describe("Advertiser page navigation", () => {
       ["Log Encrypted Sale", "Log sale content"],
       ["Cohort & LTV Analysis", "Cohort content"],
       ["Postback Webhooks", "Webhooks content"],
+      ["Slack Alerts", "Slack alerts content"],
       ["Grant Audit Access", "Grant content"],
       ["Audit Access Logs", "Audit logs content"],
       ["Campaign Analytics", "Analytics content"],
