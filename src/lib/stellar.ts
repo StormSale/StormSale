@@ -954,9 +954,12 @@ export async function invokeSorobanMethod(
   const txHash = sendResponse.hash;
   let attempts = 0;
   const maxAttempts = 25;
+  const initialPollDelayMs = 1500;
+  const maxPollDelayMs = 10000;
 
   while (attempts < maxAttempts) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const pollDelayMs = Math.min(initialPollDelayMs * 2 ** attempts, maxPollDelayMs);
+    await new Promise((resolve) => setTimeout(resolve, pollDelayMs));
     attempts++;
 
     const statusResponse = await rpcFallbackManager.executeWithFallback(async (activeServer) => {
@@ -984,7 +987,7 @@ export async function invokeSorobanMethod(
   }
 
   throw new Error(
-    `Transaction timed out awaiting confirmation after ${maxAttempts} attempts. Hash: ${txHash}`,
+    `Transaction confirmation timed out after ${maxAttempts} attempts. Check transaction ${txHash} status or resume tracking this hash before considering resubmission.`,
   );
 }
 
