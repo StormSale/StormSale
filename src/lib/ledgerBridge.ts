@@ -16,6 +16,14 @@ export interface LedgerErrorDetails {
   originalError: any;
 }
 
+export interface LedgerVerificationDetails {
+  txHash: string;
+  contractId: string | null;
+  operationType: string;
+  requiresBlindSigning?: boolean;
+  blindSigningWarning?: string | null;
+}
+
 /**
  * Standard BIP-44 Derivation Path for Stellar:
  * m / purpose' / coin_type' / account'
@@ -92,9 +100,13 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
   if (
     statusCode === 0x6d00 ||
     statusCode === 0x6e00 ||
+    statusCode === 27904 ||
+    statusCode === 28160 ||
     errMsg.includes("app not open") ||
     errMsg.includes("cla not supported") ||
-    errMsg.includes("0x6d00")
+    errMsg.includes("0x6d00") ||
+    errMsg.includes("0x6e00") ||
+    errMsg.includes("stellar app not open")
   ) {
     return {
       code: "APP_NOT_OPEN",
@@ -103,7 +115,40 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
     };
   }
 
-  // 4. Transport disconnect / device not found
+  // 4. Blind signing / Hash signing disabled on Ledger device
+  if (
+    statusCode === 0x6807 ||
+    statusCode === 0x6a80 ||
+    errMsg.includes("blind signing") ||
+    errMsg.includes("hash signing") ||
+    errMsg.includes("enable blind signing") ||
+    errMsg.includes("blind signing must be enabled")
+  ) {
+    return {
+      code: "BLIND_SIGNING_DISABLED",
+      friendlyMessage:
+        "Blind signing is disabled on your Ledger device. Please enable 'Blind signing' or 'Hash signing' in the Stellar app settings on your device.",
+      originalError: err,
+    };
+  }
+
+  // 5. Transaction approval timeout
+  if (
+    statusCode === "TIMEOUT" ||
+    statusCode === "ETIMEDOUT" ||
+    errMsg.includes("timeout") ||
+    errMsg.includes("timed out") ||
+    errMsg.includes("approval timed out")
+  ) {
+    return {
+      code: "TRANSACTION_TIMEOUT",
+      friendlyMessage:
+        "Approval timed out on your Ledger device. Please verify and confirm the transaction promptly.",
+      originalError: err,
+    };
+  }
+
+  // 6. Transport disconnect / device not found
   if (
     errMsg.includes("no device selected") ||
     errMsg.includes("the device was disconnected") ||
@@ -112,12 +157,15 @@ export function parseLedgerError(err: any): LedgerErrorDetails {
     errMsg.includes("failed to open") ||
     errMsg.includes("transporterror") ||
     errMsg.includes("navigator.hid is not defined") ||
-    errMsg.includes("webhid not supported")
+    errMsg.includes("webhid not supported") ||
+    errMsg.includes("navigator.usb is not defined") ||
+    errMsg.includes("webusb not supported") ||
+    errMsg.includes("no usb device")
   ) {
     return {
       code: "TRANSPORT_DISCONNECT",
       friendlyMessage:
-        "Ledger device was disconnected or WebHID transport permission was canceled. Ensure your USB/Bluetooth is connected.",
+        "Ledger device was disconnected or WebHID/WebUSB transport permission was canceled. Ensure your USB/Bluetooth is connected.",
       originalError: err,
     };
   }
@@ -143,7 +191,27 @@ export async function isWebHIDSupported(): Promise<boolean> {
 }
 
 /**
- * Connects to a Ledger Nano S/X/Plus via WebHID and retrieves the Stellar public key.
+ * Checks if WebUSB is supported in the current browser environment.
+ */
+export async function isWebUSBSupported(): Promise<boolean> {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  try {
+    return "usb" in navigator && typeof (navigator as any).usb?.requestDevice === "function";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks overall browser hardware transport support (WebHID and WebUSB).
+ */
+export async function isHardwareTransportSupported(): Promise<{ hid: boolean; usb: boolean }> {
+  const [hid, usb] = await Promise.all([isWebHIDSupported(), isWebUSBSupported()]);
+  return { hid, usb };
+}
+
+/**
+ * Connects to a Ledger Nano S/X/Plus via WebHID/WebUSB and retrieves the Stellar public key.
  */
 export async function connectLedgerDevice(
   bipPath: string = DEFAULT_STELLAR_BIP_PATH,
@@ -152,8 +220,9 @@ export async function connectLedgerDevice(
 
   // If in non-browser or mock test environment, return deterministic mock hardware info
   const hidSupported = await isWebHIDSupported();
-  if (!hidSupported) {
-    // If WebHID is unavailable, check if we're in automated testing or mock mode
+  const usbSupported = await isWebUSBSupported();
+  if (!hidSupported && !usbSupported) {
+    // If WebHID & WebUSB are unavailable, check if we're in automated testing or mock mode
     if (typeof window === "undefined" || (window as any).__MOCK_LEDGER__) {
       const mockKeypair = Keypair.random();
       return {
@@ -163,7 +232,7 @@ export async function connectLedgerDevice(
       };
     }
     throw new Error(
-      "WebHID is not supported on this browser. Please use Chrome, Brave, or Edge on Desktop.",
+      "WebHID and WebUSB are not supported on this browser. Please use Chrome, Brave, or Edge on Desktop.",
     );
   }
 
@@ -204,15 +273,12 @@ export async function connectLedgerDevice(
 /**
  * Prepares and extracts transaction details (Soroban contract ID & transaction hash)
  * for user verification on the physical Ledger device screen.
+ * Detects contract operations requiring Blind Signing on Ledger devices.
  */
 export function extractLedgerVerificationDetails(
   preparedXdr: string,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
-): {
-  txHash: string;
-  contractId: string | null;
-  operationType: string;
-} {
+): LedgerVerificationDetails {
   try {
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const hashBytes = tx.hash();
@@ -226,38 +292,60 @@ export function extractLedgerVerificationDetails(
     if (tx.operations && tx.operations.length > 0) {
       const firstOp: any = tx.operations[0];
       operationType = firstOp.type || "Soroban Operation";
-      if (firstOp.func) {
+      if (firstOp.func || firstOp.type === "invokeHostFunction") {
         contractId = firstOp.contractId || STELLAR_CONFIG.contractId;
       }
     }
+
+    const isSoroban = Boolean(
+      contractId ||
+      operationType.toLowerCase().includes("soroban") ||
+      operationType.toLowerCase().includes("invoke"),
+    );
+
+    const requiresBlindSigning = isSoroban;
+    const blindSigningWarning = requiresBlindSigning
+      ? "This transaction invokes a Soroban smart contract. Ensure 'Blind signing' or 'Hash signing' is enabled in your Ledger Stellar app settings to review and approve on device."
+      : null;
 
     return {
       txHash,
       contractId: contractId || STELLAR_CONFIG.contractId,
       operationType,
+      requiresBlindSigning,
+      blindSigningWarning,
     };
   } catch {
     return {
       txHash: "Unknown",
       contractId: STELLAR_CONFIG.contractId,
       operationType: "Soroban Invocation",
+      requiresBlindSigning: true,
+      blindSigningWarning:
+        "This transaction invokes a Soroban smart contract. Ensure 'Blind signing' or 'Hash signing' is enabled in your Ledger Stellar app settings.",
     };
   }
 }
 
 /**
  * Signs a prepared Stellar / Soroban transaction using a Ledger Hardware Wallet.
+ * Supports configurable approval timeout and translates Ledger hardware errors.
  */
 export async function signLedgerTransaction(
   preparedXdr: string,
   bipPath: string = DEFAULT_STELLAR_BIP_PATH,
   networkPassphrase: string = STELLAR_CONFIG.networkPassphrase,
+  timeoutMs: number = 60000,
 ): Promise<string> {
   const normalizedPath = formatBipPath(bipPath);
   const hidSupported = await isWebHIDSupported();
+  const usbSupported = await isWebUSBSupported();
 
   // Test / sandbox fallback
-  if (!hidSupported || (typeof window !== "undefined" && (window as any).__MOCK_LEDGER__)) {
+  if (
+    (!hidSupported && !usbSupported) ||
+    (typeof window !== "undefined" && (window as any).__MOCK_LEDGER__)
+  ) {
     const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
     const mockSigner = Keypair.random();
     tx.sign(mockSigner);
@@ -265,33 +353,63 @@ export async function signLedgerTransaction(
   }
 
   let transport: any = null;
-  try {
-    transport = await TransportWebHID.create();
-    const app = new StrApp(transport);
+  const executeSigning = async () => {
+    try {
+      transport = await TransportWebHID.create();
+      const app = new StrApp(transport);
 
-    const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
-    const signatureBuffer = await app.signTransaction(
-      normalizedPath,
-      Buffer.from(tx.signatureBase()),
-    );
+      const tx = TransactionBuilder.fromXDR(preparedXdr, networkPassphrase);
+      const signatureBuffer = await app.signTransaction(
+        normalizedPath,
+        Buffer.from(tx.signatureBase()),
+      );
 
-    const pubKeyResult = await app.getPublicKey(normalizedPath, false);
-    const publicKey = StrKey.encodeEd25519PublicKey(pubKeyResult.rawPublicKey);
+      const pubKeyResult = await app.getPublicKey(normalizedPath, false);
+      const publicKey = StrKey.encodeEd25519PublicKey(pubKeyResult.rawPublicKey);
 
-    // Attach signature to Stellar transaction envelope
-    const signatureBase64 = Buffer.from(signatureBuffer.signature).toString("base64");
-    tx.addSignature(publicKey, signatureBase64);
-    return tx.toXDR();
-  } catch (err: unknown) {
-    const parsed = parseLedgerError(err);
-    throw new Error(parsed.friendlyMessage, { cause: err });
-  } finally {
-    if (transport) {
-      try {
-        await transport.close();
-      } catch {
-        // Ignore close errors
+      // Attach signature to Stellar transaction envelope
+      const signatureBase64 = Buffer.from(signatureBuffer.signature).toString("base64");
+      tx.addSignature(publicKey, signatureBase64);
+      return tx.toXDR();
+    } catch (err: unknown) {
+      const parsed = parseLedgerError(err);
+      throw new Error(parsed.friendlyMessage, { cause: err });
+    } finally {
+      if (transport) {
+        try {
+          await transport.close();
+        } catch {
+          // Ignore close errors
+        }
       }
     }
+  };
+
+  if (timeoutMs > 0 && timeoutMs < Infinity) {
+    let timer: any;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(async () => {
+        if (transport) {
+          try {
+            await transport.close();
+          } catch {
+            // Ignore close errors on timeout
+          }
+        }
+        const timeoutErr = new Error(
+          "Approval timed out on your Ledger device. Please verify and confirm the transaction promptly.",
+        );
+        (timeoutErr as any).statusCode = "TIMEOUT";
+        reject(timeoutErr);
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([executeSigning(), timeoutPromise]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  return await executeSigning();
 }
