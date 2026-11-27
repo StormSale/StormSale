@@ -51,6 +51,13 @@ import {
   type EvmSigner,
 } from "../utils/web3";
 import { useTransactionAnnouncer } from "./TransactionAnnouncementContext";
+import {
+  authenticateWithSep10,
+  getActiveSep10Session,
+  clearSep10Session,
+  type Sep10AuthSession,
+  type Sep10AuthResult,
+} from "../lib/sep10Auth";
 
 export interface OptimisticAction {
   id: string;
@@ -206,6 +213,10 @@ export interface Web3ContextType {
   walletLabel: string;
   addBlockdagNetwork: () => Promise<boolean>;
   switchToStellarNetwork: () => Promise<boolean>;
+
+  // Stellar SEP-0010 Challenge-Response Authentication (#112)
+  sep10Session: Sep10AuthSession | null;
+  authenticateSep10: (role?: string) => Promise<Sep10AuthResult>;
 }
 
 export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -382,6 +393,28 @@ export function Web3Provider({
       }
     })();
   };
+
+  // Stellar SEP-0010 Authentication Session State (#112)
+  const [sep10Session, setSep10Session] = useState<Sep10AuthSession | null>(() =>
+    getActiveSep10Session(),
+  );
+
+  const authenticateSep10 = useCallback(
+    async (roleOverride?: string): Promise<Sep10AuthResult> => {
+      if (!userAddress) throw new Error("Wallet not connected");
+      const targetRole = roleOverride || userRole || "affiliate";
+      const isMock = connectorType === "mock";
+      const result = await authenticateWithSep10(userAddress, targetRole, isMock);
+      if (result.success && result.session) {
+        setSep10Session(result.session);
+        if (result.session.role) {
+          setUserRole(result.session.role);
+        }
+      }
+      return result;
+    },
+    [userAddress, userRole, connectorType],
+  );
 
   const openWalletModal = () => setIsWalletModalOpen(true);
   const closeWalletModal = () => setIsWalletModalOpen(false);
@@ -673,6 +706,8 @@ export function Web3Provider({
     setActiveMultiSigDescription(null);
     setOptimisticActions([]);
     txQueueManager.clear();
+    setSep10Session(null);
+    clearSep10Session();
     void purgeOnLogout();
   };
 
@@ -1328,6 +1363,8 @@ export function Web3Provider({
         simulateRpcFailover,
         checkRpcHealth,
         addCustomRpcEndpoint,
+        sep10Session,
+        authenticateSep10,
       }}
     >
       {children}
