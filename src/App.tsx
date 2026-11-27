@@ -134,7 +134,17 @@ export function PageLoader() {
   );
 }
 
-const ErrorFallback = () => (
+export function logErrorInDevelopment(
+  error: unknown,
+  componentStack: string | null | undefined,
+  eventId?: string,
+): void {
+  if (import.meta.env.DEV) {
+    console.error("StormSale caught a rendering error:", { error, componentStack, eventId });
+  }
+}
+
+export const ErrorFallback = () => (
   <div className="min-h-screen flex items-center justify-center p-4">
     <div className="max-w-lg text-center">
       <h2 className="text-2xl font-bold mb-2">Something went wrong</h2>
@@ -422,7 +432,7 @@ function App() {
 
   if (isShortLinkRoute) {
     return (
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <Sentry.ErrorBoundary fallback={<ErrorFallback />} onError={logErrorInDevelopment}>
         <ShortLinkRedirect />
       </Sentry.ErrorBoundary>
     );
@@ -433,7 +443,7 @@ function App() {
 
   if (isAuditorComplianceRoute) {
     return (
-      <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+      <Sentry.ErrorBoundary fallback={<ErrorFallback />} onError={logErrorInDevelopment}>
         <div className="min-h-screen bg-background">
           <AuditorCompliancePortal />
         </div>
@@ -446,7 +456,7 @@ function App() {
       <ClickjackingWarning />
       {booting && <IndigoBootLoader isExiting={isExiting} onExited={handleExited} />}
       <NotificationWrapper>
-        <Sentry.ErrorBoundary fallback={<ErrorFallback />}>
+        <Sentry.ErrorBoundary fallback={<ErrorFallback />} onError={logErrorInDevelopment}>
           <TransactionAnnouncementProvider>
             <Web3Provider>
               <WalletConnectProvider>
