@@ -67,8 +67,10 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
       expect(STATIC_CSP_HEADER).toContain("frame-ancestors 'none'");
     });
 
-    it("does not contain unsafe-inline", () => {
-      expect(STATIC_CSP_HEADER).not.toContain("unsafe-inline");
+    it("allows inline style attributes without allowing inline scripts or stylesheets", () => {
+      expect(STATIC_CSP_HEADER).toContain("style-src-attr 'unsafe-inline'");
+      expect(STATIC_CSP_HEADER).not.toMatch(/script-src [^;]*unsafe-inline/);
+      expect(STATIC_CSP_HEADER).not.toMatch(/style-src [^;]*unsafe-inline/);
     });
 
     it("does not contain unsafe-eval", () => {
@@ -83,7 +85,7 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
 
     it("validateCspHeader rejects header missing script-src self", () => {
       const bad =
-        "default-src 'self'; script-src https://evil.com; connect-src 'self' https://*.stellar.org;";
+        "default-src 'self'; script-src https://evil.com; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org;";
       const result = validateCspHeader(bad);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain("Missing required 'script-src' directive with ''self''");
@@ -91,7 +93,7 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
 
     it("validateCspHeader rejects header with unsafe-inline", () => {
       const bad =
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://*.stellar.org;";
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org;";
       const result = validateCspHeader(bad);
       expect(result.isValid).toBe(false);
       expect(result.errors).toContain("CSP header contains prohibited 'unsafe-inline'");
@@ -100,7 +102,7 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
 
   describe("3. External asset domains explicitly whitelisted", () => {
     it("connect-src includes Stellar network", () => {
-      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://*.stellar.org");
+      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://soroban-testnet.stellar.org");
     });
 
     it("connect-src includes Albedo wallet", () => {
@@ -144,7 +146,10 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
     it("documentation covers all major external domains", () => {
       const auditedDomains = DOMAIN_ALLOWLIST_DOCUMENTATION.map((d) => d.domain);
       expect(auditedDomains).toContain("https://telegram.org");
-      expect(auditedDomains).toContain("https://*.stellar.org");
+      expect(auditedDomains).toContain("https://soroban-testnet.stellar.org");
+      expect(auditedDomains).toContain("https://api.coingecko.com");
+      expect(auditedDomains).toContain("https://hermes.pyth.network");
+      expect(auditedDomains).toContain("https://public.chainalysis.com");
       expect(auditedDomains).toContain("https://albedo.link");
       expect(auditedDomains).toContain("https://stellar.expert");
       expect(auditedDomains).toContain("https://xbull.app");
@@ -175,7 +180,8 @@ describe("CSP Compliance and Zero-Eval Test Suite (#508)", () => {
       expect(header).toContain(`'nonce-${nonce}'`);
       expect(header).toContain("script-src 'self'");
       expect(header).not.toContain("unsafe-eval");
-      expect(header).not.toContain("unsafe-inline");
+      expect(header).not.toMatch(/script-src [^;]*unsafe-inline/);
+      expect(header).toContain("style-src-attr 'unsafe-inline'");
     });
   });
 });

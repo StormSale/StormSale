@@ -22,6 +22,7 @@ export default defineConfig({
     video: "retain-on-failure",
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    serviceWorkers: "block",
   },
   // Acceptance criteria: multi-browser support.
   projects: [

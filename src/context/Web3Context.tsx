@@ -40,6 +40,16 @@ import {
 import { recordReferralSale } from "../lib/referralTree";
 import type { TwoTierCommissionSplit } from "../types/referral";
 import { txQueueManager, type TxQueueStatusSummary } from "../lib/txQueue";
+import {
+  addBlockdagChain,
+  createSigner,
+  getInjectedProvider,
+  isBlockdagChain,
+  lookupPrimaryName,
+  truncateAddress,
+  type Eip1193Provider,
+  type EvmSigner,
+} from "../utils/web3";
 import { useTransactionAnnouncer } from "./TransactionAnnouncementContext";
 import {
   authenticateWithSep10,
@@ -196,8 +206,12 @@ export interface Web3ContextType {
   // Compatibility helpers for legacy form callers
   factoryContract: any;
   getCampaignContract: (address: string) => any;
-  provider: any;
-  signer: any;
+  provider: Eip1193Provider | null;
+  signer: EvmSigner | null;
+  evmChainId: string | null;
+  isBlockdagNetwork: boolean;
+  walletLabel: string;
+  addBlockdagNetwork: () => Promise<boolean>;
   switchToStellarNetwork: () => Promise<boolean>;
 
   // Stellar SEP-0010 Challenge-Response Authentication (#112)
@@ -236,6 +250,10 @@ export function Web3Provider({
   const [connectorType, setConnectorType] = useState<WalletType | null>(null);
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [evmProvider, setEvmProvider] = useState<Eip1193Provider | null>(null);
+  const [evmSigner, setEvmSigner] = useState<EvmSigner | null>(null);
+  const [evmChainId, setEvmChainId] = useState<string | null>(null);
+  const [walletLabel, setWalletLabel] = useState("");
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -1238,6 +1256,49 @@ export function Web3Provider({
     return true;
   };
 
+  const bindEvmProvider = useCallback(async (provider: Eip1193Provider) => {
+    setEvmProvider(provider);
+    const chainId = await provider.request({ method: "eth_chainId" }).catch(() => null);
+    setEvmChainId(typeof chainId === "string" ? chainId : null);
+    const accounts = await provider.request({ method: "eth_accounts" }).catch(() => []);
+    const account = Array.isArray(accounts) && typeof accounts[0] === "string" ? accounts[0] : null;
+    setEvmSigner(account ? createSigner(provider, account) : null);
+    if (!account) return;
+    const name = await lookupPrimaryName(account, provider.request.bind(provider));
+    setWalletLabel(name ?? truncateAddress(account));
+  }, []);
+
+  useEffect(() => {
+    const provider = getInjectedProvider();
+    if (!provider) return;
+    void bindEvmProvider(provider);
+    const onChainChanged = () => {
+      void bindEvmProvider(provider);
+    };
+    const onAccountsChanged = () => {
+      void bindEvmProvider(provider);
+    };
+    provider.on?.("chainChanged", onChainChanged);
+    provider.on?.("accountsChanged", onAccountsChanged);
+    return () => {
+      provider.removeListener?.("chainChanged", onChainChanged);
+      provider.removeListener?.("accountsChanged", onAccountsChanged);
+    };
+  }, [bindEvmProvider]);
+
+  useEffect(() => {
+    if (!userAddress || userAddress.startsWith("0x")) return;
+    setWalletLabel(truncateAddress(userAddress));
+  }, [userAddress]);
+
+  const addBlockdagNetwork = useCallback(async () => {
+    const provider = evmProvider ?? getInjectedProvider();
+    if (!provider) return false;
+    const chainId = await addBlockdagChain(provider);
+    await bindEvmProvider(provider);
+    return isBlockdagChain(chainId);
+  }, [bindEvmProvider, evmProvider]);
+
   return (
     <Web3Context.Provider
       value={{
@@ -1284,8 +1345,12 @@ export function Web3Provider({
         isOptimisticActive,
         txQueueStatus,
         isTxQueueBusy,
-        provider: null,
-        signer: null,
+        provider: evmProvider,
+        signer: evmSigner,
+        evmChainId,
+        isBlockdagNetwork: isBlockdagChain(evmChainId),
+        walletLabel,
+        addBlockdagNetwork,
         switchToStellarNetwork,
         activeRpcEndpoint,
         rpcEndpoints,

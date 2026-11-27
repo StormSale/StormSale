@@ -1,10 +1,10 @@
-import { defineConfig, configDefaults } from "vitest/config";
+import { defineConfig, configDefaults, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { visualizer } from "rollup-plugin-visualizer";
 import { VitePWA } from "vite-plugin-pwa";
 import { subresourceIntegrity } from "./src/lib/vite/subresource-integrity-plugin.js";
-import { STATIC_CSP_HEADER } from "./src/config/csp.ts";
+import { STATIC_CSP_HEADER, STRICT_CSP_DIRECTIVES, buildCspHeader } from "./src/config/csp.ts";
 
 // Re-exported so callers (and the tests added under src/tests/) can pull in the
 // SRI helpers without knowing the internal path. The implementation lives under
@@ -17,9 +17,29 @@ export {
 } from "./src/lib/vite/subresource-integrity-plugin.js";
 export type { SubresourceIntegrityOptions } from "./src/lib/vite/subresource-integrity-plugin.js";
 
+export function cspMetaPlugin(): Plugin {
+  return {
+    name: "stormsale-csp-meta",
+    transformIndexHtml(html, context) {
+      if (context.server) {
+        return html.replace('<meta http-equiv="Content-Security-Policy" content="" />', "");
+      }
+      const metaDirectives = Object.fromEntries(
+        Object.entries(STRICT_CSP_DIRECTIVES).filter(([name]) => name !== "frame-ancestors"),
+      );
+      const policy = buildCspHeader({ directives: metaDirectives });
+      return html.replace(
+        '<meta http-equiv="Content-Security-Policy" content=""',
+        `<meta http-equiv="Content-Security-Policy" content="${policy}"`,
+      );
+    },
+  };
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
+    cspMetaPlugin(),
     react(),
     tailwindcss(),
     subresourceIntegrity(),

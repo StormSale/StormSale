@@ -131,7 +131,7 @@ export const EscrowReserveIndicator: React.FC<EscrowReserveIndicatorProps> = ({
       {/* Action / Warning Notice */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
         <span className="text-muted-foreground text-[11px]">
-          Trigger threshold: {thresholdPercent}% (
+          Trigger threshold: <strong className="text-foreground">{thresholdPercent}%</strong> (
           {status.thresholdBalanceXlm.toLocaleString()} XLM)
         </span>
 

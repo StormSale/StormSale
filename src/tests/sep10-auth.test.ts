@@ -130,12 +130,11 @@ describe("Stellar SEP-0010 Challenge-Response Authentication Suite (#112)", () =
       expect(result.clientAddress).toBe(clientAddress);
     });
 
-    it("verifies mock simulated signed challenges", () => {
+    it("rejects mock simulated MOCK_SIGNED_ string as invalid XDR", () => {
       const mockXdr = `MOCK_SIGNED_${clientAddress}_nonce123`;
       const result = verifySep10SignedChallenge(mockXdr, clientAddress);
 
-      expect(result.valid).toBe(true);
-      expect(result.clientAddress).toBe(clientAddress);
+      expect(result.valid).toBe(false);
     });
 
     it("rejects challenge when client signature is missing", () => {
@@ -202,6 +201,22 @@ describe("Stellar SEP-0010 Challenge-Response Authentication Suite (#112)", () =
       const tamperedToken = `${parts[0]}.${tamperedPayload}.${parts[2]}`;
 
       const res = verifyJwtToken(tamperedToken);
+      expect(res.valid).toBe(false);
+      expect(res.error).toBe("Invalid token signature");
+    });
+
+    it("rejects unsigned or malformed tokens", () => {
+      const unsignedToken = "header.payload";
+      const res = verifyJwtToken(unsignedToken);
+      expect(res.valid).toBe(false);
+      expect(res.error).toBe("Invalid JWT structure");
+    });
+
+    it("rejects forged tokens with arbitrary signature", () => {
+      const validToken = issueRoleScopedJwt(clientAddress, "affiliate");
+      const parts = validToken.split(".");
+      const forgedToken = `${parts[0]}.${parts[1]}.c29tZV9mb3JnZWRfc2lnbmF0dXJl`;
+      const res = verifyJwtToken(forgedToken);
       expect(res.valid).toBe(false);
       expect(res.error).toBe("Invalid token signature");
     });

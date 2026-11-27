@@ -13,6 +13,8 @@ import vercelConfigRaw from "../../vercel.json?raw";
 import nginxContent from "../../nginx.conf?raw";
 import viteContent from "../../vite.config.ts?raw";
 import indexHtmlContent from "../../index.html?raw";
+import { cspMetaPlugin } from "../../vite.config";
+import type { IndexHtmlTransformContext, ViteDevServer } from "vite";
 
 // Polyfill minimal DOMParser for Node.js test environment if not globally present
 if (typeof DOMParser === "undefined") {
@@ -68,15 +70,18 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
       expect(BASE_CSP_DIRECTIVES["default-src"]).toContain("'self'");
       expect(BASE_CSP_DIRECTIVES["script-src"]).toContain("'self'");
       expect(BASE_CSP_DIRECTIVES["connect-src"]).toContain("'self'");
-      expect(BASE_CSP_DIRECTIVES["connect-src"]).toContain("https://*.stellar.org");
+      expect(BASE_CSP_DIRECTIVES["connect-src"]).toContain("https://soroban-testnet.stellar.org");
     });
 
     it("verifies STRICT_CSP_DIRECTIVES contains all required directives and domains", () => {
       expect(STRICT_CSP_DIRECTIVES["default-src"]).toEqual(["'self'"]);
       expect(STRICT_CSP_DIRECTIVES["script-src"]).toEqual(["'self'", "https://telegram.org"]);
-      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://*.stellar.org");
+      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://soroban-testnet.stellar.org");
       expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://albedo.link");
       expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://stellar.expert");
+      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://api.coingecko.com");
+      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://hermes.pyth.network");
+      expect(STRICT_CSP_DIRECTIVES["connect-src"]).toContain("https://public.chainalysis.com");
       expect(STRICT_CSP_DIRECTIVES["object-src"]).toEqual(["'none'"]);
       expect(STRICT_CSP_DIRECTIVES["base-uri"]).toEqual(["'self'"]);
       expect(STRICT_CSP_DIRECTIVES["form-action"]).toEqual(["'self'"]);
@@ -90,17 +95,19 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
     it("verifies validateCspHeader scopes checks to specific directives", () => {
       // Header has 'self' in default-src, but script-src has no 'self'
       const invalidScriptSrc =
-        "default-src 'self'; script-src https://example.com; connect-src 'self' https://*.stellar.org;";
+        "default-src 'self'; script-src https://example.com; connect-src 'self' https://soroban-testnet.stellar.org https://soroban-rpc.mainnet.stellar.org;";
       const res1 = validateCspHeader(invalidScriptSrc);
       expect(res1.isValid).toBe(false);
       expect(res1.errors).toContain("Missing required 'script-src' directive with ''self''");
 
-      // Header has https://*.stellar.org in img-src, but connect-src lacks it
+      // Header has https://soroban-testnet.stellar.org in img-src, but connect-src lacks it
       const invalidConnectSrc =
-        "default-src 'self'; script-src 'self'; connect-src 'self'; img-src https://*.stellar.org;";
+        "default-src 'self'; script-src 'self'; connect-src 'self'; img-src https://soroban-testnet.stellar.org;";
       const res2 = validateCspHeader(invalidConnectSrc);
       expect(res2.isValid).toBe(false);
-      expect(res2.errors).toContain("Missing required 'connect-src' with 'https://*.stellar.org'");
+      expect(res2.errors).toContain(
+        "Missing required 'connect-src' with pinned Stellar RPC origins",
+      );
     });
 
     it("verifies vercel.json exactly matches STATIC_CSP_HEADER", () => {
@@ -135,10 +142,13 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
     });
   });
 
-  describe("2. Prohibited Directives (No unsafe-inline or unsafe-eval)", () => {
-    it("verifies no 'unsafe-inline' appears in STATIC_CSP_HEADER", () => {
-      expect(STATIC_CSP_HEADER).not.toContain("unsafe-inline");
-      expect(STATIC_CSP_HEADER).not.toContain("'unsafe-inline'");
+  describe("2. Prohibited Directives (No inline scripts or unsafe-eval)", () => {
+    it("blocks inline scripts and stylesheets while allowing React style attributes", () => {
+      const scriptSrc = STATIC_CSP_HEADER.match(/script-src [^;]+/)?.[0];
+      const styleSrc = STATIC_CSP_HEADER.match(/style-src [^;]+/)?.[0];
+      expect(scriptSrc).not.toContain("unsafe-inline");
+      expect(styleSrc).toBe("style-src 'self'");
+      expect(STATIC_CSP_HEADER).toContain("style-src-attr 'unsafe-inline'");
     });
 
     it("verifies no 'unsafe-eval' appears in STATIC_CSP_HEADER", () => {
@@ -146,14 +156,20 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
       expect(STATIC_CSP_HEADER).not.toContain("'unsafe-eval'");
     });
 
-    it("verifies no 'unsafe-inline' or 'unsafe-eval' in vercel.json", () => {
-      expect(vercelConfigRaw).not.toContain("unsafe-inline");
-      expect(vercelConfigRaw).not.toContain("unsafe-eval");
+    it("keeps Vercel script and stylesheet policies free of unsafe-inline", () => {
+      const vercelConfig = JSON.parse(vercelConfigRaw);
+      const csp = vercelConfig.headers[0].headers.find(
+        (header: { key: string }) => header.key === "Content-Security-Policy",
+      ).value as string;
+      expect(csp).not.toMatch(/(?:script-src|style-src) [^;]*unsafe-inline/);
+      expect(csp).not.toContain("unsafe-eval");
+      expect(csp).toContain("style-src-attr 'unsafe-inline'");
     });
 
-    it("verifies no 'unsafe-inline' or 'unsafe-eval' in nginx.conf", () => {
-      expect(nginxContent).not.toContain("unsafe-inline");
+    it("keeps Nginx script and stylesheet policies free of unsafe-inline", () => {
+      expect(nginxContent).not.toMatch(/(?:script-src|style-src) [^;]*unsafe-inline/);
       expect(nginxContent).not.toContain("unsafe-eval");
+      expect(nginxContent).toContain("style-src-attr 'unsafe-inline'");
     });
 
     it("verifies buildCspHeader sanitizes any accidental unsafe tokens", () => {
@@ -168,9 +184,88 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
       expect(sanitizedHeader).toContain("script-src 'self'");
       expect(sanitizedHeader).toContain("style-src 'self'");
     });
+    it("verifies the telemetry API rewrite precedes the SPA fallback", () => {
+      const vercelConfig = JSON.parse(vercelConfigRaw);
+      const rewrites = vercelConfig.rewrites as Array<{ source: string; destination: string }>;
+      const telemetryIndex = rewrites.findIndex(
+        (rewrite) => rewrite.source === "/api/telemetry/web-vitals",
+      );
+      const fallbackIndex = rewrites.findIndex((rewrite) => rewrite.source === "/(.*)");
+      expect(telemetryIndex).toBeGreaterThanOrEqual(0);
+      expect(telemetryIndex).toBeLessThan(fallbackIndex);
+      expect(rewrites[telemetryIndex].destination).toBe("/api/telemetry/web-vitals");
+    });
+
+    it("injects the production policy into the HTML CSP placeholder", () => {
+      const plugin = cspMetaPlugin();
+      if (typeof plugin.transformIndexHtml !== "function") {
+        throw new Error("CSP HTML transform is not a function");
+      }
+      const transform = plugin.transformIndexHtml as unknown as (
+        html: string,
+        context: IndexHtmlTransformContext,
+      ) => string;
+      const transformed = transform(indexHtmlContent, {
+        server: undefined,
+        path: "/index.html",
+        filename: "index.html",
+      });
+      const metaPolicy = STATIC_CSP_HEADER.replace("frame-ancestors 'none'; ", "");
+      expect(transformed).toContain(`content="${metaPolicy}"`);
+      expect(transformed).not.toContain("frame-ancestors");
+      expect(transformed).not.toContain('http-equiv="Content-Security-Policy" content=""');
+    });
+
+    it("leaves Vite development HTML untouched so refresh and stylesheet injection work", () => {
+      const plugin = cspMetaPlugin();
+      if (typeof plugin.transformIndexHtml !== "function") {
+        throw new Error("CSP HTML transform is not a function");
+      }
+      const transform = plugin.transformIndexHtml as unknown as (
+        html: string,
+        context: IndexHtmlTransformContext,
+      ) => string;
+      const transformed = transform(indexHtmlContent, {
+        server: {} as ViteDevServer,
+        path: "/index.html",
+        filename: "index.html",
+      });
+      expect(transformed).not.toContain('http-equiv="Content-Security-Policy"');
+      expect(transformed).not.toContain("localhost");
+    });
+
+    it("contains no executable inline scripts or inline event handlers", () => {
+      expect(indexHtmlContent).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/i);
+      expect(indexHtmlContent).not.toMatch(/\son[a-z]+\s*=/i);
+      expect(indexHtmlContent).toContain('<meta http-equiv="Content-Security-Policy" content=""');
+    });
   });
 
-  describe("3. Cryptographic Nonce Generation & Per-Request Uniqueness", () => {
+  describe("3. Pinned Production Network Policy", () => {
+    it("uses no wildcard network origins", () => {
+      for (const source of STRICT_CSP_DIRECTIVES["connect-src"]) {
+        expect(source).not.toBe("*");
+        expect(source).not.toContain("*");
+      }
+    });
+
+    it.each(["*", "https://*.stellar.org", "http://localhost:8000", "https://untrusted.example"])(
+      "rejects untrusted connect-src origin %s",
+      (origin) => {
+        const header = STATIC_CSP_HEADER.replace(
+          "connect-src 'self'",
+          `connect-src 'self' ${origin}`,
+        );
+        const result = validateCspHeader(header);
+        expect(result.isValid).toBe(false);
+        expect(result.errors.some((error) => error.includes("untrusted network origins"))).toBe(
+          true,
+        );
+      },
+    );
+  });
+
+  describe("4. Cryptographic Nonce Generation & Per-Request Uniqueness", () => {
     it("generates valid cryptographically secure nonces", () => {
       const nonce = generateNonce();
       expect(typeof nonce).toBe("string");
@@ -198,7 +293,7 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
 
       expect(headerWithNonce).toContain(`'nonce-${nonce}'`);
       expect(headerWithNonce).toContain(`script-src 'self' https://telegram.org 'nonce-${nonce}'`);
-      expect(headerWithNonce).not.toContain("unsafe-inline");
+      expect(headerWithNonce.match(/script-src [^;]+/)?.[0]).not.toContain("unsafe-inline");
       expect(headerWithNonce).not.toContain("unsafe-eval");
     });
 
@@ -225,13 +320,13 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
     });
   });
 
-  describe("4. Domain Allowlist & Subresource Integrity (SRI) Audit", () => {
+  describe("5. Domain Allowlist & Subresource Integrity (SRI) Audit", () => {
     it("documents all external domains with clear justifications", () => {
       expect(DOMAIN_ALLOWLIST_DOCUMENTATION.length).toBeGreaterThan(0);
 
       const auditedDomains = DOMAIN_ALLOWLIST_DOCUMENTATION.map((d) => d.domain);
       expect(auditedDomains).toContain("https://telegram.org");
-      expect(auditedDomains).toContain("https://*.stellar.org");
+      expect(auditedDomains).toContain("https://soroban-testnet.stellar.org");
       expect(auditedDomains).toContain("https://albedo.link");
       expect(auditedDomains).toContain("https://stellar.expert");
       expect(auditedDomains).toContain("https://xbull.app");
@@ -258,7 +353,7 @@ describe("Content Security Policy (CSP) & Subresource Integrity (SRI) Suite - Is
 
       // Audited stable digest for the reviewed Telegram WebApp SDK script asset
       const REVIEWED_TELEGRAM_SDK_DIGEST =
-        "sha384-PyI6uk8O3pfRRl4+CaepaS++FqtEbco/HaV3jzdYl4y+U7HMQvn3gWVfKhjuzfzG";
+        "sha384-Vfd/BDDodKSHihoWEYUp7viIzknmkv8bWNw7o3LJsq4ziOpCagWvXEZLJH5cAgh0";
 
       for (const script of externalScripts) {
         const src = script.getAttribute("src");

@@ -73,6 +73,9 @@ export const Header = ({ onNavigate }: HeaderProps) => {
     connectorType,
     txQueueStatus,
     isTxQueueBusy,
+    isBlockdagNetwork,
+    walletLabel,
+    addBlockdagNetwork,
   } = useWeb3();
   const { organization, currentRole } = useOrganization();
   const { isTelegram, user, platform } = useTelegram();
@@ -149,6 +152,29 @@ export const Header = ({ onNavigate }: HeaderProps) => {
   };
 
   const formatAddress = (address: string) => `${address.slice(0, 4)}...${address.slice(-4)}`;
+  const walletText =
+    walletLabel && walletLabel.includes(".")
+      ? walletLabel
+      : userAddress
+        ? formatAddress(userAddress)
+        : walletLabel;
+
+  const handleAddBlockdag = async () => {
+    setIsSwitchingNetwork(true);
+    setNetworkSwitchMessage(null);
+    try {
+      const added = await addBlockdagNetwork();
+      setNetworkSwitchMessage(
+        added
+          ? "BlockDAG network added. Status: Connected."
+          : "BlockDAG was not selected. Status: Wrong Network.",
+      );
+    } catch {
+      setNetworkSwitchMessage("Could not add the BlockDAG network in this wallet.");
+    } finally {
+      setIsSwitchingNetwork(false);
+    }
+  };
 
   const navLinks = [
     { label: "Home", href: "/" },
@@ -198,6 +224,19 @@ export const Header = ({ onNavigate }: HeaderProps) => {
         {/* Desktop Actions */}
         <div className="hidden sm:flex items-center space-x-3">
           <TerminologyGuideButton />
+          <button
+            type="button"
+            onClick={() => void handleAddBlockdag()}
+            disabled={isSwitchingNetwork}
+            aria-label="Add BlockDAG network"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200 bg-white/70 px-2.5 text-xs font-semibold text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-200"
+          >
+            <Network className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>BlockDAG</span>
+            <span role="status" className={isBlockdagNetwork ? "text-emerald-600" : "text-amber-600"}>
+              {isBlockdagNetwork ? "Connected" : "Wrong Network"}
+            </span>
+          </button>
           {isConnected && (
             <button
               type="button"
@@ -509,7 +548,7 @@ export const Header = ({ onNavigate }: HeaderProps) => {
                   <div>
                     <div className="text-[11px] font-bold text-zinc-400">CONNECTED WALLET</div>
                     <div className="text-xs font-mono font-bold text-zinc-900 dark:text-white">
-                      {userAddress && formatAddress(userAddress)}
+                      {walletText}
                     </div>
                   </div>
                 </div>

@@ -127,18 +127,11 @@ export function buildSep10ChallengeTransaction(
 }
 
 /**
- * Generates an HMAC-SHA256 signature for JWT session tokens.
+ * Generates an Ed25519 cryptographic signature for JWT session tokens using server keypair.
  */
-export function generateTokenSignature(headerAndPayload: string, secret: string): string {
-  // Deterministic signature hash simulation
-  let hash = 0;
-  const combined = `${headerAndPayload}.${secret}`;
-  for (let i = 0; i < combined.length; i++) {
-    const char = combined.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
-  }
-  return base64UrlEncode(`sig_${Math.abs(hash).toString(16)}_${secret.slice(0, 8)}`);
+export function generateTokenSignature(headerAndPayload: string, _secret?: string): string {
+  const sig = SERVER_AUTH_KEYPAIR.sign(Buffer.from(headerAndPayload));
+  return base64UrlEncode(Buffer.from(sig).toString("binary"));
 }
 
 /**
@@ -151,7 +144,7 @@ export function issueRoleScopedJwt(
   expirationSeconds: number = SEP10_JWT_EXPIRATION_SECONDS,
 ): string {
   const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "HS256", typ: "JWT" };
+  const header = { alg: "EdDSA", typ: "JWT" };
   const payload: Sep10TokenPayload = {
     iss: homeDomain,
     sub: clientAddress,
@@ -164,7 +157,7 @@ export function issueRoleScopedJwt(
   const headerB64 = base64UrlEncode(JSON.stringify(header));
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const data = `${headerB64}.${payloadB64}`;
-  const sig = generateTokenSignature(data, SERVER_AUTH_KEYPAIR.publicKey());
+  const sig = generateTokenSignature(data);
 
   return `${data}.${sig}`;
 }
@@ -188,9 +181,14 @@ export function verifyJwtToken(token: string): {
 
     const [headerB64, payloadB64, signature] = parts;
     const data = `${headerB64}.${payloadB64}`;
-    const expectedSig = generateTokenSignature(data, SERVER_AUTH_KEYPAIR.publicKey());
 
-    if (signature !== expectedSig) {
+    try {
+      const rawSig = Buffer.from(base64UrlDecode(signature), "binary");
+      const validSig = SERVER_AUTH_KEYPAIR.verify(Buffer.from(data), rawSig);
+      if (!validSig) {
+        return { valid: false, error: "Invalid token signature" };
+      }
+    } catch {
       return { valid: false, error: "Invalid token signature" };
     }
 
@@ -219,14 +217,6 @@ export function verifySep10SignedChallenge(
   try {
     if (!signedXdr || !expectedClientAddress) {
       return { valid: false, error: "Missing signed XDR or expected client address" };
-    }
-
-    // In mock or simulator mode:
-    if (signedXdr.includes("MOCK_SIGNED_")) {
-      if (signedXdr.includes(expectedClientAddress)) {
-        return { valid: true, clientAddress: expectedClientAddress };
-      }
-      return { valid: false, error: "Mock signature does not match client address" };
     }
 
     const tx = new Transaction(signedXdr, networkPassphrase);
