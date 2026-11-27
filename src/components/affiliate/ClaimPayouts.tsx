@@ -25,6 +25,8 @@ import {
   type BatchClaimReceipt,
   fetchAffiliateMaturedClaims,
   calculateTotalClaimableXlm,
+  isBelowMinClaimThreshold,
+  getMinClaimThreshold,
 } from "../../lib/batchClaim";
 import {
   checkDailyPayoutCap,
@@ -46,6 +48,8 @@ import {
   isAffiliatePaused,
   fetchAuthoritativeAffiliatePauseState,
 } from "../../lib/fraudRiskEngine";
+import { isAffiliateSybilRestricted } from "../../lib/sybilDefense";
+import { RestrictedModeBanner } from "./RestrictedModeBanner";
 import {
   buildTaxStatus,
   computeWithholding,
@@ -90,6 +94,8 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   const [isFrozen, setIsFrozen] = useState(() =>
     userAddress ? isAffiliatePaused(userAddress) : false,
   );
+  const isSybilRestricted = userAddress ? isAffiliateSybilRestricted(userAddress) : false;
+  const isClaimsBlocked = isFrozen || isSybilRestricted;
 
   useEffect(() => {
     let active = true;
@@ -147,6 +153,10 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
 
   const selectedCampaigns = campaigns.filter((c) => selectedIds.includes(c.campaignId));
   const totalWithdrawableXlm = calculateTotalClaimableXlm(selectedCampaigns);
+  const pendingBalanceXlm = campaigns
+    .filter((c) => c.status !== "claimed")
+    .reduce((acc, c) => acc + c.claimableXlm, 0);
+  const isBatchBelowMin = isBelowMinClaimThreshold(totalWithdrawableXlm, "XLM");
   const maturedCount = campaigns.filter((c) => c.status === "matured").length;
 
   const earningsUsd =
@@ -211,6 +221,23 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
   // 1-Click Automated Batch Claim Dispatcher
   const handleBatchClaim = async () => {
     if (selectedCampaigns.length === 0) return;
+    if (isBatchBelowMin) {
+      showNotification({
+        type: "error",
+        title: "Below Minimum Claim",
+        message: `Minimum claimable balance is ${getMinClaimThreshold("XLM")} XLM.`,
+      });
+      return;
+    }
+
+    if (isSybilRestricted) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Restricted",
+        message: "Your affiliate account is in restricted mode due to Sybil cluster detection. Instant claims are disabled.",
+      });
+      return;
+    }
 
     if (isFrozen) {
       showNotification({
@@ -292,6 +319,15 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
 
   // Individual campaign claim fallback
   const handleSingleClaim = async (campaignId: number) => {
+    if (isSybilRestricted) {
+      showNotification({
+        type: "error",
+        title: "Payout Claims Restricted",
+        message: "Your affiliate account is in restricted mode due to Sybil cluster detection. Instant claims are disabled.",
+      });
+      return;
+    }
+
     if (isFrozen) {
       showNotification({
         type: "error",
@@ -303,6 +339,15 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
 
     const target = campaigns.find((c) => c.campaignId === campaignId);
     const claimAmount = target?.claimableXlm || 0;
+
+    if (isBelowMinClaimThreshold(claimAmount, target?.assetCode)) {
+      showNotification({
+        type: "error",
+        title: "Below Minimum Claim",
+        message: `Minimum claimable balance is ${getMinClaimThreshold(target?.assetCode)} ${target?.assetCode ?? "XLM"}.`,
+      });
+      return;
+    }
 
     // Verify rolling 24-hour payout cap constraint (Issue #156)
     const capCheck = checkDailyPayoutCap(userAddress || "", claimAmount, DAILY_PAYOUT_CAP_XLM);
@@ -360,6 +405,11 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
           Matured commissions cleared by Soroban smart contract escrow are ready to withdraw.
         </p>
       </div>
+
+      {/* Sybil Attack Defense Restricted Mode Banner (Issue #473) */}
+      {isSybilRestricted && (
+        <RestrictedModeBanner affiliateAddress={userAddress || undefined} />
+      )}
 
       {/* Frozen Alert Banner (#152) */}
       {isFrozen && (
@@ -487,6 +537,9 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
                 {totalWithdrawableXlm.toFixed(2)}{" "}
                 <span className="text-lg font-bold text-indigo-400">XLM</span>
               </div>
+              <div className="text-[11px] text-zinc-400 mt-0.5" data-testid="pending-balance">
+                Pending: {pendingBalanceXlm.toFixed(2)} XLM
+              </div>
               <div className="text-[11px] text-zinc-400 mt-0.5">
                 {selectedCampaigns.length} Campaign{selectedCampaigns.length !== 1 ? "s" : ""}{" "}
                 Selected
@@ -510,9 +563,14 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
               onClick={handleBatchClaim}
               loading={isBatchClaiming}
               cooldown
-              disabled={isBatchClaiming || selectedCampaigns.length === 0 || isFrozen}
+              disabled={
+                isBatchClaiming ||
+                selectedCampaigns.length === 0 ||
+                isClaimsBlocked ||
+                isBatchBelowMin
+              }
               className={`w-full rounded-2xl text-white font-extrabold text-sm h-13 px-6 transition-transform border-0 ${
-                isFrozen
+                isClaimsBlocked
                   ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
                   : "bg-gradient-to-r from-indigo-500 via-sky-500 to-indigo-600 hover:from-indigo-400 hover:to-sky-400 shadow-xl shadow-indigo-500/30 hover:scale-[1.02]"
               }`}
@@ -523,10 +581,10 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
                   <Loader2 className="w-4 h-4 animate-spin mr-2" />
                   <span>Signing Single Envelope...</span>
                 </>
-              ) : isFrozen ? (
+              ) : isClaimsBlocked ? (
                 <>
                   <Lock className="w-4 h-4 mr-2 text-rose-400" />
-                  <span>Payouts Frozen (Review Pending)</span>
+                  <span>{isSybilRestricted ? "Payouts Restricted (Sybil Mode)" : "Payouts Frozen (Review Pending)"}</span>
                 </>
               ) : (
                 <>
@@ -855,13 +913,14 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
                           cooldown
                           disabled={
                             !isMatured ||
+                            isBelowMinClaimThreshold(camp.claimableXlm, camp.assetCode) ||
                             claimingId === camp.campaignId ||
                             isBatchClaiming ||
-                            isFrozen
+                            isClaimsBlocked
                           }
                           onClick={() => handleSingleClaim(camp.campaignId)}
                           className={`rounded-xl text-xs font-semibold h-8 px-3 transition-colors ${
-                            isFrozen
+                            isClaimsBlocked
                               ? "bg-zinc-800 text-zinc-400 cursor-not-allowed opacity-70"
                               : isMatured
                                 ? "bg-zinc-900 hover:bg-zinc-800 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white"
@@ -869,10 +928,10 @@ export const ClaimPayouts = ({ cumulativeEarningsUsd }: ClaimPayoutsProps) => {
                           }`}
                           data-testid={`btn-claim-single-${camp.campaignId}`}
                         >
-                          {isFrozen ? (
+                          {isClaimsBlocked ? (
                             <>
                               <Lock className="w-3 h-3 mr-1 text-rose-400" />
-                              <span>Frozen</span>
+                              <span>{isSybilRestricted ? "Restricted" : "Frozen"}</span>
                             </>
                           ) : (
                             <>

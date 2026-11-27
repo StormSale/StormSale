@@ -1,5 +1,19 @@
 # Changelog
 
+# [1.4.0](https://github.com/StormSale/StormSale/compare/v1.3.0...v1.4.0) (2026-11-22)
+
+
+### Features
+
+* test(b2c): affiliate instant commission claim and micro-payout test suite ([#449](https://github.com/StormSale/StormSale/issues/449)) ([cb73577](https://github.com/StormSale/StormSale/commit/cb7357702f2c3b725ab6a6589164d036550f37f7))
+
+# [1.3.0](https://github.com/StormSale/StormSale/compare/v1.2.0...v1.3.0) (2026-11-21)
+
+
+### Features
+
+* **dev:** batch features, performance optimizations, and test stabilization on dev ([115dc71](https://github.com/StormSale/StormSale/commit/115dc71d77a663aeb433cf3ae877e91b83b07f3e))
+
 # [1.2.0](https://github.com/StormSale/StormSale/compare/v1.1.2...v1.2.0) (2026-11-21)
 
 
