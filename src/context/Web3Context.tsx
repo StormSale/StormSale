@@ -214,6 +214,49 @@ export function useSafeWeb3(): Web3ContextType | undefined {
   return useContext(Web3Context);
 }
 
+export const WALLET_SESSION_STORAGE_KEY = "stormsale.wallet.session";
+
+export interface StoredWalletSession {
+  userAddress: string;
+  connectorType: WalletType;
+  userRole?: string | null;
+  network?: string;
+}
+
+export function readStoredWalletSession(): StoredWalletSession | null {
+  try {
+    if (typeof localStorage !== "undefined") {
+      const raw = localStorage.getItem(WALLET_SESSION_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.userAddress === "string" && parsed.userAddress.length > 0) {
+          return parsed;
+        }
+      }
+    }
+  } catch {
+    // Degrade gracefully
+  }
+  return null;
+}
+
+export function saveStoredWalletSession(session: StoredWalletSession | null) {
+  try {
+    if (typeof localStorage !== "undefined") {
+      if (session) {
+        localStorage.setItem(WALLET_SESSION_STORAGE_KEY, JSON.stringify(session));
+      } else {
+        localStorage.removeItem(WALLET_SESSION_STORAGE_KEY);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("storage"));
+      }
+    }
+  } catch {
+    // Degrade gracefully
+  }
+}
+
 export function Web3Provider({
   children,
   overrideAddress,
@@ -223,26 +266,73 @@ export function Web3Provider({
   overrideAddress?: string | null;
   initialUserAddress?: string | null;
 }) {
+  const initialSession = readStoredWalletSession();
   const [userAddress, setUserAddress] = useState<string | null>(
-    overrideAddress ?? initialUserAddress ?? null,
+    overrideAddress ?? initialUserAddress ?? initialSession?.userAddress ?? null,
   );
-  const [userRole, setUserRole] = useState<string | null>(null);
-  const [isConnected, setIsConnected] = useState(Boolean(overrideAddress ?? initialUserAddress));
-  const [network, setNetwork] = useState<string>(STELLAR_CONFIG.network);
-  const [xlmBalance, setXlmBalance] = useState<string>("0.00");
+  const [userRole, setUserRole] = useState<string | null>(
+    initialSession?.userRole ?? null,
+  );
+  const [isConnected, setIsConnected] = useState(
+    Boolean(overrideAddress ?? initialUserAddress ?? initialSession?.userAddress),
+  );
+  const [network, setNetwork] = useState<string>(
+    initialSession?.network ?? STELLAR_CONFIG.network,
+  );
+  const [xlmBalance, setXlmBalance] = useState<string>(() => {
+    if (initialSession?.connectorType === "mock") return "10000.00";
+    return "0.00";
+  });
   const [assetBalances, setAssetBalances] = useState<Record<SupportedEscrowAssetCode, string>>({
     XLM: "0.00",
     USDC: "0.00",
     EURC: "0.00",
   });
   const [tokenAllowance, setTokenAllowance] = useState<number>(0);
-  const [connectorType, setConnectorType] = useState<WalletType | null>(null);
+  const [connectorType, setConnectorType] = useState<WalletType | null>(
+    initialSession?.connectorType ?? null,
+  );
   const [ledgerBipPath, setLedgerBipPath] = useState<string>("44'/148'/0'");
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
   const [evmProvider, setEvmProvider] = useState<Eip1193Provider | null>(null);
   const [evmSigner, setEvmSigner] = useState<EvmSigner | null>(null);
   const [evmChainId, setEvmChainId] = useState<string | null>(null);
   const [walletLabel, setWalletLabel] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleStorage = () => {
+      const session = readStoredWalletSession();
+      if (session?.userAddress) {
+        setUserAddress(session.userAddress);
+        setConnectorType(session.connectorType);
+        setIsConnected(true);
+        if (session.userRole !== undefined) {
+          setUserRole(session.userRole);
+        }
+        if (session.network) {
+          setNetwork(session.network);
+        }
+        if (session.connectorType === "mock") {
+          setXlmBalance("10000.00");
+        }
+      } else {
+        if (!overrideAddress && !initialUserAddress) {
+          setUserAddress(null);
+          setConnectorType(null);
+          setIsConnected(false);
+          setUserRole(null);
+          setXlmBalance("0.00");
+        }
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [overrideAddress, initialUserAddress]);
 
   // Stellar SEP-0030 Multi-Sig State
   const [multiSigInfo, setMultiSigInfo] = useState<MultiSigAccountInfo | null>(null);
@@ -575,6 +665,10 @@ export function Web3Provider({
       const savedUser = await registerUser(address);
       if (savedUser && savedUser.role) {
         setUserRole(savedUser.role);
+        const curr = readStoredWalletSession();
+        if (curr) {
+          saveStoredWalletSession({ ...curr, userRole: savedUser.role });
+        }
       }
     } catch (err) {
       console.error("Error registering user with backend:", err);
@@ -641,6 +735,13 @@ export function Web3Provider({
       setIsConnected(true);
       setConnectorType(type);
 
+      saveStoredWalletSession({
+        userAddress: address,
+        connectorType: type,
+        userRole: userRole,
+        network: STELLAR_CONFIG.network,
+      });
+
       await refreshMultiSigInfo(address);
 
       if (type !== "mock") {
@@ -656,6 +757,7 @@ export function Web3Provider({
   };
 
   const disconnectWallet = () => {
+    saveStoredWalletSession(null);
     setUserAddress(null);
     setUserRole(null);
     setIsConnected(false);
@@ -682,6 +784,10 @@ export function Web3Provider({
       const updated = await registerUser(userAddress, role);
       if (updated && updated.role) {
         setUserRole(updated.role);
+        const curr = readStoredWalletSession();
+        if (curr) {
+          saveStoredWalletSession({ ...curr, userRole: updated.role });
+        }
         return;
       }
     } catch (error) {
@@ -689,6 +795,10 @@ export function Web3Provider({
     }
     // Web3 / offline fallback: maintain local role state if backend registration is unreachable
     setUserRole(role);
+    const curr = readStoredWalletSession();
+    if (curr) {
+      saveStoredWalletSession({ ...curr, userRole: role });
+    }
   };
 
   const requestFriendbotFunding = async (): Promise<boolean> => {

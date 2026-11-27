@@ -33,8 +33,12 @@ export function resolveEffectiveTheme(): boolean {
     // Degrade gracefully if storage is blocked
   }
 
-  if (typeof document !== "undefined") {
-    return document.documentElement.classList.contains("dark");
+  if (typeof document !== "undefined" && document.documentElement.classList.contains("dark")) {
+    return true;
+  }
+
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+    return true;
   }
 
   return false;
@@ -73,7 +77,7 @@ export function applyTheme(newDarkMode: boolean) {
 export function ThemeToggle() {
   const [darkMode, setDarkMode] = usePreference<boolean>(
     "stormsale.theme.dark",
-    false,
+    resolveEffectiveTheme(),
     (v) => typeof v === "boolean",
   );
 
@@ -94,6 +98,13 @@ export function ThemeToggle() {
             document.documentElement.classList.toggle("dark", isLegacyDark);
           }
           return;
+        } else if (versioned === null && legacy === null) {
+          const systemDark = resolveEffectiveTheme();
+          setDarkMode(systemDark);
+          if (typeof document !== "undefined") {
+            document.documentElement.classList.toggle("dark", systemDark);
+          }
+          return;
         }
       }
     } catch {
@@ -104,6 +115,31 @@ export function ThemeToggle() {
       document.documentElement.classList.toggle("dark", darkMode);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = (e: MediaQueryListEvent) => {
+      try {
+        const versioned = readRaw<boolean | null>(
+          "stormsale.theme.dark",
+          null,
+          (v) => typeof v === "boolean",
+        );
+        const legacy = localStorage?.getItem("darkMode");
+        if (versioned === null && legacy === null) {
+          setDarkMode(e.matches);
+          if (typeof document !== "undefined") {
+            document.documentElement.classList.toggle("dark", e.matches);
+          }
+        }
+      } catch {
+        // Degrade gracefully
+      }
+    };
+    mediaQuery.addEventListener?.("change", handler);
+    return () => mediaQuery.removeEventListener?.("change", handler);
+  }, [setDarkMode]);
 
   useEffect(() => {
     const handleStorage = () => {
@@ -129,6 +165,7 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggleDarkMode}
+      data-testid="theme-toggle"
       className="w-10 h-10 flex items-center justify-center rounded-xl border border-slate-200 dark:border-zinc-800 hover:bg-slate-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400 transition-colors shadow-sm bg-white dark:bg-zinc-900"
       aria-label="Toggle dark mode"
       title={darkMode ? "Switch to light mode" : "Switch to dark mode"}
