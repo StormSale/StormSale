@@ -185,7 +185,7 @@ function WalletUserMenu({
             <p className="mt-0.5 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">
               {shortAddress}
             </p>
-            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{xlmBalance} XLM</p>
+            <p data-testid="user-xlm-balance" className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{xlmBalance} XLM</p>
           </div>
 
           {isEditingName ? (

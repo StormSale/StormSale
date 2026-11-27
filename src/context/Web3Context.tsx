@@ -214,6 +214,12 @@ export function useSafeWeb3(): Web3ContextType | undefined {
   return useContext(Web3Context);
 }
 
+declare global {
+  interface Window {
+    __SIMULATE_LOW_GAS__?: boolean;
+  }
+}
+
 export function Web3Provider({
   children,
   overrideAddress,
@@ -480,7 +486,11 @@ export function Web3Provider({
   }, []);
 
   // Refresh balance whenever userAddress changes
-  const refreshBalance = useCallback(async (address: string) => {
+  const refreshBalance = useCallback(async (address: string, overrideConnector?: WalletType) => {
+    const activeConnector = overrideConnector ?? connectorType;
+    if (activeConnector === "mock" || address === "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777") {
+      return;
+    }
     try {
       const bal = await fetchXlmBalance(address);
       setXlmBalance(bal);
@@ -489,7 +499,7 @@ export function Web3Provider({
     } catch (err) {
       console.warn("Could not fetch balance:", err);
     }
-  }, []);
+  }, [connectorType]);
 
   const refreshBalances = useCallback(async () => {
     if (userAddress) {
@@ -644,7 +654,7 @@ export function Web3Provider({
       await refreshMultiSigInfo(address);
 
       if (type !== "mock") {
-        await refreshBalance(address);
+        await refreshBalance(address, type);
       }
       await refreshTokenAllowance(undefined, "XLM", address);
       await syncUserWithBackend(address);
@@ -935,6 +945,11 @@ export function Web3Provider({
         `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
       );
     }
+    if (typeof window !== "undefined" && window.__SIMULATE_LOW_GAS__) {
+      throw new Error(
+        "Transaction failed: tx_insufficient_fee (Insufficient gas / resource fee for Soroban contract invocation)",
+      );
+    }
     await assertNotSanctioned(userAddress, "claim-payout");
 
     return executeWithOptimismAndQueue(
@@ -981,6 +996,18 @@ export function Web3Provider({
           return res;
         } else {
           const mockTxHash = `tx_${Date.now().toString(16)}_${Math.random().toString(16).slice(2, 8)}`;
+          if (connectorType === "mock") {
+            try {
+              const { fetchAffiliateMaturedClaims } = await import("../lib/batchClaim");
+              const camps = await fetchAffiliateMaturedClaims(userAddress);
+              const targetCamp = camps.find((c) => c.campaignId === campaignId);
+              if (targetCamp?.claimableXlm) {
+                setXlmBalance((prev) => (parseFloat(prev || "0") + targetCamp.claimableXlm).toFixed(2));
+              }
+            } catch (err) {
+              console.warn("Could not update mock claim balance:", err);
+            }
+          }
           return {
             success: true,
             txHash: mockTxHash,
@@ -1143,6 +1170,11 @@ export function Web3Provider({
         `Payout claim rejected: Affiliate address ${userAddress} is paused due to fraud risk review.`,
       );
     }
+    if (typeof window !== "undefined" && window.__SIMULATE_LOW_GAS__) {
+      throw new Error(
+        "Transaction failed: tx_insufficient_fee (Insufficient gas / resource fee for Soroban contract invocation)",
+      );
+    }
     await assertNotSanctioned(userAddress, "batch-claim-payout");
     const { executeBatchCommissionClaim } = await import("../lib/batchClaim");
     const res = await executeBatchCommissionClaim(
@@ -1152,7 +1184,11 @@ export function Web3Provider({
       splitPlan,
       autoSwap,
     );
-    setTimeout(() => refreshBalance(userAddress), 1000);
+    if (connectorType === "mock") {
+      setXlmBalance((prev) => (parseFloat(prev || "0") + res.totalClaimedXlm).toFixed(2));
+    } else {
+      setTimeout(() => refreshBalance(userAddress), 1000);
+    }
     return res;
   };
 

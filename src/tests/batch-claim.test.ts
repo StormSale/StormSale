@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import {
   calculateTotalClaimableXlm,
@@ -90,6 +91,21 @@ describe("Automated Batch Commission Claim Dispatcher (#158)", () => {
           "mock",
         ),
       ).rejects.toThrow("No campaigns selected for batch claim.");
+    });
+
+    it("should throw tx_insufficient_fee when low gas simulation flag is enabled", async () => {
+      window.__SIMULATE_LOW_GAS__ = true;
+      try {
+        await expect(
+          executeBatchCommissionClaim(
+            "GASTORMSALE7TESTNET7AFFILIATE7MERCHANT7ESCROW7XLM77777",
+            mockCampaigns,
+            "mock",
+          ),
+        ).rejects.toThrow(/tx_insufficient_fee/);
+      } finally {
+        delete window.__SIMULATE_LOW_GAS__;
+      }
     });
   });
 });
